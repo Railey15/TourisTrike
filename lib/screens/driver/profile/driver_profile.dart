@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
 import 'package:touristrike/screens/auth/login_screen.dart';
 
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
@@ -17,14 +16,8 @@ import 'package:touristrike/screens/driver/profile/driver_documents_screen.dart'
 import 'package:touristrike/screens/driver/profile/driver_online_status_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_role_screen.dart';
 
-
 class DriverProfileScreen extends StatefulWidget {
-  const DriverProfileScreen({
-    super.key,
-    required this.onBottomNavTap,
-  });
-
-  final ValueChanged<int> onBottomNavTap;
+  const DriverProfileScreen({super.key});
 
   @override
   State<DriverProfileScreen> createState() => _DriverProfileScreenState();
@@ -84,29 +77,20 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         );
       }
 
-      profileSub = profileStream.listen(
-        (value) {
-          latestProfile = value;
-          emit();
-        },
-        onError: controller.addError,
-      );
+      profileSub = profileStream.listen((value) {
+        latestProfile = value;
+        emit();
+      }, onError: controller.addError);
 
-      detailsSub = detailsStream.listen(
-        (value) {
-          latestDetails = value;
-          emit();
-        },
-        onError: controller.addError,
-      );
+      detailsSub = detailsStream.listen((value) {
+        latestDetails = value;
+        emit();
+      }, onError: controller.addError);
 
-      docsSub = docsStream.listen(
-        (value) {
-          latestDocs = value;
-          emit();
-        },
-        onError: controller.addError,
-      );
+      docsSub = docsStream.listen((value) {
+        latestDocs = value;
+        emit();
+      }, onError: controller.addError);
 
       controller.onCancel = () async {
         await profileSub.cancel();
@@ -117,9 +101,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   }
 
   void _push(Widget screen) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   Future<void> _logout() async {
@@ -318,8 +300,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                               title: 'License Expiry',
                               trailingText: details.licenseExpiry == null
                                   ? 'Not set'
-                                  : DateFormat('MMM dd, yyyy')
-                                      .format(details.licenseExpiry!),
+                                  : DateFormat(
+                                      'MMM dd, yyyy',
+                                    ).format(details.licenseExpiry!),
                               showDivider: false,
                               onTap: () => _push(
                                 DriverLicenseExpiryScreen(details: details),
@@ -347,8 +330,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                             _SettingsTile(
                               icon: Icons.circle_outlined,
                               title: 'Online Status',
-                              trailingText:
-                                  profile.isOnline ? 'Online' : 'Offline',
+                              trailingText: profile.isOnline
+                                  ? 'Online'
+                                  : 'Offline',
                               trailingColor: profile.isOnline
                                   ? const Color(0xFF16A34A)
                                   : const Color(0xFF6B7280),
@@ -359,12 +343,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                             _SettingsTile(
                               icon: Icons.verified_user_outlined,
                               title: 'Role',
-                              trailingText:
-                                  profile.role.isEmpty ? 'driver' : profile.role,
+                              trailingText: profile.role.isEmpty
+                                  ? 'driver'
+                                  : profile.role,
                               showDivider: false,
-                              onTap: () => _push(
-                                DriverRoleScreen(profile: profile),
-                              ),
+                              onTap: () =>
+                                  _push(DriverRoleScreen(profile: profile)),
                             ),
                           ],
                         ),
@@ -397,20 +381,14 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 if (_isSigningOut)
                   Positioned.fill(
                     child: Container(
-                      color: Colors.black.withOpacity(0.08),
-                      child: const Center(
-                        child: CircularProgressIndicator(),
-                      ),
+                      color: Colors.black.withValues(alpha: 0.08),
+                      child: const Center(child: CircularProgressIndicator()),
                     ),
                   ),
               ],
             );
           },
         ),
-      ),
-      bottomNavigationBar: AppBottomNavDriver(
-        currentIndex: 4,
-        onTap: widget.onBottomNavTap,
       ),
     );
   }
@@ -457,7 +435,7 @@ class _ProfileHeaderCard extends StatelessWidget {
                 ? Image.network(
                     profileImageUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(
+                    errorBuilder: (_, _, _) => const Icon(
                       Icons.person_rounded,
                       color: Color(0xFF2F6FFF),
                       size: 28,
@@ -505,10 +483,7 @@ class _ProfileHeaderCard extends StatelessWidget {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.children,
-  });
+  const _SectionCard({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
@@ -592,11 +567,7 @@ class _SettingsTile extends StatelessWidget {
                     color: const Color(0xFFEAF2FF),
                     borderRadius: BorderRadius.circular(21),
                   ),
-                  child: Icon(
-                    icon,
-                    color: const Color(0xFF2F6FFF),
-                    size: 22,
-                  ),
+                  child: Icon(icon, color: const Color(0xFF2F6FFF), size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -654,20 +625,14 @@ class _SettingsTile extends StatelessWidget {
             ),
           ),
         ),
-        if (showDivider)
-          const Divider(
-            height: 1,
-            color: Color(0xFFF1F5F9),
-          ),
+        if (showDivider) const Divider(height: 1, color: Color(0xFFF1F5F9)),
       ],
     );
   }
 }
 
 class _LogoutTile extends StatelessWidget {
-  const _LogoutTile({
-    required this.onTap,
-  });
+  const _LogoutTile({required this.onTap});
 
   final VoidCallback? onTap;
 
@@ -721,17 +686,12 @@ class _LoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: CircularProgressIndicator(),
-    );
+    return const Center(child: CircularProgressIndicator());
   }
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorState({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -760,10 +720,7 @@ class _ErrorState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: onRetry,
-              child: const Text('Retry'),
-            ),
+            ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),

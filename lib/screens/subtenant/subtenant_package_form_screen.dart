@@ -288,11 +288,7 @@ class _SubTenantPackageFormScreenState
       if (mounted && !_spotsInitialized) {
         setState(() {
           _selectedSpots.clear();
-          _selectedSpots.addAll(
-            existing.asMap().entries.map(
-              (e) => SelectedPackageSpot(spot: e.value, sortOrder: e.key),
-            ),
-          );
+          _selectedSpots.addAll(existing);
           _spotsInitialized = true;
         });
       }
@@ -368,6 +364,18 @@ class _SubTenantPackageFormScreenState
       }
       _recalcDistance();
     });
+  }
+
+  Future<void> _editSpotSchedule(int index) async {
+    final current = _selectedSpots[index];
+    final updated = await showModalBottomSheet<SelectedPackageSpot>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SpotScheduleSheet(spot: current),
+    );
+    if (updated == null) return;
+    setState(() => _selectedSpots[index] = updated);
   }
 
   void _recalcDistance() {
@@ -515,7 +523,7 @@ class _SubTenantPackageFormScreenState
       if (_selectedSpots.isNotEmpty) {
         await _service.savePackageSelectedSpots(
           packageId: id,
-          spotIds: _selectedSpots.map((s) => s.spot.id).toList(),
+          selectedSpots: _selectedSpots,
         );
       }
 
@@ -1248,10 +1256,11 @@ class _SubTenantPackageFormScreenState
             for (var i = 0; i < _selectedSpots.length; i++)
               _SelectedSpotTile(
                 key: ValueKey(stId(_selectedSpots[i].spot.id)),
-                spot: _selectedSpots[i].spot,
+                selectedSpot: _selectedSpots[i],
                 index: i,
                 total: _selectedSpots.length,
                 onRemove: () => _removeSpot(i),
+                onEditSchedule: () => _editSpotSchedule(i),
                 onMoveUp: i > 0 ? () => _moveSpotUp(i) : null,
                 onMoveDown: i < _selectedSpots.length - 1
                     ? () => _moveSpotDown(i)
@@ -1259,7 +1268,7 @@ class _SubTenantPackageFormScreenState
               ),
             const SizedBox(height: 6),
             const Text(
-              'Use arrows to reorder. Spots are saved with the package.',
+              'Use arrows to reorder. Use the edit button to set opening, closing, arrival, and stay times.',
               style: TextStyle(color: SubTenantColors.lightMuted, fontSize: 11),
             ),
           ],
@@ -1477,18 +1486,20 @@ class _SpotCard extends StatelessWidget {
 class _SelectedSpotTile extends StatelessWidget {
   const _SelectedSpotTile({
     super.key,
-    required this.spot,
+    required this.selectedSpot,
     required this.index,
     required this.total,
     required this.onRemove,
+    required this.onEditSchedule,
     this.onMoveUp,
     this.onMoveDown,
   });
 
-  final SubTenantSpot spot;
+  final SelectedPackageSpot selectedSpot;
   final int index;
   final int total;
   final VoidCallback onRemove;
+  final VoidCallback onEditSchedule;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
 
@@ -1528,7 +1539,7 @@ class _SelectedSpotTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  spot.title,
+                  selectedSpot.spot.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1537,9 +1548,9 @@ class _SelectedSpotTile extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                if (spot.barangay.isNotEmpty)
+                if (selectedSpot.spot.barangay.isNotEmpty)
                   Text(
-                    'Brgy. ${spot.barangay}',
+                    'Brgy. ${selectedSpot.spot.barangay}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -1548,7 +1559,30 @@ class _SelectedSpotTile extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                if (_scheduleSummary.isNotEmpty)
+                  Text(
+                    _scheduleSummary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: SubTenantColors.lightMuted,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
               ],
+            ),
+          ),
+          InkWell(
+            onTap: onEditSchedule,
+            borderRadius: BorderRadius.circular(8),
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(
+                Icons.schedule_rounded,
+                color: SubTenantColors.blue,
+                size: 16,
+              ),
             ),
           ),
           _arrowBtn(Icons.keyboard_arrow_up_rounded, onMoveUp),
@@ -1585,9 +1619,194 @@ class _SelectedSpotTile extends StatelessWidget {
       ),
     ),
   );
+
+  String get _scheduleSummary {
+    final parts = <String>[];
+    if (selectedSpot.estimatedArrivalTime.trim().isNotEmpty) {
+      parts.add('Arrive ${selectedSpot.estimatedArrivalTime}');
+    }
+    if (selectedSpot.estimatedDurationMinutes > 0) {
+      parts.add('Stay ${selectedSpot.estimatedDurationMinutes}m');
+    } else if (selectedSpot.recommendedVisitDurationMinutes > 0) {
+      parts.add('Recommended ${selectedSpot.recommendedVisitDurationMinutes}m');
+    }
+    if (selectedSpot.openingTime.trim().isNotEmpty ||
+        selectedSpot.closingTime.trim().isNotEmpty) {
+      parts.add(
+        'Open ${selectedSpot.openingTime.isEmpty ? '--' : selectedSpot.openingTime} - '
+        '${selectedSpot.closingTime.isEmpty ? '--' : selectedSpot.closingTime}',
+      );
+    }
+    return parts.join(' • ');
+  }
 }
 
 // ─── Package preview card ─────────────────────────────────────────────────────
+
+class _SpotScheduleSheet extends StatefulWidget {
+  const _SpotScheduleSheet({required this.spot});
+
+  final SelectedPackageSpot spot;
+
+  @override
+  State<_SpotScheduleSheet> createState() => _SpotScheduleSheetState();
+}
+
+class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
+  late final TextEditingController _openingCtrl;
+  late final TextEditingController _closingCtrl;
+  late final TextEditingController _arrivalCtrl;
+  late final TextEditingController _durationCtrl;
+  late final TextEditingController _recommendedCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _openingCtrl = TextEditingController(text: widget.spot.openingTime);
+    _closingCtrl = TextEditingController(text: widget.spot.closingTime);
+    _arrivalCtrl = TextEditingController(text: widget.spot.estimatedArrivalTime);
+    _durationCtrl = TextEditingController(
+      text: widget.spot.estimatedDurationMinutes <= 0
+          ? ''
+          : widget.spot.estimatedDurationMinutes.toString(),
+    );
+    _recommendedCtrl = TextEditingController(
+      text: widget.spot.recommendedVisitDurationMinutes <= 0
+          ? ''
+          : widget.spot.recommendedVisitDurationMinutes.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _openingCtrl.dispose();
+    _closingCtrl.dispose();
+    _arrivalCtrl.dispose();
+    _durationCtrl.dispose();
+    _recommendedCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 48,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                widget.spot.spot.title,
+                style: const TextStyle(
+                  color: SubTenantColors.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Set manual visit hours and itinerary timing for this package stop.',
+                style: TextStyle(
+                  color: SubTenantColors.muted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _openingCtrl,
+                      label: 'Opening Time',
+                      hint: '08:00',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _closingCtrl,
+                      label: 'Closing Time',
+                      hint: '17:00',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _arrivalCtrl,
+                      label: 'Estimated Arrival',
+                      hint: '09:00',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _durationCtrl,
+                      label: 'Stay Duration (min)',
+                      hint: '45',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SubTenantTextField(
+                controller: _recommendedCtrl,
+                label: 'Recommended Visit Duration (min)',
+                hint: '60',
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 16),
+              SubTenantGradientButton(
+                label: 'Save Spot Schedule',
+                icon: Icons.save_rounded,
+                onPressed: () {
+                  Navigator.pop(
+                    context,
+                    SelectedPackageSpot(
+                      spot: widget.spot.spot,
+                      sortOrder: widget.spot.sortOrder,
+                      openingTime: _openingCtrl.text.trim(),
+                      closingTime: _closingCtrl.text.trim(),
+                      estimatedArrivalTime: _arrivalCtrl.text.trim(),
+                      estimatedDurationMinutes:
+                          int.tryParse(_durationCtrl.text.trim()) ?? 0,
+                      recommendedVisitDurationMinutes:
+                          int.tryParse(_recommendedCtrl.text.trim()) ?? 0,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _PackagePreviewCard extends StatelessWidget {
   const _PackagePreviewCard({

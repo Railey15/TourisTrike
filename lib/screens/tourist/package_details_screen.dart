@@ -118,6 +118,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     return _selectedSpots.any((item) => item.key == spot.key);
   }
 
+  // ignore: unused_element
   List<Map<String, dynamic>> _buildCustomizationRows(
     TourPackage package,
     int originalCount,
@@ -142,6 +143,18 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         'image_url': spot.imageUrl,
         'additional_fee': i >= originalCount ? additionalSpotFee : 0,
         'sort_order': i,
+        'opening_time': spot.openingTime.isEmpty ? null : spot.openingTime,
+        'closing_time': spot.closingTime.isEmpty ? null : spot.closingTime,
+        'estimated_arrival_time': spot.estimatedArrivalTime.isEmpty
+            ? null
+            : spot.estimatedArrivalTime,
+        'estimated_duration_minutes': spot.estimatedDurationMinutes > 0
+            ? spot.estimatedDurationMinutes
+            : null,
+        'recommended_visit_duration_minutes':
+            spot.recommendedVisitDurationMinutes > 0
+            ? spot.recommendedVisitDurationMinutes
+            : null,
       });
     }
 
@@ -164,14 +177,71 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         'longitude': originalSpot.longitude,
         'image_url': originalSpot.imageUrl,
         'additional_fee': 0,
+        'opening_time': originalSpot.openingTime.isEmpty
+            ? null
+            : originalSpot.openingTime,
+        'closing_time': originalSpot.closingTime.isEmpty
+            ? null
+            : originalSpot.closingTime,
+        'estimated_arrival_time': originalSpot.estimatedArrivalTime.isEmpty
+            ? null
+            : originalSpot.estimatedArrivalTime,
+        'estimated_duration_minutes': originalSpot.estimatedDurationMinutes > 0
+            ? originalSpot.estimatedDurationMinutes
+            : null,
+        'recommended_visit_duration_minutes':
+            originalSpot.recommendedVisitDurationMinutes > 0
+            ? originalSpot.recommendedVisitDurationMinutes
+            : null,
       });
     }
 
     return rows;
   }
 
-  void _book(_PackageDetailsData data) {
+  Future<void> _book(_PackageDetailsData data) async {
+    final validationError = _selectedSpotValidationMessage(
+      _selectedSpots.length,
+    );
+    if (validationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(validationError),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final hasActiveTour = await _repo.hasActiveTour();
+      if (hasActiveTour) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(TourisTrikeRepository.activeTourErrorMessage),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+        return;
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Unable to verify your current tour status right now. Please try again.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
     final originalCount = data.originalSpots.length;
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -247,6 +317,9 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                 child: _BottomBookBar(
                   package: data.package,
                   currentUnitPrice: currentUnitPrice,
+                  validationMessage: _selectedSpotValidationMessage(
+                    _selectedSpots.length,
+                  ),
                   onBook: () => _book(data),
                 ),
               ),
@@ -289,6 +362,11 @@ class _EditablePackageSpot {
     required this.googlePlaceId,
     required this.isOriginal,
     required this.category,
+    required this.openingTime,
+    required this.closingTime,
+    required this.estimatedArrivalTime,
+    required this.estimatedDurationMinutes,
+    required this.recommendedVisitDurationMinutes,
   });
 
   final String key;
@@ -304,6 +382,11 @@ class _EditablePackageSpot {
   final String googlePlaceId;
   final bool isOriginal;
   final String category;
+  final String openingTime;
+  final String closingTime;
+  final String estimatedArrivalTime;
+  final int estimatedDurationMinutes;
+  final int recommendedVisitDurationMinutes;
 
   factory _EditablePackageSpot.fromTouristSpot(
     TouristSpot spot, {
@@ -331,6 +414,11 @@ class _EditablePackageSpot {
       googlePlaceId: googlePlaceId,
       isOriginal: isOriginal,
       category: _inferCategoryFromTitle(spot.title),
+      openingTime: spot.openingTime,
+      closingTime: spot.closingTime,
+      estimatedArrivalTime: spot.estimatedArrivalTime,
+      estimatedDurationMinutes: spot.estimatedDurationMinutes,
+      recommendedVisitDurationMinutes: spot.recommendedVisitDurationMinutes,
     );
   }
 
@@ -349,115 +437,13 @@ class _EditablePackageSpot {
       googlePlaceId: suggestion.id,
       isOriginal: false,
       category: suggestion.category,
+      openingTime: '',
+      closingTime: '',
+      estimatedArrivalTime: '',
+      estimatedDurationMinutes: 0,
+      recommendedVisitDurationMinutes: 0,
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// AI Itinerary helpers
-// ---------------------------------------------------------------------------
-
-class _ItineraryEntry {
-  const _ItineraryEntry({
-    required this.order,
-    required this.spotName,
-    required this.time,
-    required this.durationMinutes,
-    required this.activity,
-  });
-
-  final int order;
-  final String spotName;
-  final String time;
-  final int durationMinutes;
-  final String activity;
-
-  String get durationText {
-    if (durationMinutes < 60) return '$durationMinutes minutes';
-    final hours = durationMinutes ~/ 60;
-    final mins = durationMinutes % 60;
-    if (mins == 0) return '$hours hour${hours > 1 ? "s" : ""}';
-    return '$hours hr $mins min';
-  }
-}
-
-List<_ItineraryEntry> _generateAiItinerary(
-  List<_EditablePackageSpot> spots,
-) {
-  final entries = <_ItineraryEntry>[];
-  var currentMinutes = 8 * 60; // 8:00 AM
-
-  for (var i = 0; i < spots.length; i++) {
-    final spot = spots[i];
-    final duration = _spotDuration(spot.category);
-    entries.add(
-      _ItineraryEntry(
-        order: i + 1,
-        spotName: spot.title,
-        time: _formatTime(currentMinutes),
-        durationMinutes: duration,
-        activity: _spotActivity(spot.category),
-      ),
-    );
-    currentMinutes += duration;
-    if (i < spots.length - 1) currentMinutes += 15;
-  }
-
-  return entries;
-}
-
-int _spotDuration(String category) {
-  switch (category) {
-    case 'Religious':
-      return 30;
-    case 'Nature':
-      return 60;
-    case 'Adventure':
-      return 90;
-    case 'Cafe':
-      return 45;
-    case 'Food':
-      return 60;
-    case 'Cultural':
-      return 45;
-    default:
-      return 45;
-  }
-}
-
-String _spotActivity(String category) {
-  switch (category) {
-    case 'Religious':
-      return 'Visit the site, appreciate the architecture, and take a moment for quiet reflection.';
-    case 'Nature':
-      return 'Take a leisurely stroll, soak in the natural scenery, and capture some amazing photos.';
-    case 'Adventure':
-      return 'Get your adrenaline pumping and enjoy thrilling outdoor activities!';
-    case 'Cafe':
-      return 'Relax with a refreshing drink and enjoy the cozy, welcoming atmosphere.';
-    case 'Food':
-      return 'Taste delicious local delicacies and enjoy a well-deserved meal break.';
-    case 'Cultural':
-      return 'Immerse yourself in the local arts, traditions, and cultural heritage of the area.';
-    default:
-      return 'Explore the landmark, discover its rich history, and take memorable photos.';
-  }
-}
-
-String _formatTime(int totalMinutes) {
-  final hours = totalMinutes ~/ 60;
-  final mins = totalMinutes % 60;
-  final period = hours < 12 ? 'AM' : 'PM';
-  final h = hours > 12 ? hours - 12 : (hours == 0 ? 12 : hours);
-  final m = mins.toString().padLeft(2, '0');
-  return '$h:$m $period';
-}
-
-int _totalTourMinutes(List<_EditablePackageSpot> spots) {
-  if (spots.isEmpty) return 0;
-  final stay = spots.map((s) => _spotDuration(s.category)).reduce((a, b) => a + b);
-  final travel = (spots.length - 1) * 15;
-  return stay + travel;
 }
 
 // ---------------------------------------------------------------------------
@@ -573,14 +559,16 @@ class _DetailsSheetState extends State<_DetailsSheet> {
         .map((s) => _normalizeText(s.title))
         .toSet();
 
-    return widget.googleSuggestions.where((s) {
-      if (selectedKeys.contains('google:${s.id}')) return false;
-      if (selectedTitles.contains(_normalizeText(s.title))) return false;
-      if (_selectedCategory != 'All' && s.category != _selectedCategory) {
-        return false;
-      }
-      return true;
-    }).toList(growable: false);
+    return widget.googleSuggestions
+        .where((s) {
+          if (selectedKeys.contains('google:${s.id}')) return false;
+          if (selectedTitles.contains(_normalizeText(s.title))) return false;
+          if (_selectedCategory != 'All' && s.category != _selectedCategory) {
+            return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -694,16 +682,12 @@ class _DetailsSheetState extends State<_DetailsSheet> {
           const SizedBox(height: 22),
 
           // Customize info
-          const _SectionTitle('Customize This Package'),
+          const _SectionTitle('Spots Preview'),
           const SizedBox(height: 10),
           _InfoBlock(
-            icon: Icons.tune_rounded,
+            icon: Icons.map_outlined,
             message:
-                'The "Original Package" below shows what the tour operator included. '
-                'Feel free to remove spots you don\'t want, add new ones from Google Places, '
-                'and reorder them to match your preferred route. '
-                'Each spot beyond the original ${widget.data.originalSpots.length} '
-                'adds ${money.format(widget.additionalSpotFee)} to the price.',
+                'The itinerary is now handled in the booking screen. Review the package spots here, then tap Book Now to continue to itinerary selection.',
           ),
           const SizedBox(height: 22),
 
@@ -711,7 +695,7 @@ class _DetailsSheetState extends State<_DetailsSheet> {
           const _SectionTitle('Original Package'),
           const SizedBox(height: 6),
           const Text(
-            'These are the spots included by the tour operator. You can remove any that don\'t interest you.',
+            'These are the package spots included by the tour operator.',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontWeight: FontWeight.w700,
@@ -729,8 +713,7 @@ class _DetailsSheetState extends State<_DetailsSheet> {
                 spot,
                 isOriginal: true,
               );
-              final removed = widget.removedOriginalKeys.contains(item.key);
-              return _OriginalSpotTile(spot: item, removed: removed);
+              return _OriginalSpotTile(spot: item, removed: false);
             }),
           const SizedBox(height: 22),
 
@@ -784,11 +767,6 @@ class _DetailsSheetState extends State<_DetailsSheet> {
           const SizedBox(height: 22),
 
           // ─── SECTION 4: AI Suggested Itinerary ──────────────────────────
-          const _SectionTitle('Itinerary'),
-          const SizedBox(height: 10),
-          _AiItinerarySection(selectedSpots: widget.selectedSpots),
-          const SizedBox(height: 20),
-
           _OperatorBlock(package: package),
         ],
       ),
@@ -886,221 +864,6 @@ class _CategoryFilterBar extends StatelessWidget {
           );
         }).toList(),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// AI Itinerary section
-// ---------------------------------------------------------------------------
-
-class _AiItinerarySection extends StatelessWidget {
-  const _AiItinerarySection({required this.selectedSpots});
-
-  final List<_EditablePackageSpot> selectedSpots;
-
-  @override
-  Widget build(BuildContext context) {
-    if (selectedSpots.isEmpty) {
-      return const _EmptyBlock(
-        message:
-            'Add spots above to generate your personalized AI itinerary.',
-      );
-    }
-
-    final entries = _generateAiItinerary(selectedSpots);
-    final totalMinutes = _totalTourMinutes(selectedSpots);
-    final hours = totalMinutes ~/ 60;
-    final mins = totalMinutes % 60;
-    final totalText = mins == 0
-        ? '$hours hour${hours != 1 ? "s" : ""}'
-        : '$hours hour${hours != 1 ? "s" : ""} $mins min${mins != 1 ? "s" : ""}';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF2A86FF), Color(0xFF7C3AED)],
-            ),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                color: Colors.white,
-                size: 14,
-              ),
-              SizedBox(width: 6),
-              Text(
-                'AI Suggested Itinerary',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        ...entries.map((entry) => _ItineraryEntryCard(entry: entry)),
-        const SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFBBD7FF)),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.timer_rounded,
-                color: Color(0xFF2A86FF),
-                size: 22,
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Total Estimated Tour Duration',
-                    style: TextStyle(
-                      color: Color(0xFF64748B),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    totalText,
-                    style: const TextStyle(
-                      color: Color(0xFF0F172A),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 20,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ItineraryEntryCard extends StatelessWidget {
-  const _ItineraryEntryCard({required this.entry});
-
-  final _ItineraryEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7EEF7)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(
-              color: Color(0xFF2A86FF),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                '${entry.order}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  entry.time,
-                  style: const TextStyle(
-                    color: Color(0xFF2A86FF),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  entry.spotName,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _ItineraryDetailRow(
-                  icon: Icons.schedule_rounded,
-                  text: 'Estimated stay: ${entry.durationText}',
-                ),
-                const SizedBox(height: 4),
-                _ItineraryDetailRow(
-                  icon: Icons.lightbulb_outline_rounded,
-                  text: 'Suggested activity: ${entry.activity}',
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ItineraryDetailRow extends StatelessWidget {
-  const _ItineraryDetailRow({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 1),
-          child: Icon(icon, size: 14, color: const Color(0xFF94A3B8)),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w700,
-              height: 1.4,
-              fontSize: 13,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -1435,11 +1198,13 @@ class _BottomBookBar extends StatelessWidget {
   const _BottomBookBar({
     required this.package,
     required this.currentUnitPrice,
+    required this.validationMessage,
     required this.onBook,
   });
 
   final TourPackage package;
   final double currentUnitPrice;
+  final String? validationMessage;
   final VoidCallback onBook;
 
   @override
@@ -1451,8 +1216,9 @@ class _BottomBookBar extends StatelessWidget {
         ? package.priceText
         : 'Ask office';
 
+    final blocked = validationMessage != null;
+
     return Container(
-      padding: EdgeInsets.fromLTRB(18, 12, 18, bottom + 12),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1463,52 +1229,88 @@ class _BottomBookBar extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (blocked)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              color: const Color(0xFFFFF3CD),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    color: Color(0xFFB45309),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      validationMessage!,
+                      style: const TextStyle(
+                        color: Color(0xFF92400E),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(18, 12, 18, bottom + 12),
+            child: Row(
               children: [
-                const Text(
-                  'Customized Price',
-                  style: TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Customized Price',
+                        style: TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        price,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  price,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 20,
+                const SizedBox(width: 14),
+                SizedBox(
+                  height: 54,
+                  width: 170,
+                  child: ElevatedButton.icon(
+                    onPressed: package.status == 'published' && !blocked
+                        ? onBook
+                        : null,
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    label: const Text('Book Now'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2A86FF),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFBBD7FF),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          SizedBox(
-            height: 54,
-            width: 170,
-            child: ElevatedButton.icon(
-              onPressed: package.status == 'published' ? onBook : null,
-              icon: const Icon(Icons.arrow_forward_rounded),
-              label: const Text('Book Now'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2A86FF),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: const Color(0xFFBBD7FF),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                textStyle: const TextStyle(fontWeight: FontWeight.w900),
-              ),
             ),
           ),
         ],
@@ -1727,10 +1529,7 @@ class _ErrorView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                color: Color(0xFFDC2626),
-              ),
+              const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626)),
               const SizedBox(height: 12),
               Text(
                 message,
@@ -1756,6 +1555,16 @@ class _ErrorView extends StatelessWidget {
 
 bool _sameMunicipality(String a, String b) {
   return _normalizeText(a) == _normalizeText(b);
+}
+
+String? _selectedSpotValidationMessage(int count) {
+  if (count < 3) {
+    return 'Please select at least 3 spots for your tour package.';
+  }
+  if (count > 6) {
+    return 'You can only select up to 6 spots per package.';
+  }
+  return null;
 }
 
 String _normalizeText(String value) {

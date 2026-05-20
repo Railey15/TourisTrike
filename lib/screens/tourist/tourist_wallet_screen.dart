@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
+import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 
 class TouristWalletScreen extends StatefulWidget {
   const TouristWalletScreen({super.key, this.initialDeepLink});
@@ -24,9 +25,14 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final AppLinks _appLinks = AppLinks();
 
-  late Future<_WalletPageData> _future;
+  Wallet? _wallet;
+  List<WalletTransaction> _transactions = [];
+  bool _loading = true;
+  String? _loadError;
+
   StreamSubscription<Uri>? _walletLinkSubscription;
-  RealtimeChannel? _txRealtimeChannel;
+  RealtimeChannel? _walletChannel;
+  RealtimeChannel? _txLiveChannel;
 
   bool _balanceHidden = false;
   bool _refreshingCheckoutState = false;
@@ -37,7 +43,9 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _future = _load();
+    unawaited(_loadWalletData());
+    _subscribeToWalletRealtime();
+    _subscribeToTransactionsRealtime();
     _listenForWalletDeepLinks();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -52,7 +60,8 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _walletLinkSubscription?.cancel();
-    _unsubscribeTransaction();
+    _walletChannel?.unsubscribe();
+    _txLiveChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -62,75 +71,125 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
       if (_pendingCashInTransactionId != null) {
         unawaited(_pollForCheckoutSettlement());
       } else {
-        // Refresh silently in case the webhook settled while the user was
-        // in the browser (no deep link received, e.g. manual back navigation).
-        unawaited(_reload());
+        unawaited(_loadWalletData());
       }
     }
   }
 
-  Future<_WalletPageData> _load() async {
-    final wallet = await _repo.fetchOrCreateWallet(role: 'tourist');
-    final transactions = await _repo.fetchWalletTransactions(role: 'tourist');
-    return _WalletPageData(wallet: wallet, transactions: transactions);
-  }
-
-  Future<void> _reload() async {
-    final future = _load();
-    if (mounted) {
-      setState(() => _future = future);
-    }
-    await future;
-  }
-
-  void _setLoadedData(_WalletPageData data) {
+  Future<void> _loadWalletData() async {
     if (!mounted) return;
-    setState(() => _future = Future<_WalletPageData>.value(data));
+    if (_wallet == null) setState(() { _loading = true; _loadError = null; });
+    try {
+      final wallet = await _repo.fetchOrCreateWallet(role: 'tourist');
+      final transactions = await _repo.fetchWalletTransactions(role: 'tourist');
+      if (!mounted) return;
+      setState(() {
+        _wallet = wallet;
+        _transactions = transactions;
+        _loading = false;
+        _loadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e.toString();
+        _loading = false;
+      });
+    }
   }
 
-  void _subscribeToTransaction(String transactionId) {
-    _unsubscribeTransaction();
-    _txRealtimeChannel = Supabase.instance.client
-        .channel('wallet_tx_$transactionId')
+  Future<void> _reload() => _loadWalletData();
+
+  void _subscribeToWalletRealtime() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    _walletChannel = Supabase.instance.client
+        .channel('wallet_balance_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'wallets',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (PostgresChangePayload payload) {
+            if (!mounted) return;
+            final updated =
+                Wallet(Map<String, dynamic>.from(payload.newRecord));
+            setState(() => _wallet = updated);
+          },
+        )
+        .subscribe();
+  }
+
+  void _subscribeToTransactionsRealtime() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    _txLiveChannel = Supabase.instance.client
+        .channel('wallet_txs_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'wallet_transactions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (PostgresChangePayload payload) {
+            if (!mounted) return;
+            final newTx = WalletTransaction(
+                Map<String, dynamic>.from(payload.newRecord));
+            setState(() => _transactions = [newTx, ..._transactions]);
+          },
+        )
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'wallet_transactions',
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
-            column: 'id',
-            value: transactionId,
+            column: 'user_id',
+            value: userId,
           ),
           callback: (PostgresChangePayload payload) {
-            final status =
-                (payload.newRecord['status'] as String? ?? '')
-                    .trim()
-                    .toLowerCase();
-            if (_isSuccessfulStatus(status)) {
-              _unsubscribeTransaction();
-              _pendingCashInTransactionId = null;
-              unawaited(_reload());
-              _showSnack(
-                'Wallet cash-in completed.',
-                backgroundColor: const Color(0xFF16A34A),
-              );
-            } else if (status == 'failed') {
-              _unsubscribeTransaction();
-              _pendingCashInTransactionId = null;
-              unawaited(_reload());
-              _showSnack(
-                'Cash-in failed. No balance was added.',
-                backgroundColor: const Color(0xFFDC2626),
-              );
+            if (!mounted) return;
+            final updatedTx = WalletTransaction(
+                Map<String, dynamic>.from(payload.newRecord));
+            final updatedId = dbString(updatedTx.id);
+            setState(() {
+              final idx = _transactions
+                  .indexWhere((t) => dbString(t.id) == updatedId);
+              if (idx != -1) {
+                final list = List<WalletTransaction>.from(_transactions);
+                list[idx] = updatedTx;
+                _transactions = list;
+              } else {
+                _transactions = [updatedTx, ..._transactions];
+              }
+            });
+            if (_pendingCashInTransactionId != null &&
+                updatedId == _pendingCashInTransactionId) {
+              final status = updatedTx.status.trim().toLowerCase();
+              if (_isSuccessfulStatus(status)) {
+                _pendingCashInTransactionId = null;
+                _showSnack(
+                  'Wallet cash-in completed.',
+                  backgroundColor: const Color(0xFF16A34A),
+                );
+              } else if (status == 'failed') {
+                _pendingCashInTransactionId = null;
+                _showSnack(
+                  'Cash-in failed. No balance was added.',
+                  backgroundColor: const Color(0xFFDC2626),
+                );
+              }
             }
           },
         )
         .subscribe();
-  }
-
-  void _unsubscribeTransaction() {
-    _txRealtimeChannel?.unsubscribe();
-    _txRealtimeChannel = null;
   }
 
   void _listenForWalletDeepLinks() {
@@ -169,29 +228,16 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
         break;
       case 'cancel':
         _pendingCashInTransactionId = null;
-        _unsubscribeTransaction();
-        await _reload();
+        await _loadWalletData();
         _showSnack(
           'Cash-in was cancelled. No balance was added.',
           backgroundColor: const Color(0xFFF59E0B),
         );
         break;
       default:
-        await _reload();
+        await _loadWalletData();
         break;
     }
-  }
-
-  WalletTransaction? _findTransaction(
-    List<WalletTransaction> transactions,
-    String transactionId,
-  ) {
-    for (final tx in transactions) {
-      if (dbString(tx.id) == transactionId) {
-        return tx;
-      }
-    }
-    return null;
   }
 
   bool _isSuccessfulStatus(String status) {
@@ -202,7 +248,7 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
   Future<void> _pollForCheckoutSettlement({bool showIntroSnack = false}) async {
     final transactionId = _pendingCashInTransactionId;
     if (transactionId == null || transactionId.isEmpty) {
-      await _reload();
+      await _loadWalletData();
       return;
     }
 
@@ -217,30 +263,30 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
     }
 
     try {
-      // Poll up to 12 times × 3 s = 36 s window for the webhook to settle.
       for (var attempt = 0; attempt < 12; attempt++) {
-        final data = await _load();
+        await _loadWalletData();
         if (!mounted) return;
 
-        _setLoadedData(data);
-        final tx = _findTransaction(data.transactions, transactionId);
+        WalletTransaction? tx;
+        for (final t in _transactions) {
+          if (dbString(t.id) == transactionId) {
+            tx = t;
+            break;
+          }
+        }
 
         if (tx != null) {
           final status = tx.status.trim().toLowerCase();
-
           if (_isSuccessfulStatus(status)) {
             _pendingCashInTransactionId = null;
-            _unsubscribeTransaction();
             _showSnack(
               'Wallet cash-in completed.',
               backgroundColor: const Color(0xFF16A34A),
             );
             return;
           }
-
           if (status == 'failed') {
             _pendingCashInTransactionId = null;
-            _unsubscribeTransaction();
             _showSnack(
               'Cash-in failed. No balance was added.',
               backgroundColor: const Color(0xFFDC2626),
@@ -266,9 +312,6 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
   void _handleCheckoutLaunched(String? transactionId) {
     if (transactionId != null && transactionId.trim().isNotEmpty) {
       _pendingCashInTransactionId = transactionId.trim();
-      // Subscribe via Realtime for instant balance update the moment the
-      // webhook settles the transaction — polling is the fallback.
-      _subscribeToTransaction(transactionId.trim());
     }
 
     _showSnack(
@@ -276,7 +319,7 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
       backgroundColor: const Color(0xFF2A86FF),
     );
 
-    unawaited(_reload());
+    unawaited(_loadWalletData());
   }
 
   void _showSnack(String message, {Color? backgroundColor}) {
@@ -319,97 +362,84 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FB),
-      bottomNavigationBar: const SafeArea(
-        top: false,
-        child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 2)),
-      ),
+    return TouristAiChatbotWrapper(
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        bottomNavigationBar: const SafeArea(
+          top: false,
+          child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 2)),
+        ),
       body: SafeArea(
-        child: FutureBuilder<_WalletPageData>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(
+        child: _loading
+            ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
-              );
-            }
-
-            if (snapshot.hasError) {
-              return _ErrorState(
-                message: snapshot.error.toString(),
-                onRetry: () => unawaited(_reload()),
-              );
-            }
-
-            final data = snapshot.data!;
-            return RefreshIndicator(
-              onRefresh: _reload,
-              color: const Color(0xFF2A86FF),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  _WalletCard(
-                    wallet: data.wallet,
-                    balanceHidden: _balanceHidden,
-                    onToggleHide: () {
-                      setState(() => _balanceHidden = !_balanceHidden);
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              )
+            : _loadError != null
+                ? _ErrorState(
+                    message: _loadError!,
+                    onRetry: () => unawaited(_loadWalletData()),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _reload,
+                    color: const Color(0xFF2A86FF),
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       children: [
-                        _ActionButton(
-                          icon: Icons.add_rounded,
-                          label: 'Cash In',
-                          color: const Color(0xFF2A86FF),
-                          onTap: _showCashIn,
+                        _WalletCard(
+                          wallet: _wallet!,
+                          balanceHidden: _balanceHidden,
+                          onToggleHide: () {
+                            setState(() => _balanceHidden = !_balanceHidden);
+                          },
                         ),
-                        _ActionButton(
-                          icon: Icons.payment_rounded,
-                          label: 'Pay Package',
-                          color: const Color(0xFF0EA5E9),
-                          onTap: () => _showComingSoon('Pay Package'),
+                        const SizedBox(height: 20),
+                        Padding(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _ActionButton(
+                                icon: Icons.add_rounded,
+                                label: 'Cash In',
+                                color: const Color(0xFF2A86FF),
+                                onTap: _showCashIn,
+                              ),
+                              _ActionButton(
+                                icon: Icons.payment_rounded,
+                                label: 'Pay Package',
+                                color: const Color(0xFF0EA5E9),
+                                onTap: () => _showComingSoon('Pay Package'),
+                              ),
+                              _ActionButton(
+                                icon: Icons.send_rounded,
+                                label: 'Transfer',
+                                color: const Color(0xFF6366F1),
+                                onTap: () => _showComingSoon('Transfer'),
+                              ),
+                              _ActionButton(
+                                icon: Icons.receipt_long_rounded,
+                                label: 'History',
+                                color: const Color(0xFF475569),
+                                onTap: _scrollToHistory,
+                              ),
+                            ],
+                          ),
                         ),
-                        _ActionButton(
-                          icon: Icons.send_rounded,
-                          label: 'Transfer',
-                          color: const Color(0xFF6366F1),
-                          onTap: () => _showComingSoon('Transfer'),
+                        const SizedBox(height: 24),
+                        Padding(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 16),
+                          child: _TransactionList(
+                              transactions: _transactions),
                         ),
-                        _ActionButton(
-                          icon: Icons.receipt_long_rounded,
-                          label: 'History',
-                          color: const Color(0xFF475569),
-                          onTap: _scrollToHistory,
-                        ),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _TransactionList(transactions: data.transactions),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            );
-          },
-        ),
       ),
-    );
+    ));
   }
-}
-
-class _WalletPageData {
-  _WalletPageData({required this.wallet, required this.transactions});
-
-  final Wallet wallet;
-  final List<WalletTransaction> transactions;
 }
 
 class _WalletCard extends StatelessWidget {
@@ -425,7 +455,7 @@ class _WalletCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: '\u20B1', decimalDigits: 2);
+    final money = NumberFormat.currency(symbol: '₱', decimalDigits: 2);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -531,7 +561,7 @@ class _WalletCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   balanceHidden
-                      ? '\u20B1 ******'
+                      ? '₱ ******'
                       : money.format(wallet.balance),
                   style: const TextStyle(
                     color: Colors.white,
@@ -663,7 +693,7 @@ class _TxCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: '\u20B1', decimalDigits: 2);
+    final money = NumberFormat.currency(symbol: '₱', decimalDigits: 2);
     final date = tx.createdAt == null
         ? ''
         : DateFormat('MMM d, yyyy - h:mm a').format(tx.createdAt!);
@@ -852,7 +882,7 @@ class _CashInSheetState extends State<_CashInSheet> {
     final amount = double.tryParse(raw.replaceAll(',', ''));
 
     if (amount == null || amount < 50) {
-      setState(() => _error = 'Minimum cash-in is \u20B150.');
+      setState(() => _error = 'Minimum cash-in is ₱50.');
       return;
     }
 
@@ -1035,7 +1065,7 @@ class _CashInSheetState extends State<_CashInSheet> {
               color: Color(0xFF0F172A),
             ),
             decoration: InputDecoration(
-              prefixText: '\u20B1  ',
+              prefixText: '₱  ',
               prefixStyle: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
@@ -1084,7 +1114,7 @@ class _CashInSheetState extends State<_CashInSheet> {
                             borderRadius: BorderRadius.circular(99),
                           ),
                           child: Text(
-                            '\u20B1${amount.toStringAsFixed(0)}',
+                            '₱${amount.toStringAsFixed(0)}',
                             style: const TextStyle(
                               color: Color(0xFF2A86FF),
                               fontWeight: FontWeight.w900,

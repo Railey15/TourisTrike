@@ -40,9 +40,11 @@ class PackageBookingScreen extends StatefulWidget {
 }
 
 class _PackageBookingScreenState extends State<PackageBookingScreen> {
+  static const _mapsApiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final _notesCtrl = TextEditingController();
-  late Future<TourPackage> _future;
+  late Future<_BookingScreenData> _future;
 
   DateTime? _selectedDate;
   int _adults = 1;
@@ -59,6 +61,30 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   String? _dropoffAddress;
   double? _dropoffLat;
   double? _dropoffLng;
+  String? _pickupLocationError;
+  String? _dropoffLocationError;
+
+  List<_EditableItineraryStop> _aiSuggestedItinerary = const [];
+  List<_EditableItineraryStop> _customizedDraftItinerary = const [];
+  List<_EditableItineraryStop> _availableCustomizedStops = const [];
+  dynamic _initializedItineraryForPackageId;
+  _ItineraryViewMode _itineraryMode = _ItineraryViewMode.aiSuggested;
+  bool _customizedItineraryDirty = false;
+
+  // ── Spot validation ──────────────────────────────────────────────────────
+  String? get _spotError {
+    if (widget.customizedSpots.isEmpty) return null;
+    final active = widget.customizedSpots
+        .where((s) => s['action_type'] == 'kept' || s['action_type'] == 'added')
+        .length;
+    if (active < 3) {
+      return 'Please select at least 3 spots for your tour package.';
+    }
+    if (active > 6) {
+      return 'You can only select up to 6 spots per package.';
+    }
+    return null;
+  }
 
   // ── Participant helpers ──────────────────────────────────────────────────
   int get _totalParticipants => _adults + _children;
@@ -96,6 +122,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       _pickupAddress = address;
       _pickupLat = lat;
       _pickupLng = lng;
+      _pickupLocationError = null;
     });
   }
 
@@ -104,6 +131,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       _dropoffAddress = address;
       _dropoffLat = lat;
       _dropoffLng = lng;
+      _dropoffLocationError = null;
     });
   }
 
@@ -129,17 +157,382 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   @override
   void dispose() {
     _notesCtrl.dispose();
+    for (final item in _aiSuggestedItinerary) {
+      item.dispose();
+    }
+    for (final item in _customizedDraftItinerary) {
+      item.dispose();
+    }
+    for (final item in _availableCustomizedStops) {
+      item.dispose();
+    }
     super.dispose();
   }
 
-  Future<TourPackage> _loadPackage() async {
+  Future<_BookingScreenData> _loadPackage() async {
+    TourPackage? package;
     if (widget.initialPackage != null &&
         widget.initialPackage!.id == widget.packageId) {
-      return widget.initialPackage!;
+      package = widget.initialPackage!;
+    } else {
+      package = await _repo.fetchTourPackage(widget.packageId);
     }
-    final package = await _repo.fetchTourPackage(widget.packageId);
     if (package == null) throw StateError('Package not found.');
-    return package;
+    final packageSpots = await _repo.fetchPackageSpots(package.id);
+    return _BookingScreenData(package: package, packageSpots: packageSpots);
+  }
+
+  void _initializeItinerary(_BookingScreenData data) {
+    if (_initializedItineraryForPackageId == data.package.id) return;
+    _disposeItineraryCollections();
+    _initializedItineraryForPackageId = data.package.id;
+
+    final selectedRows = widget.customizedSpots.isNotEmpty
+        ? widget.customizedSpots
+        : data.packageSpots
+              .indexed
+              .map(
+                (entry) => <String, dynamic>{
+                  'spot_id': entry.$2.id,
+                  'action_type': 'kept',
+                  'google_place_id': entry.$2.googlePlaceId,
+                  'spot_title': entry.$2.title,
+                  'spot_address': entry.$2.address,
+                  'municipality': entry.$2.municipality,
+                  'barangay': entry.$2.barangay,
+                  'latitude': entry.$2.latitude,
+                  'longitude': entry.$2.longitude,
+                  'image_url': entry.$2.imageUrl,
+                  'sort_order': entry.$1,
+                  'estimated_arrival_time': entry.$2.estimatedArrivalTime,
+                  'estimated_duration_minutes': entry.$2.estimatedDurationMinutes,
+                  'recommended_visit_duration_minutes':
+                      entry.$2.recommendedVisitDurationMinutes,
+                },
+              )
+              .toList(growable: false);
+
+    final activeRows = selectedRows
+        .where(
+          (row) => row['action_type'] == 'kept' || row['action_type'] == 'added',
+        )
+        .toList(growable: false)
+      ..sort(
+        (a, b) => dbInt(a['sort_order']).compareTo(dbInt(b['sort_order'])),
+      );
+    final removedRows = selectedRows
+        .where((row) => row['action_type'] == 'removed')
+        .toList(growable: false);
+
+    _aiSuggestedItinerary = _buildAiSuggestedItinerary(activeRows);
+    _customizedDraftItinerary = _aiSuggestedItinerary
+        .map(_EditableItineraryStop.cloneFrom)
+        .toList(growable: true);
+    _availableCustomizedStops = removedRows
+        .map(
+          (row) => _EditableItineraryStop.fromSourceRow(
+            row,
+            arrivalTime: '',
+            stayMinutes: resolveItineraryStayMinutes(
+              estimatedMinutes: dbInt(row['estimated_duration_minutes']),
+              recommendedMinutes: dbInt(
+                row['recommended_visit_duration_minutes'],
+              ),
+            ),
+            departureTime: '',
+            activityNote: _suggestActivityForDestination(
+              dbString(row['spot_title']),
+            ),
+          ),
+        )
+        .toList(growable: true);
+    _customizedItineraryDirty = false;
+  }
+
+  void _disposeItineraryCollections() {
+    for (final item in _aiSuggestedItinerary) {
+      item.dispose();
+    }
+    for (final item in _customizedDraftItinerary) {
+      item.dispose();
+    }
+    for (final item in _availableCustomizedStops) {
+      item.dispose();
+    }
+  }
+
+  List<_EditableItineraryStop> _buildAiSuggestedItinerary(
+    List<Map<String, dynamic>> rows,
+  ) {
+    var nextArrival = '09:00:00';
+    return rows.indexed.map((entry) {
+      final row = entry.$2;
+      final arrival = dbTimeText(row['estimated_arrival_time']).isNotEmpty
+          ? dbTimeText(row['estimated_arrival_time'])
+          : nextArrival;
+      final stayMinutes = resolveItineraryStayMinutes(
+        estimatedMinutes: dbInt(row['estimated_duration_minutes']),
+        recommendedMinutes: dbInt(row['recommended_visit_duration_minutes']),
+      );
+      final departure = addMinutesToScheduleTime(arrival, stayMinutes);
+      nextArrival = addMinutesToScheduleTime(departure, 20);
+      return _EditableItineraryStop.fromSourceRow(
+        row,
+        arrivalTime: arrival,
+        stayMinutes: stayMinutes,
+        departureTime: departure,
+        activityNote: _suggestActivityForDestination(
+          dbString(row['spot_title']),
+        ),
+      );
+    }).toList(growable: false);
+  }
+
+  String _suggestActivityForDestination(String destinationName) {
+    final name = destinationName.trim();
+    final lower = name.toLowerCase();
+    if (lower.contains('falls') ||
+        lower.contains('spring') ||
+        lower.contains('lake') ||
+        lower.contains('river') ||
+        lower.contains('dam')) {
+      return 'Sightseeing, photo stop, and enjoy the natural scenery.';
+    }
+    if (lower.contains('church') ||
+        lower.contains('museum') ||
+        lower.contains('heritage') ||
+        lower.contains('shrine')) {
+      return 'Cultural visit, quiet exploration, and photo time.';
+    }
+    if (lower.contains('park') ||
+        lower.contains('garden') ||
+        lower.contains('farm') ||
+        lower.contains('resort')) {
+      return 'Walk around, take photos, and enjoy the surroundings.';
+    }
+    return 'Explore $name, take photos, and enjoy the suggested stop.';
+  }
+
+  List<_EditableItineraryStop> get _selectedItinerary {
+    if (_itineraryMode == _ItineraryViewMode.customize) {
+      return _customizedDraftItinerary;
+    }
+    return _aiSuggestedItinerary;
+  }
+
+  String get _selectedItineraryLabel =>
+      _itineraryMode == _ItineraryViewMode.customize ? 'Customized' : 'AI Suggested';
+
+  int get _selectedItineraryDurationMinutes {
+    final itinerary = _selectedItinerary;
+    if (itinerary.isEmpty) return 0;
+    final start = itinerary.first.arrivalTime;
+    final end = itinerary.last.departureTime;
+    if (start.isNotEmpty && end.isNotEmpty) {
+      return scheduleMinutesBetween(start, end);
+    }
+    return itinerary.fold<int>(
+      0,
+      (sum, item) => sum + item.stayMinutes,
+    );
+  }
+
+  Future<void> _pickItineraryTime(
+    _EditableItineraryStop item, {
+    required bool pickingArrival,
+  }) async {
+    final initial = _parseTimeOfDay(
+      pickingArrival ? item.arrivalTime : item.departureTime,
+    );
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial ?? const TimeOfDay(hour: 9, minute: 0),
+    );
+    if (picked == null) return;
+    setState(() {
+      if (pickingArrival) {
+        item.arrivalTime = _timeOfDayToStorage(picked);
+        item.departureTime = addMinutesToScheduleTime(
+          item.arrivalTime,
+          item.stayMinutes,
+        );
+      } else {
+        item.departureTime = _timeOfDayToStorage(picked);
+        if (item.arrivalTime.isNotEmpty) {
+          final stay = scheduleMinutesBetween(
+            item.arrivalTime,
+            item.departureTime,
+          );
+          item.stayMinutes = stay > 0 ? stay : item.stayMinutes;
+        }
+      }
+      _customizedItineraryDirty = true;
+    });
+  }
+
+  TimeOfDay? _parseTimeOfDay(String value) {
+    final match = RegExp(
+      r'^(\d{1,2}):(\d{2})(?::\d{2})?$',
+    ).firstMatch(value.trim());
+    if (match == null) return null;
+    return TimeOfDay(
+      hour: int.parse(match.group(1)!),
+      minute: int.parse(match.group(2)!),
+    );
+  }
+
+  String _timeOfDayToStorage(TimeOfDay time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:00';
+  }
+
+  void _moveCustomizedItineraryStop(int index, int delta) {
+    final nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= _customizedDraftItinerary.length) return;
+    setState(() {
+      final item = _customizedDraftItinerary.removeAt(index);
+      _customizedDraftItinerary.insert(nextIndex, item);
+      _customizedItineraryDirty = true;
+    });
+  }
+
+  void _removeCustomizedItineraryStop(int index) {
+    if (_customizedDraftItinerary.length <= 3) {
+      _snack('At least 3 destinations are required in the itinerary.');
+      return;
+    }
+    setState(() {
+      final item = _customizedDraftItinerary.removeAt(index);
+      _availableCustomizedStops = [..._availableCustomizedStops, item];
+      _customizedItineraryDirty = true;
+    });
+  }
+
+  Future<void> _showAddDestinationSheet() async {
+    if (_availableCustomizedStops.isEmpty) {
+      _snack('No more package destinations are available to add.');
+      return;
+    }
+    if (_customizedDraftItinerary.length >= 6) {
+      _snack('You can only include up to 6 destinations.');
+      return;
+    }
+
+    final selected = await showModalBottomSheet<_EditableItineraryStop>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Add Destination',
+                style: TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'These destinations are allowed by the package customization setup.',
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w700,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ..._availableCustomizedStops.map(
+                (item) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    item.destinationName,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    item.destinationAddress.isEmpty
+                        ? 'No address available'
+                        : item.destinationAddress,
+                  ),
+                  trailing: const Icon(Icons.add_circle_rounded),
+                  onTap: () => Navigator.pop(context, item),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (selected == null) return;
+    setState(() {
+      _availableCustomizedStops = _availableCustomizedStops
+          .where((item) => item.localKey != selected.localKey)
+          .toList(growable: false);
+      if (selected.arrivalTime.isEmpty) {
+        final lastDeparture = _customizedDraftItinerary.isEmpty
+            ? '09:00:00'
+            : _customizedDraftItinerary.last.departureTime;
+        selected.arrivalTime = addMinutesToScheduleTime(lastDeparture, 20);
+      }
+      if (selected.departureTime.isEmpty) {
+        selected.departureTime = addMinutesToScheduleTime(
+          selected.arrivalTime,
+          selected.stayMinutes,
+        );
+      }
+      _customizedDraftItinerary = [..._customizedDraftItinerary, selected];
+      _customizedItineraryDirty = true;
+    });
+  }
+
+  bool _commitCustomizedItinerary() {
+    if (_customizedDraftItinerary.length < 3) {
+      _snack('Please keep at least 3 destinations in your customized itinerary.');
+      return false;
+    }
+    if (_customizedDraftItinerary.length > 6) {
+      _snack('You can only include up to 6 destinations.');
+      return false;
+    }
+    for (final item in _customizedDraftItinerary) {
+      if (item.arrivalTime.isEmpty || item.departureTime.isEmpty) {
+        _snack(
+          'Please set the arrival and departure time for ${item.destinationName}.',
+        );
+        return false;
+      }
+      if (item.stayMinutes <= 0) {
+        _snack(
+          'Please enter a valid estimated stay for ${item.destinationName}.',
+        );
+        return false;
+      }
+    }
+
+    setState(() {
+      _customizedItineraryDirty = false;
+    });
+    return true;
+  }
+
+  List<Json> _buildFinalItineraryPayload() {
+    return _selectedItinerary.indexed
+        .map(
+          (entry) => entry.$2.toBookingPayload(
+            order: entry.$1 + 1,
+            sourceType: _itineraryMode == _ItineraryViewMode.customize
+                ? 'customized'
+                : 'ai_suggested',
+          ),
+        )
+        .toList(growable: false);
   }
 
   // ── Notes builder ────────────────────────────────────────────────────────
@@ -179,6 +572,17 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       }
     }
 
+    final finalItinerary = _selectedItinerary;
+    if (finalItinerary.isNotEmpty) {
+      parts.add('Final itinerary source: $_selectedItineraryLabel');
+      parts.add(
+        'Estimated tour duration: ${_formatDurationLabel(_selectedItineraryDurationMinutes)}',
+      );
+      parts.add(
+        'Destination order: ${finalItinerary.map((item) => item.destinationName).join(' -> ')}',
+      );
+    }
+
     return parts.join('\n');
   }
 
@@ -203,7 +607,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       setState(() {
         _selectedDate = picked;
 
-        final pickedIsToday = picked.year == now.year &&
+        final pickedIsToday =
+            picked.year == now.year &&
             picked.month == now.month &&
             picked.day == now.day;
 
@@ -215,7 +620,106 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   // ── Confirm ──────────────────────────────────────────────────────────────
+  Future<_VerifiedPhilippineLocation?> _validatePhilippineLocation({
+    required String? address,
+    required double? lat,
+    required double? lng,
+  }) async {
+    if (address == null ||
+        address.trim().isEmpty ||
+        lat == null ||
+        lng == null) {
+      return null;
+    }
+    try {
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json'
+        '?latlng=$lat,$lng'
+        '&key=$_mapsApiKey'
+        '&language=en',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) {
+        _snack(
+          'Unable to verify this location. Please choose another pickup/drop-off point.',
+        );
+        return null;
+      }
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final results = (body['results'] as List?) ?? const [];
+      if (results.isEmpty) {
+        _snack(
+          'Unable to verify this location. Please choose another pickup/drop-off point.',
+        );
+        return null;
+      }
+
+      final result = Map<String, dynamic>.from(results.first as Map);
+      final components = (result['address_components'] as List?) ?? const [];
+      String countryCode = '';
+      String province = '';
+      String locality = '';
+
+      for (final raw in components.whereType<Map>()) {
+        final component = Map<String, dynamic>.from(raw);
+        final types = (component['types'] as List?)?.cast<String>() ?? const [];
+        final longName = dbString(component['long_name']);
+        final shortName = dbString(component['short_name']);
+        if (types.contains('country')) {
+          countryCode = shortName;
+        }
+        if (types.contains('administrative_area_level_1') && province.isEmpty) {
+          province = longName;
+        }
+        if ((types.contains('locality') ||
+                types.contains('administrative_area_level_2') ||
+                types.contains('administrative_area_level_3')) &&
+            locality.isEmpty) {
+          locality = longName;
+        }
+      }
+
+      if (countryCode.toUpperCase() != 'PH') {
+        _snack('Please select a valid location within the Philippines.');
+        return null;
+      }
+      if (province.isEmpty || locality.isEmpty) {
+        _snack(
+          'Unable to verify this location. Please choose another pickup/drop-off point.',
+        );
+        return null;
+      }
+
+      return _VerifiedPhilippineLocation(
+        address: dbString(result['formatted_address'], fallback: address.trim()),
+        latitude: lat,
+        longitude: lng,
+        province: province,
+        locality: locality,
+        countryCode: countryCode,
+      );
+    } catch (_) {
+      _snack(
+        'Unable to verify this location. Please choose another pickup/drop-off point.',
+      );
+      return null;
+    }
+  }
+
   Future<void> _confirm(TourPackage package) async {
+    try {
+      final hasActiveTour = await _repo.hasActiveTour();
+      if (hasActiveTour) {
+        _snack(TourisTrikeRepository.activeTourErrorMessage);
+        return;
+      }
+    } catch (_) {
+      _snack(
+        'Unable to verify your current tour status right now. Please try again.',
+      );
+      return;
+    }
+
     if (_selectedDate == null) {
       _snack('Please select a travel date.');
       return;
@@ -231,13 +735,65 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
+    if (_itineraryMode == _ItineraryViewMode.customize &&
+        !_commitCustomizedItinerary()) {
+      return;
+    }
+
+    final pickupLocation = await _validatePhilippineLocation(
+      address: _pickupAddress,
+      lat: _pickupLat,
+      lng: _pickupLng,
+    );
+    if (pickupLocation == null) {
+      setState(() {
+        _pickupLocationError =
+            'Unable to verify this location. Please choose another pickup/drop-off point.';
+      });
+      return;
+    }
+
+    final dropoffLocation = await _validatePhilippineLocation(
+      address: _dropoffAddress,
+      lat: _dropoffLat,
+      lng: _dropoffLng,
+    );
+    if (dropoffLocation == null) {
+      setState(() {
+        _dropoffLocationError =
+            'Unable to verify this location. Please choose another pickup/drop-off point.';
+      });
+      return;
+    }
+
+    final finalItinerary = _buildFinalItineraryPayload();
+    if (finalItinerary.isEmpty) {
+      _snack('Unable to prepare the itinerary for this booking.');
+      return;
+    }
+
+    // Spot count validation for customized packages
+    if (widget.customizedSpots.isNotEmpty) {
+      final activeSpots = widget.customizedSpots
+          .where(
+            (s) => s['action_type'] == 'kept' || s['action_type'] == 'added',
+          )
+          .toList();
+      if (activeSpots.length < 3) {
+        _snack('Please select at least 3 spots for your tour package.');
+        return;
+      }
+      if (activeSpots.length > 6) {
+        _snack('You can only select up to 6 spots per package.');
+        return;
+      }
+    }
+
     // Wallet sufficiency check
     final amountToPayNow = _amountToPayNow(package);
     if (_payment == _PaymentMethod.wallet) {
       if (_walletBalance == null || _walletBalance! < amountToPayNow) {
-        _snack(
-          'Insufficient wallet balance. Please top up your wallet.',
-        );
+        _snack('Insufficient wallet balance. Please top up your wallet.');
         return;
       }
     }
@@ -259,14 +815,21 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         downpaymentAmount: downpayment,
         remainingBalance: remaining,
         bookingType: _bookingType,
-        pickupAddress: _pickupAddress ?? '',
-        pickupLatitude: _pickupLat,
-        pickupLongitude: _pickupLng,
-        dropoffAddress: _dropoffAddress ?? '',
-        dropoffLatitude: _dropoffLat,
-        dropoffLongitude: _dropoffLng,
+        pickupAddress: pickupLocation.address,
+        pickupLatitude: pickupLocation.latitude,
+        pickupLongitude: pickupLocation.longitude,
+        pickupProvince: pickupLocation.province,
+        pickupLocality: pickupLocation.locality,
+        pickupCountryCode: pickupLocation.countryCode,
+        dropoffAddress: dropoffLocation.address,
+        dropoffLatitude: dropoffLocation.latitude,
+        dropoffLongitude: dropoffLocation.longitude,
+        dropoffProvince: dropoffLocation.province,
+        dropoffLocality: dropoffLocation.locality,
+        dropoffCountryCode: dropoffLocation.countryCode,
         notes: _buildNotesSummary(),
         customizedSpots: widget.customizedSpots,
+        itineraryItems: finalItinerary,
       );
 
       await _repo.createPayment(
@@ -282,8 +845,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         await _repo.deductWalletForBooking(
           bookingId: booking.id.toString(),
           amount: amountToPayNow,
-          transactionType:
-              _isSameDay ? 'package_payment' : 'package_payment',
+          transactionType: _isSameDay ? 'package_payment' : 'package_payment',
           description: 'Payment for ${package.title}',
           referenceKey: 'initial_wallet_payment',
         );
@@ -296,9 +858,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => ActivityTrackingScreen(
-              bookingId: booking.id.toString(),
-            ),
+            builder: (_) =>
+                ActivityTrackingScreen(bookingId: booking.id.toString()),
           ),
         );
       } else {
@@ -328,7 +889,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
-      body: FutureBuilder<TourPackage>(
+      body: FutureBuilder<_BookingScreenData>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
@@ -343,7 +904,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             );
           }
 
-          final package = snapshot.data!;
+          final data = snapshot.data!;
+          final package = data.package;
+          _initializeItinerary(data);
           final totalPrice = _totalPrice(package);
           final downpayment = _downpaymentAmount(package);
           final remaining = _remainingBalance(package);
@@ -428,6 +991,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                       _LocationPickerCard(
                         label: 'Pickup',
                         showUseCurrentLocation: true,
+                        showMapPreview: false,
+                        errorText: _pickupLocationError,
                         onLocationSelected: _onPickupSelected,
                       ),
                       const SizedBox(height: 22),
@@ -447,11 +1012,75 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                       _LocationPickerCard(
                         label: 'Drop-off',
                         showUseCurrentLocation: true,
+                        showMapPreview: false,
+                        errorText: _dropoffLocationError,
                         onLocationSelected: _onDropoffSelected,
                       ),
                       const SizedBox(height: 22),
 
+                      _SharedRouteMapPreview(
+                        pickupAddress: _pickupAddress,
+                        pickupLat: _pickupLat,
+                        pickupLng: _pickupLng,
+                        dropoffAddress: _dropoffAddress,
+                        dropoffLat: _dropoffLat,
+                        dropoffLng: _dropoffLng,
+                      ),
+                      const SizedBox(height: 22),
+
                       // ── Booking Summary (live) ─────────────────────────
+                      const _SectionTitle('Itinerary'),
+                      const SizedBox(height: 10),
+                      _ItineraryModeToggle(
+                        selected: _itineraryMode,
+                        onChanged: (mode) =>
+                            setState(() => _itineraryMode = mode),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_itineraryMode == _ItineraryViewMode.aiSuggested)
+                        _ReadOnlyItineraryCard(
+                          label: 'AI Suggested Itinerary',
+                          description:
+                              'TourisTrike automatically generated this route from your selected package spots.',
+                          items: _aiSuggestedItinerary,
+                          sourceType: 'ai_suggested',
+                          totalDurationLabel: _formatDurationLabel(
+                            _calculateDurationMinutes(_aiSuggestedItinerary),
+                          ),
+                        )
+                      else
+                        _EditableItineraryCard(
+                          items: _customizedDraftItinerary,
+                          availableStopsCount: _availableCustomizedStops.length,
+                          hasUnsavedChanges: _customizedItineraryDirty,
+                          currentDurationLabel: _formatDurationLabel(
+                            _calculateDurationMinutes(_customizedDraftItinerary),
+                          ),
+                          onPickArrival: (item) =>
+                              _pickItineraryTime(item, pickingArrival: true),
+                          onPickDeparture: (item) =>
+                              _pickItineraryTime(item, pickingArrival: false),
+                          onStayChanged: (item, minutes) {
+                            setState(() {
+                              item.stayMinutes = minutes;
+                              if (item.arrivalTime.isNotEmpty) {
+                                item.departureTime = addMinutesToScheduleTime(
+                                  item.arrivalTime,
+                                  item.stayMinutes,
+                                );
+                              }
+                              _customizedItineraryDirty = true;
+                            });
+                          },
+                          onMoveUp: (index) =>
+                              _moveCustomizedItineraryStop(index, -1),
+                          onMoveDown: (index) =>
+                              _moveCustomizedItineraryStop(index, 1),
+                          onRemove: _removeCustomizedItineraryStop,
+                          onAddDestination: _showAddDestinationSheet,
+                        ),
+                      const SizedBox(height: 22),
+
                       const _SectionTitle('Booking Summary'),
                       const SizedBox(height: 10),
                       _BookingSummaryCard(
@@ -467,6 +1096,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                         remainingBalance: remaining,
                         amountToPayNow: amountToPayNow,
                         isCustomizedPrice: widget.customizedUnitPrice != null,
+                        itinerarySourceLabel: _selectedItineraryLabel,
+                        estimatedTourDurationLabel: _formatDurationLabel(
+                          _selectedItineraryDurationMinutes,
+                        ),
+                        itineraryItems: _selectedItinerary,
                       ),
                       const SizedBox(height: 22),
 
@@ -482,11 +1116,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                         subtitle: _selectedDate == null
                             ? 'Select a date first.'
                             : _isSameDay
-                                ? 'Pay your driver when they arrive for the tour.'
-                                : 'Only available for same-day bookings.',
+                            ? 'Pay your driver when they arrive for the tour.'
+                            : 'Only available for same-day bookings.',
                         onTap: () {
                           if (_selectedDate != null && _isSameDay) {
-                            setState(() => _payment = _PaymentMethod.cashPickup);
+                            setState(
+                              () => _payment = _PaymentMethod.cashPickup,
+                            );
                           }
                         },
                       ),
@@ -509,8 +1145,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                         _selectedDate == null
                             ? 'Note: Select a travel date to see available payment options.'
                             : _isSameDay
-                                ? 'Note: Same-day bookings can use Cash on Pick-up or E-Wallet. Full payment is required.'
-                                : 'Note: Advanced bookings require a 50% down payment via E-Wallet. Cash on Pick-up is disabled for advanced bookings.',
+                            ? 'Note: Same-day bookings can use Cash on Pick-up or E-Wallet. Full payment is required.'
+                            : 'Note: Advanced bookings require a 50% down payment via E-Wallet. Cash on Pick-up is disabled for advanced bookings.',
                         style: const TextStyle(
                           color: Color(0xFF64748B),
                           fontWeight: FontWeight.w700,
@@ -560,6 +1196,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                     amountToPayNow: amountToPayNow,
                     saving: _saving,
                     onConfirm: () => _confirm(package),
+                    spotError: _spotError,
                   ),
                 ),
               ],
@@ -573,6 +1210,729 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
 enum _PaymentMethod { cashPickup, wallet }
 
+enum _ItineraryViewMode { aiSuggested, customize }
+
+class _BookingScreenData {
+  const _BookingScreenData({
+    required this.package,
+    required this.packageSpots,
+  });
+
+  final TourPackage package;
+  final List<TouristSpot> packageSpots;
+}
+
+class _EditableItineraryStop {
+  _EditableItineraryStop({
+    required this.localKey,
+    required this.spotId,
+    required this.googlePlaceId,
+    required this.destinationName,
+    required this.destinationAddress,
+    required this.municipality,
+    required this.barangay,
+    required this.latitude,
+    required this.longitude,
+    required this.imageUrl,
+    required this.arrivalTime,
+    required this.stayMinutes,
+    required this.departureTime,
+    required String activityNote,
+  }) : activityController = TextEditingController(text: activityNote);
+
+  final String localKey;
+  final dynamic spotId;
+  final String googlePlaceId;
+  final String destinationName;
+  final String destinationAddress;
+  final String municipality;
+  final String barangay;
+  final double latitude;
+  final double longitude;
+  final String imageUrl;
+  String arrivalTime;
+  int stayMinutes;
+  String departureTime;
+  final TextEditingController activityController;
+
+  factory _EditableItineraryStop.fromSourceRow(
+    Map<String, dynamic> row, {
+    required String arrivalTime,
+    required int stayMinutes,
+    required String departureTime,
+    required String activityNote,
+  }) {
+    final googlePlaceId = dbString(row['google_place_id']);
+    final spotId = row['spot_id'];
+    final name = dbString(row['spot_title']);
+    return _EditableItineraryStop(
+      localKey: googlePlaceId.isNotEmpty
+          ? 'google:$googlePlaceId'
+          : spotId != null
+          ? 'spot:$spotId'
+          : 'title:${name.toLowerCase()}',
+      spotId: spotId,
+      googlePlaceId: googlePlaceId,
+      destinationName: name,
+      destinationAddress: dbString(row['spot_address']),
+      municipality: dbString(row['municipality']),
+      barangay: dbString(row['barangay']),
+      latitude: dbDouble(row['latitude']),
+      longitude: dbDouble(row['longitude']),
+      imageUrl: dbString(row['image_url']),
+      arrivalTime: arrivalTime,
+      stayMinutes: stayMinutes,
+      departureTime: departureTime,
+      activityNote: activityNote,
+    );
+  }
+
+  factory _EditableItineraryStop.cloneFrom(_EditableItineraryStop other) {
+    return _EditableItineraryStop(
+      localKey: other.localKey,
+      spotId: other.spotId,
+      googlePlaceId: other.googlePlaceId,
+      destinationName: other.destinationName,
+      destinationAddress: other.destinationAddress,
+      municipality: other.municipality,
+      barangay: other.barangay,
+      latitude: other.latitude,
+      longitude: other.longitude,
+      imageUrl: other.imageUrl,
+      arrivalTime: other.arrivalTime,
+      stayMinutes: other.stayMinutes,
+      departureTime: other.departureTime,
+      activityNote: other.activityController.text.trim(),
+    );
+  }
+
+  Json toBookingPayload({
+    required int order,
+    required String sourceType,
+  }) {
+    return {
+      'spot_id': spotId,
+      'destination_name': destinationName,
+      'destination_address': destinationAddress,
+      'order_number': order,
+      'destination_order': order,
+      'arrival_time': arrivalTime,
+      'estimated_stay_duration_minutes': stayMinutes,
+      'departure_time': departureTime,
+      'activity_note': '',
+      'itinerary_source': sourceType,
+      'source_type': sourceType,
+      'google_place_id': googlePlaceId,
+      'municipality': municipality,
+      'barangay': barangay,
+      'latitude': latitude,
+      'longitude': longitude,
+      'image_url': imageUrl,
+    };
+  }
+
+  void dispose() {
+    activityController.dispose();
+  }
+}
+
+int _calculateDurationMinutes(List<_EditableItineraryStop> items) {
+  if (items.isEmpty) return 0;
+  final start = items.first.arrivalTime;
+  final end = items.last.departureTime;
+  if (start.isNotEmpty && end.isNotEmpty) {
+    return scheduleMinutesBetween(start, end);
+  }
+  return items.fold<int>(0, (sum, item) => sum + item.stayMinutes);
+}
+
+String _formatDurationLabel(int minutes) {
+  if (minutes <= 0) return 'Not available yet';
+  final hours = minutes ~/ 60;
+  final remainder = minutes % 60;
+  if (hours <= 0) return '${remainder}m';
+  if (remainder == 0) return '${hours}h';
+  return '${hours}h ${remainder}m';
+}
+
+String _itineraryTimingSummary({
+  required String arrivalTime,
+  required int stayMinutes,
+  required String departureTime,
+}) {
+  final parts = <String>[];
+  if (arrivalTime.isNotEmpty) {
+    parts.add('Arrival ${formatScheduleTimeLabel(arrivalTime)}');
+  }
+  if (stayMinutes > 0) {
+    parts.add('Stay ${_formatDurationLabel(stayMinutes)}');
+  }
+  if (departureTime.isNotEmpty) {
+    parts.add('Departure ${formatScheduleTimeLabel(departureTime)}');
+  }
+  return parts.join(' • ');
+}
+
+class _ItineraryModeToggle extends StatelessWidget {
+  const _ItineraryModeToggle({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final _ItineraryViewMode selected;
+  final ValueChanged<_ItineraryViewMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ItineraryModeChip(
+              label: 'AI Suggested',
+              selected: selected == _ItineraryViewMode.aiSuggested,
+              onTap: () => onChanged(_ItineraryViewMode.aiSuggested),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _ItineraryModeChip(
+              label: 'Customize',
+              selected: selected == _ItineraryViewMode.customize,
+              onTap: () => onChanged(_ItineraryViewMode.customize),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ItineraryModeChip extends StatelessWidget {
+  const _ItineraryModeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: selected
+                ? const Color(0xFF0F172A)
+                : const Color(0xFF47617E),
+            fontWeight: FontWeight.w900,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadOnlyItineraryCard extends StatelessWidget {
+  const _ReadOnlyItineraryCard({
+    required this.label,
+    required this.description,
+    required this.items,
+    required this.sourceType,
+    required this.totalDurationLabel,
+  });
+
+  final String label;
+  final String description;
+  final List<_EditableItineraryStop> items;
+  final String sourceType;
+  final String totalDurationLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFDCE8F8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF2A86FF),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                totalDurationLabel,
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            description,
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...items.indexed.map(
+            (entry) => Padding(
+              padding: EdgeInsets.only(bottom: entry.$1 == items.length - 1 ? 0 : 12),
+              child: _ItineraryPreviewTile(
+                index: entry.$1 + 1,
+                item: entry.$2,
+                sourceType: sourceType,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditableItineraryCard extends StatelessWidget {
+  const _EditableItineraryCard({
+    required this.items,
+    required this.availableStopsCount,
+    required this.hasUnsavedChanges,
+    required this.currentDurationLabel,
+    required this.onPickArrival,
+    required this.onPickDeparture,
+    required this.onStayChanged,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.onRemove,
+    required this.onAddDestination,
+  });
+
+  final List<_EditableItineraryStop> items;
+  final int availableStopsCount;
+  final bool hasUnsavedChanges;
+  final String currentDurationLabel;
+  final ValueChanged<_EditableItineraryStop> onPickArrival;
+  final ValueChanged<_EditableItineraryStop> onPickDeparture;
+  final void Function(_EditableItineraryStop item, int minutes) onStayChanged;
+  final ValueChanged<int> onMoveUp;
+  final ValueChanged<int> onMoveDown;
+  final ValueChanged<int> onRemove;
+  final VoidCallback onAddDestination;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFDCE8F8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Customized Itinerary',
+                  style: TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onAddDestination,
+                icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+                label: Text(
+                  availableStopsCount > 0
+                      ? 'Add ($availableStopsCount)'
+                      : 'Add',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            hasUnsavedChanges
+                ? 'Your latest changes will be saved when you tap Confirm Booking.'
+                : 'Edit the order, time, and estimated stay for your preferred route.',
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Current estimated duration: $currentDurationLabel',
+            style: const TextStyle(
+              color: Color(0xFF2A86FF),
+              fontWeight: FontWeight.w900,
+              fontSize: 12.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...items.indexed.map(
+            (entry) => Padding(
+              padding: EdgeInsets.only(bottom: entry.$1 == items.length - 1 ? 0 : 14),
+              child: _EditableItineraryTile(
+                index: entry.$1,
+                item: entry.$2,
+                totalItems: items.length,
+                onPickArrival: () => onPickArrival(entry.$2),
+                onPickDeparture: () => onPickDeparture(entry.$2),
+                onStayChanged: (minutes) => onStayChanged(entry.$2, minutes),
+                onMoveUp: () => onMoveUp(entry.$1),
+                onMoveDown: () => onMoveDown(entry.$1),
+                onRemove: () => onRemove(entry.$1),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ItineraryPreviewTile extends StatelessWidget {
+  const _ItineraryPreviewTile({
+    required this.index,
+    required this.item,
+    required this.sourceType,
+  });
+
+  final int index;
+  final _EditableItineraryStop item;
+  final String sourceType;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2ECFA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '$index',
+                  style: const TextStyle(
+                    color: Color(0xFF2A86FF),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item.destinationName,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14.5,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: sourceType == 'customized'
+                      ? const Color(0xFFFFF7ED)
+                      : const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  sourceType == 'customized' ? 'Customized' : 'AI',
+                  style: TextStyle(
+                    color: sourceType == 'customized'
+                        ? const Color(0xFFEA580C)
+                        : const Color(0xFF2A86FF),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _itineraryTimingSummary(
+              arrivalTime: item.arrivalTime,
+              stayMinutes: item.stayMinutes,
+              departureTime: item.departureTime,
+            ),
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w800,
+              fontSize: 12.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditableItineraryTile extends StatelessWidget {
+  const _EditableItineraryTile({
+    required this.index,
+    required this.item,
+    required this.totalItems,
+    required this.onPickArrival,
+    required this.onPickDeparture,
+    required this.onStayChanged,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _EditableItineraryStop item;
+  final int totalItems;
+  final VoidCallback onPickArrival;
+  final VoidCallback onPickDeparture;
+  final ValueChanged<int> onStayChanged;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2ECFA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(
+                    color: Color(0xFF2A86FF),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item.destinationName,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14.5,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Move up',
+                onPressed: index == 0 ? null : onMoveUp,
+                icon: const Icon(Icons.keyboard_arrow_up_rounded),
+              ),
+              IconButton(
+                tooltip: 'Move down',
+                onPressed: index == totalItems - 1 ? null : onMoveDown,
+                icon: const Icon(Icons.keyboard_arrow_down_rounded),
+              ),
+              IconButton(
+                tooltip: 'Remove destination',
+                onPressed: onRemove,
+                icon: const Icon(Icons.remove_circle_outline_rounded),
+                color: const Color(0xFFDC2626),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _EditableTimeButton(
+                  label: 'Arrival',
+                  value: item.arrivalTime.isEmpty
+                      ? 'Set time'
+                      : formatScheduleTimeLabel(item.arrivalTime),
+                  onTap: onPickArrival,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _EditableTimeButton(
+                  label: 'Departure',
+                  value: item.departureTime.isEmpty
+                      ? 'Set time'
+                      : formatScheduleTimeLabel(item.departureTime),
+                  onTap: onPickDeparture,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            initialValue: '${item.stayMinutes}',
+            keyboardType: TextInputType.number,
+            onChanged: (value) {
+              final minutes = int.tryParse(value.trim());
+              if (minutes != null && minutes > 0) {
+                onStayChanged(minutes);
+              }
+            },
+            decoration: InputDecoration(
+              labelText: 'Estimated Stay (minutes)',
+              hintText: 'Enter estimated stay in minutes',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFFE7EEF7)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFFE7EEF7)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditableTimeButton extends StatelessWidget {
+  const _EditableTimeButton({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE7EEF7)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w800,
+                fontSize: 11.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Color(0xFF0F172A),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ============================================================================
 // Location picker card
 // ============================================================================
@@ -582,12 +1942,16 @@ class _LocationPickerCard extends StatefulWidget {
     required this.label,
     required this.onLocationSelected,
     this.showUseCurrentLocation = true,
+    this.showMapPreview = true,
+    this.errorText,
   });
 
   final String label;
   final bool showUseCurrentLocation;
+  final bool showMapPreview;
+  final String? errorText;
   final void Function(String? address, double? lat, double? lng)
-      onLocationSelected;
+  onLocationSelected;
 
   @override
   State<_LocationPickerCard> createState() => _LocationPickerCardState();
@@ -728,13 +2092,17 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
         desiredAccuracy: LocationAccuracy.high,
       );
       if (!mounted) return;
-      final address =
-          await _reverseGeocode(position.latitude, position.longitude);
+      final address = await _reverseGeocode(
+        position.latitude,
+        position.longitude,
+      );
       if (!mounted) return;
       _searchCtrl.text = address;
       _setLocation(address, position.latitude, position.longitude);
     } catch (_) {
-      if (mounted) _showError('Could not get current location. Please try again.');
+      if (mounted) {
+        _showError('Could not get current location. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _loadingLocation = false);
     }
@@ -869,26 +2237,26 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
                         ),
                       )
                     : _loadingSuggestions
-                        ? const Padding(
-                            padding: EdgeInsets.all(13),
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Color(0xFF94A3B8),
-                              ),
-                            ),
-                          )
-                        : _searchCtrl.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(
-                                  Icons.clear_rounded,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                                onPressed: _clearLocation,
-                              )
-                            : null,
+                    ? const Padding(
+                        padding: EdgeInsets.all(13),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      )
+                    : _searchCtrl.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(
+                          Icons.clear_rounded,
+                          color: Color(0xFF94A3B8),
+                        ),
+                        onPressed: _clearLocation,
+                      )
+                    : null,
                 filled: true,
                 fillColor: const Color(0xFFF8FAFF),
                 contentPadding: const EdgeInsets.symmetric(
@@ -946,9 +2314,7 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
                       decoration: BoxDecoration(
                         border: i < _suggestions.length - 1
                             ? const Border(
-                                bottom: BorderSide(
-                                  color: Color(0xFFEEF2F7),
-                                ),
+                                bottom: BorderSide(color: Color(0xFFEEF2F7)),
                               )
                             : null,
                       ),
@@ -1044,7 +2410,7 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
           ],
 
           // ── Map preview (static) ───────────────────────────────────────
-          if (hasLocation) ...[
+          if (hasLocation && widget.showMapPreview) ...[
             const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1109,9 +2475,315 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
             ),
           ],
 
+          if (widget.errorText != null && widget.errorText!.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                widget.errorText!,
+                style: const TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+
           const SizedBox(height: 14),
         ],
       ),
+    );
+  }
+}
+
+class _VerifiedPhilippineLocation {
+  const _VerifiedPhilippineLocation({
+    required this.address,
+    required this.latitude,
+    required this.longitude,
+    required this.province,
+    required this.locality,
+    required this.countryCode,
+  });
+
+  final String address;
+  final double latitude;
+  final double longitude;
+  final String province;
+  final String locality;
+  final String countryCode;
+}
+
+class _SharedRouteMapPreview extends StatefulWidget {
+  const _SharedRouteMapPreview({
+    required this.pickupAddress,
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.dropoffAddress,
+    required this.dropoffLat,
+    required this.dropoffLng,
+  });
+
+  final String? pickupAddress;
+  final double? pickupLat;
+  final double? pickupLng;
+  final String? dropoffAddress;
+  final double? dropoffLat;
+  final double? dropoffLng;
+
+  @override
+  State<_SharedRouteMapPreview> createState() => _SharedRouteMapPreviewState();
+}
+
+class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
+  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+
+  String? _polyline;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshRoute();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SharedRouteMapPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pickupLat != widget.pickupLat ||
+        oldWidget.pickupLng != widget.pickupLng ||
+        oldWidget.dropoffLat != widget.dropoffLat ||
+        oldWidget.dropoffLng != widget.dropoffLng) {
+      _refreshRoute();
+    }
+  }
+
+  Future<void> _refreshRoute() async {
+    if (widget.pickupLat == null ||
+        widget.pickupLng == null ||
+        widget.dropoffLat == null ||
+        widget.dropoffLng == null) {
+      if (mounted) {
+        setState(() {
+          _polyline = null;
+          _loading = false;
+        });
+      }
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/directions/json'
+        '?origin=${widget.pickupLat},${widget.pickupLng}'
+        '&destination=${widget.dropoffLat},${widget.dropoffLng}'
+        '&mode=driving'
+        '&key=$_apiKey',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final routes = (body['routes'] as List?) ?? const [];
+        if (routes.isNotEmpty) {
+          final first = Map<String, dynamic>.from(routes.first as Map);
+          final polyline =
+              dbString((first['overview_polyline'] as Map?)?['points']);
+          setState(() {
+            _polyline = polyline.isEmpty ? null : polyline;
+            _loading = false;
+          });
+          return;
+        }
+      }
+    } catch (_) {}
+    if (mounted) {
+      setState(() => _loading = false);
+    }
+  }
+
+  String _staticMapUrl() {
+    final params = StringBuffer(
+      'https://maps.googleapis.com/maps/api/staticmap?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
+    );
+    if (widget.pickupLat != null && widget.pickupLng != null) {
+      params.write(
+        '&markers=color:green%7Clabel:P%7C${widget.pickupLat},${widget.pickupLng}',
+      );
+    }
+    if (widget.dropoffLat != null && widget.dropoffLng != null) {
+      params.write(
+        '&markers=color:red%7Clabel:D%7C${widget.dropoffLat},${widget.dropoffLng}',
+      );
+    }
+    if (_polyline != null && _polyline!.isNotEmpty) {
+      params.write('&path=color:0x2A86FFcc%7Cweight:5%7Cenc:${_polyline!}');
+    } else if (widget.pickupLat != null &&
+        widget.pickupLng != null &&
+        widget.dropoffLat != null &&
+        widget.dropoffLng != null) {
+      params.write(
+        '&path=color:0x2A86FFcc%7Cweight:5%7C${widget.pickupLat},${widget.pickupLng}%7C${widget.dropoffLat},${widget.dropoffLng}',
+      );
+    }
+    return params.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAnyLocation = widget.pickupLat != null || widget.dropoffLat != null;
+    if (!hasAnyLocation) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE7EEF7)),
+        ),
+        child: const Text(
+          'Your shared pickup and drop-off map preview will appear here after you select both locations.',
+          style: TextStyle(
+            color: Color(0xFF64748B),
+            fontWeight: FontWeight.w700,
+            height: 1.4,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Pickup and Drop-off Map',
+            style: TextStyle(
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'One shared preview keeps both markers and the route in one place.',
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
+              children: [
+                Image.network(
+                  _staticMapUrl(),
+                  height: 220,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    height: 220,
+                    color: const Color(0xFFF1F5F9),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'Map preview unavailable',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                if (_loading)
+                  const Positioned.fill(
+                    child: ColoredBox(
+                      color: Color(0x33000000),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.4,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (widget.pickupAddress != null && widget.pickupAddress!.isNotEmpty)
+            _MapLegendRow(
+              color: const Color(0xFF16A34A),
+              label: 'Pickup',
+              value: widget.pickupAddress!,
+            ),
+          if (widget.dropoffAddress != null && widget.dropoffAddress!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _MapLegendRow(
+                color: const Color(0xFFDC2626),
+                label: 'Drop-off',
+                value: widget.dropoffAddress!,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapLegendRow extends StatelessWidget {
+  const _MapLegendRow({
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+
+  final Color color;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          margin: const EdgeInsets.only(top: 3),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$label: $value',
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1134,6 +2806,9 @@ class _BookingSummaryCard extends StatelessWidget {
     required this.remainingBalance,
     required this.amountToPayNow,
     required this.isCustomizedPrice,
+    required this.itinerarySourceLabel,
+    required this.estimatedTourDurationLabel,
+    required this.itineraryItems,
   });
 
   final bool hasDate;
@@ -1148,6 +2823,9 @@ class _BookingSummaryCard extends StatelessWidget {
   final double remainingBalance;
   final double amountToPayNow;
   final bool isCustomizedPrice;
+  final String itinerarySourceLabel;
+  final String estimatedTourDurationLabel;
+  final List<_EditableItineraryStop> itineraryItems;
 
   @override
   Widget build(BuildContext context) {
@@ -1184,14 +2862,18 @@ class _BookingSummaryCard extends StatelessWidget {
     }
 
     final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
-    final accent =
-        isSameDay ? const Color(0xFF16A34A) : const Color(0xFF2A86FF);
-    final accentLight =
-        isSameDay ? const Color(0xFFDCFCE7) : const Color(0xFFEAF2FF);
-    final accentBorder =
-        isSameDay ? const Color(0xFF86EFAC) : const Color(0xFFBBD7FF);
-    final cardBorder =
-        isSameDay ? const Color(0xFF86EFAC) : const Color(0xFFBBD7FF);
+    final accent = isSameDay
+        ? const Color(0xFF16A34A)
+        : const Color(0xFF2A86FF);
+    final accentLight = isSameDay
+        ? const Color(0xFFDCFCE7)
+        : const Color(0xFFEAF2FF);
+    final accentBorder = isSameDay
+        ? const Color(0xFF86EFAC)
+        : const Color(0xFFBBD7FF);
+    final cardBorder = isSameDay
+        ? const Color(0xFF86EFAC)
+        : const Color(0xFFBBD7FF);
 
     return Container(
       width: double.infinity,
@@ -1239,9 +2921,7 @@ class _BookingSummaryCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            isSameDay
-                                ? 'Same-day Booking'
-                                : 'Advanced Booking',
+                            isSameDay ? 'Same-day Booking' : 'Advanced Booking',
                             style: TextStyle(
                               color: accent,
                               fontWeight: FontWeight.w900,
@@ -1281,6 +2961,43 @@ class _BookingSummaryCard extends StatelessWidget {
                       color: Color(0xFF64748B),
                       fontWeight: FontWeight.w700,
                       fontSize: 12.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          const _Divider(),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _GroupLabel('ITINERARY'),
+                const SizedBox(height: 10),
+                _DetailRow(
+                  label: 'Selected Itinerary',
+                  value: itinerarySourceLabel,
+                  bold: true,
+                ),
+                const SizedBox(height: 6),
+                _DetailRow(
+                  label: 'Estimated Tour Duration',
+                  value: estimatedTourDurationLabel,
+                ),
+                if (itineraryItems.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ...itineraryItems.indexed.map(
+                    (entry) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: entry.$1 == itineraryItems.length - 1 ? 0 : 8,
+                      ),
+                      child: _SummaryItineraryRow(
+                        index: entry.$1 + 1,
+                        item: entry.$2,
+                      ),
                     ),
                   ),
                 ],
@@ -1430,6 +3147,56 @@ class _BookingSummaryCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryItineraryRow extends StatelessWidget {
+  const _SummaryItineraryRow({
+    required this.index,
+    required this.item,
+  });
+
+  final int index;
+  final _EditableItineraryStop item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2ECFA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$index. ${item.destinationName}',
+            style: const TextStyle(
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w900,
+              fontSize: 13.5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _itineraryTimingSummary(
+              arrivalTime: item.arrivalTime,
+              stayMinutes: item.stayMinutes,
+              departureTime: item.departureTime,
+            ),
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+              height: 1.4,
             ),
           ),
         ],
@@ -1884,8 +3651,10 @@ class _WalletPaymentCard extends StatelessWidget {
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 9,
+                ),
                 decoration: BoxDecoration(
                   color: _sufficient
                       ? const Color(0xFFDCFCE7)
@@ -1970,6 +3739,7 @@ class _BottomBar extends StatelessWidget {
     required this.amountToPayNow,
     required this.saving,
     required this.onConfirm,
+    this.spotError,
   });
 
   final bool hasDate;
@@ -1977,6 +3747,7 @@ class _BottomBar extends StatelessWidget {
   final double amountToPayNow;
   final bool saving;
   final VoidCallback onConfirm;
+  final String? spotError;
 
   @override
   Widget build(BuildContext context) {
@@ -1985,78 +3756,112 @@ class _BottomBar extends StatelessWidget {
     final label = !hasDate
         ? 'Amount to Pay'
         : isSameDay
-            ? 'Full Payment'
-            : 'Down Payment (50%)';
+        ? 'Full Payment'
+        : 'Down Payment (50%)';
+    final blocked = spotError != null;
 
-    return Container(
-      padding: EdgeInsets.fromLTRB(18, 12, 18, 12 + bottom),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 22,
-            offset: const Offset(0, -10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (blocked)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            color: const Color(0xFFFFF3CD),
+            child: Row(
               children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
+                const Icon(
+                  Icons.info_outline_rounded,
+                  color: Color(0xFFB45309),
+                  size: 18,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  money.format(amountToPayNow),
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    spotError!,
+                    style: const TextStyle(
+                      color: Color(0xFF92400E),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 14),
-          SizedBox(
-            width: 180,
-            height: 54,
-            child: ElevatedButton(
-              onPressed: saving ? null : onConfirm,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2A86FF),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: const Color(0xFFBBD7FF),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                textStyle:
-                    const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+        Container(
+          padding: EdgeInsets.fromLTRB(18, 12, 18, 12 + bottom),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.10),
+                blurRadius: 22,
+                offset: const Offset(0, -10),
               ),
-              child: saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Confirm Booking'),
-            ),
+            ],
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      money.format(amountToPayNow),
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              SizedBox(
+                width: 180,
+                height: 54,
+                child: ElevatedButton(
+                  onPressed: (saving || blocked) ? null : onConfirm,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2A86FF),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFFBBD7FF),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
+                  child: saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Confirm Booking'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2161,8 +3966,8 @@ class _RoundButton extends StatelessWidget {
           color: onTap == null
               ? const Color(0xFFCBD5E1)
               : filled
-                  ? Colors.white
-                  : const Color(0xFF0F172A),
+              ? Colors.white
+              : const Color(0xFF0F172A),
         ),
       ),
     );
@@ -2263,10 +4068,7 @@ class _ErrorView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                color: Color(0xFFDC2626),
-              ),
+              const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626)),
               const SizedBox(height: 12),
               Text(
                 message,

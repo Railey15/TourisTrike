@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import 'package:touristrike/screens/driver/driver_home_screen.dart';
+import 'package:touristrike/screens/driver/driver_messages_screen.dart';
 import 'package:touristrike/screens/driver/driver_package_jobs_screen.dart';
 import 'package:touristrike/screens/driver/driver_trips.dart';
 import 'package:touristrike/screens/driver/driver_wallet_screen.dart';
-import 'package:touristrike/screens/driver/profile/driver_profile.dart';
 
 class AppBottomNavDriver extends StatelessWidget {
-  /// 0: Home, 1: Tours, 2: Activity, 3: Wallet, 4: Profile
+  /// 0: Home, 1: Tours, 2: Activity, 3: Wallet, 4: Messages
   const AppBottomNavDriver({super.key, required this.currentIndex, this.onTap});
 
   final int currentIndex;
@@ -39,9 +39,7 @@ class AppBottomNavDriver extends StatelessWidget {
         );
         break;
       case 4:
-        page = DriverProfileScreen(
-          onBottomNavTap: (value) => _handleTap(context, value),
-        );
+        page = const DriverMessagesScreen();
         break;
       default:
         page = const DriverHomeScreen();
@@ -96,8 +94,8 @@ class AppBottomNavDriver extends StatelessWidget {
             onPressed: () => _handleTap(context, 3),
           ),
           _NavItem(
-            label: 'Profile',
-            icon: Icons.person_rounded,
+            label: 'Messages',
+            icon: Icons.chat_bubble_outline_rounded,
             isActive: currentIndex == 4,
             onPressed: () => _handleTap(context, 4),
           ),

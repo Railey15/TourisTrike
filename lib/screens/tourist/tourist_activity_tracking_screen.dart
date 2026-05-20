@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -9,6 +10,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ActivityTrackingScreen extends StatefulWidget {
   const ActivityTrackingScreen({super.key, required this.bookingId});
@@ -16,8 +19,7 @@ class ActivityTrackingScreen extends StatefulWidget {
   final String bookingId;
 
   @override
-  State<ActivityTrackingScreen> createState() =>
-      _ActivityTrackingScreenState();
+  State<ActivityTrackingScreen> createState() => _ActivityTrackingScreenState();
 }
 
 class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
@@ -29,7 +31,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   PackageActivity? _activity;
   PackageBooking? _booking;
   DriverInfo? _driverInfo;
-  List<CustomizedPackageSpot> _spots = [];
+  List<BookingItineraryItem> _spots = [];
+  List<EmergencyContactRecord> _emergencyContacts = [];
 
   bool _loading = true;
   String? _error;
@@ -63,7 +66,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     });
     try {
       final activity = await _repo.fetchActivityForBooking(widget.bookingId);
-      final spots = await _repo.fetchBookingSpots(widget.bookingId);
+      final spots = await _repo.fetchBookingItinerary(widget.bookingId);
+      final emergencyContacts = await _repo.fetchEmergencyContacts();
 
       PackageBooking? booking;
       DriverInfo? driverInfo;
@@ -80,6 +84,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         _booking = booking;
         _driverInfo = driverInfo;
         _spots = spots;
+        _emergencyContacts = emergencyContacts;
         _loading = false;
       });
 
@@ -161,14 +166,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
     // Spot markers
     for (var i = 0; i < _spots.length; i++) {
-      final spot = _spots[i];
-      if (spot.latitude == 0 && spot.longitude == 0) continue;
+          final spot = _spots[i];
+          if (spot.latitude == 0 && spot.longitude == 0) continue;
       final isCompleted = i < currentSpotIndex;
       final isCurrent = i == currentSpotIndex;
       markers.add(
         Marker(
           markerId: MarkerId('spot_$i'),
-          position: LatLng(spot.latitude, spot.longitude),
+            position: LatLng(spot.latitude, spot.longitude),
           icon: BitmapDescriptor.defaultMarkerWithHue(
             isCompleted
                 ? BitmapDescriptor.hueGreen
@@ -177,8 +182,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                 : BitmapDescriptor.hueAzure,
           ),
           infoWindow: InfoWindow(
-            title: 'Stop ${i + 1}: ${spot.spotTitle}',
-            snippet: spot.spotAddress,
+            title: 'Stop ${i + 1}: ${spot.destinationName}',
+            snippet: spot.destinationAddress,
           ),
         ),
       );
@@ -218,25 +223,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       // Driver going to pickup
       if (activity.driverLatitude != null && booking.pickupLatitude != null) {
         origin = LatLng(activity.driverLatitude!, activity.driverLongitude!);
-        destination =
-            LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
+        destination = LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
       }
     } else if (ts == 'driver_arrived') {
       if (activity.driverLatitude != null && booking.pickupLatitude != null) {
         origin = LatLng(activity.driverLatitude!, activity.driverLongitude!);
-        destination =
-            LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
+        destination = LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
       }
     } else if (ts == 'picked_up' || ts == 'en_route_to_spot') {
       // Going to the current spot
       final idx = activity.currentSpotIndex;
       if (idx < _spots.length) {
         if (activity.driverLatitude != null) {
-          origin =
-              LatLng(activity.driverLatitude!, activity.driverLongitude!);
+          origin = LatLng(activity.driverLatitude!, activity.driverLongitude!);
         } else if (booking.pickupLatitude != null) {
-          origin =
-              LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
+          origin = LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
         }
         destination = LatLng(_spots[idx].latitude, _spots[idx].longitude);
       }
@@ -250,14 +251,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       // Going to drop-off
       if (booking.dropoffLatitude != null) {
         if (activity.driverLatitude != null) {
-          origin =
-              LatLng(activity.driverLatitude!, activity.driverLongitude!);
+          origin = LatLng(activity.driverLatitude!, activity.driverLongitude!);
         } else if (_spots.isNotEmpty) {
           final last = _spots.last;
           origin = LatLng(last.latitude, last.longitude);
         }
-        destination =
-            LatLng(booking.dropoffLatitude!, booking.dropoffLongitude!);
+        destination = LatLng(
+          booking.dropoffLatitude!,
+          booking.dropoffLongitude!,
+        );
       }
     }
 
@@ -422,6 +424,100 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   };
 
   // ── Build ────────────────────────────────────────────────────
+  EmergencyContactRecord? get _primaryEmergencyContact =>
+      _emergencyContacts.isEmpty ? null : _emergencyContacts.first;
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Future<void> _launchPhone(String phone) async {
+    final normalized = phone.trim();
+    if (normalized.isEmpty) return;
+    final uri = Uri.parse('tel:$normalized');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  Future<void> _launchSms(String phone, {String body = ''}) async {
+    final normalized = phone.trim();
+    if (normalized.isEmpty) return;
+    final uri = Uri.parse(
+      body.trim().isEmpty
+          ? 'sms:$normalized'
+          : 'sms:$normalized?body=${Uri.encodeComponent(body)}',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  Future<void> _shareLiveLocation() async {
+    final contact = _primaryEmergencyContact;
+    if (contact == null) {
+      _showSnack('Add an emergency contact first.');
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      final mapsLink =
+          'https://maps.google.com/?q=${position.latitude},${position.longitude}';
+      await _launchSms(
+        contact.phoneNumber,
+        body:
+            'TourisTrike emergency location update: '
+            '${position.latitude.toStringAsFixed(6)}, '
+            '${position.longitude.toStringAsFixed(6)}\n$mapsLink',
+      );
+    } catch (_) {
+      _showSnack('Unable to get your current location right now.');
+    }
+  }
+
+  Future<void> _openDriverChat() async {
+    final booking = _booking;
+    final driverId = booking?.assignedDriverId ?? _activity?.driverId ?? '';
+    if (driverId.isEmpty) {
+      _showSnack('Driver has not accepted the tour yet.');
+      return;
+    }
+
+    try {
+      final conversation = await _repo.getOrCreateConversation(
+        touristId: booking?.touristId.isNotEmpty == true
+            ? booking!.touristId
+            : _repo.requireUserId(),
+        driverId: driverId,
+        bookingId: booking?.id,
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TouristChatScreen(
+            conversationId: conversation['id'].toString(),
+            driverId: driverId,
+            driverName: _driverInfo?.name ?? 'Driver',
+            driverPhone: _driverInfo?.phoneNumber ?? '',
+            driverAvatar: _driverInfo?.profile?.avatarUrl.isNotEmpty == true
+                ? _driverInfo!.profile!.avatarUrl
+                : _driverInfo?.profile?.profileImageUrl ?? '',
+          ),
+        ),
+      );
+    } catch (error) {
+      final message = error is StateError
+          ? error.toString().replaceFirst('Bad state: ', '')
+          : 'Unable to chat right now.';
+      _showSnack(message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -433,11 +529,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                 child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
               )
             : _error != null
-                ? _ErrorView(
-                    message: _error!,
-                    onRetry: _load,
-                  )
-                : _buildContent(),
+            ? _ErrorView(message: _error!, onRetry: _load)
+            : _buildContent(),
       ),
     );
   }
@@ -449,7 +542,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
 
     final tourStatus = activity?.tourStatus ?? 'waiting_driver';
-    final statusData = _statusInfo[tourStatus] ??
+    final statusData =
+        _statusInfo[tourStatus] ??
         (
           tourStatus.replaceAll('_', ' ').toUpperCase(),
           '',
@@ -459,8 +553,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final (statusLabel, statusDesc, statusColor, statusIcon) = statusData;
 
     // Booking details from bookingRow
-    final bookingType =
-        dbString(booking?.row['booking_type'], fallback: 'advanced');
+    final bookingType = dbString(
+      booking?.row['booking_type'],
+      fallback: 'advanced',
+    );
     final travelDate = booking?.travelDate;
     final adults = booking?.row['adults'] is int
         ? booking!.row['adults'] as int
@@ -496,10 +592,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                   ),
                 ),
               ),
-              _CircleBtn(
-                icon: Icons.refresh_rounded,
-                onTap: _load,
-              ),
+              _CircleBtn(icon: Icons.refresh_rounded, onTap: _load),
             ],
           ),
         ),
@@ -516,6 +609,20 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                   label: statusLabel,
                   description: statusDesc,
                   color: statusColor,
+                ),
+                const SizedBox(height: 16),
+                _EmergencyShortcutCard(
+                  contact: _primaryEmergencyContact,
+                  onCall: _primaryEmergencyContact == null
+                      ? null
+                      : () =>
+                            _launchPhone(_primaryEmergencyContact!.phoneNumber),
+                  onText: _primaryEmergencyContact == null
+                      ? null
+                      : () => _launchSms(_primaryEmergencyContact!.phoneNumber),
+                  onShareLocation: _primaryEmergencyContact == null
+                      ? null
+                      : _shareLiveLocation,
                 ),
                 const SizedBox(height: 16),
 
@@ -576,12 +683,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                               ),
                               if (driverPhone.isNotEmpty) ...[
                                 const SizedBox(height: 3),
-                                Text(
-                                  driverPhone,
-                                  style: const TextStyle(
-                                    color: Color(0xFF64748B),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
+                                InkWell(
+                                  onTap: () => _launchPhone(driverPhone),
+                                  child: Text(
+                                    driverPhone,
+                                    style: const TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -599,9 +709,27 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                             ],
                           ),
                         ),
-                        const Icon(
-                          Icons.electric_rickshaw_rounded,
-                          color: Color(0xFF2A86FF),
+                        Column(
+                          children: [
+                            IconButton(
+                              onPressed: driverPhone.isEmpty
+                                  ? null
+                                  : () => _launchPhone(driverPhone),
+                              tooltip: 'Call driver',
+                              icon: const Icon(
+                                Icons.phone_rounded,
+                                color: Color(0xFF16A34A),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: _openDriverChat,
+                              tooltip: 'Message driver',
+                              icon: const Icon(
+                                Icons.chat_bubble_outline_rounded,
+                                color: Color(0xFF2A86FF),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -631,7 +759,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                       const SizedBox(height: 8),
                       _DetailRow(
                         label: 'Participants',
-                        value: '$adults adult${adults != 1 ? 's' : ''}'
+                        value:
+                            '$adults adult${adults != 1 ? 's' : ''}'
                             '${children > 0 ? ', $children child${children != 1 ? 'ren' : ''}' : ''}',
                       ),
                       const SizedBox(height: 8),
@@ -650,10 +779,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                       ],
                       if (vehicleDetails.isNotEmpty) ...[
                         const SizedBox(height: 8),
-                        _DetailRow(
-                          label: 'Vehicle',
-                          value: vehicleDetails,
-                        ),
+                        _DetailRow(label: 'Vehicle', value: vehicleDetails),
                       ],
                     ],
                   ),
@@ -695,23 +821,25 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
                 // ── Tour Spots ────────────────────────────────
                 if (_spots.isNotEmpty) ...[
-                  _SectionLabel('Tour Stops (${_spots.length})'),
+                  _SectionLabel('Tour Itinerary (${_spots.length})'),
                   const SizedBox(height: 8),
                   _InfoCard(
                     child: Column(
                       children: _spots.asMap().entries.map((entry) {
                         final idx = entry.key;
                         final spot = entry.value;
-                        final isCurrent = activity != null &&
+                        final isCurrent =
+                            activity != null &&
                             activity.currentSpotIndex == idx &&
                             (activity.tourStatus == 'picked_up' ||
                                 activity.tourStatus == 'en_route_to_spot' ||
                                 activity.tourStatus == 'at_spot');
-                        final isDone = activity != null &&
-                            idx < activity.currentSpotIndex;
+                        final isDone =
+                            activity != null && idx < activity.currentSpotIndex;
                         return _SpotRow(
                           index: idx + 1,
-                          title: spot.spotTitle,
+                          title: spot.destinationName,
+                          subtitle: _bookingItinerarySummary(spot),
                           isCurrent: isCurrent,
                           isDone: isDone,
                           isLast: idx == _spots.length - 1,
@@ -794,6 +922,161 @@ class _StatusCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmergencyShortcutCard extends StatelessWidget {
+  const _EmergencyShortcutCard({
+    required this.contact,
+    required this.onCall,
+    required this.onText,
+    required this.onShareLocation,
+  });
+
+  final EmergencyContactRecord? contact;
+  final VoidCallback? onCall;
+  final VoidCallback? onText;
+  final VoidCallback? onShareLocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasContact = contact != null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFF7ED), Color(0xFFFFFBEB)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEDD5),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.emergency_share_rounded,
+                  color: Color(0xFFEA580C),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Emergency Shortcuts',
+                      style: TextStyle(
+                        color: Color(0xFF9A3412),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasContact
+                          ? 'Quick access for ${contact!.name}'
+                          : 'Add an emergency contact in your profile to enable this.',
+                      style: const TextStyle(
+                        color: Color(0xFF9A3412),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _EmergencyActionButton(
+                  icon: Icons.call_rounded,
+                  label: 'Call',
+                  onTap: onCall,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _EmergencyActionButton(
+                  icon: Icons.sms_rounded,
+                  label: 'Text',
+                  onTap: onText,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _EmergencyActionButton(
+                  icon: Icons.my_location_rounded,
+                  label: 'Share',
+                  onTap: onShareLocation,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyActionButton extends StatelessWidget {
+  const _EmergencyActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: onTap == null ? const Color(0xFFFDE7D8) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFED7AA)),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              color: onTap == null
+                  ? const Color(0xFFF59E0B)
+                  : const Color(0xFFEA580C),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: onTap == null
+                    ? const Color(0xFFC2410C)
+                    : const Color(0xFF9A3412),
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -936,6 +1219,7 @@ class _SpotRow extends StatelessWidget {
   const _SpotRow({
     required this.index,
     required this.title,
+    required this.subtitle,
     required this.isCurrent,
     required this.isDone,
     required this.isLast,
@@ -943,6 +1227,7 @@ class _SpotRow extends StatelessWidget {
 
   final int index;
   final String title;
+  final String subtitle;
   final bool isCurrent;
   final bool isDone;
   final bool isLast;
@@ -952,8 +1237,8 @@ class _SpotRow extends StatelessWidget {
     final color = isDone
         ? const Color(0xFF16A34A)
         : isCurrent
-            ? const Color(0xFF2A86FF)
-            : const Color(0xFFCBD5E1);
+        ? const Color(0xFF2A86FF)
+        : const Color(0xFFCBD5E1);
 
     return Column(
       children: [
@@ -982,24 +1267,39 @@ class _SpotRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: isDone
-                      ? const Color(0xFF94A3B8)
-                      : isCurrent
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: isDone
+                          ? const Color(0xFF94A3B8)
+                          : isCurrent
                           ? const Color(0xFF0F172A)
                           : const Color(0xFF64748B),
-                  fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w700,
-                  fontSize: 13.5,
-                  decoration: isDone ? TextDecoration.lineThrough : null,
-                ),
+                      fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w700,
+                      fontSize: 13.5,
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             if (isCurrent)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEAF2FF),
                   borderRadius: BorderRadius.circular(99),
@@ -1083,13 +1383,73 @@ class _ErrorView extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: onRetry,
-              child: const Text('Retry'),
-            ),
+            ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),
     );
   }
+}
+
+// ignore: unused_element
+String _spotScheduleSummary(CustomizedPackageSpot spot) {
+  final duration = spot.estimatedDurationMinutes > 0
+      ? spot.estimatedDurationMinutes
+      : spot.recommendedVisitDurationMinutes;
+  final parts = <String>[];
+  if (spot.estimatedArrivalTime.isNotEmpty) {
+    parts.add('Arrival ${_formatScheduleTime(spot.estimatedArrivalTime)}');
+  }
+  if (duration > 0) {
+    parts.add('Stay ${duration}m');
+  }
+  if (spot.estimatedArrivalTime.isNotEmpty && duration > 0) {
+    final departure = _addMinutesToTime(spot.estimatedArrivalTime, duration);
+    if (departure.isNotEmpty) {
+      parts.add('Departure $departure');
+    }
+  }
+  return parts.join(' • ');
+}
+
+String _formatScheduleTime(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '';
+  final match = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?$').firstMatch(trimmed);
+  if (match == null) return trimmed;
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  final period = hour >= 12 ? 'PM' : 'AM';
+  final normalizedHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+  return '$normalizedHour:${minute.toString().padLeft(2, '0')} $period';
+}
+
+String _addMinutesToTime(String value, int minutesToAdd) {
+  final match = RegExp(
+    r'^(\d{1,2}):(\d{2})(?::\d{2})?$',
+  ).firstMatch(value.trim());
+  if (match == null) return '';
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  final total = (hour * 60) + minute + minutesToAdd;
+  final normalized = ((total % (24 * 60)) + (24 * 60)) % (24 * 60);
+  final newHour = normalized ~/ 60;
+  final newMinute = normalized % 60;
+  return _formatScheduleTime(
+    '${newHour.toString().padLeft(2, '0')}:${newMinute.toString().padLeft(2, '0')}:00',
+  );
+}
+
+String _bookingItinerarySummary(BookingItineraryItem spot) {
+  final parts = <String>[];
+  if (spot.arrivalTime.isNotEmpty) {
+    parts.add('Arrival ${formatScheduleTimeLabel(spot.arrivalTime)}');
+  }
+  if (spot.estimatedStayDurationMinutes > 0) {
+    parts.add('Stay ${spot.estimatedStayDurationMinutes}m');
+  }
+  if (spot.departureTime.isNotEmpty) {
+    parts.add('Departure ${formatScheduleTimeLabel(spot.departureTime)}');
+  }
+  return parts.join(' • ');
 }

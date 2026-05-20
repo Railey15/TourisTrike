@@ -8,12 +8,14 @@ class TourisTrikeTables {
   static const adminSettings = 'admin_settings';
   static const auditLogs = 'audit_logs';
   static const bookingDriverAssignments = 'booking_driver_assignments';
+  static const bookingItineraryItems = 'booking_itinerary_items';
   static const cityAnnouncements = 'city_announcements';
   static const customizedPackageSpots = 'customized_package_spots';
   static const cityTenantRegistrations = 'city_tenant_registrations';
   static const driverApplications = 'driver_applications';
   static const driverDetails = 'driver_details';
   static const driverDocuments = 'driver_documents';
+  static const emergencyContacts = 'emergency_contacts';
   static const notifications = 'notifications';
   static const packageBookings = 'package_bookings';
   static const packageActivities = 'package_activities';
@@ -33,11 +35,16 @@ class TourisTrikeTables {
   static const touristSpotImages = 'tourist_spot_images';
   static const touristSpotViews = 'tourist_spot_views';
   static const touristSpots = 'tourist_spots';
+  static const conversations = 'conversations';
+  static const messages = 'messages';
   static const wallets = 'wallets';
   static const walletTransactions = 'wallet_transactions';
 }
 
 class TourisTrikeRepository {
+  static const activeTourErrorMessage =
+      'You already have an active tour. Please complete or cancel it before booking another package.';
+
   TourisTrikeRepository({SupabaseClient? client})
     : _client = client ?? Supabase.instance.client;
 
@@ -147,6 +154,59 @@ class TourisTrikeRepository {
     return row == null ? null : Profile(row);
   }
 
+  Future<List<EmergencyContactRecord>> fetchEmergencyContacts({
+    int limit = 10,
+  }) async {
+    final rows = await fetchRows(
+      TourisTrikeTables.emergencyContacts,
+      equals: {'tourist_id': requireUserId()},
+      orderBy: 'created_at',
+      ascending: true,
+      limit: limit,
+    );
+    return rows.map(EmergencyContactRecord.new).toList(growable: false);
+  }
+
+  Future<EmergencyContactRecord> saveEmergencyContact({
+    dynamic contactId,
+    required String name,
+    required String phoneNumber,
+    String relationship = '',
+  }) async {
+    final values = {
+      'tourist_id': requireUserId(),
+      'name': name.trim(),
+      'phone_number': phoneNumber.trim(),
+      'relationship': relationship.trim(),
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+    if (contactId == null) {
+      return EmergencyContactRecord(
+        await insertRow(TourisTrikeTables.emergencyContacts, values),
+      );
+    }
+    await updateRows(
+      TourisTrikeTables.emergencyContacts,
+      values,
+      equals: {'id': contactId, 'tourist_id': requireUserId()},
+    );
+    final row = await fetchOne(
+      TourisTrikeTables.emergencyContacts,
+      equals: {'id': contactId, 'tourist_id': requireUserId()},
+    );
+    if (row == null) {
+      throw StateError('Emergency contact was not found after saving.');
+    }
+    return EmergencyContactRecord(row);
+  }
+
+  Future<void> deleteEmergencyContact(dynamic contactId) async {
+    await deleteRows(
+      TourisTrikeTables.emergencyContacts,
+      equals: {'id': contactId, 'tourist_id': requireUserId()},
+    );
+  }
+
   Future<DriverInfo?> fetchDriverInfo(String driverId) async {
     if (driverId.trim().isEmpty) return null;
     final results = await Future.wait([
@@ -159,7 +219,9 @@ class TourisTrikeRepository {
     return DriverInfo(profile: profile, details: details);
   }
 
-  Future<Map<String, DriverInfo>> fetchDriverInfos(Iterable<String> driverIds) async {
+  Future<Map<String, DriverInfo>> fetchDriverInfos(
+    Iterable<String> driverIds,
+  ) async {
     final ids = driverIds
         .map((id) => id.trim())
         .where((id) => id.isNotEmpty)
@@ -177,8 +239,7 @@ class TourisTrikeRepository {
         .inFilter('driver_id', ids);
 
     final profiles = {
-      for (final row in _rows(profileRows))
-        dbString(row['id']): Profile(row),
+      for (final row in _rows(profileRows)) dbString(row['id']): Profile(row),
     };
     final details = {
       for (final row in _rows(detailsRows))
@@ -314,11 +375,28 @@ class TourisTrikeRepository {
   Future<List<TouristSpot>> fetchPackageSpots(dynamic packageId) async {
     final rows = await _client
         .from(TourisTrikeTables.tourPackageSpots)
-        .select('sort_order, tourist_spots(*)')
+        .select(
+          'sort_order, opening_time, closing_time, estimated_arrival_time, '
+          'estimated_duration_minutes, recommended_visit_duration_minutes, '
+          'tourist_spots(*)',
+        )
         .eq('package_id', packageId)
         .order('sort_order');
     return _rows(rows)
-        .map((row) => row['tourist_spots'])
+        .map((row) {
+          final nested = row['tourist_spots'];
+          if (nested is! Map) return null;
+          return Json.from({
+            ...Map<String, dynamic>.from(nested),
+            'sort_order': row['sort_order'],
+            'opening_time': row['opening_time'],
+            'closing_time': row['closing_time'],
+            'estimated_arrival_time': row['estimated_arrival_time'],
+            'estimated_duration_minutes': row['estimated_duration_minutes'],
+            'recommended_visit_duration_minutes':
+                row['recommended_visit_duration_minutes'],
+          });
+        })
         .whereType<Map>()
         .map((row) => TouristSpot(Json.from(row)))
         .toList(growable: false);
@@ -344,12 +422,24 @@ class TourisTrikeRepository {
     String pickupAddress = '',
     double? pickupLatitude,
     double? pickupLongitude,
+    String pickupProvince = '',
+    String pickupLocality = '',
+    String pickupCountryCode = 'PH',
     String dropoffAddress = '',
     double? dropoffLatitude,
     double? dropoffLongitude,
+    String dropoffProvince = '',
+    String dropoffLocality = '',
+    String dropoffCountryCode = 'PH',
     String notes = '',
     List<Json> customizedSpots = const [],
+    List<Json> itineraryItems = const [],
   }) async {
+    final hasActive = await hasActiveTour();
+    if (hasActive) {
+      throw StateError(activeTourErrorMessage);
+    }
+
     final row = await insertRow(TourisTrikeTables.packageBookings, {
       'package_id': packageId,
       'tourist_id': requireUserId(),
@@ -362,12 +452,26 @@ class TourisTrikeRepository {
       'downpayment_amount': downpaymentAmount,
       'remaining_balance': remainingBalance,
       'booking_type': bookingType,
-      'pickup_address': pickupAddress.trim().isEmpty ? null : pickupAddress.trim(),
+      'pickup_address': pickupAddress.trim().isEmpty
+          ? null
+          : pickupAddress.trim(),
       'pickup_latitude': pickupLatitude,
       'pickup_longitude': pickupLongitude,
-      'dropoff_address': dropoffAddress.trim().isEmpty ? null : dropoffAddress.trim(),
+      'pickup_province': pickupProvince.trim().isEmpty ? null : pickupProvince.trim(),
+      'pickup_locality': pickupLocality.trim().isEmpty ? null : pickupLocality.trim(),
+      'pickup_country_code': pickupCountryCode.trim().isEmpty
+          ? null
+          : pickupCountryCode.trim(),
+      'dropoff_address': dropoffAddress.trim().isEmpty
+          ? null
+          : dropoffAddress.trim(),
       'dropoff_latitude': dropoffLatitude,
       'dropoff_longitude': dropoffLongitude,
+      'dropoff_province': dropoffProvince.trim().isEmpty ? null : dropoffProvince.trim(),
+      'dropoff_locality': dropoffLocality.trim().isEmpty ? null : dropoffLocality.trim(),
+      'dropoff_country_code': dropoffCountryCode.trim().isEmpty
+          ? null
+          : dropoffCountryCode.trim(),
       'status': 'pending',
     });
     if (customizedSpots.isNotEmpty) {
@@ -375,6 +479,12 @@ class TourisTrikeRepository {
         bookingId: row['id'],
         packageId: packageId,
         rows: customizedSpots,
+      );
+    }
+    if (itineraryItems.isNotEmpty) {
+      await replaceBookingItinerary(
+        bookingId: row['id'],
+        items: itineraryItems,
       );
     }
     // Auto-create the activity record so the tourist can track the booking
@@ -391,6 +501,51 @@ class TourisTrikeRepository {
       // Non-fatal: admin can create the activity manually if this fails
     }
     return PackageBooking(row);
+  }
+
+  Future<void> replaceBookingItinerary({
+    required dynamic bookingId,
+    required List<Json> items,
+  }) async {
+    final touristId = requireUserId();
+    await deleteRows(
+      TourisTrikeTables.bookingItineraryItems,
+      equals: {'booking_id': bookingId},
+    );
+    if (items.isEmpty) return;
+
+    final payload = items.indexed
+        .map(
+          (entry) {
+            final index = entry.$1;
+            final row = entry.$2;
+            return <String, dynamic>{
+              'booking_id': bookingId,
+              'tourist_id': touristId,
+              'spot_id': row['spot_id'],
+              'destination_name': row['destination_name'],
+              'destination_address': row['destination_address'],
+              'order_number': row['order_number'] ?? row['destination_order'] ?? index + 1,
+              'destination_order': row['destination_order'] ?? index + 1,
+              'arrival_time': row['arrival_time'],
+              'estimated_stay_duration_minutes':
+                  row['estimated_stay_duration_minutes'],
+              'departure_time': row['departure_time'],
+              'activity_note': row['activity_note'],
+              'itinerary_source': row['itinerary_source'] ?? row['source_type'],
+              'source_type': row['source_type'],
+              'google_place_id': row['google_place_id'],
+              'municipality': row['municipality'],
+              'barangay': row['barangay'],
+              'latitude': row['latitude'],
+              'longitude': row['longitude'],
+              'image_url': row['image_url'],
+            }..removeWhere((_, value) => value == null);
+          },
+        )
+        .toList(growable: false);
+
+    await _client.from(TourisTrikeTables.bookingItineraryItems).insert(payload);
   }
 
   Future<void> _trySaveCustomizedPackageSpots({
@@ -418,6 +573,12 @@ class TourisTrikeRepository {
             'image_url': row['image_url'],
             'additional_fee': row['additional_fee'],
             'sort_order': row['sort_order'],
+            'opening_time': row['opening_time'],
+            'closing_time': row['closing_time'],
+            'estimated_arrival_time': row['estimated_arrival_time'],
+            'estimated_duration_minutes': row['estimated_duration_minutes'],
+            'recommended_visit_duration_minutes':
+                row['recommended_visit_duration_minutes'],
           }..removeWhere((_, value) => value == null),
         )
         .toList(growable: false);
@@ -452,6 +613,30 @@ class TourisTrikeRepository {
         .eq('id', bookingId)
         .maybeSingle();
     return row == null ? null : PackageBooking(Json.from(row));
+  }
+
+  Future<List<BookingItineraryItem>> fetchBookingItinerary(
+    String bookingId,
+  ) async {
+    final booking = await fetchPackageBooking(bookingId);
+    if (booking == null) return const [];
+    try {
+      final rows = await _client
+          .from(TourisTrikeTables.bookingItineraryItems)
+          .select()
+          .eq('booking_id', bookingId)
+          .order('destination_order');
+      final saved = _rows(rows)
+          .map(BookingItineraryItem.new)
+          .toList(growable: false);
+      if (saved.isNotEmpty) return saved;
+    } on PostgrestException {
+      // Fall back to the legacy booking spots snapshot when the new
+      // itinerary table has not been migrated yet.
+    }
+
+    final spots = await fetchBookingSpots(bookingId);
+    return _buildFallbackItinerary(booking, spots);
   }
 
   Future<PaymentRecord> createPayment({
@@ -731,10 +916,10 @@ class TourisTrikeRepository {
   // ── WALLET ──────────────────────────────────────────────────
 
   Future<Wallet> fetchOrCreateWallet({String role = 'tourist'}) async {
-    final result = await _client.rpc('get_or_create_wallet', params: {
-      'p_user_id': requireUserId(),
-      'p_role': role,
-    });
+    final result = await _client.rpc(
+      'get_or_create_wallet',
+      params: {'p_user_id': requireUserId(), 'p_role': role},
+    );
     if (result is Map) return Wallet(Json.from(result));
     if (result is List && result.isNotEmpty) {
       return Wallet(Json.from(result.first as Map));
@@ -761,17 +946,94 @@ class TourisTrikeRepository {
   Future<Map<String, dynamic>> cashIn({
     required double amount,
     required String paymentMethod,
+    String role = 'tourist',
   }) async {
     final response = await _client.functions.invoke(
       'wallet-cash-in',
-      body: {'amount': amount, 'payment_method': paymentMethod},
+      body: {'amount': amount, 'payment_method': paymentMethod, 'role': role},
     );
     if (response.status != 200) {
-      final msg =
-          response.data is Map ? response.data['error'] ?? 'Cash in failed' : 'Cash in failed';
+      final msg = response.data is Map
+          ? response.data['error'] ?? 'Cash in failed'
+          : 'Cash in failed';
       throw Exception(msg);
     }
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<bool> hasActiveTour({String? touristId}) async {
+    final userId = touristId ?? requireUserId();
+
+    try {
+      final result = await _client.rpc(
+        'has_active_tour',
+        params: {'p_tourist_id': userId},
+      );
+      if (result is bool) return result;
+      if (result is List && result.isNotEmpty) {
+        final first = result.first;
+        if (first is bool) return first;
+        if (first is Map && first['has_active_tour'] is bool) {
+          return first['has_active_tour'] as bool;
+        }
+      }
+      if (result is Map && result['has_active_tour'] is bool) {
+        return result['has_active_tour'] as bool;
+      }
+    } on PostgrestException {
+      // Fall back to direct table checks when the RPC migration
+      // has not been applied yet.
+    }
+
+    return _hasActiveTourFallback(userId);
+  }
+
+  Future<bool> _hasActiveTourFallback(String touristId) async {
+    final bookingRows = await _client
+        .from(TourisTrikeTables.packageBookings)
+        .select('id, status, booking_status')
+        .eq('tourist_id', touristId)
+        .order('created_at', ascending: false)
+        .limit(25);
+    final bookings = _rows(bookingRows);
+    for (final row in bookings) {
+      if (_isActiveTourStatus(row['status']) ||
+          _isActiveTourStatus(row['booking_status'])) {
+        return true;
+      }
+    }
+
+    final activityRows = await _client
+        .from(TourisTrikeTables.packageActivities)
+        .select('id, status, tour_status')
+        .eq('tourist_id', touristId)
+        .order('created_at', ascending: false)
+        .limit(25);
+    final activities = _rows(activityRows);
+    for (final row in activities) {
+      if (_isActiveTourStatus(row['status']) ||
+          _isActiveTourStatus(row['tour_status'])) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _isActiveTourStatus(dynamic raw) {
+    final value = dbString(raw).trim().toLowerCase();
+    return switch (value) {
+      'pending' => true,
+      'confirmed' => true,
+      'accepted' => true,
+      'driver_on_the_way' => true,
+      'arrived' => true,
+      'picked_up' => true,
+      'tour_started' => true,
+      'ongoing' => true,
+      'in_progress' => true,
+      _ => false,
+    };
   }
 
   // ── PACKAGE ACTIVITIES ───────────────────────────────────────
@@ -867,36 +1129,138 @@ class TourisTrikeRepository {
         .eq('booking_id', bookingId)
         .inFilter('action_type', ['kept', 'added'])
         .order('sort_order');
-    final customized = _rows(rows)
-        .map(CustomizedPackageSpot.new)
-        .toList(growable: false);
+    final customized = _rows(
+      rows,
+    ).map(CustomizedPackageSpot.new).toList(growable: false);
     if (customized.isNotEmpty) return customized;
 
     final booking = await fetchPackageBooking(bookingId);
     if (booking == null) return const [];
     final packageSpots = await fetchPackageSpots(booking.packageId);
-    return packageSpots.indexed.map((entry) {
+    return packageSpots.indexed
+        .map((entry) {
+          final index = entry.$1;
+          final spot = entry.$2;
+          return CustomizedPackageSpot({
+            'booking_id': booking.id,
+            'tourist_id': booking.touristId,
+            'package_id': booking.packageId,
+            'spot_id': spot.id,
+            'action_type': 'kept',
+            'source_type': spot.sourceType,
+            'google_place_id': spot.googlePlaceId,
+            'spot_title': spot.title,
+            'spot_address': spot.address,
+            'municipality': spot.municipality,
+            'barangay': spot.barangay,
+            'latitude': spot.latitude,
+            'longitude': spot.longitude,
+            'image_url': spot.imageUrl,
+            'additional_fee': 0,
+            'sort_order': index,
+            'opening_time': spot.openingTime.isEmpty ? null : spot.openingTime,
+            'closing_time': spot.closingTime.isEmpty ? null : spot.closingTime,
+            'estimated_arrival_time': spot.estimatedArrivalTime.isEmpty
+                ? null
+                : spot.estimatedArrivalTime,
+            'estimated_duration_minutes': spot.estimatedDurationMinutes > 0
+                ? spot.estimatedDurationMinutes
+                : null,
+            'recommended_visit_duration_minutes':
+                spot.recommendedVisitDurationMinutes > 0
+                ? spot.recommendedVisitDurationMinutes
+                : null,
+          });
+        })
+        .toList(growable: false);
+  }
+
+  List<BookingItineraryItem> _buildFallbackItinerary(
+    PackageBooking booking,
+    List<CustomizedPackageSpot> spots,
+  ) {
+    if (spots.isEmpty) return const [];
+
+    var nextArrival = '09:00:00';
+    return spots.indexed.map((entry) {
       final index = entry.$1;
       final spot = entry.$2;
-      return CustomizedPackageSpot({
+      final arrival = spot.estimatedArrivalTime.isNotEmpty
+          ? spot.estimatedArrivalTime
+          : nextArrival;
+      final stayMinutes = resolveItineraryStayMinutes(
+        estimatedMinutes: spot.estimatedDurationMinutes,
+        recommendedMinutes: spot.recommendedVisitDurationMinutes,
+      );
+      final departure = addMinutesToScheduleTime(arrival, stayMinutes);
+      nextArrival = addMinutesToScheduleTime(departure, 20);
+      return BookingItineraryItem({
         'booking_id': booking.id,
-        'tourist_id': booking.touristId,
-        'package_id': booking.packageId,
-        'spot_id': spot.id,
-        'action_type': 'kept',
-        'source_type': spot.sourceType,
+        'spot_id': spot.spotId,
+        'destination_name': spot.spotTitle,
+        'destination_address': spot.spotAddress,
+        'destination_order': index + 1,
+        'arrival_time': arrival,
+        'estimated_stay_duration_minutes': stayMinutes,
+        'departure_time': departure,
+        'activity_note': 'Explore ${spot.spotTitle} and enjoy the stop.',
+        'source_type': 'ai_suggested',
         'google_place_id': spot.googlePlaceId,
-        'spot_title': spot.title,
-        'spot_address': spot.address,
         'municipality': spot.municipality,
         'barangay': spot.barangay,
         'latitude': spot.latitude,
         'longitude': spot.longitude,
         'image_url': spot.imageUrl,
-        'additional_fee': 0,
-        'sort_order': index,
       });
     }).toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> getOrCreateConversation({
+    required String touristId,
+    required String driverId,
+    dynamic bookingId,
+  }) async {
+    dynamic existingQuery = _client
+        .from(TourisTrikeTables.conversations)
+        .select('*')
+        .eq('tourist_id', touristId)
+        .eq('driver_id', driverId);
+    existingQuery = bookingId == null
+        ? existingQuery.isFilter('booking_id', null)
+        : existingQuery.eq('booking_id', bookingId);
+    final existing = await existingQuery.maybeSingle();
+    if (existing != null) {
+      return Map<String, dynamic>.from(existing);
+    }
+
+    try {
+      final created = await _client
+          .from(TourisTrikeTables.conversations)
+          .insert({
+            'tourist_id': touristId,
+            'driver_id': driverId,
+            'booking_id': bookingId,
+            'last_message': '',
+            'last_message_at': DateTime.now().toIso8601String(),
+          })
+          .select('*')
+          .single();
+      return Map<String, dynamic>.from(created);
+    } on PostgrestException {
+      dynamic retryQuery = _client
+          .from(TourisTrikeTables.conversations)
+          .select('*')
+          .eq('tourist_id', touristId)
+          .eq('driver_id', driverId);
+      retryQuery = bookingId == null
+          ? retryQuery.isFilter('booking_id', null)
+          : retryQuery.eq('booking_id', bookingId);
+      final retried = await retryQuery.maybeSingle();
+      if (retried != null) {
+        return Map<String, dynamic>.from(retried);
+      }
+      rethrow;
+    }
   }
 
   Future<PackageActivity?> fetchPackageActivityById(String activityId) async {
@@ -963,9 +1327,10 @@ class TourisTrikeRepository {
     required String activityId,
     required String bookingId,
   }) async {
-    await _client.rpc('driver_accept_package_activity', params: {
-      'p_activity_id': activityId,
-    });
+    await _client.rpc(
+      'driver_accept_package_activity',
+      params: {'p_activity_id': activityId},
+    );
   }
 
   Future<void> updateActivityTourStatus({
@@ -983,7 +1348,9 @@ class TourisTrikeRepository {
       ...extra,
     };
     if (activityStatus != null) update['status'] = activityStatus;
-    if (currentSpotIndex != null) update['current_spot_index'] = currentSpotIndex;
+    if (currentSpotIndex != null) {
+      update['current_spot_index'] = currentSpotIndex;
+    }
     if (driverLat != null) {
       update['driver_latitude'] = driverLat;
       update['driver_longitude'] = driverLng;
@@ -999,7 +1366,8 @@ class TourisTrikeRepository {
     if (bookingId == null || bookingId.isEmpty) return;
 
     final bookingUpdate = <String, dynamic>{
-      'booking_status': activityStatus ?? _bookingStatusFromTourStatus(tourStatus),
+      'booking_status':
+          activityStatus ?? _bookingStatusFromTourStatus(tourStatus),
       'current_spot_index': currentSpotIndex ?? activity?.currentSpotIndex ?? 0,
       'updated_at': DateTime.now().toIso8601String(),
       ...extra,
@@ -1045,12 +1413,15 @@ class TourisTrikeRepository {
     String activityId, {
     String remainingPaymentMethod = '',
   }) async {
-    await _client.rpc('complete_package_tour', params: {
-      'p_activity_id': activityId,
-      'p_remaining_payment_method': remainingPaymentMethod.trim().isEmpty
-          ? null
-          : remainingPaymentMethod,
-    });
+    await _client.rpc(
+      'complete_package_tour',
+      params: {
+        'p_activity_id': activityId,
+        'p_remaining_payment_method': remainingPaymentMethod.trim().isEmpty
+            ? null
+            : remainingPaymentMethod,
+      },
+    );
   }
 
   // ── WALLET DEDUCTION ─────────────────────────────────────────
@@ -1062,15 +1433,18 @@ class TourisTrikeRepository {
     String description = '',
     String referenceKey = '',
   }) async {
-    await _client.rpc('deduct_wallet_balance', params: {
-      'p_user_id': requireUserId(),
-      'p_role': 'tourist',
-      'p_amount': amount,
-      'p_booking_id': bookingId,
-      'p_transaction_type': transactionType,
-      'p_description': description,
-      'p_reference_key': referenceKey,
-    });
+    await _client.rpc(
+      'deduct_wallet_balance',
+      params: {
+        'p_user_id': requireUserId(),
+        'p_role': 'tourist',
+        'p_amount': amount,
+        'p_booking_id': bookingId,
+        'p_transaction_type': transactionType,
+        'p_description': description,
+        'p_reference_key': referenceKey,
+      },
+    );
   }
 
   String _bookingStatusFromTourStatus(String tourStatus) {

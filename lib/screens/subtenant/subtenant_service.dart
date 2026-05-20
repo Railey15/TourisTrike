@@ -1239,14 +1239,18 @@ class SubTenantService {
     }
   }
 
-  Future<List<SubTenantSpot>> loadPackageSelectedSpots(
+  Future<List<SelectedPackageSpot>> loadPackageSelectedSpots(
     SubTenantProfile profile,
     dynamic packageId,
   ) async {
     try {
       final linkRows = await _supabase
           .from('tour_package_spots')
-          .select('spot_id, sort_order')
+          .select(
+            'spot_id, sort_order, opening_time, closing_time, '
+            'estimated_arrival_time, estimated_duration_minutes, '
+            'recommended_visit_duration_minutes',
+          )
           .eq('package_id', packageId)
           .order('sort_order');
 
@@ -1266,8 +1270,28 @@ class SubTenantService {
       }
 
       return linkRows
-          .map((r) => spotsById[stId((r as Map)['spot_id'])])
-          .whereType<SubTenantSpot>()
+          .map((r) {
+            final row = Map<String, dynamic>.from(r as Map);
+            final spot = spotsById[stId(row['spot_id'])];
+            if (spot == null) return null;
+            return SelectedPackageSpot(
+              spot: spot,
+              sortOrder: stInt(row['sort_order']),
+              openingTime: stString(row, const ['opening_time']),
+              closingTime: stString(row, const ['closing_time']),
+              estimatedArrivalTime: stString(
+                row,
+                const ['estimated_arrival_time'],
+              ),
+              estimatedDurationMinutes: stInt(
+                row['estimated_duration_minutes'],
+              ),
+              recommendedVisitDurationMinutes: stInt(
+                row['recommended_visit_duration_minutes'],
+              ),
+            );
+          })
+          .whereType<SelectedPackageSpot>()
           .toList(growable: false);
     } on PostgrestException {
       return const [];
@@ -1276,18 +1300,38 @@ class SubTenantService {
 
   Future<void> savePackageSelectedSpots({
     required dynamic packageId,
-    required List<dynamic> spotIds,
+    required List<SelectedPackageSpot> selectedSpots,
   }) async {
     await _supabase
         .from('tour_package_spots')
         .delete()
         .eq('package_id', packageId);
 
-    if (spotIds.isEmpty) return;
+    if (selectedSpots.isEmpty) return;
 
     await _supabase.from('tour_package_spots').insert([
-      for (var i = 0; i < spotIds.length; i++)
-        {'package_id': packageId, 'spot_id': spotIds[i], 'sort_order': i},
+      for (var i = 0; i < selectedSpots.length; i++)
+        {
+          'package_id': packageId,
+          'spot_id': selectedSpots[i].spot.id,
+          'sort_order': i,
+          'opening_time': selectedSpots[i].openingTime.isEmpty
+              ? null
+              : selectedSpots[i].openingTime,
+          'closing_time': selectedSpots[i].closingTime.isEmpty
+              ? null
+              : selectedSpots[i].closingTime,
+          'estimated_arrival_time': selectedSpots[i].estimatedArrivalTime.isEmpty
+              ? null
+              : selectedSpots[i].estimatedArrivalTime,
+          'estimated_duration_minutes': selectedSpots[i].estimatedDurationMinutes > 0
+              ? selectedSpots[i].estimatedDurationMinutes
+              : null,
+          'recommended_visit_duration_minutes':
+              selectedSpots[i].recommendedVisitDurationMinutes > 0
+                  ? selectedSpots[i].recommendedVisitDurationMinutes
+                  : null,
+        },
     ]);
   }
 

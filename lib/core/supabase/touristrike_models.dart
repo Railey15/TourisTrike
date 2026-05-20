@@ -33,6 +33,65 @@ DateTime? dbDate(dynamic value) {
   return DateTime.tryParse(value.toString())?.toLocal();
 }
 
+String dbTimeText(dynamic value) {
+  if (value == null) return '';
+  final text = value.toString().trim();
+  if (text.isEmpty) return '';
+  return text;
+}
+
+int resolveItineraryStayMinutes({
+  int estimatedMinutes = 0,
+  int recommendedMinutes = 0,
+  int fallbackMinutes = 60,
+}) {
+  if (estimatedMinutes > 0) return estimatedMinutes;
+  if (recommendedMinutes > 0) return recommendedMinutes;
+  return fallbackMinutes;
+}
+
+String formatScheduleTimeLabel(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '';
+  final match = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?$').firstMatch(trimmed);
+  if (match == null) return trimmed;
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  final period = hour >= 12 ? 'PM' : 'AM';
+  final normalizedHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+  return '$normalizedHour:${minute.toString().padLeft(2, '0')} $period';
+}
+
+String addMinutesToScheduleTime(String value, int minutesToAdd) {
+  final match = RegExp(
+    r'^(\d{1,2}):(\d{2})(?::\d{2})?$',
+  ).firstMatch(value.trim());
+  if (match == null) return '';
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  final total = (hour * 60) + minute + minutesToAdd;
+  final normalized = ((total % (24 * 60)) + (24 * 60)) % (24 * 60);
+  final newHour = normalized ~/ 60;
+  final newMinute = normalized % 60;
+  return '${newHour.toString().padLeft(2, '0')}:${newMinute.toString().padLeft(2, '0')}:00';
+}
+
+int scheduleMinutesBetween(String start, String end) {
+  final startMatch = RegExp(
+    r'^(\d{1,2}):(\d{2})(?::\d{2})?$',
+  ).firstMatch(start.trim());
+  final endMatch = RegExp(
+    r'^(\d{1,2}):(\d{2})(?::\d{2})?$',
+  ).firstMatch(end.trim());
+  if (startMatch == null || endMatch == null) return 0;
+  final startMinutes =
+      (int.parse(startMatch.group(1)!) * 60) + int.parse(startMatch.group(2)!);
+  final endMinutes =
+      (int.parse(endMatch.group(1)!) * 60) + int.parse(endMatch.group(2)!);
+  final raw = endMinutes - startMinutes;
+  return raw >= 0 ? raw : raw + (24 * 60);
+}
+
 abstract class TourisTrikeRow {
   const TourisTrikeRow(this.row);
 
@@ -55,6 +114,7 @@ class Profile extends TourisTrikeRow {
   String get gender => dbString(row['gender']);
   String get address => dbString(row['address']);
   String get profileImageUrl => dbString(row['profile_image_url']);
+  String get avatarUrl => dbString(row['avatar_url']);
   bool get isOnline => dbBool(row['is_online']);
   String get middleName => dbString(row['middle_name']);
   DateTime? get birthdate => dbDate(row['birthdate']);
@@ -437,6 +497,13 @@ class TourPackageSpot extends TourisTrikeRow {
   dynamic get packageId => row['package_id'];
   dynamic get spotId => row['spot_id'];
   int get sortOrder => dbInt(row['sort_order']);
+  String get openingTime => dbTimeText(row['opening_time']);
+  String get closingTime => dbTimeText(row['closing_time']);
+  String get estimatedArrivalTime => dbTimeText(row['estimated_arrival_time']);
+  int get estimatedDurationMinutes =>
+      dbInt(row['estimated_duration_minutes'], fallback: 0);
+  int get recommendedVisitDurationMinutes =>
+      dbInt(row['recommended_visit_duration_minutes'], fallback: 0);
   DateTime? get createdAt => dbDate(row['created_at']);
 }
 
@@ -460,7 +527,52 @@ class CustomizedPackageSpot extends TourisTrikeRow {
   String get imageUrl => dbString(row['image_url']);
   double get additionalFee => dbDouble(row['additional_fee']);
   int get sortOrder => dbInt(row['sort_order']);
+  String get openingTime => dbTimeText(row['opening_time']);
+  String get closingTime => dbTimeText(row['closing_time']);
+  String get estimatedArrivalTime => dbTimeText(row['estimated_arrival_time']);
+  int get estimatedDurationMinutes =>
+      dbInt(row['estimated_duration_minutes'], fallback: 0);
+  int get recommendedVisitDurationMinutes =>
+      dbInt(row['recommended_visit_duration_minutes'], fallback: 0);
   DateTime? get createdAt => dbDate(row['created_at']);
+}
+
+class BookingItineraryItem extends TourisTrikeRow {
+  const BookingItineraryItem(super.row);
+
+  dynamic get bookingId => row['booking_id'];
+  dynamic get spotId => row['spot_id'];
+  String get destinationName =>
+      dbString(row['destination_name'], fallback: dbString(row['spot_title']));
+  String get destinationAddress => dbString(
+    row['destination_address'],
+    fallback: dbString(row['spot_address']),
+  );
+  int get destinationOrder =>
+      dbInt(row['order_number'] ?? row['destination_order'], fallback: 1);
+  String get arrivalTime => dbTimeText(row['arrival_time']);
+  int get estimatedStayDurationMinutes =>
+      dbInt(row['estimated_stay_duration_minutes'], fallback: 0);
+  String get departureTime => dbTimeText(row['departure_time']);
+  String get activityNote =>
+      dbString(row['activity_note'], fallback: dbString(row['activity']));
+  String get sourceType => dbString(
+    row['itinerary_source'] ?? row['source_type'],
+    fallback: 'ai_suggested',
+  );
+  String get googlePlaceId => dbString(row['google_place_id']);
+  String get municipality =>
+      dbString(row['municipality'], fallback: dbString(row['city']));
+  String get barangay => dbString(row['barangay']);
+  double get latitude => dbDouble(row['latitude']);
+  double get longitude => dbDouble(row['longitude']);
+  String get imageUrl => dbString(row['image_url']);
+  DateTime? get createdAt => dbDate(row['created_at']);
+  DateTime? get updatedAt => dbDate(row['updated_at']);
+
+  String get formattedArrivalTime => formatScheduleTimeLabel(arrivalTime);
+  String get formattedDepartureTime => formatScheduleTimeLabel(departureTime);
+  bool get isCustomized => sourceType == 'customized';
 }
 
 class TourPackageView extends TourisTrikeRow {
@@ -642,6 +754,13 @@ class TouristSpot extends TourisTrikeRow {
   DateTime? get verifiedAt => dbDate(row['verified_at']);
   String get verificationStatus =>
       dbString(row['verification_status'], fallback: 'pending');
+  String get openingTime => dbTimeText(row['opening_time']);
+  String get closingTime => dbTimeText(row['closing_time']);
+  String get estimatedArrivalTime => dbTimeText(row['estimated_arrival_time']);
+  int get estimatedDurationMinutes =>
+      dbInt(row['estimated_duration_minutes'], fallback: 0);
+  int get recommendedVisitDurationMinutes =>
+      dbInt(row['recommended_visit_duration_minutes'], fallback: 0);
   List<TouristSpotImage> get images {
     final value = row['tourist_spot_images'];
     if (value is! List) return const [];
@@ -650,4 +769,15 @@ class TouristSpot extends TourisTrikeRow {
         .map((item) => TouristSpotImage(Json.from(item)))
         .toList(growable: false);
   }
+}
+
+class EmergencyContactRecord extends TourisTrikeRow {
+  const EmergencyContactRecord(super.row);
+
+  String get touristId => dbString(row['tourist_id']);
+  String get name => dbString(row['name']);
+  String get phoneNumber => dbString(row['phone_number']);
+  String get relationship => dbString(row['relationship']);
+  DateTime? get createdAt => dbDate(row['created_at']);
+  DateTime? get updatedAt => dbDate(row['updated_at']);
 }

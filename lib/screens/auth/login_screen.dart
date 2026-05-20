@@ -23,6 +23,9 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final supabase = Supabase.instance.client;
 
+  static const String welcomeImageUrl =
+      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/welcome.png';
+
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -46,9 +49,8 @@ class _LoginScreenState extends State<LoginScreen> {
         SnackBar(
           content: Text(msg),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: isError
-              ? const Color(0xFFDC2626)
-              : const Color(0xFF16A34A),
+          backgroundColor:
+              isError ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -86,11 +88,11 @@ class _LoginScreenState extends State<LoginScreen> {
       final authRes = await supabase.auth
           .signInWithPassword(email: email, password: password)
           .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('Login request timed out.');
-            },
-          );
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('Login request timed out.');
+        },
+      );
 
       final user = authRes.user;
 
@@ -105,11 +107,11 @@ class _LoginScreenState extends State<LoginScreen> {
           .eq('id', user.id)
           .maybeSingle()
           .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('Profile lookup timed out.');
-            },
-          );
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('Profile lookup timed out.');
+        },
+      );
 
       if (profile == null) {
         _showSnack('Profile not found. Please complete your profile.');
@@ -166,23 +168,38 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       _showSnack('Login error: $e');
     } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _resetPassword() async {
-    final email = _emailCtrl.text.trim();
+    final emailInField = _emailCtrl.text.trim();
+    final emailCtrl = TextEditingController(text: emailInField);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => _ForgotPasswordDialog(controller: emailCtrl),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final email = emailCtrl.text.trim();
+    emailCtrl.dispose();
 
     if (email.isEmpty || !email.contains('@')) {
-      _showSnack('Enter your email first to reset your password.');
+      _showSnack('Please enter a valid email address.');
       return;
     }
 
     try {
       await supabase.auth.resetPasswordForEmail(email);
-      _showSnack('Password reset email sent successfully.', isError: false);
+      if (!mounted) return;
+      _showSnack(
+        'Password reset email sent to $email. Check your inbox.',
+        isError: false,
+      );
+    } on AuthException catch (e) {
+      _showSnack(e.message);
     } catch (e) {
       _showSnack('Reset failed: $e');
     }
@@ -190,40 +207,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final headerHeight = (size.height * 0.33).clamp(245.0, 330.0);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6FAFF),
+      backgroundColor: const Color(0xFFF7FBFF),
       resizeToAvoidBottomInset: true,
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final height = constraints.maxHeight;
+            final headerHeight = (height * 0.45).clamp(330.0, 430.0);
+
             return SingleChildScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               padding: EdgeInsets.only(bottom: bottomInset),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                constraints: BoxConstraints(minHeight: height),
                 child: Stack(
                   children: [
-                    Positioned(
-                      top: -90,
-                      right: -70,
-                      child: _BlurCircle(
-                        size: 230,
-                        color: const Color(0xFF2A86FF).withValues(alpha: 0.10),
-                      ),
-                    ),
-                    Positioned(
-                      top: 210,
-                      left: -95,
-                      child: _BlurCircle(
-                        size: 190,
-                        color: const Color(0xFF38BDF8).withValues(alpha: 0.12),
-                      ),
-                    ),
+                    const Positioned.fill(child: _LoginBackdrop()),
                     Column(
                       children: [
                         _Header(height: headerHeight),
@@ -243,9 +246,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                     setState(() => _obscure = !_obscure);
                                   },
                                   onLogin: _loading ? null : _login,
-                                  onResetPassword: _loading
-                                      ? null
-                                      : _resetPassword,
+                                  onResetPassword:
+                                      _loading ? null : _resetPassword,
                                   onSignUp: () {
                                     Navigator.push(
                                       context,
@@ -255,9 +257,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                     );
                                   },
                                 ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 18),
                                 _TermsText(context: context),
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 28),
                               ],
                             ),
                           ),
@@ -288,9 +290,10 @@ class _Header extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(
-            'assets/images/login_header.jpg',
+          Image.network(
+            _LoginScreenState.welcomeImageUrl,
             fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
             errorBuilder: (_, _, _) {
               return Container(
                 decoration: const BoxDecoration(
@@ -298,79 +301,26 @@ class _Header extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Color(0xFFDBF0FF),
-                      Color(0xFFBFE3FF),
-                      Color(0xFFF6FAFF),
+                      Color(0xFFEAF5FF),
+                      Color(0xFFDDF1FF),
+                      Color(0xFFF7FBFF),
                     ],
                   ),
                 ),
               );
             },
           ),
-          Container(
+          DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.16),
-                  Colors.black.withValues(alpha: 0.08),
-                  const Color(0xFFF6FAFF),
+                  Colors.white.withValues(alpha: 0.02),
+                  Colors.white.withValues(alpha: 0.08),
+                  const Color(0xFFF7FBFF),
                 ],
-                stops: const [0.0, 0.58, 1.0],
-              ),
-            ),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.92),
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.10),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.electric_rickshaw_rounded,
-                      color: Color(0xFF2A86FF),
-                      size: 32,
-                    ),
-                  ),
-                  const Spacer(),
-                  const Text(
-                    'Welcome back!',
-                    style: TextStyle(
-                      fontSize: 34,
-                      height: 1.05,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: -0.8,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Sign in to continue your TourisTrike journey.',
-                    style: TextStyle(
-                      fontSize: 15,
-                      height: 1.35,
-                      color: Colors.white.withValues(alpha: 0.92),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 54),
-                ],
+                stops: const [0.0, 0.68, 1.0],
               ),
             ),
           ),
@@ -407,15 +357,15 @@ class _LoginCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.90)),
+        color: Colors.white.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 32,
+            color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+            blurRadius: 34,
             offset: const Offset(0, 18),
           ),
         ],
@@ -427,9 +377,9 @@ class _LoginCard extends StatelessWidget {
             _AuthTabs(onSignUp: onSignUp),
             const SizedBox(height: 20),
             const _InfoBanner(),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
             const _Label(text: 'Email Address'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 9),
             _FancyInputField(
               controller: emailCtrl,
               hintText: 'you@example.com',
@@ -443,9 +393,9 @@ class _LoginCard extends StatelessWidget {
                 return null;
               },
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 15),
             const _Label(text: 'Password'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 9),
             _FancyInputField(
               controller: passwordCtrl,
               hintText: 'Enter your password',
@@ -453,9 +403,7 @@ class _LoginCard extends StatelessWidget {
               obscureText: obscure,
               textInputAction: TextInputAction.done,
               validator: (value) {
-                if ((value ?? '').isEmpty) {
-                  return 'Please enter your password.';
-                }
+                if ((value ?? '').isEmpty) return 'Please enter your password.';
                 return null;
               },
               onSubmitted: (_) {
@@ -465,13 +413,13 @@ class _LoginCard extends StatelessWidget {
                 onPressed: onTogglePassword,
                 icon: Icon(
                   obscure
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                   color: const Color(0xFF94A3B8),
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 7),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
@@ -483,16 +431,16 @@ class _LoginCard extends StatelessWidget {
                 ),
                 child: Text(
                   'Forgot Password?',
-                  style: AppTextStyles.link(
-                    context,
-                  ).copyWith(fontWeight: FontWeight.w800),
+                  style: AppTextStyles.link(context).copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              height: 56,
+              height: 58,
               child: _GradientButton(
                 text: loading ? 'Logging in...' : 'Log In',
                 loading: loading,
@@ -514,24 +462,24 @@ class _AuthTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
         children: [
           Expanded(
             child: Container(
-              height: 44,
+              height: 50,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(17),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    offset: const Offset(0, 6),
+                    color: Colors.black.withValues(alpha: 0.055),
+                    blurRadius: 14,
+                    offset: const Offset(0, 7),
                   ),
                 ],
               ),
@@ -545,9 +493,9 @@ class _AuthTabs extends StatelessWidget {
           Expanded(
             child: InkWell(
               onTap: onSignUp,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(17),
               child: SizedBox(
-                height: 44,
+                height: 50,
                 child: Center(
                   child: Text(
                     'Sign Up',
@@ -575,14 +523,14 @@ class _InfoBanner extends StatelessWidget {
         gradient: const LinearGradient(
           colors: [Color(0xFFEFF6FF), Color(0xFFF0FDF4)],
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFD6E8FF)),
       ),
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             decoration: const BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
@@ -590,7 +538,7 @@ class _InfoBanner extends StatelessWidget {
             child: const Icon(
               Icons.auto_awesome_rounded,
               color: Color(0xFF2A86FF),
-              size: 19,
+              size: 20,
             ),
           ),
           const SizedBox(width: 12),
@@ -598,8 +546,8 @@ class _InfoBanner extends StatelessWidget {
             child: Text(
               'Your account opens automatically based on your saved role.',
               style: AppTextStyles.helper(context).copyWith(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+                fontSize: 13.2,
+                fontWeight: FontWeight.w800,
                 color: const Color(0xFF1E3A5F),
                 height: 1.35,
               ),
@@ -639,7 +587,7 @@ class _GradientButton extends StatelessWidget {
                   Color(0xFF1D4ED8),
                 ],
               ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF2A86FF).withValues(alpha: 0.28),
@@ -656,7 +604,7 @@ class _GradientButton extends StatelessWidget {
           backgroundColor: Colors.transparent,
           disabledBackgroundColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
           ),
         ),
         child: Center(
@@ -687,9 +635,10 @@ class _Label extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: Text(
         text,
-        style: AppTextStyles.fieldLabel(
-          context,
-        ).copyWith(fontWeight: FontWeight.w800),
+        style: AppTextStyles.fieldLabel(context).copyWith(
+          fontWeight: FontWeight.w900,
+          color: const Color(0xFF0F172A),
+        ),
       ),
     );
   }
@@ -744,11 +693,11 @@ class _FancyInputFieldState extends State<_FancyInputField> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: focused
             ? [
                 BoxShadow(
-                  color: const Color(0xFF2A86FF).withValues(alpha: 0.12),
+                  color: const Color(0xFF2A86FF).withValues(alpha: 0.13),
                   blurRadius: 18,
                   offset: const Offset(0, 8),
                 ),
@@ -777,22 +726,22 @@ class _FancyInputFieldState extends State<_FancyInputField> {
           errorMaxLines: 2,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
-            vertical: 18,
+            vertical: 19,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(color: Color(0xFF2A86FF), width: 1.5),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.2),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.4),
           ),
         ),
@@ -812,23 +761,80 @@ class _TermsText extends StatelessWidget {
       textAlign: TextAlign.center,
       text: TextSpan(
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 12.5,
           height: 1.45,
           color: AppTextStyles.textSecondary.withValues(alpha: 0.95),
-          fontWeight: FontWeight.w500,
+          fontWeight: FontWeight.w600,
           fontFamily: Theme.of(context).textTheme.bodySmall?.fontFamily,
         ),
         children: [
           const TextSpan(text: 'By logging in, you agree to TourisTrike\'s '),
           TextSpan(
             text: 'Terms of Service',
-            style: AppTextStyles.link(context),
+            style: AppTextStyles.link(context).copyWith(
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const TextSpan(text: ' and '),
-          TextSpan(text: 'Privacy Policy', style: AppTextStyles.link(context)),
+          TextSpan(
+            text: 'Privacy Policy',
+            style: AppTextStyles.link(context).copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           const TextSpan(text: '.'),
         ],
       ),
+    );
+  }
+}
+
+class _LoginBackdrop extends StatelessWidget {
+  const _LoginBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFF7FBFF),
+                Color(0xFFEAF5FF),
+                Color(0xFFF8FAFC),
+              ],
+            ),
+          ),
+          child: SizedBox.expand(),
+        ),
+        Positioned(
+          top: -90,
+          right: -70,
+          child: _BlurCircle(
+            size: 230,
+            color: const Color(0xFF2A86FF).withValues(alpha: 0.09),
+          ),
+        ),
+        Positioned(
+          top: 220,
+          left: -95,
+          child: _BlurCircle(
+            size: 190,
+            color: const Color(0xFF38BDF8).withValues(alpha: 0.10),
+          ),
+        ),
+        Positioned(
+          bottom: -100,
+          right: -90,
+          child: _BlurCircle(
+            size: 230,
+            color: const Color(0xFF16A34A).withValues(alpha: 0.08),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -841,10 +847,148 @@ class _BlurCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      ),
+    );
+  }
+}
+
+class _ForgotPasswordDialog extends StatefulWidget {
+  const _ForgotPasswordDialog({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: Colors.white,
+      title: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.lock_reset_rounded,
+              color: Color(0xFF2A86FF),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Reset Password',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Enter the email address linked to your account. We\'ll send you a password reset link.',
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF64748B),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: widget.controller,
+            focusNode: _focus,
+            autofocus: true,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: (_) => Navigator.pop(context, true),
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
+            decoration: InputDecoration(
+              hintText: 'you@example.com',
+              hintStyle: const TextStyle(
+                color: Color(0xFF94A3B8),
+                fontWeight: FontWeight.w600,
+              ),
+              prefixIcon: const Icon(
+                Icons.mail_outline_rounded,
+                color: Color(0xFF2A86FF),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(
+                  color: Color(0xFF2A86FF),
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text(
+            'Cancel',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF2A86FF),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          child: const Text(
+            'Send Reset Link',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ),
+      ],
     );
   }
 }

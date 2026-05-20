@@ -5,6 +5,7 @@ import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_tracking_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
+import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
@@ -83,12 +84,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FB),
-      bottomNavigationBar: const SafeArea(
-        top: false,
-        child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 3)),
-      ),
+    return TouristAiChatbotWrapper(
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        bottomNavigationBar: const SafeArea(
+          top: false,
+          child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 3)),
+        ),
       body: SafeArea(
         child: FutureBuilder<_ActivityPayload>(
           future: _future,
@@ -125,27 +127,18 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
                 children: [
                   // ── Header ─────────────────────────────────
-                  Row(
-                    children: [
-                      const SizedBox(width: 44),
-                      const Expanded(
-                        child: Center(
-                          child: Text(
-                            'Activity',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Center(
+                      child: Text(
+                        'Activity',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
                         ),
                       ),
-                      IconButton(
-                        onPressed: _reload,
-                        icon: const Icon(Icons.refresh_rounded,
-                            color: Color(0xFF2A86FF)),
-                      ),
-                    ],
+                    ),
                   ),
                   const SizedBox(height: 10),
 
@@ -208,7 +201,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
           },
         ),
       ),
-    );
+    ));
   }
 }
 

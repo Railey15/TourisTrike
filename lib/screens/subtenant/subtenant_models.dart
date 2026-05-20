@@ -676,8 +676,21 @@ class SubTenantCategory {
 }
 
 class SelectedPackageSpot {
-  SelectedPackageSpot({required this.spot, required this.sortOrder});
+  SelectedPackageSpot({
+    required this.spot,
+    required this.sortOrder,
+    this.openingTime = '',
+    this.closingTime = '',
+    this.estimatedArrivalTime = '',
+    this.estimatedDurationMinutes = 0,
+    this.recommendedVisitDurationMinutes = 0,
+  });
 
   final SubTenantSpot spot;
   int sortOrder;
+  String openingTime;
+  String closingTime;
+  String estimatedArrivalTime;
+  int estimatedDurationMinutes;
+  int recommendedVisitDurationMinutes;
 }

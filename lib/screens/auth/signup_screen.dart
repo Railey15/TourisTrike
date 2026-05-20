@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_theme.dart';
 import 'verify_email_otp_screen.dart';
 
-enum UserRole { tourist, driver }
+enum SignupUserRole { tourist, driver }
 
 enum PasswordStrength { weak, normal, strong }
 
@@ -16,9 +16,16 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  static const String welcomeImageUrl =
+      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/welcome.png';
+
+  static final RegExp _passwordSymbolRegex = RegExp(
+    r'''[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~/]''',
+  );
+
   final supabase = Supabase.instance.client;
 
-  UserRole _role = UserRole.tourist;
+  SignupUserRole _role = SignupUserRole.tourist;
 
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
@@ -38,13 +45,12 @@ class _SignupScreenState extends State<SignupScreen> {
   final _confirmKey = GlobalKey();
 
   PasswordStrength _strength = PasswordStrength.weak;
+  List<String> _passwordErrors = [];
 
   @override
   void initState() {
     super.initState();
-
     _passwordCtrl.addListener(_recalcStrength);
-
     _emailFocus.addListener(() {
       if (_emailFocus.hasFocus) _ensureVisible(_emailKey);
     });
@@ -59,22 +65,18 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   void dispose() {
     _passwordCtrl.removeListener(_recalcStrength);
-
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
-
     _scrollCtrl.dispose();
     _emailFocus.dispose();
     _passwordFocus.dispose();
     _confirmFocus.dispose();
-
     super.dispose();
   }
 
   void _showSnack(String msg, {bool isError = true}) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -93,44 +95,61 @@ class _SignupScreenState extends State<SignupScreen> {
 
   void _recalcStrength() {
     final password = _passwordCtrl.text;
-    setState(() => _strength = _computeStrength(password));
+    setState(() {
+      _strength = _computeStrength(password);
+      _passwordErrors = _getPasswordErrors(password);
+    });
   }
 
+  List<String> _getPasswordErrors(String p) {
+    final errors = <String>[];
+    if (p.length < 8) errors.add('At least 8 characters');
+    if (!RegExp(r'[A-Z]').hasMatch(p)) {
+      errors.add('At least 1 uppercase letter');
+    }
+    if (!RegExp(r'[a-z]').hasMatch(p)) {
+      errors.add('At least 1 lowercase letter');
+    }
+    if (!RegExp(r'\d').hasMatch(p)) errors.add('At least 1 number');
+    if (!_passwordSymbolRegex.hasMatch(p)) {
+      errors.add('At least 1 special character');
+    }
+    return errors;
+  }
+
+  bool _isStrongPassword(String p) => _getPasswordErrors(p).isEmpty;
+
   PasswordStrength _computeStrength(String p) {
-    final pass = p.trim();
-    if (pass.length < 6) return PasswordStrength.weak;
-
-    final hasLower = RegExp(r'[a-z]').hasMatch(pass);
-    final hasUpper = RegExp(r'[A-Z]').hasMatch(pass);
-    final hasDigit = RegExp(r'\d').hasMatch(pass);
-    final hasSymbol = RegExp(r'[^\w\s]').hasMatch(pass);
-
+    if (p.length < 8) return PasswordStrength.weak;
+    final hasLower = RegExp(r'[a-z]').hasMatch(p);
+    final hasUpper = RegExp(r'[A-Z]').hasMatch(p);
+    final hasDigit = RegExp(r'\d').hasMatch(p);
+    final hasSymbol = _passwordSymbolRegex.hasMatch(p);
     int score = 0;
-    if (pass.length >= 8) score++;
-    if (pass.length >= 12) score++;
+    if (p.length >= 8) score++;
+    if (p.length >= 12) score++;
     if (hasLower) score++;
     if (hasUpper) score++;
     if (hasDigit) score++;
     if (hasSymbol) score++;
-
-    if (score >= 5) return PasswordStrength.strong;
-    if (score >= 3) return PasswordStrength.normal;
+    if (score >= 6) return PasswordStrength.strong;
+    if (score >= 4) return PasswordStrength.normal;
     return PasswordStrength.weak;
   }
 
-  String _strengthLabel(PasswordStrength strength) {
-    switch (strength) {
+  String _strengthLabel(PasswordStrength s) {
+    switch (s) {
       case PasswordStrength.weak:
         return 'Weak';
       case PasswordStrength.normal:
-        return 'Normal';
+        return 'Fair';
       case PasswordStrength.strong:
         return 'Strong';
     }
   }
 
-  Color _strengthColor(PasswordStrength strength) {
-    switch (strength) {
+  Color _strengthColor(PasswordStrength s) {
+    switch (s) {
       case PasswordStrength.weak:
         return const Color(0xFFEF4444);
       case PasswordStrength.normal:
@@ -140,9 +159,8 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  bool _isValidEmail(String email) {
-    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.trim());
-  }
+  bool _isValidEmail(String email) =>
+      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.trim());
 
   Future<void> _signup() async {
     FocusScope.of(context).unfocus();
@@ -152,17 +170,25 @@ class _SignupScreenState extends State<SignupScreen> {
     final confirm = _confirmCtrl.text;
 
     if (email.isEmpty || password.isEmpty || confirm.isEmpty) {
-      _showSnack('Please enter email, password, and confirm password.');
+      _showSnack('Please fill in all fields.');
       return;
     }
 
     if (!_isValidEmail(email)) {
-      _showSnack('Please enter a valid email.');
+      _showSnack('Please enter a valid email address.');
       return;
     }
 
-    if (password.length < 6) {
-      _showSnack('Password must be at least 6 characters.');
+    final errors = _getPasswordErrors(password);
+    if (errors.isNotEmpty) {
+      _showSnack('Password is too weak: ${errors.first}');
+      return;
+    }
+
+    if (!_isStrongPassword(password)) {
+      _showSnack(
+        'Password must have 8+ characters, uppercase, lowercase, number and special character.',
+      );
       return;
     }
 
@@ -174,15 +200,12 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _loading = true);
 
     try {
-      await supabase.auth.signInWithOtp(
-        email: email,
-        shouldCreateUser: true,
-      );
+      await supabase.auth.signInWithOtp(email: email, shouldCreateUser: true);
 
-      final roleString = _role == UserRole.tourist ? 'tourist' : 'driver';
+      final roleString =
+          _role == SignupUserRole.tourist ? 'tourist' : 'driver';
 
       if (!mounted) return;
-
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -206,7 +229,6 @@ class _SignupScreenState extends State<SignupScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = key.currentContext;
       if (ctx == null) return;
-
       Scrollable.ensureVisible(
         ctx,
         duration: const Duration(milliseconds: 220),
@@ -218,42 +240,28 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final headerHeight = (size.height * 0.33).clamp(245.0, 330.0);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6FAFF),
+      backgroundColor: const Color(0xFFF7FBFF),
       resizeToAvoidBottomInset: true,
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final height = constraints.maxHeight;
+            final headerHeight = (height * 0.42).clamp(315.0, 410.0);
+
             return SingleChildScrollView(
               controller: _scrollCtrl,
               physics: const BouncingScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: EdgeInsets.only(bottom: bottomInset),
+              padding: EdgeInsets.only(bottom: bottomInset + 24),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                constraints: BoxConstraints(minHeight: height),
                 child: Stack(
                   children: [
-                    Positioned(
-                      top: -90,
-                      right: -70,
-                      child: _BlurCircle(
-                        size: 230,
-                        color: const Color(0xFF2A86FF).withOpacity(0.10),
-                      ),
-                    ),
-                    Positioned(
-                      top: 210,
-                      left: -95,
-                      child: _BlurCircle(
-                        size: 190,
-                        color: const Color(0xFF38BDF8).withOpacity(0.12),
-                      ),
-                    ),
+                    const Positioned.fill(child: _SignupBackdrop()),
                     Column(
                       children: [
                         _Header(height: headerHeight),
@@ -280,25 +288,21 @@ class _SignupScreenState extends State<SignupScreen> {
                                   strength: _strength,
                                   strengthLabel: _strengthLabel(_strength),
                                   strengthColor: _strengthColor(_strength),
-                                  onRoleChanged: (role) {
-                                    setState(() => _role = role);
-                                  },
-                                  onTogglePassword: () {
-                                    setState(() {
-                                      _obscurePassword = !_obscurePassword;
-                                    });
-                                  },
-                                  onToggleConfirm: () {
-                                    setState(() {
-                                      _obscureConfirm = !_obscureConfirm;
-                                    });
-                                  },
+                                  passwordErrors: _passwordErrors,
+                                  onRoleChanged: (role) =>
+                                      setState(() => _role = role),
+                                  onTogglePassword: () => setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  ),
+                                  onToggleConfirm: () => setState(
+                                    () => _obscureConfirm = !_obscureConfirm,
+                                  ),
                                   onLogin: () => Navigator.pop(context),
                                   onSignup: _loading ? null : _signup,
                                 ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 18),
                                 _TermsText(context: context),
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 28),
                               ],
                             ),
                           ),
@@ -329,89 +333,37 @@ class _Header extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(
-            'assets/images/login_header.jpg',
+          Image.network(
+            _SignupScreenState.welcomeImageUrl,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) {
+            alignment: Alignment.topCenter,
+            errorBuilder: (_, _, _) {
               return Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Color(0xFFDBF0FF),
-                      Color(0xFFBFE3FF),
-                      Color(0xFFF6FAFF),
+                      Color(0xFFEAF5FF),
+                      Color(0xFFDDF1FF),
+                      Color(0xFFF7FBFF),
                     ],
                   ),
                 ),
               );
             },
           ),
-          Container(
+          DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withOpacity(0.16),
-                  Colors.black.withOpacity(0.08),
-                  const Color(0xFFF6FAFF),
+                  Colors.white.withValues(alpha: 0.02),
+                  Colors.white.withValues(alpha: 0.08),
+                  const Color(0xFFF7FBFF),
                 ],
-                stops: const [0.0, 0.58, 1.0],
-              ),
-            ),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.92),
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.10),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.electric_rickshaw_rounded,
-                      color: Color(0xFF2A86FF),
-                      size: 32,
-                    ),
-                  ),
-                  const Spacer(),
-                  const Text(
-                    'Create account',
-                    style: TextStyle(
-                      fontSize: 34,
-                      height: 1.05,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: -0.8,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Join TourisTrike and start your Bustos journey.',
-                    style: TextStyle(
-                      fontSize: 15,
-                      height: 1.35,
-                      color: Colors.white.withOpacity(0.92),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 54),
-                ],
+                stops: const [0.0, 0.68, 1.0],
               ),
             ),
           ),
@@ -439,6 +391,7 @@ class _SignupCard extends StatelessWidget {
     required this.strength,
     required this.strengthLabel,
     required this.strengthColor,
+    required this.passwordErrors,
     required this.onRoleChanged,
     required this.onTogglePassword,
     required this.onToggleConfirm,
@@ -446,7 +399,7 @@ class _SignupCard extends StatelessWidget {
     required this.onSignup,
   });
 
-  final UserRole role;
+  final SignupUserRole role;
   final TextEditingController emailCtrl;
   final TextEditingController passwordCtrl;
   final TextEditingController confirmCtrl;
@@ -462,7 +415,8 @@ class _SignupCard extends StatelessWidget {
   final PasswordStrength strength;
   final String strengthLabel;
   final Color strengthColor;
-  final ValueChanged<UserRole> onRoleChanged;
+  final List<String> passwordErrors;
+  final ValueChanged<SignupUserRole> onRoleChanged;
   final VoidCallback onTogglePassword;
   final VoidCallback onToggleConfirm;
   final VoidCallback onLogin;
@@ -472,31 +426,32 @@ class _SignupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withOpacity(0.90)),
+        color: Colors.white.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 32,
+            color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+            blurRadius: 34,
             offset: const Offset(0, 18),
           ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _AuthTabs(onLogin: onLogin),
           const SizedBox(height: 20),
           const _InfoBanner(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           const _Label(text: 'Select Your Role'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 9),
           _RoleSegment(role: role, onChanged: onRoleChanged),
-          const SizedBox(height: 16),
+          const SizedBox(height: 17),
           const _Label(text: 'Email Address'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 9),
           KeyedSubtree(
             key: emailKey,
             child: _FancyInputField(
@@ -509,9 +464,9 @@ class _SignupCard extends StatelessWidget {
               onSubmitted: (_) => passwordFocus.requestFocus(),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 15),
           const _Label(text: 'Password'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 9),
           KeyedSubtree(
             key: passwordKey,
             child: _FancyInputField(
@@ -526,16 +481,26 @@ class _SignupCard extends StatelessWidget {
                 onPressed: onTogglePassword,
                 icon: Icon(
                   obscurePassword
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                   color: const Color(0xFF94A3B8),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
+          _PasswordStrengthRow(
+            strength: strength,
+            label: strengthLabel,
+            color: strengthColor,
+          ),
+          if (passwordErrors.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _PasswordRequirements(errors: passwordErrors),
+          ],
+          const SizedBox(height: 15),
           const _Label(text: 'Confirm Password'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 9),
           KeyedSubtree(
             key: confirmKey,
             child: _FancyInputField(
@@ -552,23 +517,17 @@ class _SignupCard extends StatelessWidget {
                 onPressed: onToggleConfirm,
                 icon: Icon(
                   obscureConfirm
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                   color: const Color(0xFF94A3B8),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          _PasswordStrengthRow(
-            strength: strength,
-            label: strengthLabel,
-            color: strengthColor,
-          ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
-            height: 56,
+            height: 58,
             child: _GradientButton(
               text: loading ? 'Sending OTP...' : 'Create Account',
               loading: loading,
@@ -576,6 +535,66 @@ class _SignupCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PasswordRequirements extends StatelessWidget {
+  const _PasswordRequirements({required this.errors});
+
+  final List<String> errors;
+
+  @override
+  Widget build(BuildContext context) {
+    final allRequirements = [
+      'At least 8 characters',
+      'At least 1 uppercase letter',
+      'At least 1 lowercase letter',
+      'At least 1 number',
+      'At least 1 special character',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7F7),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFD6D6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: allRequirements.map((req) {
+          final met = !errors.contains(req);
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2.5),
+            child: Row(
+              children: [
+                Icon(
+                  met
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 16,
+                  color:
+                      met ? const Color(0xFF22C55E) : const Color(0xFF94A3B8),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    req,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: met
+                          ? const Color(0xFF22C55E)
+                          : const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -589,19 +608,19 @@ class _AuthTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
         children: [
           Expanded(
             child: InkWell(
               onTap: onLogin,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(17),
               child: SizedBox(
-                height: 44,
+                height: 50,
                 child: Center(
                   child: Text(
                     'Log In',
@@ -613,15 +632,15 @@ class _AuthTabs extends StatelessWidget {
           ),
           Expanded(
             child: Container(
-              height: 44,
+              height: 50,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(17),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 12,
-                    offset: const Offset(0, 6),
+                    color: Colors.black.withValues(alpha: 0.055),
+                    blurRadius: 14,
+                    offset: const Offset(0, 7),
                   ),
                 ],
               ),
@@ -648,19 +667,16 @@ class _InfoBanner extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFFEFF6FF),
-            Color(0xFFF0FDF4),
-          ],
+          colors: [Color(0xFFEFF6FF), Color(0xFFF0FDF4)],
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFD6E8FF)),
       ),
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             decoration: const BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
@@ -668,7 +684,7 @@ class _InfoBanner extends StatelessWidget {
             child: const Icon(
               Icons.verified_user_rounded,
               color: Color(0xFF2A86FF),
-              size: 19,
+              size: 20,
             ),
           ),
           const SizedBox(width: 12),
@@ -676,8 +692,8 @@ class _InfoBanner extends StatelessWidget {
             child: Text(
               'Choose your role, verify your email, and complete your TourisTrike profile.',
               style: AppTextStyles.helper(context).copyWith(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+                fontSize: 13.2,
+                fontWeight: FontWeight.w800,
                 color: const Color(0xFF1E3A5F),
                 height: 1.35,
               ),
@@ -690,29 +706,25 @@ class _InfoBanner extends StatelessWidget {
 }
 
 class _RoleSegment extends StatelessWidget {
-  const _RoleSegment({
-    required this.role,
-    required this.onChanged,
-  });
+  const _RoleSegment({required this.role, required this.onChanged});
 
-  final UserRole role;
-  final ValueChanged<UserRole> onChanged;
+  final SignupUserRole role;
+  final ValueChanged<SignupUserRole> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final isTourist = role == UserRole.tourist;
+    final isTourist = role == SignupUserRole.tourist;
 
     return Container(
-      height: 54,
-      padding: const EdgeInsets.all(5),
+      height: 58,
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final pillWidth = constraints.maxWidth / 2;
-
           return Stack(
             children: [
               AnimatedAlign(
@@ -725,12 +737,12 @@ class _RoleSegment extends StatelessWidget {
                   height: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(17),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
+                        color: Colors.black.withValues(alpha: 0.055),
+                        blurRadius: 14,
+                        offset: const Offset(0, 7),
                       ),
                     ],
                   ),
@@ -740,7 +752,7 @@ class _RoleSegment extends StatelessWidget {
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => onChanged(UserRole.tourist),
+                      onTap: () => onChanged(SignupUserRole.tourist),
                       child: _RoleChip(
                         icon: Icons.travel_explore_rounded,
                         label: 'Tourist',
@@ -750,7 +762,7 @@ class _RoleSegment extends StatelessWidget {
                   ),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => onChanged(UserRole.driver),
+                      onTap: () => onChanged(SignupUserRole.driver),
                       child: _RoleChip(
                         icon: Icons.badge_outlined,
                         label: 'Driver',
@@ -781,18 +793,15 @@ class _RoleChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFF0F172A) : const Color(0xFF64748B);
-
+    final color =
+        selected ? const Color(0xFF0F172A) : const Color(0xFF64748B);
     return Center(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 19, color: color),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: AppTextStyles.roleChip(context, color: color),
-          ),
+          Text(label, style: AppTextStyles.roleChip(context, color: color)),
         ],
       ),
     );
@@ -812,8 +821,8 @@ class _PasswordStrengthRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    double fill = 0.33;
-    if (strength == PasswordStrength.normal) fill = 0.66;
+    double fill = 0.25;
+    if (strength == PasswordStrength.normal) fill = 0.65;
     if (strength == PasswordStrength.strong) fill = 1.0;
 
     return Row(
@@ -829,7 +838,7 @@ class _PasswordStrengthRow extends StatelessWidget {
                 child: FractionallySizedBox(
                   widthFactor: fill,
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
+                    duration: const Duration(milliseconds: 200),
                     color: color,
                   ),
                 ),
@@ -838,10 +847,7 @@ class _PasswordStrengthRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          label,
-          style: AppTextStyles.status(context, color: color),
-        ),
+        Text(label, style: AppTextStyles.status(context, color: color)),
       ],
     );
   }
@@ -875,10 +881,10 @@ class _GradientButton extends StatelessWidget {
                   Color(0xFF1D4ED8),
                 ],
               ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF2A86FF).withOpacity(0.28),
+            color: const Color(0xFF2A86FF).withValues(alpha: 0.28),
             blurRadius: 22,
             offset: const Offset(0, 12),
           ),
@@ -892,7 +898,7 @@ class _GradientButton extends StatelessWidget {
           backgroundColor: Colors.transparent,
           disabledBackgroundColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
           ),
         ),
         child: Center(
@@ -905,10 +911,7 @@ class _GradientButton extends StatelessWidget {
                     valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 )
-              : Text(
-                  text,
-                  style: AppTextStyles.button(context),
-                ),
+              : Text(text, style: AppTextStyles.button(context)),
         ),
       ),
     );
@@ -927,7 +930,8 @@ class _Label extends StatelessWidget {
       child: Text(
         text,
         style: AppTextStyles.fieldLabel(context).copyWith(
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w900,
+          color: const Color(0xFF0F172A),
         ),
       ),
     );
@@ -987,11 +991,11 @@ class _FancyInputFieldState extends State<_FancyInputField> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: focused
             ? [
                 BoxShadow(
-                  color: const Color(0xFF2A86FF).withOpacity(0.12),
+                  color: const Color(0xFF2A86FF).withValues(alpha: 0.13),
                   blurRadius: 18,
                   offset: const Offset(0, 8),
                 ),
@@ -1011,32 +1015,25 @@ class _FancyInputFieldState extends State<_FancyInputField> {
           hintStyle: AppTextStyles.hint(context),
           prefixIcon: Icon(
             widget.prefixIcon,
-            color:
-                focused ? const Color(0xFF2A86FF) : const Color(0xFF94A3B8),
+            color: focused ? const Color(0xFF2A86FF) : const Color(0xFF94A3B8),
           ),
           suffixIcon: widget.suffix,
           filled: true,
           fillColor: focused ? Colors.white : const Color(0xFFF8FAFC),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
-            vertical: 18,
+            vertical: 19,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(
-              color: Color(0xFFE2E8F0),
-              width: 1,
-            ),
+            borderRadius: BorderRadius.circular(20),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(
-              color: Color(0xFF2A86FF),
-              width: 1.5,
-            ),
+            borderRadius: BorderRadius.circular(20),
+            borderSide: const BorderSide(color: Color(0xFF2A86FF), width: 1.5),
           ),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
           ),
         ),
       ),
@@ -1055,10 +1052,10 @@ class _TermsText extends StatelessWidget {
       textAlign: TextAlign.center,
       text: TextSpan(
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 12.5,
           height: 1.45,
-          color: AppTextStyles.textSecondary.withOpacity(0.95),
-          fontWeight: FontWeight.w500,
+          color: AppTextStyles.textSecondary.withValues(alpha: 0.95),
+          fontWeight: FontWeight.w600,
           fontFamily: Theme.of(context).textTheme.bodySmall?.fontFamily,
         ),
         children: [
@@ -1067,12 +1064,16 @@ class _TermsText extends StatelessWidget {
           ),
           TextSpan(
             text: 'Terms of Service',
-            style: AppTextStyles.link(context),
+            style: AppTextStyles.link(context).copyWith(
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const TextSpan(text: ' and '),
           TextSpan(
             text: 'Privacy Policy',
-            style: AppTextStyles.link(context),
+            style: AppTextStyles.link(context).copyWith(
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const TextSpan(text: '.'),
         ],
@@ -1081,23 +1082,69 @@ class _TermsText extends StatelessWidget {
   }
 }
 
+class _SignupBackdrop extends StatelessWidget {
+  const _SignupBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFF7FBFF),
+                Color(0xFFEAF5FF),
+                Color(0xFFF8FAFC),
+              ],
+            ),
+          ),
+          child: SizedBox.expand(),
+        ),
+        Positioned(
+          top: -90,
+          right: -70,
+          child: _BlurCircle(
+            size: 230,
+            color: const Color(0xFF2A86FF).withValues(alpha: 0.09),
+          ),
+        ),
+        Positioned(
+          top: 220,
+          left: -95,
+          child: _BlurCircle(
+            size: 190,
+            color: const Color(0xFF38BDF8).withValues(alpha: 0.10),
+          ),
+        ),
+        Positioned(
+          bottom: -100,
+          right: -90,
+          child: _BlurCircle(
+            size: 230,
+            color: const Color(0xFF16A34A).withValues(alpha: 0.08),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _BlurCircle extends StatelessWidget {
-  const _BlurCircle({
-    required this.size,
-    required this.color,
-  });
+  const _BlurCircle({required this.size, required this.color});
 
   final double size;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color,
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
       ),
     );
   }

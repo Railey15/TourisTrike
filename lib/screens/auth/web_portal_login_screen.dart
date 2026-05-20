@@ -23,6 +23,9 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
   final TextEditingController _emailCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
 
+  static const String logoUrl =
+      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/Logo.png';
+
   bool _obscure = true;
   bool _loading = false;
 
@@ -56,9 +59,8 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
         SnackBar(
           content: Text(message),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: error
-              ? const Color(0xFFDC2626)
-              : const Color(0xFF16A34A),
+          backgroundColor:
+              error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -116,6 +118,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           user.id,
           registration,
         );
+
         if (activated) {
           if (!mounted) return;
           Navigator.pushAndRemoveUntil(
@@ -125,12 +128,14 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           );
           return;
         }
+
         await _supabase.auth.signOut();
         _showSnack(_portalAccessMessage(registration));
         return;
       }
 
       if (!mounted) return;
+
       switch (role) {
         case WebPortalRole.admin:
           Navigator.pushAndRemoveUntil(
@@ -141,6 +146,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
             (_) => false,
           );
           break;
+
         case WebPortalRole.subtenant:
           final active = await _subtenantAccessActive(user.id);
           if (!active) {
@@ -150,6 +156,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
             );
             return;
           }
+
           if (!mounted) return;
           Navigator.pushAndRemoveUntil(
             context,
@@ -177,6 +184,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           .eq('user_id', userId)
           .order('submitted_at', ascending: false)
           .limit(1);
+
       if (rows.isEmpty) return null;
       return Map<String, dynamic>.from(rows.first);
     } on PostgrestException {
@@ -186,20 +194,25 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
 
   String _portalAccessMessage(Map<String, dynamic>? registration) {
     final status = (registration?['status'] ?? '').toString().toLowerCase();
+
     if (status == 'pending') {
       return 'Your city admin application is pending provincial admin approval.';
     }
+
     if (status == 'rejected') {
       final reason = (registration?['rejection_reason'] ?? '')
           .toString()
           .trim();
+
       return reason.isEmpty
           ? 'Your city admin application was rejected. Please submit a new request if details changed.'
           : 'Your city admin application was rejected: $reason';
     }
+
     if (status == 'approved') {
       return 'Your application is approved, but account activation could not finish. Ask the provincial admin to run the latest Supabase migration or approve it again.';
     }
+
     return 'This web portal is only for approved admin and city admin accounts. '
         'If you recently applied as a city admin and saw an error, your application may not have saved — please try applying again.';
   }
@@ -212,14 +225,12 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
     if (status != 'approved') return false;
 
     try {
-      await _supabase
-          .rpc('activate_approved_city_admin')
-          .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('City admin activation timed out.');
-            },
-          );
+      await _supabase.rpc('activate_approved_city_admin').timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('City admin activation timed out.');
+        },
+      );
 
       final profile = await _supabase
           .from('profiles')
@@ -244,13 +255,16 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           .select('is_active, verification_status')
           .eq('id', userId)
           .maybeSingle();
+
       if (details == null) return true;
 
       final status = (details['verification_status'] ?? '')
           .toString()
           .toLowerCase()
           .trim();
+
       final active = details['is_active'] == true;
+
       return active ||
           status == 'approved' ||
           status == 'verified' ||
@@ -269,6 +283,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
 
   Future<void> _resetPassword() async {
     final email = _emailCtrl.text.trim();
+
     if (email.isEmpty || !email.contains('@')) {
       _showSnack('Enter your admin email first.');
       return;
@@ -285,44 +300,113 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6FAFF),
+      backgroundColor: const Color(0xFFF5F9FF),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 900;
+          final wide = constraints.maxWidth >= 920;
+
           return Stack(
             children: [
               const Positioned.fill(child: _WebLoginBackdrop()),
               SafeArea(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: wide ? 40 : 18,
-                      vertical: 24,
+                child: Column(
+                  children: [
+                    _TopBar(
+                      onBack: () => Navigator.maybePop(context),
+                      onApply: _loading ? null : _openCityAdminSignup,
                     ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1080),
-                      child: wide
-                          ? Row(
-                              children: [
-                                const Expanded(child: _PortalCopy()),
-                                const SizedBox(width: 36),
-                                Expanded(child: _LoginCard(state: this)),
-                              ],
-                            )
-                          : Column(
-                              children: [
-                                const _PortalCopy(compact: true),
-                                const SizedBox(height: 20),
-                                _LoginCard(state: this),
-                              ],
-                            ),
+                    Expanded(
+                      child: Center(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.fromLTRB(
+                            wide ? 40 : 20,
+                            24,
+                            wide ? 40 : 20,
+                            36,
+                          ),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1120),
+                            child: wide
+                                ? Row(
+                                    children: [
+                                      const Expanded(
+                                        child: _PortalHero(),
+                                      ),
+                                      const SizedBox(width: 44),
+                                      Expanded(
+                                        child: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: _LoginCard(state: this),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Column(
+                                    children: [
+                                      const _PortalHero(compact: true),
+                                      const SizedBox(height: 24),
+                                      _LoginCard(state: this),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.onBack,
+    required this.onApply,
+  });
+
+  final VoidCallback onBack;
+  final VoidCallback? onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
+      child: Row(
+        children: [
+          TextButton.icon(
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back_rounded),
+            label: const Text('Back to portal'),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF2563EB),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+          const Spacer(),
+          OutlinedButton.icon(
+            onPressed: onApply,
+            icon: const Icon(Icons.location_city_rounded, size: 18),
+            label: const Text('Apply as City Admin'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF2563EB),
+              side: const BorderSide(color: Color(0xFFBFDBFE)),
+              backgroundColor: Colors.white.withOpacity(0.85),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -336,17 +420,17 @@ class _LoginCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 440),
-      padding: const EdgeInsets.all(28),
+      constraints: const BoxConstraints(maxWidth: 460),
+      padding: const EdgeInsets.all(30),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white),
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: Colors.white.withOpacity(0.9)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 32,
-            offset: const Offset(0, 22),
+            color: const Color(0xFF0F172A).withOpacity(0.08),
+            blurRadius: 40,
+            offset: const Offset(0, 24),
           ),
         ],
       ),
@@ -354,55 +438,49 @@ class _LoginCard extends StatelessWidget {
         key: state._formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEAF4FF),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Image.asset(
-                    'assets/images/touristrike_logo.png',
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) => const Icon(
-                      Icons.admin_panel_settings_rounded,
-                      color: Color(0xFF2A86FF),
-                    ),
-                  ),
+            Container(
+              width: 92,
+              height: 92,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: const Color(0xFFDCEBFF)),
+              ),
+              child: Image.network(
+                _WebPortalLoginScreenState.logoUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => const Icon(
+                  Icons.admin_panel_settings_rounded,
+                  color: Color(0xFF2563EB),
+                  size: 42,
                 ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Admin Sign In',
-                        style: TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Main tenant and city admin access',
-                        style: TextStyle(
-                          color: Color(0xFF64748B),
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 26),
+            const SizedBox(height: 20),
+            const Text(
+              'Admin Login',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF0F172A),
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Access the TourisTrike management portal',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 14,
+                height: 1.45,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 30),
             _WebTextField(
               controller: state._emailCtrl,
               label: 'Email Address',
@@ -426,9 +504,8 @@ class _LoginCard extends StatelessWidget {
                 return null;
               },
               suffix: IconButton(
-                onPressed: state._loading
-                    ? null
-                    : state._togglePasswordVisibility,
+                onPressed:
+                    state._loading ? null : state._togglePasswordVisibility,
                 icon: Icon(
                   state._obscure
                       ? Icons.visibility_off_outlined
@@ -437,18 +514,22 @@ class _LoginCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: state._loading ? null : state._resetPassword,
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF2563EB),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                ),
                 child: const Text('Forgot password?'),
               ),
             ),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              height: 54,
+              height: 56,
               child: ElevatedButton.icon(
                 onPressed: state._loading ? null : state._login,
                 icon: state._loading
@@ -463,11 +544,13 @@ class _LoginCard extends StatelessWidget {
                     : const Icon(Icons.login_rounded),
                 label: Text(state._loading ? 'Signing in...' : 'Sign In'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2A86FF),
+                  backgroundColor: const Color(0xFF2563EB),
                   foregroundColor: Colors.white,
                   disabledBackgroundColor: const Color(0xFF93C5FD),
+                  elevation: 0,
+                  shadowColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(17),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                   textStyle: const TextStyle(
                     fontSize: 15,
@@ -476,36 +559,29 @@ class _LoginCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            Center(
-              child: TextButton.icon(
-                onPressed: state._loading ? null : state._openCityAdminSignup,
-                icon: const Icon(Icons.how_to_reg_rounded, size: 18),
-                label: const Text('Apply as City Admin'),
-              ),
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 20),
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: const Color(0xFFF4F8FF),
-                borderRadius: BorderRadius.circular(16),
+                color: const Color(0xFFF8FBFF),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE2ECF8)),
               ),
               child: const Row(
                 children: [
                   Icon(
-                    Icons.info_outline_rounded,
-                    color: Color(0xFF2A86FF),
-                    size: 20,
+                    Icons.verified_user_outlined,
+                    color: Color(0xFF2563EB),
+                    size: 21,
                   ),
-                  SizedBox(width: 10),
+                  SizedBox(width: 11),
                   Expanded(
                     child: Text(
-                      'Only approved provincial and city admin accounts can enter the web portal.',
+                      'Only approved provincial and city admin accounts can enter this portal.',
                       style: TextStyle(
                         color: Color(0xFF475569),
-                        fontSize: 12,
-                        height: 1.35,
+                        fontSize: 12.5,
+                        height: 1.4,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -546,11 +622,19 @@ class _WebTextField extends StatelessWidget {
       keyboardType: keyboardType,
       obscureText: obscureText,
       validator: validator,
-      textInputAction: obscureText
-          ? TextInputAction.done
-          : TextInputAction.next,
+      textInputAction:
+          obscureText ? TextInputAction.done : TextInputAction.next,
+      style: const TextStyle(
+        color: Color(0xFF0F172A),
+        fontSize: 14.5,
+        fontWeight: FontWeight.w700,
+      ),
       decoration: InputDecoration(
         labelText: label,
+        labelStyle: const TextStyle(
+          color: Color(0xFF64748B),
+          fontWeight: FontWeight.w700,
+        ),
         prefixIcon: Icon(icon, color: const Color(0xFF94A3B8)),
         suffixIcon: suffix,
         filled: true,
@@ -560,84 +644,126 @@ class _WebTextField extends StatelessWidget {
           vertical: 18,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           borderSide: const BorderSide(color: Color(0xFFE2ECF8)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           borderSide: const BorderSide(color: Color(0xFFE2ECF8)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF2A86FF), width: 1.2),
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(
+            color: Color(0xFF2563EB),
+            width: 1.4,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: Color(0xFFDC2626)),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(
+            color: Color(0xFFDC2626),
+            width: 1.4,
+          ),
         ),
       ),
       onFieldSubmitted: (_) {
-        if (obscureText) stateOf(context)?._login();
+        if (obscureText) {
+          context.findAncestorStateOfType<_WebPortalLoginScreenState>()?._login();
+        }
       },
     );
   }
-
-  _WebPortalLoginScreenState? stateOf(BuildContext context) {
-    return context.findAncestorStateOfType<_WebPortalLoginScreenState>();
-  }
 }
 
-class _PortalCopy extends StatelessWidget {
-  const _PortalCopy({this.compact = false});
+class _PortalHero extends StatelessWidget {
+  const _PortalHero({this.compact = false});
 
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment:
+          compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextButton.icon(
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back_rounded),
-          label: const Text('Back to portal'),
-          style: TextButton.styleFrom(
-            foregroundColor: const Color(0xFF2A86FF),
-            padding: EdgeInsets.zero,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.82),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: const Color(0xFFDCEBFF)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.network(
+                _WebPortalLoginScreenState.logoUrl,
+                width: 28,
+                height: 28,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => const Icon(
+                  Icons.travel_explore_rounded,
+                  color: Color(0xFF2563EB),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'TourisTrike Web Portal',
+                style: TextStyle(
+                  color: Color(0xFF2563EB),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 26),
         Text(
-          'TourisTrike web portal',
+          'Manage tourism operations with a cleaner admin workspace.',
+          textAlign: compact ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             color: const Color(0xFF0F172A),
-            fontSize: compact ? 32 : 44,
+            fontSize: compact ? 34 : 50,
             height: 1.05,
             fontWeight: FontWeight.w900,
-            letterSpacing: 0,
+            letterSpacing: -1.2,
           ),
         ),
-        const SizedBox(height: 16),
-        const Text(
-          'Built for desktop workflows: package review, city-scoped tourism management, bookings, reports, and driver coordination.',
-          style: TextStyle(
+        const SizedBox(height: 18),
+        Text(
+          'Review travel packages, manage city-level tourism content, monitor bookings, and coordinate local tricycle-based travel services from one secure dashboard.',
+          textAlign: compact ? TextAlign.center : TextAlign.start,
+          style: const TextStyle(
             color: Color(0xFF64748B),
-            fontSize: 15,
-            height: 1.55,
+            fontSize: 15.5,
+            height: 1.65,
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 26),
         const Wrap(
           spacing: 12,
           runSpacing: 12,
           children: [
             _AccessChip(
               icon: Icons.account_balance_rounded,
-              label: 'Provincial admin',
+              label: 'Provincial Admin',
             ),
             _AccessChip(
               icon: Icons.location_city_rounded,
-              label: 'Sub-tenant admin',
+              label: 'City Admin',
             ),
-            _AccessChip(icon: Icons.security_rounded, label: 'Role restricted'),
+            _AccessChip(
+              icon: Icons.lock_rounded,
+              label: 'Secure Access',
+            ),
           ],
         ),
       ],
@@ -646,7 +772,10 @@ class _PortalCopy extends StatelessWidget {
 }
 
 class _AccessChip extends StatelessWidget {
-  const _AccessChip({required this.icon, required this.label});
+  const _AccessChip({
+    required this.icon,
+    required this.label,
+  });
 
   final IconData icon;
   final String label;
@@ -654,16 +783,23 @@ class _AccessChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
+        color: Colors.white.withOpacity(0.92),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: const Color(0xFFE2ECF8)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withOpacity(0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: const Color(0xFF2A86FF), size: 18),
+          Icon(icon, color: const Color(0xFF2563EB), size: 18),
           const SizedBox(width: 8),
           Text(
             label,
@@ -684,15 +820,78 @@ class _WebLoginBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFEAF5FF), Color(0xFFF6FAFF), Color(0xFFEFFAF5)],
+    return Stack(
+      children: [
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFEAF5FF),
+                Color(0xFFF8FBFF),
+                Color(0xFFEFFAF5),
+              ],
+            ),
+          ),
+          child: SizedBox.expand(),
+        ),
+        Positioned(
+          top: -120,
+          left: -90,
+          child: _GlowCircle(
+            size: 280,
+            color: Color(0xFF60A5FA),
+          ),
+        ),
+        Positioned(
+          right: -130,
+          bottom: -110,
+          child: _GlowCircle(
+            size: 320,
+            color: Color(0xFF34D399),
+          ),
+        ),
+        Positioned(
+          top: 160,
+          right: 120,
+          child: _GlowCircle(
+            size: 170,
+            color: Color(0xFFA78BFA),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GlowCircle extends StatelessWidget {
+  const _GlowCircle({
+    required this.size,
+    required this.color,
+  });
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withOpacity(0.16),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.22),
+              blurRadius: 90,
+              spreadRadius: 30,
+            ),
+          ],
         ),
       ),
-      child: SizedBox.expand(),
     );
   }
 }

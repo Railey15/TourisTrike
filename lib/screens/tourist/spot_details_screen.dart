@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_saved_places_state.dart';
@@ -20,6 +24,7 @@ class TouristSpotDetailsData {
     required this.openNow,
     required this.municipality,
     this.imageUrls = const [],
+    this.googlePlaceId = '',
   });
 
   final String id;
@@ -36,6 +41,7 @@ class TouristSpotDetailsData {
   final bool? openNow;
   final String municipality;
   final List<String> imageUrls;
+  final String googlePlaceId;
 }
 
 class TouristSpotDetailsScreen extends StatefulWidget {
@@ -56,8 +62,37 @@ class TouristSpotDetailsScreen extends StatefulWidget {
 class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
 
+  double? _liveRating;
+  int? _liveReviewCount;
+  bool? _liveOpenNow;
+  String? _googleMapsUrl;
+  bool _loadingGoogleDetails = false;
+
   TouristSpotDetailsData get spot => widget.spot;
   String get googleMapsApiKey => widget.googleMapsApiKey;
+
+  String get _effectivePlaceId {
+    if (spot.googlePlaceId.trim().isNotEmpty) return spot.googlePlaceId.trim();
+    return spot.id.trim();
+  }
+
+  double get _displayRating => _liveRating ?? spot.rating;
+  int get _displayReviewCount => _liveReviewCount ?? spot.userRatingsTotal;
+
+  String get _fallbackMapsUrl {
+    final query = Uri.encodeComponent('${spot.latitude},${spot.longitude}');
+    final placeId = Uri.encodeComponent(_effectivePlaceId);
+
+    if (_effectivePlaceId.isNotEmpty &&
+        !_effectivePlaceId.contains('sample') &&
+        !_isNumericOnly(_effectivePlaceId)) {
+      return 'https://www.google.com/maps/search/?api=1&query=$query&query_place_id=$placeId';
+    }
+
+    return 'https://www.google.com/maps/search/?api=1&query=$query';
+  }
+
+  String get _mapsUrl => _googleMapsUrl ?? _fallbackMapsUrl;
 
   String get _mapImage {
     final marker = Uri.encodeComponent('${spot.latitude},${spot.longitude}');
@@ -73,32 +108,95 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
 
   String get _aboutText {
     final category = spot.tag.toLowerCase();
-    return '${spot.title} is a recommended $category place in ${spot.municipality}, Bulacan. '
-        'It was selected from live Google Places results for the current city, so you can review its rating, address, and map location before visiting.';
+    return '${spot.title} is a recommended $category destination in ${spot.municipality}, Bulacan. '
+        'View its rating, reviews, location, and distance before planning your visit.';
   }
 
   TouristSavedPlace get _savedPlace {
     return TouristSavedPlace(
       id: 'google-${spot.id}',
       label: spot.title,
-      address: spot.address.isEmpty
-          ? '${spot.municipality}, Bulacan'
-          : spot.address,
+      address:
+          spot.address.isEmpty ? '${spot.municipality}, Bulacan' : spot.address,
       tag: spot.tag,
       latitude: spot.latitude,
       longitude: spot.longitude,
       imageUrl: spot.imageUrl,
-      rating: spot.rating,
+      rating: _displayRating,
     );
   }
 
   bool get _isSaved => touristSavedPlacesStore.isSaved(_savedPlace.id);
 
+  String get _openText {
+    final value = _liveOpenNow ?? spot.openNow;
+    if (value == null) return 'Listed';
+    return value ? 'Open' : 'Closed';
+  }
+
+  Color get _openColor {
+    final value = _liveOpenNow ?? spot.openNow;
+    if (value == null) return const Color(0xFF2A86FF);
+    return value ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGooglePlaceDetails();
+  }
+
+  bool _isNumericOnly(String value) => RegExp(r'^\d+$').hasMatch(value);
+
+  Future<void> _loadGooglePlaceDetails() async {
+    if (googleMapsApiKey.trim().isEmpty) return;
+    if (_effectivePlaceId.isEmpty) return;
+    if (_effectivePlaceId.contains('sample')) return;
+    if (_isNumericOnly(_effectivePlaceId)) return;
+
+    setState(() => _loadingGoogleDetails = true);
+
+    try {
+      final uri = Uri.https(
+        'maps.googleapis.com',
+        '/maps/api/place/details/json',
+        {
+          'place_id': _effectivePlaceId,
+          'fields': 'rating,user_ratings_total,opening_hours,url',
+          'key': googleMapsApiKey,
+        },
+      );
+
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final result = data['result'] as Map<String, dynamic>?;
+
+      if (result == null) return;
+
+      final openingHours = result['opening_hours'] as Map<String, dynamic>?;
+
+      if (!mounted) return;
+      setState(() {
+        _liveRating = (result['rating'] as num?)?.toDouble() ?? _liveRating;
+        _liveReviewCount =
+            (result['user_ratings_total'] as num?)?.toInt() ?? _liveReviewCount;
+        _liveOpenNow = openingHours?['open_now'] as bool?;
+        _googleMapsUrl = result['url'] as String?;
+      });
+    } catch (_) {
+      // Keep fallback data from Explore screen.
+    } finally {
+      if (mounted) setState(() => _loadingGoogleDetails = false);
+    }
+  }
+
   Future<void> _toggleSaved() async {
     final wasSaved = _isSaved;
+
     try {
       if (wasSaved) {
         final rows = await _repo.fetchSavedPlaces();
+
         for (final row in rows.where(
           (item) =>
               item.label == _savedPlace.label &&
@@ -106,6 +204,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
         )) {
           await _repo.deleteSavedPlace(row.id);
         }
+
         touristSavedPlacesStore.remove(_savedPlace.id);
       } else {
         await _repo.savePlace(
@@ -113,14 +212,16 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
           address: _savedPlace.address,
           latitude: _savedPlace.latitude,
           longitude: _savedPlace.longitude,
-          kind: 'tourist_spot',
+          kind: 'normal',
           tag: _savedPlace.tag,
         );
+
         touristSavedPlacesStore.addOrUpdate(_savedPlace);
       }
 
       if (!mounted) return;
       setState(() {});
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -131,6 +232,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Unable to update saved place: $e'),
@@ -141,9 +243,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
   }
 
   Future<void> _copyMapsLink() async {
-    final url =
-        'https://www.google.com/maps/search/?api=1&query=${spot.latitude},${spot.longitude}&query_place_id=${Uri.encodeComponent(spot.id)}';
-    await Clipboard.setData(ClipboardData(text: url));
+    await Clipboard.setData(ClipboardData(text: _mapsUrl));
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -154,18 +254,38 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
     );
   }
 
-  String get _openText {
-    if (spot.openNow == null) return 'Listed';
-    return spot.openNow! ? 'Open' : 'Closed';
+  Future<void> _openMaps() async {
+    final uri = Uri.parse(_mapsUrl);
+
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) await _copyMapsLink();
+    } catch (_) {
+      await _copyMapsLink();
+    }
   }
 
-  Color get _openColor {
-    if (spot.openNow == null) return const Color(0xFF2A86FF);
-    return spot.openNow! ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+  Future<void> _sharePlace() async {
+    final text =
+        '${spot.title}\n'
+        '${spot.address.isEmpty ? '${spot.municipality}, Bulacan' : spot.address}\n\n'
+        'Google Maps: $_mapsUrl';
+
+    await Clipboard.setData(ClipboardData(text: text));
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Share link copied to clipboard'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final images = spot.imageUrls.isEmpty ? [spot.imageUrl] : spot.imageUrls;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
@@ -174,22 +294,36 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
             physics: const BouncingScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
-                child: _SpotHeroImage(
-                  imageUrls: spot.imageUrls.isEmpty
-                      ? [spot.imageUrl]
-                      : spot.imageUrls,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _SpotHeroImage(imageUrls: images),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 355,
+                      child: _SpotHeaderCard(
+                        spot: spot,
+                        rating: _displayRating,
+                        reviewCount: _displayReviewCount,
+                        loading: _loadingGoogleDetails,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               SliverToBoxAdapter(
-                child: Transform.translate(
-                  offset: const Offset(0, -15),
-                  child: _SpotDetailsSheet(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 30, 24, 34),
+                  child: _SpotDetailsBody(
                     spot: spot,
                     aboutText: _aboutText,
                     mapImage: _mapImage,
+                    rating: _displayRating,
+                    reviewCount: _displayReviewCount,
                     openText: _openText,
                     openColor: _openColor,
-                    onMapTap: _copyMapsLink,
+                    onMapTap: _openMaps,
                   ),
                 ),
               ),
@@ -218,7 +352,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
                   const SizedBox(width: 12),
                   _FloatingActionButton(
                     icon: Icons.ios_share_rounded,
-                    onTap: _copyMapsLink,
+                    onTap: _sharePlace,
                   ),
                 ],
               ),
@@ -267,7 +401,7 @@ class _SpotHeroImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 390,
+      height: 470,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
@@ -276,51 +410,17 @@ class _SpotHeroImage extends StatelessWidget {
             itemCount: imageUrls.isEmpty ? 1 : imageUrls.length,
             itemBuilder: (context, index) {
               final imageUrl = imageUrls.isEmpty ? '' : imageUrls[index];
-              if (imageUrl.isEmpty) {
-                return Container(
-                  color: const Color(0xFFEAF2FF),
-                  child: const Icon(
-                    Icons.image_not_supported_rounded,
-                    color: Color(0xFF94A3B8),
-                    size: 42,
-                  ),
-                );
-              }
+
+              if (imageUrl.isEmpty) return const _ImageFallback();
+
               return Image.network(
                 imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: const Color(0xFFEAF2FF),
-                  child: const Icon(
-                    Icons.image_not_supported_rounded,
-                    color: Color(0xFF94A3B8),
-                    size: 42,
-                  ),
-                ),
+                alignment: Alignment.center,
+                errorBuilder: (_, _, _) => const _ImageFallback(),
               );
             },
           ),
-          if (imageUrls.length > 1)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 22,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  imageUrls.length > 6 ? 6 : imageUrls.length,
-                  (index) => Container(
-                    width: 7,
-                    height: 7,
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ),
-            ),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -328,14 +428,122 @@ class _SpotHeroImage extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.20),
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.10),
+                    Colors.black.withValues(alpha: 0.30),
+                    Colors.black.withValues(alpha: 0.02),
+                    Colors.black.withValues(alpha: 0.04),
                   ],
-                  stops: const [0.0, 0.42, 1.0],
+                  stops: const [0, 0.45, 1],
                 ),
               ),
             ),
+          ),
+          if (imageUrls.length > 1)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 92,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  imageUrls.length > 5 ? 5 : imageUrls.length,
+                  (index) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: index == 0 ? 22 : 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: index == 0 ? 1 : .55),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpotHeaderCard extends StatelessWidget {
+  const _SpotHeaderCard({
+    required this.spot,
+    required this.rating,
+    required this.reviewCount,
+    required this.loading,
+  });
+
+  final TouristSpotDetailsData spot;
+  final double rating;
+  final int reviewCount;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final address =
+        spot.address.isEmpty ? '${spot.municipality}, Bulacan' : spot.address;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(30, 28, 30, 24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(34),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  spot.title,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF182433),
+                    fontSize: 24,
+                    height: 1.15,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      color: Color(0xFF4A77A6),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        address,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF4A77A6),
+                          fontSize: 15,
+                          height: 1.25,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          _HeaderRatingBadge(
+            rating: rating,
+            reviewCount: reviewCount,
+            loading: loading,
           ),
         ],
       ),
@@ -343,11 +551,82 @@ class _SpotHeroImage extends StatelessWidget {
   }
 }
 
-class _SpotDetailsSheet extends StatelessWidget {
-  const _SpotDetailsSheet({
+class _HeaderRatingBadge extends StatelessWidget {
+  const _HeaderRatingBadge({
+    required this.rating,
+    required this.reviewCount,
+    required this.loading,
+  });
+
+  final double rating;
+  final int reviewCount;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final reviewsText = reviewCount > 0 ? '$reviewCount reviews' : 'No reviews';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFFDDFBEA),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: loading
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF16A34A),
+                  ),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.star_border_rounded,
+                      color: Color(0xFF00C86B),
+                      size: 22,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      rating.toStringAsFixed(1),
+                      style: const TextStyle(
+                        color: Color(0xFF00A95A),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          reviewsText,
+          style: const TextStyle(
+            color: Color(0xFF4A77A6),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            height: 1,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SpotDetailsBody extends StatelessWidget {
+  const _SpotDetailsBody({
     required this.spot,
     required this.aboutText,
     required this.mapImage,
+    required this.rating,
+    required this.reviewCount,
     required this.openText,
     required this.openColor,
     required this.onMapTap,
@@ -356,170 +635,93 @@ class _SpotDetailsSheet extends StatelessWidget {
   final TouristSpotDetailsData spot;
   final String aboutText;
   final String mapImage;
+  final double rating;
+  final int reviewCount;
   final String openText;
   final Color openColor;
   final VoidCallback onMapTap;
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).padding.bottom;
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(22, 24, 22, bottom + 112),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SpotTitleBlock(spot: spot),
-          const SizedBox(height: 25),
-          _SpotStatsRow(
-            rating: spot.rating,
-            distance: spot.distance,
-            openText: openText,
-            openColor: openColor,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SpotStatsRow(
+          rating: rating,
+          distance: spot.distance,
+          openText: openText,
+          openColor: openColor,
+        ),
+        const SizedBox(height: 24),
+        const _SoftDivider(),
+        const SizedBox(height: 24),
+        const _DetailsSectionTitle('About Destination'),
+        const SizedBox(height: 12),
+        Text(
+          aboutText,
+          style: const TextStyle(
+            color: Color(0xFF64748B),
+            fontSize: 15.8,
+            height: 1.58,
+            fontWeight: FontWeight.w700,
           ),
-          const SizedBox(height: 22),
-          const _SoftDivider(),
-          const SizedBox(height: 22),
-          const _DetailsSectionTitle('About Destination'),
-          const SizedBox(height: 12),
-          Text(
-            aboutText,
-            style: const TextStyle(
-              color: Color(0xFF64748B),
-              fontSize: 15.5,
-              height: 1.55,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 26),
-          Row(
-            children: [
-              const _DetailsSectionTitle('Location'),
-              const Spacer(),
-              TextButton(
-                onPressed: onMapTap,
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF2A86FF),
-                  textStyle: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                  ),
+        ),
+        const SizedBox(height: 28),
+        Row(
+          children: [
+            const _DetailsSectionTitle('Location'),
+            const Spacer(),
+            TextButton(
+              onPressed: onMapTap,
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF2A86FF),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
                 ),
-                child: const Text('Open in Maps'),
               ),
-            ],
-          ),
-          if (spot.address.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              spot.address,
-              style: const TextStyle(
-                color: Color(0xFF64748B),
-                fontWeight: FontWeight.w700,
-                height: 1.35,
-              ),
+              child: const Text('Open in Maps'),
             ),
           ],
-          const SizedBox(height: 12),
-          _MapPreview(imageUrl: mapImage, onTap: onMapTap),
-          const SizedBox(height: 24),
-          _ReviewsPreview(reviewCount: spot.userRatingsTotal),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _InfoPill(icon: Icons.category_rounded, text: spot.tag),
-              _InfoPill(
-                icon: Icons.pin_drop_rounded,
-                text:
-                    '${spot.latitude.toStringAsFixed(4)}, ${spot.longitude.toStringAsFixed(4)}',
-              ),
-            ],
+        ),
+        if (spot.address.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            spot.address,
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
           ),
         ],
-      ),
+        const SizedBox(height: 12),
+        _MapPreview(imageUrl: mapImage, onTap: onMapTap),
+        const SizedBox(height: 28),
+        _ReviewsSummary(
+          reviewCount: reviewCount,
+          rating: rating,
+          onOpenReviews: onMapTap,
+        ),
+      ],
     );
   }
 }
 
-class _SpotTitleBlock extends StatelessWidget {
-  const _SpotTitleBlock({required this.spot});
-
-  final TouristSpotDetailsData spot;
+class _ImageFallback extends StatelessWidget {
+  const _ImageFallback();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                spot.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF0F172A),
-                  fontSize: 30,
-                  height: 1.05,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.4,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF2FF),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFBBD7FF)),
-              ),
-              child: Text(
-                spot.tag,
-                style: const TextStyle(
-                  color: Color(0xFF2A86FF),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
+    return Container(
+      color: const Color(0xFFEAF2FF),
+      child: const Center(
+        child: Icon(
+          Icons.image_not_supported_rounded,
+          color: Color(0xFF94A3B8),
+          size: 46,
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            const Icon(
-              Icons.location_on_outlined,
-              size: 19,
-              color: Color(0xFF2A86FF),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                spot.address.isEmpty
-                    ? '${spot.municipality}, Bulacan'
-                    : spot.address,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14.5,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 }
@@ -624,21 +826,170 @@ class _DetailStat extends StatelessWidget {
   }
 }
 
-class _StatDivider extends StatelessWidget {
-  const _StatDivider();
+class _MapPreview extends StatelessWidget {
+  const _MapPreview({
+    required this.imageUrl,
+    required this.onTap,
+  });
+
+  final String imageUrl;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(width: 1, height: 58, color: const Color(0xFFE7EEF7));
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: SizedBox(
+            height: 178,
+            width: double.infinity,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: const Color(0xFFEAF2FF),
+                    child: const Center(
+                      child: Icon(
+                        Icons.map_rounded,
+                        color: Color(0xFF2A86FF),
+                        size: 42,
+                      ),
+                    ),
+                  ),
+                ),
+                Container(color: Colors.black.withValues(alpha: 0.04)),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 13,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.96),
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.map_outlined, color: Color(0xFF2A86FF)),
+                        SizedBox(width: 10),
+                        Text(
+                          'View Map',
+                          style: TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
-class _SoftDivider extends StatelessWidget {
-  const _SoftDivider();
+class _ReviewsSummary extends StatelessWidget {
+  const _ReviewsSummary({
+    required this.reviewCount,
+    required this.rating,
+    required this.onOpenReviews,
+  });
+
+  final int reviewCount;
+  final double rating;
+  final VoidCallback onOpenReviews;
 
   @override
   Widget build(BuildContext context) {
-    return Container(height: 1, color: const Color(0xFFE7EEF7));
+    final countText =
+        reviewCount > 0 ? _compactCount(reviewCount) : 'No reviews yet';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE8EEF6)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF7ED),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.star_rounded,
+              color: Color(0xFFF59E0B),
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  rating.toStringAsFixed(1),
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+                Text(
+                  countText,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onOpenReviews,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF2A86FF),
+              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            child: const Text('See in Maps'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _compactCount(int count) {
+    if (count >= 1000) {
+      return '${(count / 1000).toStringAsFixed(1)}k Google reviews';
+    }
+    return '$count Google reviews';
   }
 }
 
@@ -654,272 +1005,28 @@ class _DetailsSectionTitle extends StatelessWidget {
       style: const TextStyle(
         color: Color(0xFF0F172A),
         fontWeight: FontWeight.w900,
-        fontSize: 20,
-        letterSpacing: -0.2,
+        fontSize: 21,
+        letterSpacing: -0.3,
       ),
     );
   }
 }
 
-class _MapPreview extends StatelessWidget {
-  const _MapPreview({required this.imageUrl, required this.onTap});
-
-  final String imageUrl;
-  final VoidCallback onTap;
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: SizedBox(
-          height: 170,
-          width: double.infinity,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.network(
-                imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: const Color(0xFFEAF2FF),
-                  child: const Center(
-                    child: Icon(
-                      Icons.map_rounded,
-                      color: Color(0xFF2A86FF),
-                      size: 40,
-                    ),
-                  ),
-                ),
-              ),
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 13,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.94),
-                    borderRadius: BorderRadius.circular(13),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.10),
-                        blurRadius: 18,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.map_outlined, color: Color(0xFF2A86FF)),
-                      SizedBox(width: 10),
-                      Text(
-                        'View Map',
-                        style: TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    return Container(width: 1, height: 58, color: const Color(0xFFE7EEF7));
   }
 }
 
-class _ReviewsPreview extends StatelessWidget {
-  const _ReviewsPreview({required this.reviewCount});
-
-  final int reviewCount;
+class _SoftDivider extends StatelessWidget {
+  const _SoftDivider();
 
   @override
   Widget build(BuildContext context) {
-    final countText = reviewCount > 0 ? _compactCount(reviewCount) : 'Google';
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text(
-              'Reviews ($countText)',
-              style: const TextStyle(
-                color: Color(0xFF0F172A),
-                fontWeight: FontWeight.w900,
-                fontSize: 20,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: () {},
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF2A86FF),
-                textStyle: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-              child: const Text('See All'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        const _ReviewCard(
-          name: 'Local Guide',
-          timeAgo: 'Recent review',
-          rating: '5.0',
-          quote:
-              'A recommended stop in Bulacan with helpful location details from Google Maps.',
-          color: Color(0xFFB7795E),
-        ),
-      ],
-    );
-  }
-
-  String _compactCount(int count) {
-    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}k';
-    return count.toString();
-  }
-}
-
-class _ReviewCard extends StatelessWidget {
-  const _ReviewCard({
-    required this.name,
-    required this.timeAgo,
-    required this.rating,
-    required this.quote,
-    required this.color,
-  });
-
-  final String name;
-  final String timeAgo;
-  final String rating;
-  final String quote;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE8EEF6)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(radius: 22, backgroundColor: color),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15,
-                      ),
-                    ),
-                    Text(
-                      timeAgo,
-                      style: const TextStyle(
-                        color: Color(0xFF64748B),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7ED),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      rating,
-                      style: const TextStyle(
-                        color: Color(0xFFF59E0B),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.star_rounded,
-                      color: Color(0xFFF59E0B),
-                      size: 15,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 13),
-          Text(
-            '"$quote"',
-            style: const TextStyle(
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w700,
-              height: 1.45,
-              fontSize: 14.5,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoPill extends StatelessWidget {
-  const _InfoPill({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 17, color: const Color(0xFF2A86FF)),
-          const SizedBox(width: 7),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Color(0xFF334155),
-              fontWeight: FontWeight.w800,
-              fontSize: 12.5,
-            ),
-          ),
-        ],
-      ),
-    );
+    return Container(height: 1, color: const Color(0xFFE7EEF7));
   }
 }
 
@@ -943,11 +1050,11 @@ class _FloatingActionButton extends StatelessWidget {
         width: 50,
         height: 50,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.92),
+          color: Colors.white.withValues(alpha: 0.94),
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
+              color: Colors.black.withValues(alpha: 0.13),
               blurRadius: 20,
               offset: const Offset(0, 10),
             ),

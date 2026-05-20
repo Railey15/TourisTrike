@@ -31,7 +31,7 @@ class _DriverPackageTrackingScreenState
 
   PackageActivity? _activity;
   PackageBooking? _booking;
-  List<CustomizedPackageSpot> _spots = [];
+  List<BookingItineraryItem> _spots = [];
 
   bool _loading = true;
   String? _error;
@@ -75,7 +75,7 @@ class _DriverPackageTrackingScreenState
         });
         return;
       }
-      final spots = await _repo.fetchBookingSpots(act.bookingId);
+      final spots = await _repo.fetchBookingItinerary(act.bookingId);
       PackageBooking? booking;
       if (act.bookingRow != null) booking = PackageBooking(act.bookingRow!);
 
@@ -215,7 +215,9 @@ class _DriverPackageTrackingScreenState
         icon: BitmapDescriptor.defaultMarkerWithHue(
           isDone ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueAzure,
         ),
-        infoWindow: InfoWindow(title: 'Stop ${i + 1}: ${_spots[i].spotTitle}'),
+        infoWindow: InfoWindow(
+          title: 'Stop ${i + 1}: ${_spots[i].destinationName}',
+        ),
       ));
     }
 
@@ -831,7 +833,7 @@ class _ActionButtons extends StatelessWidget {
   });
 
   final String status;
-  final List<CustomizedPackageSpot> spots;
+  final List<BookingItineraryItem> spots;
   final int currentSpotIndex;
   final bool actionBusy;
   final VoidCallback onMarkEnRoute;
@@ -1322,7 +1324,7 @@ class _SpotProgressCard extends StatelessWidget {
     required this.status,
   });
 
-  final List<CustomizedPackageSpot> spots;
+  final List<BookingItineraryItem> spots;
   final int currentIndex;
   final String status;
 
@@ -1338,7 +1340,7 @@ class _SpotProgressCard extends StatelessWidget {
             children: [
               const Expanded(
                 child: Text(
-                  'Tour Spots',
+                  'Tour Itinerary',
                   style: TextStyle(
                     color: Color(0xFF0F172A),
                     fontWeight: FontWeight.w900,
@@ -1363,7 +1365,8 @@ class _SpotProgressCard extends StatelessWidget {
                 (status == 'en_route_to_spot' || status == 'at_spot');
             return _SpotRow(
               number: i + 1,
-              title: spots[i].spotTitle,
+              title: spots[i].destinationName,
+              subtitle: _driverItinerarySummary(spots[i]),
               isDone: isDone,
               isCurrent: isCurrent,
               isLast: i == spots.length - 1,
@@ -1379,6 +1382,7 @@ class _SpotRow extends StatelessWidget {
   const _SpotRow({
     required this.number,
     required this.title,
+    required this.subtitle,
     required this.isDone,
     required this.isCurrent,
     required this.isLast,
@@ -1386,6 +1390,7 @@ class _SpotRow extends StatelessWidget {
 
   final int number;
   final String title;
+  final String subtitle;
   final bool isDone;
   final bool isCurrent;
   final bool isLast;
@@ -1443,20 +1448,38 @@ class _SpotRow extends StatelessWidget {
         Expanded(
           child: Padding(
             padding: EdgeInsets.only(top: 4, bottom: isLast ? 0 : 24),
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: isDone
-                    ? const Color(0xFF64748B)
-                    : isCurrent
-                    ? const Color(0xFF0F172A)
-                    : const Color(0xFF94A3B8),
-                fontWeight:
-                    isCurrent ? FontWeight.w900 : FontWeight.w700,
-                fontSize: 14,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDone
+                        ? const Color(0xFF64748B)
+                        : isCurrent
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFF94A3B8),
+                    fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -1482,6 +1505,20 @@ class _SpotRow extends StatelessWidget {
       ],
     );
   }
+}
+
+String _driverItinerarySummary(BookingItineraryItem item) {
+  final parts = <String>[];
+  if (item.arrivalTime.isNotEmpty) {
+    parts.add('Arrival ${formatScheduleTimeLabel(item.arrivalTime)}');
+  }
+  if (item.estimatedStayDurationMinutes > 0) {
+    parts.add('Stay ${item.estimatedStayDurationMinutes}m');
+  }
+  if (item.departureTime.isNotEmpty) {
+    parts.add('Departure ${formatScheduleTimeLabel(item.departureTime)}');
+  }
+  return parts.join(' • ');
 }
 
 // ── Shared Card Container ─────────────────────────────────────

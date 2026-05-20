@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
+import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 import 'package:touristrike/screens/tourist/package_details_screen.dart';
 import 'spot_details_screen.dart';
 import 'tourist_location_state.dart';
@@ -113,10 +114,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
   void _onLocationSelectionChanged() {
     if (!mounted) return;
-
-    setState(() {
-      _future = _loadExploreData();
-    });
+    setState(() => _future = _loadExploreData());
   }
 
   Future<LatLng> _resolveCurrentCenter() async {
@@ -166,6 +164,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
       final fallbackKey =
           '${_normalText(spot.title)}|${_normalText(spot.municipality)}';
       final key = googleKey.isNotEmpty ? 'g:$googleKey' : 't:$fallbackKey';
+
       if (seen.add(key)) {
         merged.add(spot);
       }
@@ -185,32 +184,32 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
       center: center,
       limit: 20,
     );
-    return suggestions
-        .map((suggestion) {
-          final category = _normalizeSpotCategory(
-            suggestion.category,
-            placeTypes: suggestion.placeTypes,
-          );
-          return _SpotModel(
-            id: suggestion.id,
-            title: suggestion.title,
-            address: suggestion.address,
-            distance: _distanceText(suggestion.distanceKm),
-            distanceKm: suggestion.distanceKm,
-            tag: category,
-            category: category,
-            rating: suggestion.rating,
-            userRatingsTotal: 0,
-            imageUrl: suggestion.imageForCard,
-            latitude: suggestion.latitude,
-            longitude: suggestion.longitude,
-            openNow: null,
-            types: suggestion.placeTypes,
-            municipality: municipality,
-            googlePlaceId: suggestion.id,
-          );
-        })
-        .toList(growable: false);
+
+    return suggestions.map((suggestion) {
+      final category = _normalizeSpotCategory(
+        suggestion.category,
+        placeTypes: suggestion.placeTypes,
+      );
+
+      return _SpotModel(
+        id: suggestion.id,
+        title: suggestion.title,
+        address: suggestion.address,
+        distance: _distanceText(suggestion.distanceKm),
+        distanceKm: suggestion.distanceKm,
+        tag: category,
+        category: category,
+        rating: suggestion.rating,
+        userRatingsTotal: 0,
+        imageUrl: suggestion.imageForCard,
+        latitude: suggestion.latitude,
+        longitude: suggestion.longitude,
+        openNow: null,
+        types: suggestion.placeTypes,
+        municipality: municipality,
+        googlePlaceId: suggestion.id,
+      );
+    }).toList(growable: false);
   }
 
   Future<List<_SpotModel>> _loadSavedTouristSpots({
@@ -237,10 +236,12 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
       final spotRows = (responses[0] as List).whereType<Map>().toList();
       final categoryRows = (responses[1] as List).whereType<Map>().toList();
+
       final categoryNames = <String, String>{
         for (final row in categoryRows)
           '${row['id']}': ((row['name'] as String?) ?? '').trim(),
       };
+
       final selectedCity = _normalText(municipality);
 
       return spotRows
@@ -252,6 +253,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                   ''),
             );
             final fallbackCity = _normalText((row['city'] as String?) ?? '');
+
             return city == selectedCity ||
                 fallbackCity == selectedCity ||
                 fallbackCity == _normalText('$municipality Bulacan') ||
@@ -260,19 +262,23 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
           .map((row) {
             final lat = (row['latitude'] as num?)?.toDouble() ?? 0;
             final lng = (row['longitude'] as num?)?.toDouble() ?? 0;
+
             final distanceKm = _haversineKm(
               center.latitude,
               center.longitude,
               lat,
               lng,
             );
+
             final categoryName =
                 categoryNames['${row['category_id']}'] ??
                 ((row['category'] as String?) ?? '');
+
             final resolvedMunicipality =
                 ((row['municipality'] as String?)?.trim().isNotEmpty ?? false)
-                ? (row['municipality'] as String).trim()
-                : ((row['city'] as String?) ?? municipality).trim();
+                    ? (row['municipality'] as String).trim()
+                    : ((row['city'] as String?) ?? municipality).trim();
+
             final category = _normalizeSpotCategory(
               categoryName,
               title: (row['title'] as String?) ?? '',
@@ -330,13 +336,12 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
       return (rows as List)
           .map((e) => _PackageModel.fromMap(e as Map<String, dynamic>))
           .where((p) {
-            final packageCity = _normalText(p.city);
+        final packageCity = _normalText(p.city);
 
-            return packageCity == selectedCity ||
-                packageCity == _normalText('$municipality Bulacan') ||
-                packageCity.contains(selectedCity);
-          })
-          .toList();
+        return packageCity == selectedCity ||
+            packageCity == _normalText('$municipality Bulacan') ||
+            packageCity.contains(selectedCity);
+      }).toList();
     } catch (e) {
       debugPrint('EXPLORE packages unavailable: $e');
       return [];
@@ -393,8 +398,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     final dLat = _deg2rad(lat2 - lat1);
     final dLon = _deg2rad(lon2 - lon1);
 
-    final a =
-        math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_deg2rad(lat1)) *
             math.cos(_deg2rad(lat2)) *
             math.sin(dLon / 2) *
@@ -470,6 +474,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     return spots.where((s) {
       final category = _selectedSpotCategory;
       final matchesCategory = category == null || s.category == category;
+
       return (_matchesSearch(s.title) ||
               _matchesSearch(s.address) ||
               _matchesSearch(s.municipality)) &&
@@ -481,12 +486,13 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     final availableCategories = packages
         .expand((package) => package.filterCategories)
         .toSet();
+
     return packages.where((p) {
       final category = _selectedPackageCategory;
-      final matchesCategory =
-          category == null ||
+      final matchesCategory = category == null ||
           !availableCategories.contains(category) ||
           p.filterCategories.contains(category);
+
       return (_matchesSearch(p.title) ||
               _matchesSearch(p.description) ||
               _matchesSearch(p.city) ||
@@ -501,6 +507,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     final available = packages
         .expand((package) => package.filterCategories)
         .toSet();
+
     return _packageCategoryOptions
         .where((chip) => available.contains(chip.label))
         .toList(growable: false);
@@ -528,9 +535,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _future = _loadExploreData();
-    });
+    setState(() => _future = _loadExploreData());
     await _future;
   }
 
@@ -649,9 +654,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     touristLocationStore.usePhoneLocation();
 
     if (!wasManual) {
-      setState(() {
-        _future = _loadExploreData();
-      });
+      setState(() => _future = _loadExploreData());
     }
   }
 
@@ -683,9 +686,166 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
   void _selectContentType(ExploreContentType type) {
     if (_selectedType == type) return;
-    setState(() {
-      _selectedType = type;
-    });
+    setState(() => _selectedType = type);
+  }
+
+  void _openFilterSheet(List<_PackageModel> packages) {
+    final packageCategories = _availablePackageCategories(packages);
+    final categories = _selectedType == ExploreContentType.spots
+        ? _spotCategories
+        : packageCategories;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, modalSetState) {
+            final selectedCategory = _selectedType == ExploreContentType.spots
+                ? _selectedSpotCategory
+                : _selectedPackageCategory;
+
+            return Container(
+              padding: EdgeInsets.fromLTRB(
+                18,
+                12,
+                18,
+                MediaQuery.of(context).padding.bottom + 22,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 48,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD8E3F1),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF2FF),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.tune_rounded,
+                          color: Color(0xFF2A86FF),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _selectedType == ExploreContentType.spots
+                              ? 'Filter spots'
+                              : 'Filter packages',
+                          style: const TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontSize: 21,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            if (_selectedType == ExploreContentType.spots) {
+                              _selectedSpotCategory = null;
+                            } else {
+                              _selectedPackageCategory = null;
+                            }
+                          });
+                          modalSetState(() {});
+                        },
+                        child: const Text('Clear'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  if (categories.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: const Text(
+                        'No filters available for this section yet.',
+                        style: TextStyle(
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: categories.map((chip) {
+                        final selected = selectedCategory == chip.label;
+
+                        return _CategoryChip(
+                          label: chip.label,
+                          icon: chip.icon,
+                          selected: selected,
+                          onTap: () {
+                            setState(() {
+                              if (_selectedType == ExploreContentType.spots) {
+                                _selectedSpotCategory =
+                                    selected ? null : chip.label;
+                              } else {
+                                _selectedPackageCategory =
+                                    selected ? null : chip.label;
+                              }
+                            });
+                            modalSetState(() {});
+                          },
+                        );
+                      }).toList(growable: false),
+                    ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: _GradientButton(
+                      text: 'Apply Filter',
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  bool get _hasActiveFilter {
+    return _selectedType == ExploreContentType.spots
+        ? _selectedSpotCategory != null
+        : _selectedPackageCategory != null;
+  }
+
+  String? get _activeFilterLabel {
+    return _selectedType == ExploreContentType.spots
+        ? _selectedSpotCategory
+        : _selectedPackageCategory;
   }
 
   @override
@@ -696,209 +856,185 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     const navBodyH = 92.0;
     final navTotalH = navBodyH + bottomInset;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF6FAFF),
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: FutureBuilder<_ExploreData>(
-                future: _future,
-                builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const _LoadingState();
-                  }
+    return TouristAiChatbotWrapper(
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF6FAFF),
+        body: SafeArea(
+          bottom: false,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: FutureBuilder<_ExploreData>(
+                  future: _future,
+                  builder: (context, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const _LoadingState();
+                    }
 
-                  if (snap.hasError) {
-                    return _ErrorState(
-                      error: snap.error.toString(),
-                      onRetry: _refresh,
-                    );
-                  }
+                    if (snap.hasError) {
+                      return _ErrorState(
+                        error: snap.error.toString(),
+                        onRetry: _refresh,
+                      );
+                    }
 
-                  final data = snap.data!;
-                  final spots = _filteredSpots(data.spots);
-                  final packages = _filteredPackages(data.packages);
+                    final data = snap.data!;
+                    final spots = _filteredSpots(data.spots);
+                    final packages = _filteredPackages(data.packages);
 
-                  final showSpots = _selectedType == ExploreContentType.spots;
-                  final showPackages =
-                      _selectedType == ExploreContentType.packages;
-                  final visiblePackageCategories = _availablePackageCategories(
-                    data.packages,
-                  );
+                    final showSpots =
+                        _selectedType == ExploreContentType.spots;
+                    final showPackages =
+                        _selectedType == ExploreContentType.packages;
 
-                  return RefreshIndicator(
-                    color: const Color(0xFF2A86FF),
-                    onRefresh: _refresh,
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(14, 10, 14, navTotalH + 18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _ExploreHeader(onRefresh: _refresh),
-                          const SizedBox(height: 12),
-                          _LocationBanner(
-                            municipality: data.municipality,
-                            insideBulacan: data.insideBulacan,
-                            usingManualLocation: data.usingManualLocation,
-                            onPickLocation: _selectMunicipality,
-                            onUsePhoneLocation: _usePhoneLocation,
-                          ),
-                          const SizedBox(height: 14),
-                          _SearchAndToggleBar(
-                            controller: _searchCtrl,
-                            onChanged: (_) => setState(() {}),
-                            selectedType: _selectedType,
-                            onTypeSelected: _selectContentType,
-                          ),
-                          if (showSpots) ...[
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: _spotCategories
-                                  .map((chip) {
-                                    return _CategoryChip(
-                                      label: chip.label,
-                                      icon: chip.icon,
-                                      selected:
-                                          _selectedSpotCategory == chip.label,
-                                      onTap: () {
-                                        setState(() {
-                                          _selectedSpotCategory =
-                                              _selectedSpotCategory ==
-                                                  chip.label
-                                              ? null
-                                              : chip.label;
-                                        });
-                                      },
-                                    );
-                                  })
-                                  .toList(growable: false),
+                    return RefreshIndicator(
+                      color: const Color(0xFF2A86FF),
+                      onRefresh: _refresh,
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          10,
+                          16,
+                          navTotalH + 18,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _ExploreHeader(onRefresh: _refresh),
+                            const SizedBox(height: 12),
+                            _LocationBanner(
+                              municipality: data.municipality,
+                              insideBulacan: data.insideBulacan,
+                              usingManualLocation: data.usingManualLocation,
+                              onPickLocation: _selectMunicipality,
+                              onUsePhoneLocation: _usePhoneLocation,
                             ),
-                          ],
-                          if (showPackages &&
-                              visiblePackageCategories.isNotEmpty) ...[
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: visiblePackageCategories
-                                  .map((chip) {
-                                    return _CategoryChip(
-                                      label: chip.label,
-                                      icon: chip.icon,
-                                      selected:
-                                          _selectedPackageCategory ==
-                                          chip.label,
-                                      onTap: () {
-                                        setState(() {
-                                          _selectedPackageCategory =
-                                              _selectedPackageCategory ==
-                                                  chip.label
-                                              ? null
-                                              : chip.label;
-                                        });
-                                      },
-                                    );
-                                  })
-                                  .toList(growable: false),
-                            ),
-                          ],
-                          const SizedBox(height: 18),
-                          if (showSpots) ...[
-                            _SectionRow(
-                              title: data.municipality == null
-                                  ? 'Famous Spots'
-                                  : 'Famous Spots in ${data.municipality}',
-                              subtitle:
-                                  '${spots.length} result${spots.length == 1 ? '' : 's'}',
+                            const SizedBox(height: 16),
+                            _SearchFilterRow(
+                              controller: _searchCtrl,
+                              onChanged: (_) => setState(() {}),
+                              hasActiveFilter: _hasActiveFilter,
+                              onFilterTap: () => _openFilterSheet(data.packages),
                             ),
                             const SizedBox(height: 12),
-                            if (spots.isEmpty)
-                              const _EmptyState(
-                                icon: Icons.travel_explore_rounded,
-                                title: 'No spots found',
-                                message:
-                                    'Try another keyword, category, or make sure your location is inside Bulacan.',
-                              )
-                            else
-                              ...spots.map(
-                                (s) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: _PopularSpotCard(
-                                    model: s,
-                                    onTap: () => _openSpotDetails(s),
-                                  ),
-                                ),
-                              ),
-                            if (showPackages) const SizedBox(height: 8),
-                          ],
-                          if (showPackages) ...[
-                            _SectionRow(
-                              title: data.municipality == null
-                                  ? 'Packages'
-                                  : 'Packages in ${data.municipality}',
-                              subtitle:
-                                  '${packages.length} result${packages.length == 1 ? '' : 's'}',
+                            _ExploreTabBar(
+                              selectedType: _selectedType,
+                              onSelected: _selectContentType,
+                              spotsCount: _filteredSpots(data.spots).length,
+                              packagesCount:
+                                  _filteredPackages(data.packages).length,
                             ),
-                            const SizedBox(height: 12),
-                            if (packages.isEmpty)
-                              const _EmptyState(
-                                icon: Icons.card_travel_rounded,
-                                title: 'No packages available',
-                                message:
-                                    'Admin-created packages for this municipality will appear here.',
-                              )
-                            else
-                              ...packages.map(
-                                (p) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: _PackageCard(
-                                    model: p,
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => PackageDetailsScreen(
-                                            packageId: p.id,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    onBook: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => PackageDetailsScreen(
-                                            packageId: p.id,
-                                          ),
-                                        ),
-                                      );
-                                    },
+                            if (_activeFilterLabel != null) ...[
+                              const SizedBox(height: 12),
+                              _ActiveFilterPill(
+                                label: _activeFilterLabel!,
+                                onClear: () {
+                                  setState(() {
+                                    if (_selectedType ==
+                                        ExploreContentType.spots) {
+                                      _selectedSpotCategory = null;
+                                    } else {
+                                      _selectedPackageCategory = null;
+                                    }
+                                  });
+                                },
+                              ),
+                            ],
+                            const SizedBox(height: 18),
+                            if (showSpots) ...[
+                              _SectionRow(
+                                title: data.municipality == null
+                                    ? 'Famous Spots'
+                                    : 'Famous Spots in ${data.municipality}',
+                                subtitle:
+                                    '${spots.length} result${spots.length == 1 ? '' : 's'}',
+                              ),
+                              const SizedBox(height: 12),
+                              if (spots.isEmpty)
+                                const _EmptyState(
+                                  icon: Icons.travel_explore_rounded,
+                                  title: 'No spots found',
+                                  message:
+                                      'Try another keyword, filter, or make sure your location is inside Bulacan.',
+                                )
+                              else
+                                ...spots.map(
+                                  (s) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    child: _PopularSpotCard(
+                                      model: s,
+                                      onTap: () => _openSpotDetails(s),
+                                    ),
                                   ),
                                 ),
+                            ],
+                            if (showPackages) ...[
+                              _SectionRow(
+                                title: data.municipality == null
+                                    ? 'Packages'
+                                    : 'Packages in ${data.municipality}',
+                                subtitle:
+                                    '${packages.length} result${packages.length == 1 ? '' : 's'}',
                               ),
+                              const SizedBox(height: 12),
+                              if (packages.isEmpty)
+                                const _EmptyState(
+                                  icon: Icons.card_travel_rounded,
+                                  title: 'No packages available',
+                                  message:
+                                      'Admin-created packages for this municipality will appear here.',
+                                )
+                              else
+                                ...packages.map(
+                                  (p) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    child: _PackageCard(
+                                      model: p,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                PackageDetailsScreen(
+                                              packageId: p.id,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      onBook: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                PackageDetailsScreen(
+                                              packageId: p.id,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: AppBottomNav(
-                selectedIndex: _navIndex,
-                onSelect: (i) => setState(() => _navIndex = i),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: AppBottomNav(
+                  selectedIndex: _navIndex,
+                  onSelect: (i) => setState(() => _navIndex = i),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -920,9 +1056,10 @@ class _ExploreHeader extends StatelessWidget {
             'Explore',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 23,
               fontWeight: FontWeight.w900,
               color: Color(0xFF0F172A),
+              letterSpacing: -0.4,
             ),
           ),
         ),
@@ -1044,8 +1181,7 @@ class _PackageModel {
       id: m['id'],
       title: (m['title'] as String?) ?? 'Untitled Package',
       rating: 4.8,
-      description:
-          (m['description'] as String?) ??
+      description: (m['description'] as String?) ??
           (m['subtitle'] as String?) ??
           'Admin-created tour package.',
       city: (m['city'] as String?) ?? 'Bulacan',
@@ -1136,22 +1272,22 @@ class _LocationBanner extends StatelessWidget {
     final subtitle = municipality == null
         ? 'Tap to select a Bulacan city or use GPS inside Bulacan.'
         : usingManualLocation
-        ? 'Manual selection is synced with Home. Tap GPS to use your phone location.'
-        : 'Using phone GPS. Famous spots and packages are filtered for this city.';
+            ? 'Manual selection is synced with Home. Tap GPS to use your phone location.'
+            : 'Using phone GPS. Famous spots and packages are filtered for this city.';
 
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(24),
       child: InkWell(
         onTap: onPickLocation,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(24),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [Color(0xFFFFFFFF), Color(0xFFEAF2FF)],
             ),
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(color: const Color(0xFFE2E8F0)),
             boxShadow: [
               BoxShadow(
@@ -1168,7 +1304,7 @@ class _LocationBanner extends StatelessWidget {
                 height: 48,
                 decoration: BoxDecoration(
                   color: const Color(0xFF2A86FF),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(17),
                 ),
                 child: Icon(
                   insideBulacan
@@ -1228,7 +1364,10 @@ class _LocationBanner extends StatelessWidget {
 }
 
 class _LocationActionButton extends StatelessWidget {
-  const _LocationActionButton({required this.icon, required this.onTap});
+  const _LocationActionButton({
+    required this.icon,
+    required this.onTap,
+  });
 
   final IconData icon;
   final VoidCallback onTap;
@@ -1251,30 +1390,29 @@ class _LocationActionButton extends StatelessWidget {
   }
 }
 
-class _SearchAndToggleBar extends StatelessWidget {
-  const _SearchAndToggleBar({
+class _SearchFilterRow extends StatelessWidget {
+  const _SearchFilterRow({
     required this.controller,
     required this.onChanged,
-    required this.selectedType,
-    required this.onTypeSelected,
+    required this.onFilterTap,
+    required this.hasActiveFilter,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
-  final ExploreContentType selectedType;
-  final ValueChanged<ExploreContentType> onTypeSelected;
+  final VoidCallback onFilterTap;
+  final bool hasActiveFilter;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: Container(
             height: 56,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(19),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
@@ -1286,8 +1424,11 @@ class _SearchAndToggleBar extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const SizedBox(width: 14),
-                const Icon(Icons.search_rounded, color: Color(0xFF94A3B8)),
+                const SizedBox(width: 15),
+                const Icon(
+                  Icons.search_rounded,
+                  color: Color(0xFF94A3B8),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
@@ -1301,7 +1442,7 @@ class _SearchAndToggleBar extends StatelessWidget {
                     decoration: const InputDecoration(
                       hintText: 'Search places or packages...',
                       hintStyle: TextStyle(
-                        fontSize: 15,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF94A3B8),
                       ),
@@ -1325,54 +1466,104 @@ class _SearchAndToggleBar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        _ExploreTypeToggle(
-          selectedType: selectedType,
-          onSelected: onTypeSelected,
+        InkWell(
+          onTap: onFilterTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: hasActiveFilter
+                  ? const Color(0xFF2A86FF)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: hasActiveFilter
+                    ? const Color(0xFF2A86FF)
+                    : const Color(0xFFE2E8F0),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.045),
+                  blurRadius: 18,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.tune_rounded,
+                  color: hasActiveFilter
+                      ? Colors.white
+                      : const Color(0xFF2A86FF),
+                ),
+                if (hasActiveFilter)
+                  Positioned(
+                    top: 13,
+                    right: 13,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-class _ExploreTypeToggle extends StatelessWidget {
-  const _ExploreTypeToggle({
+class _ExploreTabBar extends StatelessWidget {
+  const _ExploreTabBar({
     required this.selectedType,
     required this.onSelected,
+    required this.spotsCount,
+    required this.packagesCount,
   });
 
   final ExploreContentType selectedType;
   final ValueChanged<ExploreContentType> onSelected;
+  final int spotsCount;
+  final int packagesCount;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 56,
-      padding: const EdgeInsets.all(4),
+      height: 58,
+      padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
         color: const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF2A86FF).withValues(alpha: 0.10),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFDCEBFF)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          _ExploreToggleButton(
-            label: 'Spots',
-            icon: Icons.place_rounded,
-            selected: selectedType == ExploreContentType.spots,
-            onTap: () => onSelected(ExploreContentType.spots),
+          Expanded(
+            child: _ExploreTabButton(
+              label: 'Spots',
+              count: spotsCount,
+              icon: Icons.place_rounded,
+              selected: selectedType == ExploreContentType.spots,
+              onTap: () => onSelected(ExploreContentType.spots),
+            ),
           ),
-          _ExploreToggleButton(
-            label: 'Packages',
-            icon: Icons.card_travel_rounded,
-            selected: selectedType == ExploreContentType.packages,
-            onTap: () => onSelected(ExploreContentType.packages),
+          const SizedBox(width: 6),
+          Expanded(
+            child: _ExploreTabButton(
+              label: 'Packages',
+              count: packagesCount,
+              icon: Icons.card_travel_rounded,
+              selected: selectedType == ExploreContentType.packages,
+              onTap: () => onSelected(ExploreContentType.packages),
+            ),
           ),
         ],
       ),
@@ -1380,15 +1571,17 @@ class _ExploreTypeToggle extends StatelessWidget {
   }
 }
 
-class _ExploreToggleButton extends StatelessWidget {
-  const _ExploreToggleButton({
+class _ExploreTabButton extends StatelessWidget {
+  const _ExploreTabButton({
     required this.label,
+    required this.count,
     required this.icon,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
+  final int count;
   final IconData icon;
   final bool selected;
   final VoidCallback onTap;
@@ -1396,31 +1589,109 @@ class _ExploreToggleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = selected ? Colors.white : const Color(0xFF2A86FF);
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        duration: const Duration(milliseconds: 170),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF2A86FF) : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF2A86FF).withValues(alpha: 0.22),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 18, color: fg),
-            const SizedBox(width: 6),
+            const SizedBox(width: 7),
             Text(
               label,
               style: TextStyle(
                 color: fg,
                 fontWeight: FontWeight.w900,
-                fontSize: 13,
+                fontSize: 13.5,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: selected
+                    ? Colors.white.withValues(alpha: 0.20)
+                    : Colors.white.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ActiveFilterPill extends StatelessWidget {
+  const _ActiveFilterPill({
+    required this.label,
+    required this.onClear,
+  });
+
+  final String label;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 9, 8, 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFDCEBFF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.filter_alt_rounded, size: 16, color: Color(0xFF2A86FF)),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF2A86FF),
+              fontWeight: FontWeight.w900,
+              fontSize: 12.5,
+            ),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: onClear,
+            borderRadius: BorderRadius.circular(999),
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(
+                Icons.close_rounded,
+                size: 16,
+                color: Color(0xFF2A86FF),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1441,7 +1712,7 @@ class _CategoryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected ? const Color(0xFF2A86FF) : Colors.white;
+    final bg = selected ? const Color(0xFF2A86FF) : const Color(0xFFF8FAFC);
     final fg = selected ? Colors.white : const Color(0xFF334155);
 
     return InkWell(
@@ -1449,7 +1720,7 @@ class _CategoryChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(999),
@@ -1480,7 +1751,10 @@ class _CategoryChip extends StatelessWidget {
 }
 
 class _SectionRow extends StatelessWidget {
-  const _SectionRow({required this.title, required this.subtitle});
+  const _SectionRow({
+    required this.title,
+    required this.subtitle,
+  });
 
   final String title;
   final String subtitle;
@@ -1585,7 +1859,10 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _PopularSpotCard extends StatelessWidget {
-  const _PopularSpotCard({required this.model, required this.onTap});
+  const _PopularSpotCard({
+    required this.model,
+    required this.onTap,
+  });
 
   final _SpotModel model;
   final VoidCallback onTap;
@@ -1948,7 +2225,10 @@ class _PackageCard extends StatelessWidget {
 }
 
 class _MiniInfoPill extends StatelessWidget {
-  const _MiniInfoPill({required this.icon, required this.text});
+  const _MiniInfoPill({
+    required this.icon,
+    required this.text,
+  });
 
   final IconData icon;
   final String text;
@@ -1986,7 +2266,10 @@ class _MiniInfoPill extends StatelessWidget {
 }
 
 class _ImageChip extends StatelessWidget {
-  const _ImageChip({required this.icon, required this.text});
+  const _ImageChip({
+    required this.icon,
+    required this.text,
+  });
 
   final IconData icon;
   final String text;
@@ -2023,7 +2306,11 @@ class _PackageImageFallback extends StatelessWidget {
     return Container(
       color: const Color(0xFFEAF2FF),
       child: const Center(
-        child: Icon(Icons.map_rounded, color: Color(0xFF2A86FF), size: 34),
+        child: Icon(
+          Icons.map_rounded,
+          color: Color(0xFF2A86FF),
+          size: 34,
+        ),
       ),
     );
   }
@@ -2071,7 +2358,10 @@ class _LoadingState extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.error, required this.onRetry});
+  const _ErrorState({
+    required this.error,
+    required this.onRetry,
+  });
 
   final String error;
   final VoidCallback onRetry;
@@ -2126,7 +2416,10 @@ class _ErrorState extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 height: 50,
-                child: _GradientButton(text: 'Retry', onPressed: onRetry),
+                child: _GradientButton(
+                  text: 'Retry',
+                  onPressed: onRetry,
+                ),
               ),
             ],
           ),
@@ -2137,7 +2430,10 @@ class _ErrorState extends StatelessWidget {
 }
 
 class _GradientButton extends StatelessWidget {
-  const _GradientButton({required this.text, required this.onPressed});
+  const _GradientButton({
+    required this.text,
+    required this.onPressed,
+  });
 
   final String text;
   final VoidCallback onPressed;

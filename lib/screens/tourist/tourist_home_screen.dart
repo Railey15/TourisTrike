@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/recommendations/tourist_ai_recommendation_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 
+import 'package:touristrike/screens/tourist/profile/tourist_profile_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
+import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 import 'tourist_location_state.dart';
 import 'tourist_explore_screen.dart';
 import 'package_details_screen.dart';
@@ -21,6 +24,8 @@ class TouristHomeScreen extends StatefulWidget {
 
 class _TouristHomeScreenState extends State<TouristHomeScreen> {
   final supabase = Supabase.instance.client;
+  final TouristAiRecommendationService _recommendationService =
+      const TouristAiRecommendationService();
 
   static const LatLng _defaultCenter = LatLng(14.9597, 120.9206);
 
@@ -41,6 +46,11 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
   _MunicipalityArea? _selectedArea;
   bool _usingManualLocation = false;
 
+  // AI Preferences
+  String _prefLocation = '';
+  List<String> _prefCategories = [];
+  bool _prefLoaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,6 +59,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     }
     _homeFuture = _loadHome();
     _startLocationWatch();
+    _loadPreferences();
   }
 
   @override
@@ -92,12 +103,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     final avatarUrl = (profile?['profile_image_url'] as String?) ?? '';
 
-    final famousSpots = municipality == null
+    final allSpots = municipality == null
         ? <_NearbySpot>[]
-        : await _loadGoogleFamousSpots(
+        : (await _recommendationService.loadMunicipalitySpots(
             municipality: municipality,
             center: currentCenter,
-          );
+            googleLimit: 20,
+          )).map(_NearbySpot.fromRecommendationSpot).toList(growable: false);
+
+    final famousSpots = _buildFamousSpots(allSpots);
 
     final packages = await _loadAdminPackages(municipality);
 
@@ -108,6 +122,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       center: currentCenter,
       municipality: municipality,
       isInsideBulacan: insideBulacan,
+      allSpots: allSpots,
       famousSpots: famousSpots,
       suggestionPackages: packages,
     );
@@ -165,25 +180,14 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     }
   }
 
-  Future<List<_NearbySpot>> _loadGoogleFamousSpots({
-    required String municipality,
-    required LatLng center,
-  }) async {
-    try {
-      final suggestions = await const CitySpotSuggestionService()
-          .fetchSuggestions(
-            city: municipality,
-            province: 'Bulacan',
-            center: center,
-            limit: 8,
-          );
-      return suggestions
-          .map((suggestion) => _NearbySpot.fromSuggestion(suggestion))
-          .toList(growable: false);
-    } catch (e) {
-      debugPrint('Google famous spots unavailable: $e');
-      return [];
-    }
+  List<_NearbySpot> _buildFamousSpots(List<_NearbySpot> spots) {
+    final ranked = List<_NearbySpot>.from(spots)
+      ..sort((a, b) {
+        final scoreA = (a.rating * 100) - (a.distanceKm * 8);
+        final scoreB = (b.rating * 100) - (b.distanceKm * 8);
+        return scoreB.compareTo(scoreA);
+      });
+    return ranked.take(10).toList(growable: false);
   }
 
   Future<LatLng> _resolveCurrentCenter() async {
@@ -412,6 +416,87 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     }
   }
 
+  Future<void> _loadPreferences() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final row = await supabase
+          .from('tourist_preferences')
+          .select('preferred_location, preferred_categories')
+          .eq('tourist_id', user.id)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      setState(() {
+        _prefLocation = (row?['preferred_location'] as String?) ?? '';
+        final cats = row?['preferred_categories'];
+        _prefCategories = cats is List
+            ? cats.map((e) => e.toString()).toList()
+            : <String>[];
+        _prefLoaded = true;
+      });
+
+      _showFirstTimePreferencePopupIfNeeded();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _prefLoaded = true);
+      _showFirstTimePreferencePopupIfNeeded();
+    }
+  }
+
+  void _showFirstTimePreferencePopupIfNeeded() {
+    final hasPreferences =
+        _prefLocation.trim().isNotEmpty || _prefCategories.isNotEmpty;
+    if (hasPreferences || !mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showPreferencesSheet(forceSetup: true);
+    });
+  }
+
+  Future<void> _showPreferencesSheet({bool forceSetup = false}) async {
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: !forceSetup,
+      enableDrag: !forceSetup,
+      builder: (_) => _PreferencesSheet(
+        initialLocation: _prefLocation,
+        initialCategories: _prefCategories,
+        forceSetup: forceSetup,
+      ),
+    );
+    if (result == null) {
+      if (forceSetup) _showFirstTimePreferencePopupIfNeeded();
+      return;
+    }
+
+    final location = result['location'] as String;
+    final categories = result['categories'] as List<String>;
+
+    setState(() {
+      _prefLocation = location;
+      _prefCategories = categories;
+    });
+
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      await supabase.from('tourist_preferences').upsert({
+        'tourist_id': user.id,
+        'preferred_location': location,
+        'preferred_categories': categories,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'tourist_id');
+    } catch (e) {
+      debugPrint('Preferences save failed: $e');
+    }
+  }
+
   bool _isInsideBulacan(LatLng point) {
     return point.latitude >= _bulacanBounds.southwest.latitude &&
         point.latitude <= _bulacanBounds.northeast.latitude &&
@@ -484,70 +569,80 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     final mapH = (size.height * 0.50).clamp(320.0, 480.0);
     final sheetTop = mapH - 56;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF6FAFF),
-      body: FutureBuilder<_HomeData>(
-        future: _homeFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const _LoadingState();
-          }
+    return TouristAiChatbotWrapper(
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF6FAFF),
+        body: FutureBuilder<_HomeData>(
+          future: _homeFuture,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const _LoadingState();
+            }
 
-          if (snap.hasError) {
-            return _ErrorState(
-              error: snap.error.toString(),
-              onRetry: () {
-                setState(() {
-                  _homeFuture = _loadHome();
-                });
-              },
+            if (snap.hasError) {
+              return _ErrorState(
+                error: snap.error.toString(),
+                onRetry: () {
+                  setState(() {
+                    _homeFuture = _loadHome();
+                  });
+                },
+              );
+            }
+
+            final data = snap.data!;
+            final packages = data.suggestionPackages.take(3).toList();
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: mapH,
+                  child: _MapHero(
+                    data: data,
+                    mapController: _mapController,
+                    bounds: _bulacanBounds,
+                    usingManualLocation: _usingManualLocation,
+                    onUsePhoneLocation: _usePhoneLocation,
+                    onPickLocation: _selectMunicipality,
+                    onProfileTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                      );
+                    },
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: sheetTop,
+                  bottom: navTotalH,
+                  child: _HomeSheet(
+                    data: data,
+                    packages: packages,
+                    prefLocation: _prefLocation,
+                    prefCategories: _prefCategories,
+                    prefLoaded: _prefLoaded,
+                    onSetPreferences: _showPreferencesSheet,
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: AppBottomNav(
+                    selectedIndex: _navIndex,
+                    onSelect: (i) => setState(() => _navIndex = i),
+                  ),
+                ),
+              ],
             );
-          }
-
-          final data = snap.data!;
-          final famousSpots = data.famousSpots.take(4).toList();
-          final packages = data.suggestionPackages.take(3).toList();
-
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                height: mapH,
-                child: _MapHero(
-                  data: data,
-                  mapController: _mapController,
-                  bounds: _bulacanBounds,
-                  usingManualLocation: _usingManualLocation,
-                  onUsePhoneLocation: _usePhoneLocation,
-                  onPickLocation: _selectMunicipality,
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                top: sheetTop,
-                bottom: navTotalH,
-                child: _HomeSheet(
-                  data: data,
-                  famousSpots: famousSpots,
-                  packages: packages,
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: AppBottomNav(
-                  selectedIndex: _navIndex,
-                  onSelect: (i) => setState(() => _navIndex = i),
-                ),
-              ),
-            ],
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -561,6 +656,7 @@ class _MapHero extends StatelessWidget {
     required this.usingManualLocation,
     required this.onUsePhoneLocation,
     required this.onPickLocation,
+    required this.onProfileTap,
   });
 
   final _HomeData data;
@@ -569,6 +665,7 @@ class _MapHero extends StatelessWidget {
   final bool usingManualLocation;
   final VoidCallback onUsePhoneLocation;
   final VoidCallback onPickLocation;
+  final VoidCallback onProfileTap;
 
   @override
   Widget build(BuildContext context) {
@@ -653,36 +750,53 @@ class _MapHero extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(child: _GreetingBlock(fullName: data.fullName)),
                     _WhiteCircleButton(
-                      icon: Icons.notifications_none_rounded,
-                      onTap: () {},
+                      icon: Icons.person_outline_rounded,
+                      onTap: onProfileTap,
                     ),
                   ],
                 ),
                 const Spacer(),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _LocationChip(
-                        text: data.cityText,
-                        onTap: onPickLocation,
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4, bottom: 8),
+                      child: Text(
+                        'Where do you want to go?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                          letterSpacing: -0.2,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    _MapActionButton(
-                      icon: usingManualLocation
-                          ? Icons.gps_fixed_rounded
-                          : Icons.my_location_rounded,
-                      onTap: () async {
-                        onUsePhoneLocation();
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: _LocationChip(
+                            text: data.cityText,
+                            onTap: onPickLocation,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _MapActionButton(
+                          icon: usingManualLocation
+                              ? Icons.gps_fixed_rounded
+                              : Icons.my_location_rounded,
+                          onTap: () async {
+                            onUsePhoneLocation();
 
-                        if (mapController.isCompleted) {
-                          final controller = await mapController.future;
-                          controller.animateCamera(
-                            CameraUpdate.newLatLngZoom(data.center, 14.5),
-                          );
-                        }
-                      },
+                            if (mapController.isCompleted) {
+                              final controller = await mapController.future;
+                              controller.animateCamera(
+                                CameraUpdate.newLatLngZoom(data.center, 14.5),
+                              );
+                            }
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -699,19 +813,92 @@ class _MapHero extends StatelessWidget {
 class _HomeSheet extends StatelessWidget {
   const _HomeSheet({
     required this.data,
-    required this.famousSpots,
     required this.packages,
+    required this.prefLocation,
+    required this.prefCategories,
+    required this.prefLoaded,
+    required this.onSetPreferences,
   });
 
   final _HomeData data;
-  final List<_NearbySpot> famousSpots;
   final List<_SuggestionPackage> packages;
+  final String prefLocation;
+  final List<String> prefCategories;
+  final bool prefLoaded;
+  final VoidCallback onSetPreferences;
+
+  static const TouristAiRecommendationService _recommendationService =
+      TouristAiRecommendationService();
+
+  bool _spotMatchesPreferredCategory(_NearbySpot spot) {
+    return _recommendationService.matchesPreferredCategory(
+      spot.toRecommendationSpot(),
+      prefCategories,
+    );
+  }
+
+  List<_NearbySpot> _rankedPreferredSpots() {
+    final locationKey = prefLocation.trim().toLowerCase();
+
+    final matched = data.allSpots.where(_spotMatchesPreferredCategory).map((
+      spot,
+    ) {
+      var score = 0.0;
+      final spotText =
+          '${spot.title} ${spot.description} ${spot.city} ${spot.barangay} ${spot.tag}'
+              .toLowerCase();
+
+      score += 25;
+      score += spot.rating * 6;
+      score += math.max(0, 12 - spot.distanceKm);
+
+      if (locationKey.isNotEmpty && spotText.contains(locationKey)) {
+        score += 8;
+      }
+
+      return MapEntry(spot, score);
+    }).toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    return matched.map((entry) => entry.key).take(6).toList(growable: false);
+  }
+
+  List<_NearbySpot> _exploreBeyondPreferences(List<_NearbySpot> preferred) {
+    final preferredIds = preferred.map((spot) => spot.id).toSet();
+    final outside =
+        data.allSpots.where((spot) {
+          return !preferredIds.contains(spot.id) &&
+              !_spotMatchesPreferredCategory(spot);
+        }).toList()..sort((a, b) {
+          final scoreA = (a.rating * 100) - (a.distanceKm * 8);
+          final scoreB = (b.rating * 100) - (b.distanceKm * 8);
+          return scoreB.compareTo(scoreA);
+        });
+
+    return outside.take(6).toList(growable: false);
+  }
+
+  List<_NearbySpot> _famousSpotsExcluding(List<_NearbySpot> excluded) {
+    final excludedIds = excluded.map((spot) => spot.id).toSet();
+    final ranked = data.famousSpots
+        .where((spot) => !excludedIds.contains(spot.id))
+        .toList(growable: false);
+    if (ranked.isNotEmpty) return ranked.take(6).toList(growable: false);
+    return data.famousSpots.take(6).toList(growable: false);
+  }
 
   @override
   Widget build(BuildContext context) {
     final selectedText = data.municipality == null
         ? 'Select a city or municipality in Bulacan'
         : '${data.municipality}, Bulacan';
+
+    final preferredSpots = _rankedPreferredSpots();
+    final beyondPreferenceSpots = _exploreBeyondPreferences(preferredSpots);
+    final famousSpots = _famousSpotsExcluding([
+      ...preferredSpots,
+      ...beyondPreferenceSpots,
+    ]);
+    final hasPreferences = prefCategories.isNotEmpty || prefLocation.isNotEmpty;
 
     return Container(
       decoration: BoxDecoration(
@@ -743,17 +930,43 @@ class _HomeSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _QuickStatsRow(
-                    spotCount: data.famousSpots.length,
-                    packageCount: data.suggestionPackages.length,
-                    cityText: selectedText,
+                  _HomePreferenceEditRow(
+                    hasPreferences: hasPreferences,
+                    prefLocation: prefLocation,
+                    prefCategories: prefCategories,
+                    onEdit: onSetPreferences,
                   ),
-                  const SizedBox(height: 16),
-                  _MunicipalityStatus(
-                    municipality: data.municipality,
-                    insideBulacan: data.isInsideBulacan,
-                  ),
-                  const SizedBox(height: 22),
+                  if (hasPreferences) ...[
+                    const SizedBox(height: 22),
+                    _RecommendedSection(
+                      title: 'Recommended For You',
+                      subtitle: prefCategories.isEmpty
+                          ? 'Places that match your selected destination'
+                          : 'Based on ${prefCategories.take(3).join(', ')}',
+                      icon: Icons.auto_awesome_rounded,
+                      iconColor: const Color(0xFF2A86FF),
+                      emptyTitle: 'No exact matches yet',
+                      emptySubtitle:
+                          'Try choosing more interests or another Bulacan city to improve your AI suggestions.',
+                      spots: preferredSpots,
+                    ),
+                    const SizedBox(height: 24),
+                    _RecommendedSection(
+                      title: 'Explore Beyond Your Interests',
+                      subtitle:
+                          'Suggested places outside your current preference to help you discover more of Bulacan',
+                      icon: Icons.explore_rounded,
+                      iconColor: const Color(0xFF64748B),
+                      emptyTitle: 'No extra suggestions yet',
+                      emptySubtitle:
+                          'More places will appear here once nearby suggestions are available.',
+                      spots: beyondPreferenceSpots,
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 22),
+                    _PreferenceEmptyState(onSetPreferences: onSetPreferences),
+                  ],
+                  const SizedBox(height: 24),
                   _SectionHeader(
                     title: data.municipality == null
                         ? 'Famous Spots'
@@ -988,94 +1201,6 @@ class _GreetingBlock extends StatelessWidget {
   }
 }
 
-class _QuickStatsRow extends StatelessWidget {
-  const _QuickStatsRow({
-    required this.spotCount,
-    required this.packageCount,
-    required this.cityText,
-  });
-
-  final int spotCount;
-  final int packageCount;
-  final String cityText;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _StatPill(
-            icon: Icons.travel_explore_rounded,
-            label: 'Spots',
-            value: '$spotCount',
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _StatPill(
-            icon: Icons.map_rounded,
-            label: 'Packages',
-            value: '$packageCount',
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _StatPill(
-            icon: Icons.location_on_rounded,
-            label: 'Selected',
-            value: cityText.split(',').first,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatPill extends StatelessWidget {
-  const _StatPill({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 88),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7EEF8)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: const Color(0xFF2A86FF), size: 18),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-          ),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _HomeData {
   final String fullName;
   final String avatarUrl;
@@ -1083,6 +1208,7 @@ class _HomeData {
   final LatLng center;
   final String? municipality;
   final bool isInsideBulacan;
+  final List<_NearbySpot> allSpots;
   final List<_NearbySpot> famousSpots;
   final List<_SuggestionPackage> suggestionPackages;
 
@@ -1093,6 +1219,7 @@ class _HomeData {
     required this.center,
     required this.municipality,
     required this.isInsideBulacan,
+    required this.allSpots,
     required this.famousSpots,
     required this.suggestionPackages,
   });
@@ -1165,19 +1292,37 @@ class _NearbySpot {
     required this.distanceKm,
   });
 
-  factory _NearbySpot.fromSuggestion(CitySpotSuggestion suggestion) {
+  factory _NearbySpot.fromRecommendationSpot(TouristAiRecommendationSpot spot) {
     return _NearbySpot(
-      id: suggestion.id,
-      title: suggestion.title,
-      city: '${suggestion.city}, ${suggestion.province}',
-      barangay: suggestion.address,
-      description: suggestion.description,
-      latitude: suggestion.latitude,
-      longitude: suggestion.longitude,
-      rating: suggestion.rating,
-      imageUrl: suggestion.imageUrl,
-      tag: suggestion.category,
-      distanceKm: suggestion.distanceKm,
+      id: spot.id,
+      title: spot.title,
+      city: spot.municipality,
+      barangay: spot.address,
+      description: spot.description,
+      latitude: spot.latitude,
+      longitude: spot.longitude,
+      rating: spot.rating,
+      imageUrl: spot.imageUrl,
+      tag: spot.category,
+      distanceKm: spot.distanceKm,
+    );
+  }
+
+  TouristAiRecommendationSpot toRecommendationSpot() {
+    return TouristAiRecommendationSpot(
+      id: id,
+      title: title,
+      address: barangay,
+      distanceText: distanceText,
+      distanceKm: distanceKm,
+      category: tag,
+      rating: rating,
+      imageUrl: imageUrl,
+      latitude: latitude,
+      longitude: longitude,
+      municipality: city,
+      googlePlaceId: id,
+      description: description,
     );
   }
 
@@ -1386,95 +1531,6 @@ class _LocationChip extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _MunicipalityStatus extends StatelessWidget {
-  const _MunicipalityStatus({
-    required this.municipality,
-    required this.insideBulacan,
-  });
-
-  final String? municipality;
-  final bool insideBulacan;
-
-  @override
-  Widget build(BuildContext context) {
-    final title = municipality == null
-        ? 'Choose your Bulacan location'
-        : '$municipality Suggestions';
-
-    final subtitle = municipality == null
-        ? 'Tap the location field above and select a city or municipality in Bulacan.'
-        : 'Famous places and admin packages are filtered for $municipality only.';
-
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFEFF6FF), Color(0xFFF0FDF4)],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFD6E8FF)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              municipality == null
-                  ? Icons.location_searching_rounded
-                  : Icons.auto_awesome_rounded,
-              color: municipality == null
-                  ? const Color(0xFF64748B)
-                  : const Color(0xFF2A86FF),
-            ),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w700,
-                    height: 1.28,
-                    fontSize: 12.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1970,6 +2026,622 @@ class _GradientButton extends StatelessWidget {
             fontSize: 15,
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── AI preferences prompt ──────────────────────────────────────────────────
+
+class _HomePreferenceEditRow extends StatelessWidget {
+  const _HomePreferenceEditRow({
+    required this.hasPreferences,
+    required this.prefLocation,
+    required this.prefCategories,
+    required this.onEdit,
+  });
+
+  final bool hasPreferences;
+  final String prefLocation;
+  final List<String> prefCategories;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!hasPreferences) return const SizedBox.shrink();
+
+    final label = [
+      if (prefLocation.trim().isNotEmpty) prefLocation.trim(),
+      if (prefCategories.isNotEmpty) prefCategories.take(3).join(' · '),
+    ].join(' • ');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'AI suggestions are personalized for you',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onEdit,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF2A86FF),
+              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            icon: const Icon(Icons.tune_rounded, size: 17),
+            label: const Text('Edit AI'),
+          ),
+          const SizedBox(width: 2),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreferenceEmptyState extends StatelessWidget {
+  const _PreferenceEmptyState({required this.onSetPreferences});
+
+  final VoidCallback onSetPreferences;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE7EEF8)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: const BoxDecoration(
+              color: Color(0xFFEAF2FF),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.psychology_alt_rounded,
+              color: Color(0xFF2A86FF),
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Tell us what you love exploring',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w900,
+              fontSize: 16.5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Set your travel preferences so TourisTrike can show your best-matched places at the top and discovery suggestions below.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+              fontSize: 12.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: _GradientButton(
+              text: 'Start Exploring',
+              onPressed: onSetPreferences,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── AI recommended sections ────────────────────────────────────────────────
+
+class _RecommendedSection extends StatelessWidget {
+  const _RecommendedSection({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    required this.spots,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
+  final String emptyTitle;
+  final String emptySubtitle;
+  final List<_NearbySpot> spots;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              width: 39,
+              height: 39,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: iconColor, size: 21),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                      height: 1.24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (spots.isEmpty)
+          _EmptyCard(icon: icon, title: emptyTitle, subtitle: emptySubtitle)
+        else
+          SizedBox(
+            height: 172,
+            child: ListView.separated(
+              physics: const BouncingScrollPhysics(),
+              scrollDirection: Axis.horizontal,
+              itemCount: spots.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) => _AiSpotMiniCard(
+                spot: spots[i],
+                matchLabel: title == 'Recommended For You'
+                    ? 'Preference match'
+                    : 'Explore more',
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AiSpotMiniCard extends StatelessWidget {
+  const _AiSpotMiniCard({required this.spot, required this.matchLabel});
+
+  final _NearbySpot spot;
+  final String matchLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 246,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE7EEF8)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 18,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(22),
+            ),
+            child: SizedBox(
+              width: 94,
+              height: double.infinity,
+              child: Image.network(
+                spot.imageForCard,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  color: const Color(0xFFEAF2FF),
+                  child: const Icon(
+                    Icons.image_rounded,
+                    color: Color(0xFF2A86FF),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.auto_awesome_rounded,
+                        color: Color(0xFF2A86FF),
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          matchLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF2A86FF),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    spot.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14.5,
+                      height: 1.13,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    spot.tag.isEmpty ? spot.city : spot.tag,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.star_rounded,
+                        color: Color(0xFFFFD166),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        spot.rating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          spot.distanceText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Preferences sheet ──────────────────────────────────────────────────────
+
+class _PreferencesSheet extends StatefulWidget {
+  const _PreferencesSheet({
+    required this.initialLocation,
+    required this.initialCategories,
+    required this.forceSetup,
+  });
+
+  final String initialLocation;
+  final List<String> initialCategories;
+  final bool forceSetup;
+
+  @override
+  State<_PreferencesSheet> createState() => _PreferencesSheetState();
+}
+
+class _PreferencesSheetState extends State<_PreferencesSheet> {
+  late TextEditingController _locationCtrl;
+  late List<String> _selectedCategories;
+
+  static const _allCategories = [
+    'Nature',
+    'Historical',
+    'Food',
+    'Religious',
+    'Resort',
+    'Shopping',
+    'Adventure',
+    'Cultural',
+    'Family-friendly',
+    'Instagram-worthy',
+    'Hidden gems',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _locationCtrl = TextEditingController(text: widget.initialLocation);
+    _selectedCategories = List.from(widget.initialCategories);
+  }
+
+  @override
+  void dispose() {
+    _locationCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + bottomInset),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 46,
+              height: 5,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF5BB2FF), Color(0xFF2A86FF)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.forceSetup
+                          ? 'Personalize Your TourisTrike'
+                          : 'Update AI Preferences',
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const Text(
+                      'Choose your interests first so the app can rank suggestions like Pinterest.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          const Text(
+            'What kind of places do you prefer?',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF0F172A),
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _allCategories.map((cat) {
+              final selected = _selectedCategories.contains(cat);
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (selected) {
+                      _selectedCategories.remove(cat);
+                    } else {
+                      _selectedCategories.add(cat);
+                    }
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFF2A86FF)
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: selected
+                          ? const Color(0xFF2A86FF)
+                          : const Color(0xFFE2E8F0),
+                    ),
+                  ),
+                  child: Text(
+                    cat,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                      color: selected ? Colors.white : const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF5BB2FF), Color(0xFF2A86FF)],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2A86FF).withValues(alpha: 0.28),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: () {
+                  if (widget.forceSetup && _selectedCategories.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Please choose at least one preferred kind of place.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+
+                  Navigator.pop(context, {
+                    'location': '',
+                    'categories': _selectedCategories,
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  elevation: 0,
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  widget.forceSetup
+                      ? 'Show My AI Suggestions'
+                      : 'Save Preferences',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

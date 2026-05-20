@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/screens/driver/incoming_ride_screen.dart';
+import 'package:touristrike/screens/driver/profile/driver_profile.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
 
 class DriverHomeScreen extends StatefulWidget {
@@ -636,13 +637,34 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   ],
                 ),
               ),
-              IconButton.filledTonal(
-                onPressed: () => _showSnack('No new tour notifications.'),
-                icon: const Icon(Icons.notifications_none_rounded),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.18),
-                  foregroundColor: Colors.white,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => _showSnack('No new tour notifications.'),
+                    icon: const Icon(Icons.notifications_none_rounded),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.18),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DriverProfileScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.person_outline_rounded),
+                    tooltip: 'Profile',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.18),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

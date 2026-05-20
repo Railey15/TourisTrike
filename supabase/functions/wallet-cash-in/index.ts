@@ -83,10 +83,12 @@ serve(async (req) => {
     const body = (await req.json()) as {
       amount?: number;
       payment_method?: string;
+      role?: string;
     };
 
     const amount = Number(body.amount ?? 0);
     const paymentMethod = toTrimmedString(body.payment_method).toLowerCase();
+    const role = toTrimmedString(body.role).toLowerCase() || "tourist";
 
     if (!Number.isFinite(amount) || amount < 1) {
       return json({ error: "amount must be at least 1 PHP" }, 400);
@@ -103,11 +105,15 @@ serve(async (req) => {
       );
     }
 
+    if (role !== "tourist" && role !== "driver") {
+      return json({ error: "role must be tourist or driver" }, 400);
+    }
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const { data: walletData, error: walletError } = await supabase.rpc(
       "get_or_create_wallet",
-      { p_user_id: user.id, p_role: "tourist" },
+      { p_user_id: user.id, p_role: role },
     );
 
     if (walletError) {
@@ -134,7 +140,7 @@ serve(async (req) => {
       .insert({
         wallet_id: walletId,
         user_id: user.id,
-        role: "tourist",
+        role,
         type: "cash_in",
         amount: normalizedAmount,
         status: "pending",
@@ -168,7 +174,7 @@ serve(async (req) => {
     const paymongoMetadata = {
       ...baseMetadata,
       transaction_id: transactionId,
-      role: "tourist",
+      role,
       payment_method: paymentMethod,
       amount: normalizedAmount,
       source: "touristrike_wallet_cash_in",

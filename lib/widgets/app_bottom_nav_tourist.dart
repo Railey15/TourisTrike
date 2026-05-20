@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'package:touristrike/screens/tourist/profile/tourist_profile_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_explore_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_home_screen.dart';
+import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_wallet_screen.dart';
 
 class AppBottomNav extends StatelessWidget {
@@ -16,10 +16,9 @@ class AppBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int>? onSelect;
 
-  // 0 = Home, 1 = Explore, 2 = Wallet, 3 = Activity, 4 = Profile
+  // 0 = Home, 1 = Explore, 2 = Wallet, 3 = Activity, 4 = Messages
   void _go(BuildContext context, int index) {
     if (index == selectedIndex) return;
-
     onSelect?.call(index);
 
     final Widget target = switch (index) {
@@ -27,7 +26,7 @@ class AppBottomNav extends StatelessWidget {
       1 => const TouristExploreScreen(),
       2 => const TouristWalletScreen(),
       3 => const ActivityScreen(),
-      4 => const ProfileScreen(),
+      4 => const TouristMessagesScreen(),
       _ => const TouristHomeScreen(),
     };
 
@@ -89,8 +88,8 @@ class AppBottomNav extends StatelessWidget {
           ),
           Expanded(
             child: _NavItem(
-              icon: Icons.person_outline_rounded,
-              label: 'Profile',
+              icon: Icons.chat_bubble_outline_rounded,
+              label: 'Messages',
               selected: selectedIndex == 4,
               onTap: () => _go(context, 4),
             ),

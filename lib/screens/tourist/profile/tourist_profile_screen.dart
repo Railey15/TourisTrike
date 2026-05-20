@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/screens/auth/login_screen.dart';
 import 'package:touristrike/screens/tourist/profile/emergency_contact_screen.dart';
+import 'package:touristrike/screens/tourist/profile/change_password_screen.dart';
 import 'package:touristrike/screens/tourist/profile/notifications_screen.dart';
 import 'package:touristrike/screens/tourist/profile/payment_history_screen.dart';
 import 'package:touristrike/screens/tourist/profile/payment_methods_screen.dart';
@@ -25,7 +26,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _loading = true;
   bool _loggingOut = false;
-  String _language = 'English';
+  bool _isDarkMode = false;
+  bool _savingTheme = false;
   Map<String, dynamic>? _profile;
 
   @override
@@ -50,14 +52,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .from('profiles')
           .select(
             'id, full_name, first_name, middle_name, last_name, mobile, '
-            'address, barangay, city, province, profile_image_url, avatar_url',
+            'address, barangay, city, province, profile_image_url, avatar_url, '
+            'theme_mode',
           )
           .eq('id', user.id)
           .maybeSingle()
           .timeout(const Duration(seconds: 12));
 
       if (!mounted) return;
-      setState(() => _profile = profile);
+      setState(() {
+        _profile = profile;
+        _isDarkMode =
+            (profile?['theme_mode'] as String? ?? 'light') == 'dark';
+      });
     } catch (e) {
       _showSnack('Unable to load profile details.', error: true);
     } finally {
@@ -72,12 +79,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final first = (_profile?['first_name'] ?? '').toString().trim();
     final middle = (_profile?['middle_name'] ?? '').toString().trim();
     final last = (_profile?['last_name'] ?? '').toString().trim();
-    final parts = [first, middle, last].where((e) => e.isNotEmpty).toList();
+    final parts =
+        [first, middle, last].where((e) => e.isNotEmpty).toList();
     if (parts.isNotEmpty) return parts.join(' ');
 
-    final metadataName = (_user?.userMetadata?['full_name'] ?? '')
-        .toString()
-        .trim();
+    final metadataName =
+        (_user?.userMetadata?['full_name'] ?? '').toString().trim();
     if (metadataName.isNotEmpty) return metadataName;
 
     return 'Tourist';
@@ -98,25 +105,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final barangay = (_profile?['barangay'] ?? '').toString().trim();
     final city = (_profile?['city'] ?? '').toString().trim();
     final province = (_profile?['province'] ?? '').toString().trim();
-    final parts = [
-      address,
-      barangay,
-      city,
-      province,
-    ].where((value) => value.isNotEmpty).toList();
-
+    final parts =
+        [address, barangay, city, province]
+            .where((v) => v.isNotEmpty)
+            .toList();
     return parts.isEmpty ? 'Complete your tourist profile' : parts.join(', ');
   }
 
   String get _imageUrl {
-    final profileImage = (_profile?['profile_image_url'] ?? '')
-        .toString()
-        .trim();
+    final profileImage =
+        (_profile?['profile_image_url'] ?? '').toString().trim();
     if (profileImage.isNotEmpty) return profileImage;
-
     final avatar = (_profile?['avatar_url'] ?? '').toString().trim();
     if (avatar.isNotEmpty) return avatar;
-
     return (_user?.userMetadata?['avatar_url'] ?? '').toString().trim();
   }
 
@@ -124,42 +125,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showSnack(String message, {bool error = false}) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(message),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: error
-              ? const Color(0xFFDC2626)
-              : const Color(0xFF16A34A),
+          backgroundColor:
+              error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          margin: const EdgeInsets.all(16),
         ),
       );
   }
 
   Future<void> _openPage(Widget screen, {bool refreshAfter = false}) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => screen),
+    );
     if (refreshAfter && mounted) _loadProfile();
   }
 
-  Future<void> _chooseLanguage() async {
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _LanguageSheet(current: _language),
-    );
+  // ── Reset password ─────────────────────────────────────────────────────
 
-    if (selected == null || selected == _language) return;
-
-    setState(() => _language = selected);
-    _showSnack('Language set to $selected.', error: false);
+  Future<void> _openChangePassword() async {
+    await _openPage(const ChangePasswordScreen());
   }
+
+  // ── Dark mode toggle ───────────────────────────────────────────────────
+
+  Future<void> _toggleTheme(bool isDark) async {
+    setState(() {
+      _isDarkMode = isDark;
+      _savingTheme = true;
+    });
+
+    final user = _user;
+    if (user == null) {
+      setState(() => _savingTheme = false);
+      return;
+    }
+
+    try {
+      await _supabase
+          .from('profiles')
+          .update({
+            'theme_mode': isDark ? 'dark' : 'light',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', user.id);
+
+      _showSnack(
+        isDark ? 'Dark mode enabled.' : 'Light mode enabled.',
+        error: false,
+      );
+    } catch (e) {
+      _showSnack('Could not save theme: $e', error: true);
+      setState(() => _isDarkMode = !isDark);
+    } finally {
+      if (mounted) setState(() => _savingTheme = false);
+    }
+  }
+
+  // ── Logout ─────────────────────────────────────────────────────────────
 
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Text('Log out?'),
         content: const Text('You will need to log in again to continue.'),
         actions: [
@@ -169,6 +205,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
             child: const Text('Log Out'),
           ),
         ],
@@ -197,19 +239,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     const bg = Color(0xFFF5F7FB);
     const blue = Color(0xFF2A86FF);
-    const textMid = Color(0xFF64748B);
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const AppBottomNav(selectedIndex: 4),
+      // Profile is now accessed from Home top button — no bottom nav index for Profile
+      // Keep the bottom nav here so user can navigate away
+      bottomNavigationBar: const AppBottomNav(selectedIndex: -1),
       body: SafeArea(
         child: RefreshIndicator(
           color: blue,
           onRefresh: _loadProfile,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 118),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
             children: [
+              // Back button row
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.arrow_back_rounded,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Profile & Settings',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
               _ProfileHeader(
                 loading: _loading,
                 imageUrl: _imageUrl,
@@ -246,11 +312,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Expanded(
                         child: _SummaryTile(
                           icon: Icons.location_on_rounded,
-                          value:
-                              (_profile?['city'] ?? '')
-                                  .toString()
-                                  .trim()
-                                  .isEmpty
+                          value: (_profile?['city'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .isEmpty
                               ? 'Unset'
                               : (_profile?['city'] ?? '').toString(),
                           label: 'City',
@@ -272,6 +337,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const PersonalInfoScreen(),
                       refreshAfter: true,
                     ),
+                  ),
+                  _SettingRow(
+                    icon: Icons.lock_reset_rounded,
+                    title: 'Change Password',
+                    subtitle: 'Verify with OTP before updating your password',
+                    onTap: _openChangePassword,
                   ),
                   _SettingRow(
                     icon: Icons.bookmark_border_rounded,
@@ -315,18 +386,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     subtitle: 'Ride, tour, promo, and safety alerts',
                     onTap: () => _openPage(const NotificationsScreen()),
                   ),
-                  _SettingRow(
-                    icon: Icons.language_rounded,
-                    title: 'Language',
-                    subtitle: 'Choose app language',
-                    trailing: Text(
-                      _language,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: textMid,
-                      ),
-                    ),
-                    onTap: _chooseLanguage,
+                  // Dark/Light mode
+                  _ThemeSwitchRow(
+                    isDarkMode: _isDarkMode,
+                    saving: _savingTheme,
+                    onChanged: _toggleTheme,
                   ),
                 ],
               ),
@@ -360,6 +424,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
+
+// ── Profile header ─────────────────────────────────────────────────────────
 
 class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
@@ -510,6 +576,8 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
+// ── Avatar ─────────────────────────────────────────────────────────────────
+
 class _Avatar extends StatelessWidget {
   const _Avatar({required this.imageUrl, required this.name});
 
@@ -518,7 +586,8 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initial = name.trim().isEmpty ? 'T' : name.trim()[0].toUpperCase();
+    final initial =
+        name.trim().isEmpty ? 'T' : name.trim()[0].toUpperCase();
 
     return Container(
       width: 76,
@@ -543,7 +612,7 @@ class _Avatar extends StatelessWidget {
           : Image.network(
               imageUrl,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Center(
+              errorBuilder: (_, _, _) => Center(
                 child: Text(
                   initial,
                   style: const TextStyle(
@@ -557,6 +626,8 @@ class _Avatar extends StatelessWidget {
     );
   }
 }
+
+// ── Summary tile ───────────────────────────────────────────────────────────
 
 class _SummaryTile extends StatelessWidget {
   const _SummaryTile({
@@ -616,6 +687,8 @@ class _SummaryTile extends StatelessWidget {
   }
 }
 
+// ── Section card ───────────────────────────────────────────────────────────
+
 class _SectionCard extends StatelessWidget {
   const _SectionCard({required this.title, required this.children});
 
@@ -670,20 +743,20 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
+// ── Setting row ────────────────────────────────────────────────────────────
+
 class _SettingRow extends StatelessWidget {
   const _SettingRow({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.trailing,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -734,7 +807,6 @@ class _SettingRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
             const SizedBox(width: 8),
             const Icon(Icons.chevron_right_rounded, color: textMid),
           ],
@@ -743,6 +815,89 @@ class _SettingRow extends StatelessWidget {
     );
   }
 }
+
+// ── Theme switch row ───────────────────────────────────────────────────────
+
+class _ThemeSwitchRow extends StatelessWidget {
+  const _ThemeSwitchRow({
+    required this.isDarkMode,
+    required this.saving,
+    required this.onChanged,
+  });
+
+  final bool isDarkMode;
+  final bool saving;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2A86FF);
+    const textDark = Color(0xFF0F172A);
+    const textMid = Color(0xFF64748B);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+              color: blue,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isDarkMode ? 'Dark Mode' : 'Light Mode',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: textDark,
+                    fontSize: 15.5,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  isDarkMode
+                      ? 'App is in dark theme'
+                      : 'App is in light theme',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: textMid,
+                    fontSize: 12.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          saving
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Switch.adaptive(
+                  value: isDarkMode,
+                  activeTrackColor: blue.withValues(alpha: 0.35),
+                  activeThumbColor: blue,
+                  onChanged: onChanged,
+                ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Logout button ──────────────────────────────────────────────────────────
 
 class _LogoutButton extends StatelessWidget {
   const _LogoutButton({required this.loading, required this.onTap});
@@ -799,13 +954,18 @@ class _LogoutButton extends StatelessWidget {
                 ),
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: Color(0xFFFCA5A5)),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFFFCA5A5),
+            ),
           ],
         ),
       ),
     );
   }
 }
+
+// ── Row divider ────────────────────────────────────────────────────────────
 
 class _RowDivider extends StatelessWidget {
   const _RowDivider();
@@ -815,75 +975,6 @@ class _RowDivider extends StatelessWidget {
     return const Padding(
       padding: EdgeInsets.only(left: 56),
       child: Divider(height: 16, color: Color(0xFFE7EEF7)),
-    );
-  }
-}
-
-class _LanguageSheet extends StatelessWidget {
-  const _LanguageSheet({required this.current});
-
-  final String current;
-
-  @override
-  Widget build(BuildContext context) {
-    const options = ['English', 'Filipino'];
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        12,
-        16,
-        MediaQuery.of(context).padding.bottom + 16,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 46,
-            height: 5,
-            decoration: BoxDecoration(
-              color: const Color(0xFFE2E8F0),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Language',
-              style: TextStyle(
-                color: Color(0xFF0F172A),
-                fontWeight: FontWeight.w900,
-                fontSize: 20,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          ...options.map(
-            (option) => ListTile(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              leading: const Icon(Icons.language_rounded),
-              title: Text(
-                option,
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-              trailing: current == option
-                  ? const Icon(
-                      Icons.check_circle_rounded,
-                      color: Color(0xFF2A86FF),
-                    )
-                  : null,
-              onTap: () => Navigator.pop(context, option),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

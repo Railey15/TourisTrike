@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/screens/tourist/profile/change_password_screen.dart';
 
 class PersonalInfoScreen extends StatefulWidget {
   const PersonalInfoScreen({super.key});
@@ -186,15 +187,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   }
 
   Future<void> _changePassword() async {
-    final email = _emailCtrl.text.trim();
-    if (email.isEmpty) return;
-
-    await _supabase.auth.resetPasswordForEmail(email);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(
+    await Navigator.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
+    ).push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
   }
 
   @override
@@ -425,7 +420,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                         _NavRow(
                           icon: Icons.lock_outline_rounded,
                           title: 'Change Password',
-                          subtitle: 'Send a password reset email',
+                          subtitle: 'Verify with OTP before updating password',
                           onTap: _changePassword,
                         ),
                       ],
