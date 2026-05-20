@@ -468,14 +468,12 @@ class PageTitleBar extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
-    this.breadcrumb = 'SubTenant Admin',
     this.leading,
     this.actions = const [],
   });
 
   final String title;
   final String? subtitle;
-  final String breadcrumb;
   final Widget? leading;
   final List<Widget> actions;
 
@@ -491,16 +489,6 @@ class PageTitleBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                breadcrumb,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: SubTenantColors.blue,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
               const SizedBox(height: 4),
               Text(
                 title,

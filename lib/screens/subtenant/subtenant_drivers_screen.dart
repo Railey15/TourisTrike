@@ -40,8 +40,12 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
-  }
+  final nextFuture = _load();
+
+  setState(() {
+    _future = nextFuture;
+  });
+}
 
   Future<void> _openDetails(SubTenantDriver driver) async {
     final changed = await Navigator.push(

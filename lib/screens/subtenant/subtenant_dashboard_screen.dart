@@ -57,33 +57,23 @@ class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const SubTenantLoadingView();
           }
-
           if (snapshot.hasError) {
             return SubTenantErrorView(
               message: snapshot.error.toString(),
               onRetry: _reload,
             );
           }
-
           final data = snapshot.data!;
-          return RefreshIndicator(
-            onRefresh: () async => _reload(),
-            child: ResponsivePageContainer(
-              children: [
-                _DashboardContent(
-                  data: data,
-                  onAddSpot: () => _open(const SubTenantSpotFormScreen()),
-                  onCreatePackage: () =>
-                      _open(const SubTenantPackageFormScreen()),
-                  onDrivers: () => _open(const SubTenantDriversScreen()),
-                  onBookings: () => _open(const SubTenantBookingsScreen()),
-                  onReports: () => _open(const SubTenantReportsScreen()),
-                  onAnnouncements: () =>
-                      _open(const SubTenantAnnouncementsScreen()),
-                  onProfile: () => _open(const SubTenantCityProfileScreen()),
-                ),
-              ],
-            ),
+          return _DashboardContent(
+            data: data,
+            onRefresh: _reload,
+            onAddSpot: () => _open(const SubTenantSpotFormScreen()),
+            onCreatePackage: () => _open(const SubTenantPackageFormScreen()),
+            onDrivers: () => _open(const SubTenantDriversScreen()),
+            onBookings: () => _open(const SubTenantBookingsScreen()),
+            onReports: () => _open(const SubTenantReportsScreen()),
+            onAnnouncements: () => _open(const SubTenantAnnouncementsScreen()),
+            onProfile: () => _open(const SubTenantCityProfileScreen()),
           );
         },
       ),
@@ -91,9 +81,12 @@ class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
+
 class _DashboardContent extends StatelessWidget {
   const _DashboardContent({
     required this.data,
+    required this.onRefresh,
     required this.onAddSpot,
     required this.onCreatePackage,
     required this.onDrivers,
@@ -104,6 +97,7 @@ class _DashboardContent extends StatelessWidget {
   });
 
   final SubTenantDashboardData data;
+  final VoidCallback onRefresh;
   final VoidCallback onAddSpot;
   final VoidCallback onCreatePackage;
   final VoidCallback onDrivers;
@@ -116,114 +110,215 @@ class _DashboardContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final desktop = Responsive.isDesktop(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        DashboardHeader(
-          eyebrow: 'City Admin Dashboard',
-          title: 'Hello, ${data.profile.displayName}',
-          subtitle:
-              'Manage destinations, packages, bookings, and local tricycle tourism operations for ${data.profile.assignedCity}.',
-          trailing: _CityScopeBadge(profile: data.profile),
-        ),
-        const SizedBox(height: 18),
-        ResponsiveGrid(
-          minItemWidth: 190,
-          maxColumns: 4,
-          mobileAspectRatio: 1.72,
-          tabletAspectRatio: 1.55,
-          desktopAspectRatio: 1.50,
-          children: [
-            DashboardMetricCard(
-              icon: Icons.place_rounded,
-              label: 'Tourist Spots',
-              value: '${data.totalSpots}',
-              color: const Color(0xFF2A86FF),
-              onTap: onAddSpot,
-            ),
-            DashboardMetricCard(
-              icon: Icons.inventory_2_rounded,
-              label: 'Packages',
-              value: '${data.totalPackages}',
-              color: const Color(0xFF0EA5E9),
-              onTap: onCreatePackage,
-            ),
-            DashboardMetricCard(
-              icon: Icons.badge_rounded,
-              label: 'Drivers/Guides',
-              value: '${data.totalDrivers}',
-              color: const Color(0xFF16A34A),
-              onTap: onDrivers,
-            ),
-            DashboardMetricCard(
-              icon: Icons.pending_actions_rounded,
-              label: 'Pending Bookings',
-              value: '${data.pendingBookings}',
-              subtitle: 'Active tours: ${data.activeTours}',
-              color: const Color(0xFFF59E0B),
-              onTap: onBookings,
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        if (desktop)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    // ── Mobile / tablet ─────────────────────────────────────────────────────
+    if (!desktop) {
+      return RefreshIndicator(
+        onRefresh: () async => onRefresh(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 22),
+          child: Column(
             children: [
-              Expanded(
-                flex: 7,
-                child: Column(
-                  children: [
-                    _QuickActions(
-                      onAddSpot: onAddSpot,
-                      onCreatePackage: onCreatePackage,
-                      onDrivers: onDrivers,
-                      onBookings: onBookings,
-                      onReports: onReports,
-                      onAnnouncements: onAnnouncements,
-                    ),
-                    const SizedBox(height: 18),
-                    _RecentBookings(
-                      bookings: data.recentBookings,
-                      onViewAll: onBookings,
-                    ),
-                    const SizedBox(height: 18),
-                    _AnalyticsCard(data: data),
-                  ],
-                ),
+              _CompactHeader(data: data),
+              const SizedBox(height: 12),
+              _MobileMetricsGrid(
+                data: data,
+                onAddSpot: onAddSpot,
+                onCreatePackage: onCreatePackage,
+                onDrivers: onDrivers,
+                onBookings: onBookings,
               ),
-              const SizedBox(width: 18),
-              SizedBox(
-                width: 360,
-                child: _SidePanel(
-                  data: data,
-                  onAnnouncements: onAnnouncements,
-                  onProfile: onProfile,
-                ),
+              const SizedBox(height: 12),
+              _QuickActions(
+                onAddSpot: onAddSpot,
+                onCreatePackage: onCreatePackage,
+                onDrivers: onDrivers,
+                onBookings: onBookings,
+                onReports: onReports,
+                onAnnouncements: onAnnouncements,
+              ),
+              const SizedBox(height: 12),
+              _RecentBookings(
+                bookings: data.recentBookings,
+                onViewAll: onBookings,
+              ),
+              const SizedBox(height: 12),
+              _AnalyticsCard(data: data),
+              const SizedBox(height: 12),
+              _SidePanel(
+                data: data,
+                onAnnouncements: onAnnouncements,
+                onProfile: onProfile,
               ),
             ],
-          )
-        else ...[
-          _QuickActions(
+          ),
+        ),
+      );
+    }
+
+    // ── Desktop ─────────────────────────────────────────────────────────────
+    // Full-height, no page scroll. Sections scroll internally when needed.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _CompactHeader(data: data),
+          const SizedBox(height: 8),
+          _DesktopMetricsRow(
+            data: data,
             onAddSpot: onAddSpot,
             onCreatePackage: onCreatePackage,
             onDrivers: onDrivers,
             onBookings: onBookings,
-            onReports: onReports,
-            onAnnouncements: onAnnouncements,
           ),
-          const SizedBox(height: 16),
-          _RecentBookings(bookings: data.recentBookings, onViewAll: onBookings),
-          const SizedBox(height: 16),
-          _AnalyticsCard(data: data),
-          const SizedBox(height: 16),
-          _SidePanel(
-            data: data,
-            onAnnouncements: onAnnouncements,
-            onProfile: onProfile,
+          const SizedBox(height: 8),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Left: Quick Actions (compact/natural) + Analytics (fills rest)
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _QuickActions(
+                        onAddSpot: onAddSpot,
+                        onCreatePackage: onCreatePackage,
+                        onDrivers: onDrivers,
+                        onBookings: onBookings,
+                        onReports: onReports,
+                        onAnnouncements: onAnnouncements,
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: _AnalyticsCard(data: data),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Center: Recent Bookings with internal scroll
+                Expanded(
+                  flex: 4,
+                  child: _CompactRecentBookings(
+                    bookings: data.recentBookings,
+                    onViewAll: onBookings,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Right: Profile (natural) + Announcements + Activity Feed
+                Expanded(
+                  flex: 3,
+                  child: _CompactSidePanel(
+                    data: data,
+                    onAnnouncements: onAnnouncements,
+                    onProfile: onProfile,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-      ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
+
+class _CompactHeader extends StatelessWidget {
+  const _CompactHeader({required this.data});
+
+  final SubTenantDashboardData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 92,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2A86FF), Color(0xFF0EA5E9)],
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: SubTenantColors.blue.withValues(alpha: 0.15),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            ),
+            child: const Icon(
+              Icons.location_city_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'City Tourism Dashboard',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Hello, ${data.profile.displayName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  'Managing ${data.profile.assignedCity} packages, bookings & drivers.',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          _CityScopeBadge(profile: data.profile),
+        ],
+      ),
     );
   }
 }
@@ -236,20 +331,22 @@ class _CityScopeBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.verified_user_rounded, color: Colors.white),
-          const SizedBox(width: 10),
+          const Icon(Icons.verified_user_rounded, color: Colors.white, size: 17),
+          const SizedBox(width: 7),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
+            constraints: const BoxConstraints(maxWidth: 180),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -258,7 +355,7 @@ class _CityScopeBadge extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -268,7 +365,7 @@ class _CityScopeBadge extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.82),
-                    fontSize: 11.5,
+                    fontSize: 10,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -280,6 +377,257 @@ class _CityScopeBadge extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Metric rows
+// ---------------------------------------------------------------------------
+
+class _DesktopMetricsRow extends StatelessWidget {
+  const _DesktopMetricsRow({
+    required this.data,
+    required this.onAddSpot,
+    required this.onCreatePackage,
+    required this.onDrivers,
+    required this.onBookings,
+  });
+
+  final SubTenantDashboardData data;
+  final VoidCallback onAddSpot;
+  final VoidCallback onCreatePackage;
+  final VoidCallback onDrivers;
+  final VoidCallback onBookings;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 88,
+      child: Row(
+        children: [
+          Expanded(
+            child: _CompactMetricCard(
+              icon: Icons.place_rounded,
+              label: 'Tourist Spots',
+              value: '${data.totalSpots}',
+              color: const Color(0xFF2A86FF),
+              onTap: onAddSpot,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompactMetricCard(
+              icon: Icons.inventory_2_rounded,
+              label: 'Packages',
+              value: '${data.totalPackages}',
+              color: const Color(0xFF0EA5E9),
+              onTap: onCreatePackage,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompactMetricCard(
+              icon: Icons.badge_rounded,
+              label: 'Drivers',
+              value: '${data.totalDrivers}',
+              color: const Color(0xFF16A34A),
+              onTap: onDrivers,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompactMetricCard(
+              icon: Icons.pending_actions_rounded,
+              label: 'Pending Bookings',
+              value: '${data.pendingBookings}',
+              subtitle: '${data.activeTours} active tours',
+              color: const Color(0xFFF59E0B),
+              onTap: onBookings,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileMetricsGrid extends StatelessWidget {
+  const _MobileMetricsGrid({
+    required this.data,
+    required this.onAddSpot,
+    required this.onCreatePackage,
+    required this.onDrivers,
+    required this.onBookings,
+  });
+
+  final SubTenantDashboardData data;
+  final VoidCallback onAddSpot;
+  final VoidCallback onCreatePackage;
+  final VoidCallback onDrivers;
+  final VoidCallback onBookings;
+
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveGrid(
+      minItemWidth: 170,
+      maxColumns: 2,
+      mobileAspectRatio: 2.1,
+      tabletAspectRatio: 2.2,
+      desktopAspectRatio: 2.4,
+      children: [
+        _CompactMetricCard(
+          icon: Icons.place_rounded,
+          label: 'Tourist Spots',
+          value: '${data.totalSpots}',
+          color: const Color(0xFF2A86FF),
+          onTap: onAddSpot,
+        ),
+        _CompactMetricCard(
+          icon: Icons.inventory_2_rounded,
+          label: 'Packages',
+          value: '${data.totalPackages}',
+          color: const Color(0xFF0EA5E9),
+          onTap: onCreatePackage,
+        ),
+        _CompactMetricCard(
+          icon: Icons.badge_rounded,
+          label: 'Drivers',
+          value: '${data.totalDrivers}',
+          color: const Color(0xFF16A34A),
+          onTap: onDrivers,
+        ),
+        _CompactMetricCard(
+          icon: Icons.pending_actions_rounded,
+          label: 'Pending',
+          value: '${data.pendingBookings}',
+          subtitle: '${data.activeTours} active',
+          color: const Color(0xFFF59E0B),
+          onTap: onBookings,
+        ),
+      ],
+    );
+  }
+}
+
+class _CompactMetricCard extends StatefulWidget {
+  const _CompactMetricCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+    this.subtitle,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? subtitle;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  State<_CompactMetricCard> createState() => _CompactMetricCardState();
+}
+
+class _CompactMetricCardState extends State<_CompactMetricCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor:
+          widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: _hovered
+                    ? widget.color.withValues(alpha: 0.24)
+                    : SubTenantColors.line,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      Colors.black.withValues(alpha: _hovered ? 0.07 : 0.032),
+                  blurRadius: _hovered ? 18 : 12,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: widget.color.withValues(alpha: 0.11),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(widget.icon, color: widget.color, size: 19),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: SubTenantColors.text,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: SubTenantColors.text,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (widget.subtitle != null)
+                        Text(
+                          widget.subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: SubTenantColors.muted,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Quick Actions
+// ---------------------------------------------------------------------------
 
 class _QuickActions extends StatelessWidget {
   const _QuickActions({
@@ -300,52 +648,68 @@ class _QuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
     return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const SubTenantSectionHeader(
+          const _CompactSectionTitle(
             title: 'Quick Actions',
-            subtitle: 'Common city tourism admin tasks.',
+            subtitle: 'Common admin tasks',
           ),
-          const SizedBox(height: 14),
-          ResponsiveGrid(
-            minItemWidth: 230,
-            maxColumns: Responsive.isDesktop(context) ? 3 : 2,
-            mobileAspectRatio: 3.15,
-            tabletAspectRatio: 3.35,
-            desktopAspectRatio: 3.85,
-            children: [
-              _ActionButton(
-                icon: Icons.add_location_alt_rounded,
-                label: 'Add Tourist Spot',
-                onTap: onAddSpot,
-              ),
-              _ActionButton(
-                icon: Icons.add_box_rounded,
-                label: 'Create Package',
-                onTap: onCreatePackage,
-              ),
-              _ActionButton(
-                icon: Icons.badge_rounded,
-                label: 'Manage Drivers',
-                onTap: onDrivers,
-              ),
-              _ActionButton(
-                icon: Icons.receipt_long_rounded,
-                label: 'View Bookings',
-                onTap: onBookings,
-              ),
-              _ActionButton(
-                icon: Icons.bar_chart_rounded,
-                label: 'City Reports',
-                onTap: onReports,
-              ),
-              _ActionButton(
-                icon: Icons.campaign_rounded,
-                label: 'Announcements',
-                onTap: onAnnouncements,
-              ),
-            ],
+          const SizedBox(height: 8),
+          // LayoutBuilder derives a stable cell height from the available width
+          // so buttons never clip on any desktop resolution.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final cols = isDesktop ? 3 : 2;
+              const spacing = 8.0;
+              const targetHeight = 46.0;
+              final cellWidth =
+                  (constraints.maxWidth - (cols - 1) * spacing) / cols;
+              final ar = (cellWidth / targetHeight).clamp(1.4, 5.0);
+              return GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: cols,
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: 8,
+                childAspectRatio: ar,
+                children: [
+                  _ActionButton(
+                    icon: Icons.add_location_alt_rounded,
+                    label: 'Add Spot',
+                    onTap: onAddSpot,
+                  ),
+                  _ActionButton(
+                    icon: Icons.add_box_rounded,
+                    label: 'Create Package',
+                    onTap: onCreatePackage,
+                  ),
+                  _ActionButton(
+                    icon: Icons.badge_rounded,
+                    label: 'Drivers',
+                    onTap: onDrivers,
+                  ),
+                  _ActionButton(
+                    icon: Icons.receipt_long_rounded,
+                    label: 'Bookings',
+                    onTap: onBookings,
+                  ),
+                  _ActionButton(
+                    icon: Icons.bar_chart_rounded,
+                    label: 'Reports',
+                    onTap: onReports,
+                  ),
+                  _ActionButton(
+                    icon: Icons.campaign_rounded,
+                    label: 'Announcements',
+                    onTap: onAnnouncements,
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -381,15 +745,15 @@ class _ActionButtonState extends State<_ActionButton> {
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(17),
+          borderRadius: BorderRadius.circular(14),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
               color: _hovered
-                  ? SubTenantColors.blue.withValues(alpha: 0.10)
-                  : const Color(0xFFF4F8FF),
-              borderRadius: BorderRadius.circular(17),
+                  ? SubTenantColors.blue.withValues(alpha: 0.09)
+                  : const Color(0xFFF8FBFF),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: _hovered
                     ? SubTenantColors.blue.withValues(alpha: 0.22)
@@ -399,19 +763,19 @@ class _ActionButtonState extends State<_ActionButton> {
             child: Row(
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 28,
+                  height: 28,
                   decoration: BoxDecoration(
-                    color: SubTenantColors.blue.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(13),
+                    color: SubTenantColors.blue.withValues(alpha: 0.11),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     widget.icon,
                     color: SubTenantColors.blue,
-                    size: 19,
+                    size: 15,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 7),
                 Expanded(
                   child: Text(
                     widget.label,
@@ -419,7 +783,7 @@ class _ActionButtonState extends State<_ActionButton> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: SubTenantColors.text,
-                      fontSize: 12.5,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -433,106 +797,47 @@ class _ActionButtonState extends State<_ActionButton> {
   }
 }
 
-class _RecentBookings extends StatelessWidget {
-  const _RecentBookings({required this.bookings, required this.onViewAll});
+// ---------------------------------------------------------------------------
+// Recent Bookings
+// ---------------------------------------------------------------------------
+
+// Desktop variant — sits inside Expanded, internal ListView scrolls.
+class _CompactRecentBookings extends StatelessWidget {
+  const _CompactRecentBookings({
+    required this.bookings,
+    required this.onViewAll,
+  });
 
   final List<SubTenantBooking> bookings;
   final VoidCallback onViewAll;
 
   @override
   Widget build(BuildContext context) {
-    if (bookings.isEmpty) {
-      return EmptyStateCard(
-        icon: Icons.receipt_long_outlined,
-        title: 'No bookings yet',
-        message: 'New package bookings for this city will appear here.',
-        actionLabel: 'View Bookings',
-        onAction: onViewAll,
-      );
-    }
-
-    if (Responsive.isDesktop(context)) {
-      return DashboardSectionCard(
-        padding: const EdgeInsets.all(0),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
-              child: SubTenantSectionHeader(
-                title: 'Recent Bookings',
-                subtitle: 'Latest package requests in your city.',
-                trailing: 'View All',
-                onTrailingTap: onViewAll,
-              ),
-            ),
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(22),
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 760),
-                  child: DataTable(
-                    headingTextStyle: const TextStyle(
-                      color: SubTenantColors.muted,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
-                    ),
-                    dataTextStyle: const TextStyle(
-                      color: SubTenantColors.text,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
-                    ),
-                    columns: const [
-                      DataColumn(label: Text('Package')),
-                      DataColumn(label: Text('Tourist')),
-                      DataColumn(label: Text('Travel Date')),
-                      DataColumn(label: Text('Status')),
-                    ],
-                    rows: bookings
-                        .map((booking) {
-                          final date = booking.travelDate == null
-                              ? 'No date'
-                              : DateFormat(
-                                  'MMM d, yyyy',
-                                ).format(booking.travelDate!);
-                          return DataRow(
-                            cells: [
-                              DataCell(Text(booking.packageTitle)),
-                              DataCell(Text(booking.touristName)),
-                              DataCell(Text(date)),
-                              DataCell(
-                                SubTenantStatusPill(status: booking.status),
-                              ),
-                            ],
-                          );
-                        })
-                        .toList(growable: false),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
         children: [
-          SubTenantSectionHeader(
+          _CompactSectionTitle(
             title: 'Recent Bookings',
-            subtitle: 'Latest package requests in your city.',
+            subtitle: 'Latest package requests',
             trailing: 'View All',
             onTrailingTap: onViewAll,
           ),
-          const SizedBox(height: 12),
-          ...bookings.map(
-            (booking) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _BookingMiniTile(booking: booking),
-            ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: bookings.isEmpty
+                ? const _SmallEmptyState(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'No bookings yet',
+                    message: 'New bookings will appear here.',
+                  )
+                : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: bookings.take(7).length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 5),
+                    itemBuilder: (_, i) =>
+                        _BookingCompactTile(booking: bookings[i]),
+                  ),
           ),
         ],
       ),
@@ -540,8 +845,51 @@ class _RecentBookings extends StatelessWidget {
   }
 }
 
-class _BookingMiniTile extends StatelessWidget {
-  const _BookingMiniTile({required this.booking});
+// Mobile variant — static list, natural height.
+class _RecentBookings extends StatelessWidget {
+  const _RecentBookings({
+    required this.bookings,
+    required this.onViewAll,
+  });
+
+  final List<SubTenantBooking> bookings;
+  final VoidCallback onViewAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _CompactSectionTitle(
+            title: 'Recent Bookings',
+            subtitle: 'Latest package requests',
+            trailing: 'View All',
+            onTrailingTap: onViewAll,
+          ),
+          const SizedBox(height: 8),
+          if (bookings.isEmpty)
+            const _SmallEmptyState(
+              icon: Icons.receipt_long_outlined,
+              title: 'No bookings yet',
+              message: 'New bookings will appear here.',
+            )
+          else
+            ...bookings.take(5).map(
+                  (b) => Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: _BookingCompactTile(booking: b),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookingCompactTile extends StatelessWidget {
+  const _BookingCompactTile({required this.booking});
 
   final SubTenantBooking booking;
 
@@ -549,56 +897,56 @@ class _BookingMiniTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final date = booking.travelDate == null
         ? 'No date'
-        : DateFormat('MMM d, yyyy').format(booking.travelDate!);
+        : DateFormat('MMM d').format(booking.travelDate!);
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(13),
         border: Border.all(color: SubTenantColors.line),
       ),
       child: Row(
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 26,
+            height: 26,
             decoration: BoxDecoration(
               color: SubTenantColors.blue.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(9),
             ),
             child: const Icon(
               Icons.confirmation_number_rounded,
               color: SubTenantColors.blue,
+              size: 14,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  booking.packageTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SubTenantColors.text,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w900,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '${booking.packageTitle}\n',
+                    style: const TextStyle(
+                      color: SubTenantColors.text,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '${booking.touristName} - $date',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                  TextSpan(
+                    text: '${booking.touristName} • $date',
+                    style: const TextStyle(
+                      color: SubTenantColors.muted,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 8),
@@ -609,6 +957,10 @@ class _BookingMiniTile extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Analytics / Operations Snapshot
+// ---------------------------------------------------------------------------
+
 class _AnalyticsCard extends StatelessWidget {
   const _AnalyticsCard({required this.data});
 
@@ -616,6 +968,7 @@ class _AnalyticsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
     final values = [
       data.totalSpots,
       data.totalPackages,
@@ -623,58 +976,35 @@ class _AnalyticsCard extends StatelessWidget {
       data.pendingBookings,
       data.activeTours,
     ];
-    final maxValue = values.fold<int>(
-      1,
-      (max, item) => item > max ? item : max,
+    final maxValue = values.fold<int>(1, (m, v) => v > m ? v : m);
+
+    final chart = Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _ChartBar(label: 'Spots', value: data.totalSpots, maxValue: maxValue, color: const Color(0xFF2A86FF)),
+        _ChartBar(label: 'Packages', value: data.totalPackages, maxValue: maxValue, color: const Color(0xFF0EA5E9)),
+        _ChartBar(label: 'Drivers', value: data.totalDrivers, maxValue: maxValue, color: const Color(0xFF16A34A)),
+        _ChartBar(label: 'Pending', value: data.pendingBookings, maxValue: maxValue, color: const Color(0xFFF59E0B)),
+        _ChartBar(label: 'Active', value: data.activeTours, maxValue: maxValue, color: const Color(0xFF7C3AED)),
+      ],
     );
 
     return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        // max on desktop: Expanded(chart) fills the bounded card height.
+        // min on mobile: card wraps the fixed-height SizedBox.
+        mainAxisSize: isDesktop ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          const SubTenantSectionHeader(
+          const _CompactSectionTitle(
             title: 'Operations Snapshot',
-            subtitle: 'A quick visual read of active city workspace volume.',
+            subtitle: 'City workspace volume',
           ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: Responsive.isDesktop(context) ? 190 : 160,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                _ChartBar(
-                  label: 'Spots',
-                  value: data.totalSpots,
-                  maxValue: maxValue,
-                  color: const Color(0xFF2A86FF),
-                ),
-                _ChartBar(
-                  label: 'Packages',
-                  value: data.totalPackages,
-                  maxValue: maxValue,
-                  color: const Color(0xFF0EA5E9),
-                ),
-                _ChartBar(
-                  label: 'Drivers',
-                  value: data.totalDrivers,
-                  maxValue: maxValue,
-                  color: const Color(0xFF16A34A),
-                ),
-                _ChartBar(
-                  label: 'Pending',
-                  value: data.pendingBookings,
-                  maxValue: maxValue,
-                  color: const Color(0xFFF59E0B),
-                ),
-                _ChartBar(
-                  label: 'Active',
-                  value: data.activeTours,
-                  maxValue: maxValue,
-                  color: const Color(0xFF7C3AED),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 8),
+          if (isDesktop)
+            Expanded(child: chart)
+          else
+            SizedBox(height: 120, child: chart),
         ],
       ),
     );
@@ -697,9 +1027,10 @@ class _ChartBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final factor = maxValue == 0 ? 0.0 : value / maxValue;
+
     return Expanded(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 3),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -709,38 +1040,38 @@ class _ChartBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: SubTenantColors.text,
-                fontSize: 12,
+                fontSize: 10.5,
                 fontWeight: FontWeight.w900,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Expanded(
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: FractionallySizedBox(
-                  heightFactor: (0.14 + (factor * 0.86)).clamp(0.14, 1.0),
+                  heightFactor: (0.12 + (factor * 0.88)).clamp(0.12, 1.0),
                   child: Container(
                     width: double.infinity,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [color.withValues(alpha: 0.82), color],
+                        colors: [color.withValues(alpha: 0.80), color],
                       ),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: SubTenantColors.muted,
-                fontSize: 11,
+                fontSize: 9.5,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -751,6 +1082,45 @@ class _ChartBar extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Side panels
+// ---------------------------------------------------------------------------
+
+// Desktop: Profile at natural height, Announcements + Activity fill the rest.
+class _CompactSidePanel extends StatelessWidget {
+  const _CompactSidePanel({
+    required this.data,
+    required this.onAnnouncements,
+    required this.onProfile,
+  });
+
+  final SubTenantDashboardData data;
+  final VoidCallback onAnnouncements;
+  final VoidCallback onProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ProfileSummary(data: data, onProfile: onProfile),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _AnnouncementsCard(
+            data: data,
+            onAnnouncements: onAnnouncements,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _ActivityFeed(bookings: data.recentBookings),
+        ),
+      ],
+    );
+  }
+}
+
+// Mobile: all sections stacked, each with natural height.
 class _SidePanel extends StatelessWidget {
   const _SidePanel({
     required this.data,
@@ -765,17 +1135,19 @@ class _SidePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         _ProfileSummary(data: data, onProfile: onProfile),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _AnnouncementsCard(data: data, onAnnouncements: onAnnouncements),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _ActivityFeed(bookings: data.recentBookings),
       ],
     );
   }
 }
 
+// Profile summary — always intrinsic height (no Expanded children).
 class _ProfileSummary extends StatelessWidget {
   const _ProfileSummary({required this.data, required this.onProfile});
 
@@ -785,17 +1157,19 @@ class _ProfileSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const SubTenantSectionHeader(
-            title: 'Profile & Settings',
-            subtitle: 'City profile, office contact, and media.',
+          const _CompactSectionTitle(
+            title: 'Profile',
+            subtitle: 'City office settings',
           ),
           const SizedBox(height: 8),
-          SubTenantInfoTile(
+          _MiniInfoTile(
             icon: Icons.location_city_rounded,
             title: data.profile.assignedCity,
-            subtitle: '${data.profile.province} Tourism Office settings',
+            subtitle: '${data.profile.province} Tourism Office',
             onTap: onProfile,
           ),
         ],
@@ -805,38 +1179,71 @@ class _ProfileSummary extends StatelessWidget {
 }
 
 class _AnnouncementsCard extends StatelessWidget {
-  const _AnnouncementsCard({required this.data, required this.onAnnouncements});
+  const _AnnouncementsCard({
+    required this.data,
+    required this.onAnnouncements,
+  });
 
   final SubTenantDashboardData data;
   final VoidCallback onAnnouncements;
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
+    final items = data.announcements.take(4).toList();
+
     return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
+        mainAxisSize: isDesktop ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          SubTenantSectionHeader(
+          _CompactSectionTitle(
             title: 'Announcements',
             subtitle: data.announcementsTableAvailable
-                ? 'Latest city updates for tourism operations.'
-                : 'Announcement table is not available yet.',
+                ? 'City updates'
+                : 'Table unavailable',
             trailing: 'Manage',
             onTrailingTap: onAnnouncements,
           ),
-          const SizedBox(height: 10),
-          if (data.announcements.isEmpty)
-            const _InlineEmptyState(
+          const SizedBox(height: 8),
+          if (isDesktop)
+            Expanded(
+              child: data.announcements.isEmpty
+                  ? const _SmallEmptyState(
+                      icon: Icons.campaign_outlined,
+                      title: 'No announcements',
+                      message: 'Published updates appear here.',
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.zero,
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      itemBuilder: (_, i) => _MiniInfoTile(
+                        icon: Icons.campaign_rounded,
+                        title: items[i].title,
+                        subtitle: items[i].body,
+                        trailing: SubTenantStatusPill(status: items[i].status),
+                      ),
+                    ),
+            )
+          else if (data.announcements.isEmpty)
+            const _SmallEmptyState(
               icon: Icons.campaign_outlined,
               title: 'No announcements',
-              message: 'Published city updates will appear here.',
+              message: 'Published updates appear here.',
             )
           else
-            ...data.announcements.map(
-              (item) => SubTenantInfoTile(
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
+              itemBuilder: (_, i) => _MiniInfoTile(
                 icon: Icons.campaign_rounded,
-                title: item.title,
-                subtitle: item.body,
-                trailing: SubTenantStatusPill(status: item.status),
+                title: items[i].title,
+                subtitle: items[i].body,
+                trailing: SubTenantStatusPill(status: items[i].status),
               ),
             ),
         ],
@@ -852,40 +1259,228 @@ class _ActivityFeed extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
+    final items = bookings.take(4).toList();
+
     return DashboardSectionCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
+        mainAxisSize: isDesktop ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          const SubTenantSectionHeader(
+          const _CompactSectionTitle(
             title: 'Activity Feed',
-            subtitle: 'Recent booking activity across local packages.',
+            subtitle: 'Recent local activity',
           ),
-          const SizedBox(height: 10),
-          if (bookings.isEmpty)
-            const _InlineEmptyState(
+          const SizedBox(height: 8),
+          if (isDesktop)
+            Expanded(
+              child: bookings.isEmpty
+                  ? const _SmallEmptyState(
+                      icon: Icons.timeline_rounded,
+                      title: 'Quiet for now',
+                      message: 'Booking changes appear here.',
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.zero,
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      itemBuilder: (_, i) {
+                        final b = items[i];
+                        final created = b.createdAt == null
+                            ? 'Recently'
+                            : DateFormat('MMM d, h:mm a').format(b.createdAt!);
+                        return _MiniInfoTile(
+                          icon: Icons.timeline_rounded,
+                          title: b.packageTitle,
+                          subtitle: '${b.touristName} • $created',
+                          trailing: SubTenantStatusPill(status: b.status),
+                        );
+                      },
+                    ),
+            )
+          else if (bookings.isEmpty)
+            const _SmallEmptyState(
               icon: Icons.timeline_rounded,
               title: 'Quiet for now',
-              message: 'Booking changes and local activity will appear here.',
+              message: 'Booking changes appear here.',
             )
           else
-            ...bookings.take(4).map((booking) {
-              final created = booking.createdAt == null
-                  ? 'Recently'
-                  : DateFormat('MMM d, h:mm a').format(booking.createdAt!);
-              return SubTenantInfoTile(
-                icon: Icons.timeline_rounded,
-                title: booking.packageTitle,
-                subtitle: '${booking.touristName} - $created',
-                trailing: SubTenantStatusPill(status: booking.status),
-              );
-            }),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
+              itemBuilder: (_, i) {
+                final b = items[i];
+                final created = b.createdAt == null
+                    ? 'Recently'
+                    : DateFormat('MMM d, h:mm a').format(b.createdAt!);
+                return _MiniInfoTile(
+                  icon: Icons.timeline_rounded,
+                  title: b.packageTitle,
+                  subtitle: '${b.touristName} • $created',
+                  trailing: SubTenantStatusPill(status: b.status),
+                );
+              },
+            ),
         ],
       ),
     );
   }
 }
 
-class _InlineEmptyState extends StatelessWidget {
-  const _InlineEmptyState({
+// ---------------------------------------------------------------------------
+// Shared small widgets
+// ---------------------------------------------------------------------------
+
+class _CompactSectionTitle extends StatelessWidget {
+  const _CompactSectionTitle({
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+    this.onTrailingTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final String? trailing;
+  final VoidCallback? onTrailingTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$title\n',
+                  style: const TextStyle(
+                    color: SubTenantColors.text,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                TextSpan(
+                  text: subtitle,
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (trailing != null)
+          TextButton(
+            onPressed: onTrailingTap,
+            style: TextButton.styleFrom(
+              foregroundColor: SubTenantColors.blue,
+              padding: const EdgeInsets.symmetric(horizontal: 7),
+              minimumSize: const Size(0, 30),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              trailing!,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MiniInfoTile extends StatelessWidget {
+  const _MiniInfoTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF8FBFF),
+      borderRadius: BorderRadius.circular(13),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(13),
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: SubTenantColors.line),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: SubTenantColors.blue.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 14, color: SubTenantColors.blue),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$title\n',
+                        style: const TextStyle(
+                          color: SubTenantColors.text,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11,
+                        ),
+                      ),
+                      TextSpan(
+                        text: subtitle,
+                        style: const TextStyle(
+                          color: SubTenantColors.muted,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 6),
+                trailing!,
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallEmptyState extends StatelessWidget {
+  const _SmallEmptyState({
     required this.icon,
     required this.title,
     required this.message,
@@ -897,39 +1492,42 @@ class _InlineEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SubTenantColors.line),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: SubTenantColors.blue, size: 28),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: SubTenantColors.text,
-              fontSize: 14,
-              fontWeight: FontWeight.w900,
+    return Center(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FBFF),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: SubTenantColors.line),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: SubTenantColors.blue, size: 20),
+            const SizedBox(height: 5),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: SubTenantColors.text,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: SubTenantColors.muted,
-              fontSize: 12,
-              height: 1.35,
-              fontWeight: FontWeight.w700,
+            const SizedBox(height: 2),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: SubTenantColors.muted,
+                fontSize: 10.5,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
