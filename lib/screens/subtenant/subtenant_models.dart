@@ -133,7 +133,17 @@ class SubTenantProfile {
   }
 
   String get assignedCity => city;
+
   bool get isSubTenant => role.toLowerCase().trim() == 'subtenant';
+}
+
+bool _stBool(dynamic value, {bool fallback = false}) {
+  if (value == null) return fallback;
+  if (value is bool) return value;
+  final text = value.toString().trim().toLowerCase();
+  if (text == 'true' || text == '1' || text == 'yes') return true;
+  if (text == 'false' || text == '0' || text == 'no') return false;
+  return fallback;
 }
 
 class SubTenantCityProfileData {
@@ -232,6 +242,440 @@ class SubTenantCityProfileData {
           detailsTableAvailable ?? this.detailsTableAvailable,
     );
   }
+}
+
+class SubTenantSettingsData {
+  const SubTenantSettingsData({
+    this.notificationsEnabled = true,
+    this.packageAlerts = true,
+    this.touristSpotAlerts = true,
+    this.performanceReports = true,
+    this.systemNotices = true,
+    this.language = 'English',
+    this.showTotalViews = true,
+    this.showBookings = true,
+    this.showPopularDestinations = true,
+    this.showTopPackages = true,
+    this.defaultPackageVisibility = 'visible',
+    this.defaultSpotStatus = 'active',
+    this.requirePackageReview = true,
+    this.allowMultiDayPackages = true,
+    this.allowInstantBooking = false,
+    this.manualBookingConfirmation = true,
+    this.allowCancellation = true,
+    this.driverAutoApproval = false,
+    this.requireDriverDocuments = true,
+    this.requireTodaVerification = true,
+    this.requireSpotVerification = true,
+    this.requireMapPin = true,
+    this.requireCoverImage = true,
+    this.autoPublishSpots = false,
+    this.enableAiSuggestions = true,
+    this.diversePlaceTypes = true,
+    this.prioritizePopular = true,
+    this.prioritizeNearby = true,
+    this.prioritizeFood = true,
+    this.prioritizeNature = true,
+    this.prioritizeHistorical = true,
+    this.bookingNotifications = true,
+    this.driverNotifications = true,
+    this.reviewNotifications = true,
+    this.emailNotifications = true,
+    this.revenueTracking = true,
+    this.spotPopularityTracking = true,
+    this.driverAnalytics = true,
+    this.monthlyReports = true,
+  });
+
+  final bool notificationsEnabled;
+  final bool packageAlerts;
+  final bool touristSpotAlerts;
+  final bool performanceReports;
+  final bool systemNotices;
+  final String language;
+  final bool showTotalViews;
+  final bool showBookings;
+  final bool showPopularDestinations;
+  final bool showTopPackages;
+  final String defaultPackageVisibility;
+  final String defaultSpotStatus;
+  final bool requirePackageReview;
+  final bool allowMultiDayPackages;
+  final bool allowInstantBooking;
+  final bool manualBookingConfirmation;
+  final bool allowCancellation;
+  final bool driverAutoApproval;
+  final bool requireDriverDocuments;
+  final bool requireTodaVerification;
+  final bool requireSpotVerification;
+  final bool requireMapPin;
+  final bool requireCoverImage;
+  final bool autoPublishSpots;
+  final bool enableAiSuggestions;
+  final bool diversePlaceTypes;
+  final bool prioritizePopular;
+  final bool prioritizeNearby;
+  final bool prioritizeFood;
+  final bool prioritizeNature;
+  final bool prioritizeHistorical;
+  final bool bookingNotifications;
+  final bool driverNotifications;
+  final bool reviewNotifications;
+  final bool emailNotifications;
+  final bool revenueTracking;
+  final bool spotPopularityTracking;
+  final bool driverAnalytics;
+  final bool monthlyReports;
+
+  factory SubTenantSettingsData.fromMap(Map<String, dynamic> map) {
+    const defaults = SubTenantSettingsData();
+    return SubTenantSettingsData(
+      notificationsEnabled: _stBool(
+        map['notifications_enabled'],
+        fallback: defaults.notificationsEnabled,
+      ),
+      packageAlerts: _stBool(
+        map['package_alerts'],
+        fallback: defaults.packageAlerts,
+      ),
+      touristSpotAlerts: _stBool(
+        map['tourist_spot_alerts'],
+        fallback: defaults.touristSpotAlerts,
+      ),
+      performanceReports: _stBool(
+        map['performance_reports'],
+        fallback: defaults.performanceReports,
+      ),
+      systemNotices: _stBool(
+        map['system_notices'],
+        fallback: defaults.systemNotices,
+      ),
+      language: stString(map, const ['language'], fallback: defaults.language),
+      showTotalViews: _stBool(
+        map['show_total_views'],
+        fallback: defaults.showTotalViews,
+      ),
+      showBookings: _stBool(
+        map['show_bookings'],
+        fallback: defaults.showBookings,
+      ),
+      showPopularDestinations: _stBool(
+        map['show_popular_destinations'],
+        fallback: defaults.showPopularDestinations,
+      ),
+      showTopPackages: _stBool(
+        map['show_top_packages'],
+        fallback: defaults.showTopPackages,
+      ),
+      defaultPackageVisibility: stString(
+        map,
+        const ['default_package_visibility'],
+        fallback: defaults.defaultPackageVisibility,
+      ),
+      defaultSpotStatus: stString(
+        map,
+        const ['default_spot_status'],
+        fallback: defaults.defaultSpotStatus,
+      ),
+      requirePackageReview: _stBool(
+        map['require_package_review'],
+        fallback: defaults.requirePackageReview,
+      ),
+      allowMultiDayPackages: _stBool(
+        map['allow_multi_day_packages'],
+        fallback: defaults.allowMultiDayPackages,
+      ),
+      allowInstantBooking: _stBool(
+        map['allow_instant_booking'],
+        fallback: defaults.allowInstantBooking,
+      ),
+      manualBookingConfirmation: _stBool(
+        map['manual_booking_confirmation'],
+        fallback: defaults.manualBookingConfirmation,
+      ),
+      allowCancellation: _stBool(
+        map['allow_cancellation'],
+        fallback: defaults.allowCancellation,
+      ),
+      driverAutoApproval: _stBool(
+        map['driver_auto_approval'],
+        fallback: defaults.driverAutoApproval,
+      ),
+      requireDriverDocuments: _stBool(
+        map['require_driver_documents'],
+        fallback: defaults.requireDriverDocuments,
+      ),
+      requireTodaVerification: _stBool(
+        map['require_toda_verification'],
+        fallback: defaults.requireTodaVerification,
+      ),
+      requireSpotVerification: _stBool(
+        map['require_spot_verification'],
+        fallback: defaults.requireSpotVerification,
+      ),
+      requireMapPin: _stBool(
+        map['require_map_pin'],
+        fallback: defaults.requireMapPin,
+      ),
+      requireCoverImage: _stBool(
+        map['require_cover_image'],
+        fallback: defaults.requireCoverImage,
+      ),
+      autoPublishSpots: _stBool(
+        map['auto_publish_spots'],
+        fallback: defaults.autoPublishSpots,
+      ),
+      enableAiSuggestions: _stBool(
+        map['enable_ai_suggestions'],
+        fallback: defaults.enableAiSuggestions,
+      ),
+      diversePlaceTypes: _stBool(
+        map['diverse_place_types'],
+        fallback: defaults.diversePlaceTypes,
+      ),
+      prioritizePopular: _stBool(
+        map['prioritize_popular'],
+        fallback: defaults.prioritizePopular,
+      ),
+      prioritizeNearby: _stBool(
+        map['prioritize_nearby'],
+        fallback: defaults.prioritizeNearby,
+      ),
+      prioritizeFood: _stBool(
+        map['prioritize_food'],
+        fallback: defaults.prioritizeFood,
+      ),
+      prioritizeNature: _stBool(
+        map['prioritize_nature'],
+        fallback: defaults.prioritizeNature,
+      ),
+      prioritizeHistorical: _stBool(
+        map['prioritize_historical'],
+        fallback: defaults.prioritizeHistorical,
+      ),
+      bookingNotifications: _stBool(
+        map['booking_notifications'],
+        fallback: _stBool(
+          map['package_alerts'],
+          fallback: defaults.bookingNotifications,
+        ),
+      ),
+      driverNotifications: _stBool(
+        map['driver_notifications'],
+        fallback: defaults.driverNotifications,
+      ),
+      reviewNotifications: _stBool(
+        map['review_notifications'],
+        fallback: _stBool(
+          map['tourist_spot_alerts'],
+          fallback: defaults.reviewNotifications,
+        ),
+      ),
+      emailNotifications: _stBool(
+        map['email_notifications'],
+        fallback: defaults.emailNotifications,
+      ),
+      revenueTracking: _stBool(
+        map['revenue_tracking'],
+        fallback: defaults.revenueTracking,
+      ),
+      spotPopularityTracking: _stBool(
+        map['spot_popularity_tracking'],
+        fallback: defaults.spotPopularityTracking,
+      ),
+      driverAnalytics: _stBool(
+        map['driver_analytics'],
+        fallback: defaults.driverAnalytics,
+      ),
+      monthlyReports: _stBool(
+        map['monthly_reports'],
+        fallback: _stBool(
+          map['performance_reports'],
+          fallback: defaults.monthlyReports,
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> toMap(String userId) {
+    return {
+      'user_id': userId,
+      'notifications_enabled': notificationsEnabled,
+      'package_alerts': packageAlerts,
+      'tourist_spot_alerts': touristSpotAlerts,
+      'performance_reports': performanceReports,
+      'system_notices': systemNotices,
+      'language': language,
+      'show_total_views': showTotalViews,
+      'show_bookings': showBookings,
+      'show_popular_destinations': showPopularDestinations,
+      'show_top_packages': showTopPackages,
+      'default_package_visibility': defaultPackageVisibility,
+      'default_spot_status': defaultSpotStatus,
+      'require_package_review': requirePackageReview,
+      'allow_multi_day_packages': allowMultiDayPackages,
+      'allow_instant_booking': allowInstantBooking,
+      'manual_booking_confirmation': manualBookingConfirmation,
+      'allow_cancellation': allowCancellation,
+      'driver_auto_approval': driverAutoApproval,
+      'require_driver_documents': requireDriverDocuments,
+      'require_toda_verification': requireTodaVerification,
+      'require_spot_verification': requireSpotVerification,
+      'require_map_pin': requireMapPin,
+      'require_cover_image': requireCoverImage,
+      'auto_publish_spots': autoPublishSpots,
+      'enable_ai_suggestions': enableAiSuggestions,
+      'diverse_place_types': diversePlaceTypes,
+      'prioritize_popular': prioritizePopular,
+      'prioritize_nearby': prioritizeNearby,
+      'prioritize_food': prioritizeFood,
+      'prioritize_nature': prioritizeNature,
+      'prioritize_historical': prioritizeHistorical,
+      'booking_notifications': bookingNotifications,
+      'driver_notifications': driverNotifications,
+      'review_notifications': reviewNotifications,
+      'email_notifications': emailNotifications,
+      'revenue_tracking': revenueTracking,
+      'spot_popularity_tracking': spotPopularityTracking,
+      'driver_analytics': driverAnalytics,
+      'monthly_reports': monthlyReports,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+}
+
+class SubTenantFareSettings {
+  const SubTenantFareSettings({
+    this.id,
+    required this.subtenantId,
+    required this.city,
+    this.baseFare = 50,
+    this.farePerKm = 50,
+    this.minimumFare = 0,
+    this.additionalPassengerFee = 0,
+    this.waitingFee = 0,
+    this.guideFee = 0,
+    this.weekendSurcharge = 0,
+    this.isActive = true,
+  });
+
+  final dynamic id;
+  final String subtenantId;
+  final String city;
+  final double baseFare;
+  final double farePerKm;
+  final double minimumFare;
+  final double additionalPassengerFee;
+  final double waitingFee;
+  final double guideFee;
+  final double weekendSurcharge;
+  final bool isActive;
+
+  factory SubTenantFareSettings.defaults(SubTenantProfile profile) {
+    return SubTenantFareSettings(
+      subtenantId: profile.id,
+      city: profile.assignedCity,
+    );
+  }
+
+  factory SubTenantFareSettings.fromMap(
+    Map<String, dynamic> map,
+    SubTenantProfile profile,
+  ) {
+    final defaults = SubTenantFareSettings.defaults(profile);
+    return SubTenantFareSettings(
+      id: map['id'],
+      subtenantId: stString(
+        map,
+        const ['subtenant_id'],
+        fallback: defaults.subtenantId,
+      ),
+      city: stString(map, const ['city'], fallback: defaults.city),
+      baseFare: stDouble(map['base_fare'], fallback: defaults.baseFare),
+      farePerKm: stDouble(map['fare_per_km'], fallback: defaults.farePerKm),
+      minimumFare: stDouble(
+        map['minimum_fare'],
+        fallback: defaults.minimumFare,
+      ),
+      additionalPassengerFee: stDouble(
+        map['additional_passenger_fee'],
+        fallback: defaults.additionalPassengerFee,
+      ),
+      waitingFee: stDouble(map['waiting_fee'], fallback: defaults.waitingFee),
+      guideFee: stDouble(map['guide_fee'], fallback: defaults.guideFee),
+      weekendSurcharge: stDouble(
+        map['weekend_surcharge'],
+        fallback: defaults.weekendSurcharge,
+      ),
+      isActive: _stBool(map['is_active'], fallback: defaults.isActive),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'subtenant_id': subtenantId,
+      'city': city,
+      'base_fare': baseFare,
+      'fare_per_km': farePerKm,
+      'minimum_fare': minimumFare,
+      'additional_passenger_fee': additionalPassengerFee,
+      'waiting_fee': waitingFee,
+      'guide_fee': guideFee,
+      'weekend_surcharge': weekendSurcharge,
+      'is_active': isActive,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
+  FareCalculation calculate({
+    required double routeDistanceKm,
+    required int groupSize,
+    bool includeWeekendSurcharge = false,
+  }) {
+    final normalizedGroupSize = groupSize < 1 ? 1 : groupSize;
+    final normalizedDistance = routeDistanceKm < 0 ? 0.0 : routeDistanceKm;
+    final extraPassengers = normalizedGroupSize > 1 ? normalizedGroupSize - 1 : 0;
+    final distanceFee = farePerKm * normalizedDistance;
+    final passengerFee = additionalPassengerFee * extraPassengers;
+    final surcharge = includeWeekendSurcharge ? weekendSurcharge : 0.0;
+    final rawTotal =
+        baseFare + distanceFee + passengerFee + waitingFee + guideFee + surcharge;
+    final total = minimumFare > 0 && rawTotal < minimumFare
+        ? minimumFare
+        : rawTotal;
+    return FareCalculation(
+      baseFare: baseFare,
+      distanceFee: distanceFee,
+      passengerFee: passengerFee,
+      waitingFee: waitingFee,
+      guideFee: guideFee,
+      weekendSurcharge: surcharge,
+      minimumFareAdjustment: total - rawTotal,
+      total: total,
+    );
+  }
+}
+
+class FareCalculation {
+  const FareCalculation({
+    required this.baseFare,
+    required this.distanceFee,
+    required this.passengerFee,
+    required this.waitingFee,
+    required this.guideFee,
+    required this.weekendSurcharge,
+    required this.minimumFareAdjustment,
+    required this.total,
+  });
+
+  final double baseFare;
+  final double distanceFee;
+  final double passengerFee;
+  final double waitingFee;
+  final double guideFee;
+  final double weekendSurcharge;
+  final double minimumFareAdjustment;
+  final double total;
 }
 
 class SubTenantSpot {
@@ -436,6 +880,10 @@ class SubTenantDriver {
   String get todaName => stString(details ?? const {}, const ['toda_name']);
   String get operatorCode =>
       stString(details ?? const {}, const ['operator_code']);
+  int get uploadedDocumentCount => documentLinks.length;
+  int get requiredDocumentCount => 11;
+  String get documentCompleteness =>
+      '$uploadedDocumentCount/$requiredDocumentCount';
 
   List<SubTenantDocumentLink> get documentLinks {
     final docs = documents;
@@ -563,9 +1011,11 @@ class PackageItineraryItem {
 
 class SubTenantReportData {
   const SubTenantReportData({
+    required this.rangeLabel,
     required this.totalSpots,
     required this.totalPackages,
     required this.totalBookings,
+    required this.totalDrivers,
     required this.completedBookings,
     required this.cancelledBookings,
     required this.estimatedRevenue,
@@ -575,9 +1025,11 @@ class SubTenantReportData {
     required this.feedbackCount,
   });
 
+  final String rangeLabel;
   final int totalSpots;
   final int totalPackages;
   final int totalBookings;
+  final int totalDrivers;
   final int completedBookings;
   final int cancelledBookings;
   final double estimatedRevenue;
@@ -585,6 +1037,58 @@ class SubTenantReportData {
   final List<SubTenantReportRow> topSpots;
   final double averageRating;
   final int feedbackCount;
+}
+
+class SubTenantReportRange {
+  const SubTenantReportRange({
+    required this.label,
+    required this.start,
+    required this.end,
+  });
+
+  final String label;
+  final DateTime start;
+  final DateTime end;
+
+  static SubTenantReportRange currentMonth() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month);
+    final end = DateTime(now.year, now.month + 1).subtract(
+      const Duration(milliseconds: 1),
+    );
+    return SubTenantReportRange(label: 'Current Month', start: start, end: end);
+  }
+
+  static SubTenantReportRange weekly() {
+    final now = DateTime.now();
+    final start = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+    final end = start.add(const Duration(days: 7)).subtract(
+      const Duration(milliseconds: 1),
+    );
+    return SubTenantReportRange(label: 'This Week', start: start, end: end);
+  }
+
+  static SubTenantReportRange yearly() {
+    final now = DateTime.now();
+    final start = DateTime(now.year);
+    final end = DateTime(now.year + 1).subtract(
+      const Duration(milliseconds: 1),
+    );
+    return SubTenantReportRange(label: 'This Year', start: start, end: end);
+  }
+
+  static SubTenantReportRange custom(DateTime start, DateTime end) {
+    return SubTenantReportRange(label: 'Custom Range', start: start, end: end);
+  }
+
+  bool contains(DateTime? value) {
+    if (value == null) return false;
+    return !value.isBefore(start) && !value.isAfter(end);
+  }
 }
 
 class SubTenantReportRow {

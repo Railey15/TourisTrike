@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_feedback_screen.dart';
@@ -18,6 +21,7 @@ class SubTenantReportsScreen extends StatefulWidget {
 class _SubTenantReportsScreenState extends State<SubTenantReportsScreen> {
   final SubTenantService _service = SubTenantService();
   late Future<_ReportLoad> _future;
+  SubTenantReportRange _range = SubTenantReportRange.currentMonth();
 
   @override
   void initState() {
@@ -27,12 +31,114 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen> {
 
   Future<_ReportLoad> _load() async {
     final profile = await _service.loadCurrentProfile();
-    final report = await _service.fetchReports(profile);
+    final report = await _service.fetchReports(profile, range: _range);
     return _ReportLoad(profile: profile, report: report);
   }
 
   void _reload() {
     setState(() => _future = _load());
+  }
+
+  void _setRange(SubTenantReportRange range) {
+    setState(() {
+      _range = range;
+      _future = _load();
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: DateTimeRange(start: _range.start, end: _range.end),
+    );
+    if (picked == null) return;
+    _setRange(SubTenantReportRange.custom(picked.start, picked.end));
+  }
+
+  Future<void> _downloadPdf(_ReportLoad load) async {
+    final report = load.report;
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
+    final doc = pw.Document();
+
+    pw.Widget metric(String label, String value) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.blue100),
+          borderRadius: pw.BorderRadius.circular(8),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(label, style: const pw.TextStyle(fontSize: 9)),
+            pw.SizedBox(height: 4),
+            pw.Text(
+              value,
+              style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget row(SubTenantReportRow item) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        child: pw.Row(
+          children: [
+            pw.Expanded(child: pw.Text(item.title)),
+            pw.Text(item.value, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          ],
+        ),
+      );
+    }
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) => [
+          pw.Text(
+            'TourisTrike City Tourism Report',
+            style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Text('${load.profile.assignedCity} - ${report.rangeLabel}'),
+          pw.Text(
+            '${DateFormat.yMMMd().format(_range.start)} to ${DateFormat.yMMMd().format(_range.end)}',
+          ),
+          pw.SizedBox(height: 20),
+          pw.Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              metric('Bookings', '${report.totalBookings}'),
+              metric('Completed', '${report.completedBookings}'),
+              metric('Cancelled', '${report.cancelledBookings}'),
+              metric('Revenue', money.format(report.estimatedRevenue)),
+              metric('Packages', '${report.totalPackages}'),
+              metric('Spots', '${report.totalSpots}'),
+              metric('Drivers', '${report.totalDrivers}'),
+              metric('Feedback Avg.', report.averageRating.toStringAsFixed(1)),
+            ],
+          ),
+          pw.SizedBox(height: 22),
+          pw.Text('Top Packages', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          ...report.topPackages.map(row),
+          pw.SizedBox(height: 16),
+          pw.Text('Top Tourist Spots', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          ...report.topSpots.map(row),
+        ],
+      ),
+    );
+
+    await Printing.sharePdf(
+      bytes: await doc.save(),
+      filename:
+          'touristrike-${load.profile.assignedCity.toLowerCase()}-${DateTime.now().millisecondsSinceEpoch}.pdf',
+    );
   }
 
   @override
@@ -41,6 +147,16 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen> {
       currentIndex: 5,
       title: 'City Reports',
       subtitle: 'Tourism package performance and driver-linked feedback.',
+      actions: [
+        IconButton(
+          onPressed: () async {
+            final load = await _future;
+            await _downloadPdf(load);
+          },
+          tooltip: 'Download PDF',
+          icon: const Icon(Icons.picture_as_pdf_rounded),
+        ),
+      ],
       child: FutureBuilder<_ReportLoad>(
         future: _future,
         builder: (context, snapshot) {
@@ -69,8 +185,17 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen> {
                   eyebrow: 'Tourism Analytics',
                   title: load.profile.assignedCity,
                   subtitle:
-                      'City-level tourism package, booking, transport, and feedback activity.',
+                      '${report.rangeLabel} - city-level tourism package, booking, transport, and feedback activity.',
                   icon: Icons.query_stats_rounded,
+                ),
+                const SizedBox(height: 18),
+                _ReportRangeBar(
+                  range: _range,
+                  onWeekly: () => _setRange(SubTenantReportRange.weekly()),
+                  onMonthly: () =>
+                      _setRange(SubTenantReportRange.currentMonth()),
+                  onYearly: () => _setRange(SubTenantReportRange.yearly()),
+                  onCustom: _pickCustomRange,
                 ),
                 const SizedBox(height: 18),
                 ResponsiveGrid(
@@ -89,6 +214,11 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen> {
                       icon: Icons.inventory_2_rounded,
                       label: 'Packages',
                       value: '${report.totalPackages}',
+                    ),
+                    DashboardMetricCard(
+                      icon: Icons.badge_rounded,
+                      label: 'Drivers',
+                      value: '${report.totalDrivers}',
                     ),
                     DashboardMetricCard(
                       icon: Icons.receipt_long_rounded,
@@ -219,6 +349,93 @@ class _ReportChart extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ReportRangeBar extends StatelessWidget {
+  const _ReportRangeBar({
+    required this.range,
+    required this.onWeekly,
+    required this.onMonthly,
+    required this.onYearly,
+    required this.onCustom,
+  });
+
+  final SubTenantReportRange range;
+  final VoidCallback onWeekly;
+  final VoidCallback onMonthly;
+  final VoidCallback onYearly;
+  final VoidCallback onCustom;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = range.label;
+    return DashboardSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SubTenantSectionHeader(
+            title: 'Report Range',
+            subtitle:
+                '${DateFormat.yMMMd().format(range.start)} - ${DateFormat.yMMMd().format(range.end)}',
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _RangeChip(
+                label: 'Weekly',
+                selected: selected == 'This Week',
+                onTap: onWeekly,
+              ),
+              _RangeChip(
+                label: 'Monthly',
+                selected: selected == 'Current Month',
+                onTap: onMonthly,
+              ),
+              _RangeChip(
+                label: 'Yearly',
+                selected: selected == 'This Year',
+                onTap: onYearly,
+              ),
+              _RangeChip(
+                label: 'Custom',
+                selected: selected == 'Custom Range',
+                onTap: onCustom,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RangeChip extends StatelessWidget {
+  const _RangeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      selectedColor: SubTenantColors.blue,
+      labelStyle: TextStyle(
+        color: selected ? Colors.white : SubTenantColors.text,
+        fontWeight: FontWeight.w900,
+      ),
+      side: const BorderSide(color: SubTenantColors.line),
     );
   }
 }

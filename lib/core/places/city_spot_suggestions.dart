@@ -152,6 +152,34 @@ class CitySpotSuggestionService {
     return _balancedSpots(suggestionsById.values.toList(), limit);
   }
 
+  Future<List<CitySpotSuggestion>> searchPlaces({
+    required String query,
+    required String city,
+    String province = 'Bulacan',
+    LatLng? center,
+    int limit = 5,
+  }) async {
+    final trimmedQuery = query.trim();
+    final trimmedCity = city.trim();
+    if (trimmedQuery.length < 3 || trimmedCity.isEmpty) return const [];
+
+    final effectiveProvince = province.trim().isEmpty
+        ? 'Bulacan'
+        : province.trim();
+    final effectiveCenter =
+        center ?? centerForCity(trimmedCity) ?? defaultBulacanCenter;
+    final results = await _fetchGoogleTextSearch(
+      spec: _SpotSearchSpec(
+        tag: 'Address',
+        query: '$trimmedQuery, $trimmedCity, $effectiveProvince, Philippines',
+      ),
+      city: trimmedCity,
+      province: effectiveProvince,
+      center: effectiveCenter,
+    );
+    return results.take(limit).toList(growable: false);
+  }
+
   LatLng? centerForCity(String city) {
     final normalizedCity = normalizeText(city);
     for (final area in bulacanMunicipalities) {

@@ -69,6 +69,17 @@ class ProvincialAdminService {
     final detailsById = {
       for (final row in detailsRows) adminId(row['id']): row,
     };
+    final registrations = await fetchRegistrations();
+    final latestRegistrationByUserId = <String, CityRegistration>{};
+    if (registrations.available) {
+      for (final registration in registrations.items) {
+        if (registration.userId.isEmpty) continue;
+        latestRegistrationByUserId.putIfAbsent(
+          registration.userId,
+          () => registration,
+        );
+      }
+    }
 
     final spots = await fetchProvinceSpots();
     final packages = await fetchProvincePackages();
@@ -86,7 +97,12 @@ class ProvincialAdminService {
     );
 
     return profiles.map((row) {
-      final merged = {...row, ...?detailsById[adminId(row['id'])]};
+      final id = adminId(row['id']);
+      final merged = _mergeTenantRows(
+        profile: row,
+        details: detailsById[id],
+        registration: latestRegistrationByUserId[id],
+      );
       final tenant = CityTenant.fromProfile(merged);
 
       return tenant.copyWith(
@@ -96,6 +112,46 @@ class ProvincialAdminService {
         driversCount: driverCounts[tenant.city] ?? 0,
       );
     }).toList(growable: false);
+  }
+
+  Map<String, dynamic> _mergeTenantRows({
+    required Map<String, dynamic> profile,
+    Map<String, dynamic>? details,
+    CityRegistration? registration,
+  }) {
+    final merged = <String, dynamic>{...profile};
+
+    if (details != null) {
+      for (final entry in details.entries) {
+        if (!_hasTenantValue(entry.value)) continue;
+        merged[entry.key] = entry.value;
+      }
+    }
+
+    if (registration != null) {
+      void fillMissing(String key, dynamic value) {
+        if (_hasTenantValue(merged[key]) || !_hasTenantValue(value)) return;
+        merged[key] = value;
+      }
+
+      fillMissing('city', registration.city);
+      fillMissing('office_name', registration.officeName);
+      fillMissing('contact_person', registration.contactPerson);
+      fillMissing('full_name', registration.contactPerson);
+      fillMissing('email', registration.email);
+      fillMissing('contact_number', registration.contactNumber);
+      fillMissing('mobile', registration.contactNumber);
+      fillMissing('office_address', registration.address);
+      fillMissing('address', registration.address);
+    }
+
+    return merged;
+  }
+
+  bool _hasTenantValue(dynamic value) {
+    if (value == null) return false;
+    if (value is String) return value.trim().isNotEmpty;
+    return true;
   }
 
   Future<CityTenantDetailsData> fetchTenantDetails(String tenantId) async {
@@ -117,10 +173,26 @@ class ProvincialAdminService {
         .eq('id', tenantId)
         .maybeSingle();
 
-    final baseTenant = CityTenant.fromProfile({
-      ...profileRow,
-      if (detailsRow != null) ...Map<String, dynamic>.from(detailsRow),
-    });
+    final registrationResult = await fetchRegistrations();
+    CityRegistration? registration;
+    if (registrationResult.available) {
+      for (final item in registrationResult.items) {
+        if (item.userId == tenantId) {
+          registration = item;
+          break;
+        }
+      }
+    }
+
+    final baseTenant = CityTenant.fromProfile(
+      _mergeTenantRows(
+        profile: profileRow,
+        details: detailsRow == null
+            ? null
+            : Map<String, dynamic>.from(detailsRow),
+        registration: registration,
+      ),
+    );
 
     final city = baseTenant.city;
 

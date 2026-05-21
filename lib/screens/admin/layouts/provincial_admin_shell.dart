@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
-import 'package:touristrike/screens/admin/city_registrations_screen.dart';
 import 'package:touristrike/screens/admin/city_tenants_screen.dart';
 import 'package:touristrike/screens/admin/feedback_trends_screen.dart';
 import 'package:touristrike/screens/admin/province_packages_screen.dart';
@@ -12,7 +11,7 @@ import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
 import 'package:touristrike/screens/admin/provincial_admin_settings_screen.dart';
 import 'package:touristrike/screens/admin/revenue_summary_screen.dart';
-import 'package:touristrike/screens/admin/tourism_data_verification_screen.dart';
+import 'package:touristrike/screens/admin/provincial_spots_screen.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_empty_state.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_sidebar.dart';
@@ -43,6 +42,7 @@ class ProvincialAdminShell extends StatefulWidget {
 
 class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
   final ProvincialAdminService _service = ProvincialAdminService();
+
   late Future<ProvincialAdminProfile> _profileFuture;
   bool _collapsed = false;
 
@@ -54,7 +54,9 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
 
   Future<void> _logout() async {
     await Supabase.instance.client.auth.signOut();
+
     if (!mounted) return;
+
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const WebPortalLoginScreen()),
       (_) => false,
@@ -63,6 +65,7 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
 
   void _navigate(ProvincialAdminDestination destination) {
     if (destination == widget.current) return;
+
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => _pageForDestination(destination)),
     );
@@ -72,20 +75,28 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
     switch (destination) {
       case ProvincialAdminDestination.dashboard:
         return const ProvincialAdminDashboardScreen();
+
       case ProvincialAdminDestination.cityTenants:
         return const CityTenantsScreen();
+
       case ProvincialAdminDestination.registrations:
-        return const CityRegistrationsScreen();
+        return const CityTenantsScreen();
+
       case ProvincialAdminDestination.packages:
         return const ProvincePackagesScreen();
+
       case ProvincialAdminDestination.tourismData:
-        return const TourismDataVerificationScreen();
+        return const ProvincialSpotsScreen();
+
       case ProvincialAdminDestination.reports:
         return const ProvinceReportsScreen();
+
       case ProvincialAdminDestination.revenue:
         return const RevenueSummaryScreen();
+
       case ProvincialAdminDestination.feedback:
         return const FeedbackTrendsScreen();
+
       case ProvincialAdminDestination.settings:
         return const ProvincialAdminSettingsScreen();
     }
@@ -111,6 +122,7 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
         }
 
         final profile = snapshot.data!;
+
         if (Responsive.isMobile(context)) {
           return _MobileShell(
             current: widget.current,
@@ -125,6 +137,7 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
         }
 
         final compact = Responsive.isTablet(context) || _collapsed;
+        final desktop = Responsive.isDesktop(context);
 
         return Scaffold(
           backgroundColor: ProvincialAdminColors.background,
@@ -143,31 +156,52 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
             ),
             child: SafeArea(
               bottom: false,
-              child: Row(
-                children: [
-                  ProvincialAdminSidebar(
-                    current: widget.current,
-                    compact: compact,
-                    onToggleCompact: Responsive.isDesktop(context)
-                        ? () => setState(() => _collapsed = !_collapsed)
-                        : null,
-                    onDestinationSelected: _navigate,
-                    onLogout: _logout,
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _DesktopHeader(
-                          title: widget.title,
-                          subtitle: widget.subtitle,
-                          profile: profile,
-                          actions: widget.actions,
-                        ),
-                        Expanded(child: widget.child),
-                      ],
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  desktop ? 12 : 8,
+                  desktop ? 12 : 8,
+                  desktop ? 12 : 8,
+                  desktop ? 12 : 8,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ProvincialAdminSidebar(
+                      current: widget.current,
+                      compact: compact,
+                      onToggleCompact: desktop
+                          ? () => setState(() => _collapsed = !_collapsed)
+                          : null,
+                      onDestinationSelected: _navigate,
+                      onLogout: _logout,
                     ),
-                  ),
-                ],
+
+                    SizedBox(width: desktop ? 22 : 14),
+
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(28),
+                        child: Column(
+                          children: [
+                            _DesktopHeader(
+                              title: widget.title,
+                              subtitle: widget.subtitle,
+                              profile: profile,
+                              actions: widget.actions,
+                            ),
+                            Expanded(
+                              child: Container(
+                                width: double.infinity,
+                                color: Colors.transparent,
+                                child: widget.child,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -262,19 +296,23 @@ class _DesktopHeader extends StatelessWidget {
 
     return Container(
       height: 88,
-      margin: const EdgeInsets.fromLTRB(0, 12, 16, 0),
+      margin: const EdgeInsets.fromLTRB(0, 0, 0, 12),
       padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(26),
         border: Border.all(color: Colors.white),
         boxShadow: [provincialAdminShadow()],
       ),
       child: Row(
         children: [
           Expanded(
-            child: _HeaderTitle(title: title, subtitle: subtitle),
+            child: _HeaderTitle(
+              title: title,
+              subtitle: subtitle,
+            ),
           ),
+
           if (actions.isNotEmpty) ...[
             const SizedBox(width: 14),
             Flexible(
@@ -286,8 +324,14 @@ class _DesktopHeader extends StatelessWidget {
               ),
             ),
           ],
+
           const SizedBox(width: 14),
-          if (desktop) ...[_HeaderSearch(), const SizedBox(width: 12)],
+
+          if (desktop) ...[
+            _HeaderSearch(),
+            const SizedBox(width: 12),
+          ],
+
           Tooltip(
             message: 'Notifications',
             child: IconButton.filledTonal(
@@ -299,6 +343,7 @@ class _DesktopHeader extends StatelessWidget {
               ),
             ),
           ),
+
           if (desktop) ...[
             const SizedBox(width: 10),
             _ProfileChip(profile: profile),
@@ -310,7 +355,10 @@ class _DesktopHeader extends StatelessWidget {
 }
 
 class _HeaderTitle extends StatelessWidget {
-  const _HeaderTitle({required this.title, this.subtitle});
+  const _HeaderTitle({
+    required this.title,
+    this.subtitle,
+  });
 
   final String title;
   final String? subtitle;
@@ -333,7 +381,9 @@ class _HeaderTitle extends StatelessWidget {
             fontWeight: FontWeight.w900,
           ),
         ),
+
         const SizedBox(height: 4),
+
         Text(
           title,
           maxLines: 1,
@@ -345,6 +395,7 @@ class _HeaderTitle extends StatelessWidget {
             letterSpacing: 0,
           ),
         ),
+
         if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
           const SizedBox(height: 4),
           Text(
@@ -367,7 +418,10 @@ class _HeaderSearch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 330, minWidth: 220),
+      constraints: const BoxConstraints(
+        maxWidth: 330,
+        minWidth: 220,
+      ),
       child: Container(
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -378,7 +432,10 @@ class _HeaderSearch extends StatelessWidget {
         ),
         child: const Row(
           children: [
-            Icon(Icons.search_rounded, color: ProvincialAdminColors.lightMuted),
+            Icon(
+              Icons.search_rounded,
+              color: ProvincialAdminColors.lightMuted,
+            ),
             SizedBox(width: 9),
             Expanded(
               child: Text(
@@ -443,7 +500,10 @@ class _ProfileChip extends StatelessWidget {
 }
 
 class _UnauthorizedScaffold extends StatelessWidget {
-  const _UnauthorizedScaffold({required this.message, required this.onLogout});
+  const _UnauthorizedScaffold({
+    required this.message,
+    required this.onLogout,
+  });
 
   final String message;
   final VoidCallback onLogout;

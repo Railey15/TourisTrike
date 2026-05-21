@@ -35,16 +35,35 @@ class _SubTenantCityProfileScreenState
   final _hotlineCtrl = TextEditingController();
   final _sloganCtrl = TextEditingController();
   final _welcomeCtrl = TextEditingController();
+  final _baseFareCtrl = TextEditingController();
+  final _farePerKmCtrl = TextEditingController();
+  final _minimumFareCtrl = TextEditingController();
+  final _additionalPassengerFeeCtrl = TextEditingController();
+  final _waitingFeeCtrl = TextEditingController();
+  final _guideFeeCtrl = TextEditingController();
+  final _weekendSurchargeCtrl = TextEditingController();
 
   SubTenantProfile? _profile;
   SubTenantCityProfileData? _details;
 
   bool _saving = false;
   bool _dirty = false;
+  bool _hydrating = false;
   int _selectedIndex = 0;
 
   String _defaultVisibility = 'visible';
   String _defaultSpotStatus = 'active';
+  String _language = 'English';
+
+  bool _notificationsEnabled = true;
+  bool _packageAlerts = true;
+  bool _touristSpotAlerts = true;
+  bool _performanceReports = true;
+  bool _systemNotices = true;
+  bool _showTotalViews = true;
+  bool _showBookings = true;
+  bool _showPopularDestinations = true;
+  bool _showTopPackages = true;
 
   bool _enableAiSuggestions = true;
   bool _diversePlaceTypes = true;
@@ -81,6 +100,7 @@ class _SubTenantCityProfileScreenState
     _SettingsSection('General', Icons.settings_rounded),
     _SettingsSection('Tourism Office', Icons.business_rounded),
     _SettingsSection('Branding', Icons.palette_rounded),
+    _SettingsSection('Fare Matrix', Icons.payments_rounded),
     _SettingsSection('Packages', Icons.inventory_2_rounded),
     _SettingsSection('Bookings', Icons.confirmation_number_rounded),
     _SettingsSection('Drivers', Icons.directions_bike_rounded),
@@ -109,22 +129,38 @@ class _SubTenantCityProfileScreenState
       _hotlineCtrl,
       _sloganCtrl,
       _welcomeCtrl,
+      _baseFareCtrl,
+      _farePerKmCtrl,
+      _minimumFareCtrl,
+      _additionalPassengerFeeCtrl,
+      _waitingFeeCtrl,
+      _guideFeeCtrl,
+      _weekendSurchargeCtrl,
     ]) {
       controller.addListener(_markDirty);
     }
   }
 
   void _markDirty() {
+    if (_hydrating) return;
     if (!_dirty && mounted) setState(() => _dirty = true);
   }
 
   Future<_SettingsLoad> _load() async {
     final profile = await _service.loadCurrentProfile();
-    final details = await _service.loadCityProfile(profile);
+    final results = await Future.wait([
+      _service.loadCityProfile(profile),
+      _service.loadSettings(profile),
+      _service.loadFareSettings(profile),
+    ]);
+    final details = results[0] as SubTenantCityProfileData;
+    final settings = results[1] as SubTenantSettingsData;
+    final fare = results[2] as SubTenantFareSettings;
 
     _profile = profile;
     _details = details;
 
+    _hydrating = true;
     _cityCtrl.text = profile.assignedCity;
     _provinceCtrl.text = profile.province.isEmpty ? 'Bulacan' : profile.province;
     _descriptionCtrl.text = details.description;
@@ -134,8 +170,56 @@ class _SubTenantCityProfileScreenState
     _addressCtrl.text = details.officeAddress;
     _coverCtrl.text = details.coverImageUrl;
     _logoCtrl.text = details.logoImageUrl;
+    _defaultVisibility = settings.defaultPackageVisibility;
+    _defaultSpotStatus = settings.defaultSpotStatus;
+    _language = const {'English', 'Filipino'}.contains(settings.language)
+        ? settings.language
+        : 'English';
+    _notificationsEnabled = settings.notificationsEnabled;
+    _packageAlerts = settings.packageAlerts;
+    _touristSpotAlerts = settings.touristSpotAlerts;
+    _performanceReports = settings.performanceReports;
+    _systemNotices = settings.systemNotices;
+    _showTotalViews = settings.showTotalViews;
+    _showBookings = settings.showBookings;
+    _showPopularDestinations = settings.showPopularDestinations;
+    _showTopPackages = settings.showTopPackages;
+    _allowInstantBooking = settings.allowInstantBooking;
+    _manualBookingConfirmation = settings.manualBookingConfirmation;
+    _allowCancellation = settings.allowCancellation;
+    _driverAutoApproval = settings.driverAutoApproval;
+    _requireDriverDocuments = settings.requireDriverDocuments;
+    _requireTodaVerification = settings.requireTodaVerification;
+    _requireSpotVerification = settings.requireSpotVerification;
+    _requireMapPin = settings.requireMapPin;
+    _requireCoverImage = settings.requireCoverImage;
+    _autoPublishSpots = settings.autoPublishSpots;
+    _enableAiSuggestions = settings.enableAiSuggestions;
+    _diversePlaceTypes = settings.diversePlaceTypes;
+    _prioritizePopular = settings.prioritizePopular;
+    _prioritizeNearby = settings.prioritizeNearby;
+    _prioritizeFood = settings.prioritizeFood;
+    _prioritizeNature = settings.prioritizeNature;
+    _prioritizeHistorical = settings.prioritizeHistorical;
+    _bookingNotifications = settings.bookingNotifications;
+    _driverNotifications = settings.driverNotifications;
+    _reviewNotifications = settings.reviewNotifications;
+    _emailNotifications = settings.emailNotifications;
+    _revenueTracking = settings.revenueTracking;
+    _spotPopularityTracking = settings.spotPopularityTracking;
+    _driverAnalytics = settings.driverAnalytics;
+    _monthlyReports = settings.monthlyReports;
+    _baseFareCtrl.text = _moneyText(fare.baseFare);
+    _farePerKmCtrl.text = _moneyText(fare.farePerKm);
+    _minimumFareCtrl.text = _moneyText(fare.minimumFare);
+    _additionalPassengerFeeCtrl.text = _moneyText(fare.additionalPassengerFee);
+    _waitingFeeCtrl.text = _moneyText(fare.waitingFee);
+    _guideFeeCtrl.text = _moneyText(fare.guideFee);
+    _weekendSurchargeCtrl.text = _moneyText(fare.weekendSurcharge);
+    _hydrating = false;
+    _dirty = false;
 
-    return _SettingsLoad(profile: profile, details: details);
+    return _SettingsLoad(profile: profile, details: details, settings: settings, fare: fare);
   }
 
   void _reload() {
@@ -161,7 +245,79 @@ class _SubTenantCityProfileScreenState
     _hotlineCtrl.dispose();
     _sloganCtrl.dispose();
     _welcomeCtrl.dispose();
+    _baseFareCtrl.dispose();
+    _farePerKmCtrl.dispose();
+    _minimumFareCtrl.dispose();
+    _additionalPassengerFeeCtrl.dispose();
+    _waitingFeeCtrl.dispose();
+    _guideFeeCtrl.dispose();
+    _weekendSurchargeCtrl.dispose();
     super.dispose();
+  }
+
+  double _moneyValue(TextEditingController controller) {
+    return double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
+  }
+
+  String _moneyText(double value) {
+    if (value == 0) return '0';
+    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
+  }
+
+  SubTenantSettingsData _settingsFromState() {
+    return SubTenantSettingsData(
+      notificationsEnabled: _notificationsEnabled,
+      packageAlerts: _packageAlerts,
+      touristSpotAlerts: _touristSpotAlerts,
+      performanceReports: _performanceReports,
+      systemNotices: _systemNotices,
+      language: _language,
+      showTotalViews: _showTotalViews,
+      showBookings: _showBookings,
+      showPopularDestinations: _showPopularDestinations,
+      showTopPackages: _showTopPackages,
+      defaultPackageVisibility: _defaultVisibility,
+      defaultSpotStatus: _defaultSpotStatus,
+      allowInstantBooking: _allowInstantBooking,
+      manualBookingConfirmation: _manualBookingConfirmation,
+      allowCancellation: _allowCancellation,
+      driverAutoApproval: _driverAutoApproval,
+      requireDriverDocuments: _requireDriverDocuments,
+      requireTodaVerification: _requireTodaVerification,
+      requireSpotVerification: _requireSpotVerification,
+      requireMapPin: _requireMapPin,
+      requireCoverImage: _requireCoverImage,
+      autoPublishSpots: _autoPublishSpots,
+      enableAiSuggestions: _enableAiSuggestions,
+      diversePlaceTypes: _diversePlaceTypes,
+      prioritizePopular: _prioritizePopular,
+      prioritizeNearby: _prioritizeNearby,
+      prioritizeFood: _prioritizeFood,
+      prioritizeNature: _prioritizeNature,
+      prioritizeHistorical: _prioritizeHistorical,
+      bookingNotifications: _bookingNotifications,
+      driverNotifications: _driverNotifications,
+      reviewNotifications: _reviewNotifications,
+      emailNotifications: _emailNotifications,
+      revenueTracking: _revenueTracking,
+      spotPopularityTracking: _spotPopularityTracking,
+      driverAnalytics: _driverAnalytics,
+      monthlyReports: _monthlyReports,
+    );
+  }
+
+  SubTenantFareSettings _fareFromState(SubTenantProfile profile) {
+    return SubTenantFareSettings(
+      subtenantId: profile.id,
+      city: profile.assignedCity,
+      baseFare: _moneyValue(_baseFareCtrl),
+      farePerKm: _moneyValue(_farePerKmCtrl),
+      minimumFare: _moneyValue(_minimumFareCtrl),
+      additionalPassengerFee: _moneyValue(_additionalPassengerFeeCtrl),
+      waitingFee: _moneyValue(_waitingFeeCtrl),
+      guideFee: _moneyValue(_guideFeeCtrl),
+      weekendSurcharge: _moneyValue(_weekendSurchargeCtrl),
+    );
   }
 
   Future<void> _save() async {
@@ -189,6 +345,8 @@ class _SubTenantCityProfileScreenState
           detailsTableAvailable: true,
         ),
       );
+      await _service.saveSettings(profile, _settingsFromState());
+      await _service.saveFareSettings(profile, _fareFromState(profile));
 
       if (!mounted) return;
       setState(() => _dirty = false);
@@ -362,20 +520,22 @@ class _SubTenantCityProfileScreenState
       case 2:
         return _brandingSettings();
       case 3:
-        return _packageSettings();
+        return _fareMatrixSettings(data.profile);
       case 4:
-        return _bookingSettings();
+        return _packageSettings();
       case 5:
-        return _driverSettings();
+        return _bookingSettings();
       case 6:
-        return _touristSpotSettings();
+        return _driverSettings();
       case 7:
-        return _aiSettings();
+        return _touristSpotSettings();
       case 8:
-        return _notificationSettings();
+        return _aiSettings();
       case 9:
-        return _analyticsSettings();
+        return _notificationSettings();
       case 10:
+        return _analyticsSettings();
+      case 11:
         return _securitySettings(data.profile);
       default:
         return _generalSettings();
@@ -402,9 +562,22 @@ class _SubTenantCityProfileScreenState
         const SizedBox(height: 14),
         SubTenantTextField(
           controller: _officeNameCtrl,
-          label: 'Tourism Office Name',
+          label: 'Tourism Office Staff',
           validator: (value) =>
               (value ?? '').trim().isEmpty ? 'Required' : null,
+        ),
+        const SizedBox(height: 14),
+        _DropdownTile(
+          title: 'Language',
+          value: _language,
+          items: const {
+            'English': 'English',
+            'Filipino': 'Filipino',
+          },
+          onChanged: (value) {
+            setState(() => _language = value);
+            _markDirty();
+          },
         ),
         const SizedBox(height: 14),
         SubTenantTextField(
@@ -493,6 +666,65 @@ class _SubTenantCityProfileScreenState
         ),
         const SizedBox(height: 16),
         _ImagePreviewRow(coverCtrl: _coverCtrl, logoCtrl: _logoCtrl),
+      ],
+    );
+  }
+
+  Widget _fareMatrixSettings(SubTenantProfile profile) {
+    final fare = _fareFromState(profile);
+    final sample = fare.calculate(routeDistanceKm: 8, groupSize: 4);
+
+    return _SettingsContent(
+      title: 'Fare Matrix',
+      subtitle:
+          'Pricing basis used to suggest package budgets from route distance and group size.',
+      children: [
+        _TwoColumn(
+          left: SubTenantTextField(
+            controller: _baseFareCtrl,
+            label: 'Base Fare (PHP)',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          right: SubTenantTextField(
+            controller: _farePerKmCtrl,
+            label: 'Fare per Kilometer',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _TwoColumn(
+          left: SubTenantTextField(
+            controller: _minimumFareCtrl,
+            label: 'Minimum Fare',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          right: SubTenantTextField(
+            controller: _additionalPassengerFeeCtrl,
+            label: 'Additional Passenger Fee',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _TwoColumn(
+          left: SubTenantTextField(
+            controller: _waitingFeeCtrl,
+            label: 'Waiting Fee',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          right: SubTenantTextField(
+            controller: _guideFeeCtrl,
+            label: 'Guide / Service Fee',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+        ),
+        const SizedBox(height: 14),
+        SubTenantTextField(
+          controller: _weekendSurchargeCtrl,
+          label: 'Weekend / Holiday Surcharge',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        const SizedBox(height: 16),
+        _FarePreview(calculation: sample),
       ],
     );
   }
@@ -799,6 +1031,54 @@ class _SubTenantCityProfileScreenState
       subtitle: 'Choose which updates the city admin receives.',
       children: [
         _SwitchTile(
+          icon: Icons.notifications_active_rounded,
+          title: 'Notifications',
+          subtitle: 'Master switch for in-app city admin notifications.',
+          value: _notificationsEnabled,
+          onChanged: (value) {
+            setState(() {
+              _notificationsEnabled = value;
+              _dirty = true;
+            });
+          },
+        ),
+        _SwitchTile(
+          icon: Icons.inventory_2_rounded,
+          title: 'Package Alerts',
+          subtitle: 'Package publishing and booking-related package updates.',
+          value: _packageAlerts,
+          onChanged: (value) {
+            setState(() {
+              _packageAlerts = value;
+              _dirty = true;
+            });
+          },
+        ),
+        _SwitchTile(
+          icon: Icons.place_rounded,
+          title: 'Tourist Spot Alerts',
+          subtitle: 'Spot verification and tourism data changes.',
+          value: _touristSpotAlerts,
+          onChanged: (value) {
+            setState(() {
+              _touristSpotAlerts = value;
+              _dirty = true;
+            });
+          },
+        ),
+        _SwitchTile(
+          icon: Icons.campaign_rounded,
+          title: 'System Notices',
+          subtitle: 'Operational notices from TourisTrike admins.',
+          value: _systemNotices,
+          onChanged: (value) {
+            setState(() {
+              _systemNotices = value;
+              _dirty = true;
+            });
+          },
+        ),
+        _SwitchTile(
           icon: Icons.confirmation_number_rounded,
           title: 'Booking Notifications',
           subtitle: 'New bookings, cancellations, and updates.',
@@ -856,6 +1136,18 @@ class _SubTenantCityProfileScreenState
       subtitle: 'Enable reports that help the LGU monitor tourism performance.',
       children: [
         _SwitchTile(
+          icon: Icons.summarize_rounded,
+          title: 'Performance Reports',
+          subtitle: 'Enable weekly, monthly, and yearly reporting widgets.',
+          value: _performanceReports,
+          onChanged: (value) {
+            setState(() {
+              _performanceReports = value;
+              _dirty = true;
+            });
+          },
+        ),
+        _SwitchTile(
           icon: Icons.payments_rounded,
           title: 'Revenue Tracking',
           subtitle: 'Track estimated revenue from completed bookings.',
@@ -902,6 +1194,55 @@ class _SubTenantCityProfileScreenState
               _dirty = true;
             });
           },
+        ),
+        const SizedBox(height: 10),
+        _PreferenceGrid(
+          items: [
+            _PreferenceItem(
+              label: 'Total Views',
+              selected: _showTotalViews,
+              icon: Icons.visibility_rounded,
+              onTap: () {
+                setState(() {
+                  _showTotalViews = !_showTotalViews;
+                  _dirty = true;
+                });
+              },
+            ),
+            _PreferenceItem(
+              label: 'Bookings',
+              selected: _showBookings,
+              icon: Icons.receipt_long_rounded,
+              onTap: () {
+                setState(() {
+                  _showBookings = !_showBookings;
+                  _dirty = true;
+                });
+              },
+            ),
+            _PreferenceItem(
+              label: 'Popular Spots',
+              selected: _showPopularDestinations,
+              icon: Icons.trending_up_rounded,
+              onTap: () {
+                setState(() {
+                  _showPopularDestinations = !_showPopularDestinations;
+                  _dirty = true;
+                });
+              },
+            ),
+            _PreferenceItem(
+              label: 'Top Packages',
+              selected: _showTopPackages,
+              icon: Icons.inventory_2_rounded,
+              onTap: () {
+                setState(() {
+                  _showTopPackages = !_showTopPackages;
+                  _dirty = true;
+                });
+              },
+            ),
+          ],
         ),
       ],
     );
@@ -1243,6 +1584,105 @@ class _HeaderPreview extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _FarePreview extends StatelessWidget {
+  const _FarePreview({required this.calculation});
+
+  final FareCalculation calculation;
+
+  String _money(double value) => 'PHP ${value.toStringAsFixed(0)}';
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [
+      ('Base fare', calculation.baseFare),
+      ('Distance fee sample', calculation.distanceFee),
+      ('Passenger fee sample', calculation.passengerFee),
+      ('Waiting fee', calculation.waitingFee),
+      ('Guide/service fee', calculation.guideFee),
+      ('Minimum fare adjustment', calculation.minimumFareAdjustment),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: SubTenantColors.blue.withValues(alpha: .07),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SubTenantColors.blue.withValues(alpha: .14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Sample suggested package price',
+            style: TextStyle(
+              color: SubTenantColors.text,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'For an 8 km route with 4 passengers. Package forms use the same formula.',
+            style: TextStyle(
+              color: SubTenantColors.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...rows.map(
+            (row) => Padding(
+              padding: const EdgeInsets.only(bottom: 7),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      row.$1,
+                      style: const TextStyle(
+                        color: SubTenantColors.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _money(row.$2),
+                    style: const TextStyle(
+                      color: SubTenantColors.text,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 18, color: SubTenantColors.line),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Suggested total',
+                  style: TextStyle(
+                    color: SubTenantColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                _money(calculation.total),
+                style: const TextStyle(
+                  color: SubTenantColors.blue,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1690,8 +2130,12 @@ class _SettingsLoad {
   const _SettingsLoad({
     required this.profile,
     required this.details,
+    required this.settings,
+    required this.fare,
   });
 
   final SubTenantProfile profile;
   final SubTenantCityProfileData details;
+  final SubTenantSettingsData settings;
+  final SubTenantFareSettings fare;
 }

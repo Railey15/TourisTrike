@@ -280,16 +280,16 @@ class _SidebarBrand extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 48,
-          height: 48,
+          width: 50,
+          height: 50,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.16),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
           ),
-          child: Image.asset(
-            'assets/images/touristrike_logo.png',
+          child: Image.network(
+            'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo1.png',
             fit: BoxFit.contain,
             errorBuilder: (_, _, _) => const Icon(
               Icons.admin_panel_settings_rounded,

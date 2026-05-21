@@ -36,18 +36,13 @@ const provincialAdminNavItems = [
     icon: Icons.location_city_rounded,
   ),
   ProvincialAdminNavItem(
-    destination: ProvincialAdminDestination.registrations,
-    label: 'Registrations',
-    icon: Icons.how_to_reg_rounded,
-  ),
-  ProvincialAdminNavItem(
     destination: ProvincialAdminDestination.packages,
     label: 'Packages',
     icon: Icons.inventory_2_rounded,
   ),
   ProvincialAdminNavItem(
     destination: ProvincialAdminDestination.tourismData,
-    label: 'Tourism Data',
+    label: 'Spots',
     icon: Icons.travel_explore_rounded,
   ),
   ProvincialAdminNavItem(
@@ -73,7 +68,11 @@ const provincialAdminNavItems = [
 ];
 
 String provincialAdminDestinationTitle(ProvincialAdminDestination destination) {
-  return provincialAdminNavItems
-      .firstWhere((item) => item.destination == destination)
-      .label;
+  for (final item in provincialAdminNavItems) {
+    if (item.destination == destination) return item.label;
+  }
+  if (destination == ProvincialAdminDestination.registrations) {
+    return 'City Tenants';
+  }
+  return 'Dashboard';
 }

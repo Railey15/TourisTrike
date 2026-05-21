@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:touristrike/screens/admin/admin_models.dart';
 import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/province_reports_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
@@ -97,9 +98,9 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
                   eyebrow: 'City Tenant Profile',
                   title: tenant.city,
                   subtitle:
-                      '${tenant.adminName} - ${tenant.email.isEmpty ? 'No email saved' : tenant.email}',
+                      '${tenant.adminName}  ·  ${tenant.email.isEmpty ? 'No email saved' : tenant.email}',
                   icon: Icons.location_city_rounded,
-                  trailing: AdminStatusPill(status: tenant.status),
+                  trailing: _HeroTrailing(tenant: tenant),
                 ),
                 const SizedBox(height: 18),
                 AdminResponsiveGrid(
@@ -186,6 +187,53 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
   }
 }
 
+// ─── Hero trailing: status pill + verified badge ──────────────────────────────
+
+class _HeroTrailing extends StatelessWidget {
+  const _HeroTrailing({required this.tenant});
+
+  final CityTenant tenant;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        AdminStatusPill(status: tenant.status),
+        if (tenant.verified) ...[
+          const SizedBox(height: 7),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.verified_rounded, color: Colors.white, size: 12),
+                SizedBox(width: 5),
+                Text(
+                  'Verified',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Profile card ─────────────────────────────────────────────────────────────
+
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.data,
@@ -206,78 +254,271 @@ class _ProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tenant = data.tenant;
+    final initial =
+        tenant.city.isNotEmpty ? tenant.city[0].toUpperCase() : 'C';
+    final joined = tenant.createdAt != null
+        ? DateFormat('MMMM yyyy').format(tenant.createdAt!)
+        : null;
+    final contact = [
+      if (tenant.mobile.isNotEmpty) tenant.mobile,
+      if (tenant.email.isNotEmpty) tenant.email,
+    ].join('  ·  ');
+
     return AdminSectionCard(
+      padding: EdgeInsets.zero,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const AdminSectionHeader(
-            title: 'Tenant Account',
-            subtitle: 'SubTenant admin profile and contact information.',
-          ),
-          const SizedBox(height: 14),
-          AdminInfoTile(
-            icon: Icons.person_rounded,
-            title: 'Admin',
-            subtitle: tenant.adminName,
-          ),
-          AdminInfoTile(
-            icon: Icons.phone_rounded,
-            title: 'Contact',
-            subtitle: [
-              if (tenant.mobile.isNotEmpty) tenant.mobile,
-              if (tenant.email.isNotEmpty) tenant.email,
-            ].join(' / ').isEmpty
-                ? 'No contact saved'
-                : [
-                    if (tenant.mobile.isNotEmpty) tenant.mobile,
-                    if (tenant.email.isNotEmpty) tenant.email,
-                  ].join(' / '),
-          ),
-          AdminInfoTile(
-            icon: Icons.home_rounded,
-            title: 'Office Address',
-            subtitle: tenant.address.isEmpty ? 'No address saved' : tenant.address,
-          ),
-          AdminInfoTile(
-            icon: Icons.star_rounded,
-            title: 'Feedback Summary',
-            subtitle:
-                '${data.feedback.length} reviews - average ${data.averageRating.toStringAsFixed(1)}',
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: saving ? null : onActivate,
-                icon: const Icon(Icons.check_circle_rounded),
-                label: const Text('Activate'),
-              ),
-              OutlinedButton.icon(
-                onPressed: saving ? null : onDeactivate,
-                icon: const Icon(Icons.block_rounded),
-                label: const Text('Deactivate'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: ProvincialAdminColors.red,
+          // ── Gradient header band ──────────────────────────────────────────
+          Container(
+            height: 110,
+            decoration: const BoxDecoration(
+              gradient: ProvincialAdminColors.gradient,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+            ),
+            child: Stack(
+              children: [
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 62,
+                        height: 62,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.20),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.40),
+                            width: 2,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            initial,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              FilledButton.icon(
-                onPressed: saving ? null : onVerify,
-                icon: const Icon(Icons.verified_rounded),
-                label: const Text('Verify'),
-              ),
-              TextButton.icon(
-                onPressed: onReports,
-                icon: const Icon(Icons.query_stats_rounded),
-                label: const Text('Open Reports'),
-              ),
-            ],
+                if (tenant.verified)
+                  Positioned(
+                    top: 10,
+                    right: 14,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.32),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.verified_rounded,
+                            color: Colors.white,
+                            size: 12,
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            'Verified',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // ── Info section ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Tenant Account',
+                  style: TextStyle(
+                    color: ProvincialAdminColors.text,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'SubTenant admin profile and contact information.',
+                  style: TextStyle(
+                    color: ProvincialAdminColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                AdminInfoTile(
+                  icon: Icons.person_rounded,
+                  title: 'Admin',
+                  subtitle: tenant.adminName,
+                ),
+                AdminInfoTile(
+                  icon: Icons.phone_rounded,
+                  title: 'Contact',
+                  subtitle: contact.isEmpty ? 'No contact saved' : contact,
+                ),
+                AdminInfoTile(
+                  icon: Icons.home_rounded,
+                  title: 'Office Address',
+                  subtitle: tenant.address.isEmpty
+                      ? 'No address saved'
+                      : tenant.address,
+                ),
+                if (joined != null)
+                  AdminInfoTile(
+                    icon: Icons.calendar_today_rounded,
+                    title: 'Member Since',
+                    subtitle: joined,
+                  ),
+                AdminInfoTile(
+                  icon: Icons.star_rounded,
+                  title: 'Feedback',
+                  subtitle:
+                      '${data.feedback.length} review${data.feedback.length == 1 ? '' : 's'}  ·  Avg. ${data.averageRating.toStringAsFixed(1)} ★',
+                ),
+              ],
+            ),
+          ),
+
+          // ── Action buttons ────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton.icon(
+                  onPressed: saving ? null : onVerify,
+                  icon: const Icon(Icons.verified_rounded, size: 18),
+                  label: const Text('Verify Tenant'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: ProvincialAdminColors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: saving ? null : onActivate,
+                        icon: const Icon(Icons.check_circle_rounded, size: 17),
+                        label: const Text('Activate'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: ProvincialAdminColors.green,
+                          side: BorderSide(
+                            color: ProvincialAdminColors.green.withValues(
+                              alpha: 0.55,
+                            ),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: saving ? null : onDeactivate,
+                        icon: const Icon(Icons.block_rounded, size: 17),
+                        label: const Text('Deactivate'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: ProvincialAdminColors.red,
+                          side: BorderSide(
+                            color: ProvincialAdminColors.red.withValues(
+                              alpha: 0.50,
+                            ),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: onReports,
+                  icon: const Icon(Icons.query_stats_rounded, size: 17),
+                  label: const Text('Open Reports'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: ProvincialAdminColors.muted,
+                    side: const BorderSide(color: ProvincialAdminColors.line),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+                if (saving) ...[
+                  const SizedBox(height: 14),
+                  const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+// ─── Recent lists ─────────────────────────────────────────────────────────────
 
 class _RecentLists extends StatelessWidget {
   const _RecentLists({required this.data});
@@ -286,52 +527,55 @@ class _RecentLists extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
+
     return Column(
       children: [
         AdminSectionCard(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const AdminSectionHeader(
                 title: 'Recent Packages',
                 subtitle: 'Latest package records for this city.',
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               if (data.packages.isEmpty)
-                const _InlineEmpty(message: 'No packages yet.')
+                const _EmptySection(
+                  icon: Icons.inventory_2_rounded,
+                  title: 'No packages yet',
+                  message: 'This city tenant has not created any packages.',
+                )
               else
                 ...data.packages.take(5).map(
-                      (package) => AdminInfoTile(
-                        icon: Icons.inventory_2_rounded,
-                        title: package.title,
-                        subtitle:
-                            '${package.priceText.isEmpty ? 'No price text' : package.priceText} - ${package.bookingsCount} bookings',
-                        trailing: AdminStatusPill(status: package.status),
-                      ),
-                    ),
+                  (pkg) => _PackageListItem(package: pkg),
+                ),
             ],
           ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         AdminSectionCard(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const AdminSectionHeader(
                 title: 'Recent Bookings',
                 subtitle: 'Latest package bookings from this tenant.',
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               if (data.bookings.isEmpty)
-                const _InlineEmpty(message: 'No recent bookings yet.')
+                const _EmptySection(
+                  icon: Icons.receipt_long_rounded,
+                  title: 'No bookings yet',
+                  message: 'No booking records found for this city tenant.',
+                )
               else
                 ...data.bookings.take(5).map(
-                      (booking) => AdminInfoTile(
-                        icon: Icons.receipt_long_rounded,
-                        title: booking.packageTitle,
-                        subtitle:
-                            '${booking.touristName} - ${NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0).format(booking.totalAmount)}',
-                        trailing: AdminStatusPill(status: booking.status),
-                      ),
-                    ),
+                  (booking) => _BookingListItem(
+                    booking: booking,
+                    money: money,
+                  ),
+                ),
             ],
           ),
         ),
@@ -340,29 +584,327 @@ class _RecentLists extends StatelessWidget {
   }
 }
 
-class _InlineEmpty extends StatelessWidget {
-  const _InlineEmpty({required this.message});
+// ─── Package list item ────────────────────────────────────────────────────────
 
+class _PackageListItem extends StatefulWidget {
+  const _PackageListItem({required this.package});
+
+  final ProvincePackage package;
+
+  @override
+  State<_PackageListItem> createState() => _PackageListItemState();
+}
+
+class _PackageListItemState extends State<_PackageListItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final pkg = widget.package;
+    final color = _statusToColor(pkg.status);
+    final priceLabel = [
+      if (pkg.priceText.isNotEmpty) pkg.priceText,
+      if (pkg.durationText.isNotEmpty) pkg.durationText,
+    ].join('  ·  ');
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: _hovered
+              ? ProvincialAdminColors.blue.withValues(alpha: 0.04)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [color.withValues(alpha: 0.75), color],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.22),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.inventory_2_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pkg.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.text,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    priceLabel.isEmpty ? 'No price set' : priceLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (pkg.bookingsCount > 0) ...[
+                    const SizedBox(height: 5),
+                    _StatBadge(
+                      '${pkg.bookingsCount} booking${pkg.bookingsCount == 1 ? '' : 's'}',
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            AdminStatusPill(status: pkg.status),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Booking list item ────────────────────────────────────────────────────────
+
+class _BookingListItem extends StatefulWidget {
+  const _BookingListItem({
+    required this.booking,
+    required this.money,
+  });
+
+  final ProvinceBooking booking;
+  final NumberFormat money;
+
+  @override
+  State<_BookingListItem> createState() => _BookingListItemState();
+}
+
+class _BookingListItemState extends State<_BookingListItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final booking = widget.booking;
+    final color = _statusToColor(booking.status);
+    final dateLabel = booking.travelDate != null
+        ? DateFormat('MMM d, y').format(booking.travelDate!)
+        : null;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: _hovered
+              ? ProvincialAdminColors.blue.withValues(alpha: 0.04)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [color.withValues(alpha: 0.75), color],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.22),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.receipt_long_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    booking.packageTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.text,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${booking.touristName}  ·  ${widget.money.format(booking.totalAmount)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (dateLabel != null) ...[
+                    const SizedBox(height: 4),
+                    _StatBadge(dateLabel),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            AdminStatusPill(status: booking.status),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Stat badge chip ──────────────────────────────────────────────────────────
+
+class _StatBadge extends StatelessWidget {
+  const _StatBadge(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: ProvincialAdminColors.blue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: ProvincialAdminColors.blue.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: ProvincialAdminColors.blue,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Empty section ────────────────────────────────────────────────────────────
+
+class _EmptySection extends StatelessWidget {
+  const _EmptySection({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
   final String message;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FBFF),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: ProvincialAdminColors.line),
       ),
-      child: Text(
-        message,
-        style: const TextStyle(
-          color: ProvincialAdminColors.muted,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
+      child: Column(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: ProvincialAdminColors.blue.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Icon(icon, color: ProvincialAdminColors.blue, size: 26),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: ProvincialAdminColors.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: ProvincialAdminColors.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+Color _statusToColor(String status) {
+  return switch (status.toLowerCase().trim()) {
+    'active' ||
+    'published' ||
+    'completed' ||
+    'verified' =>
+      ProvincialAdminColors.green,
+    'inactive' ||
+    'deactivated' ||
+    'cancelled' ||
+    'rejected' ||
+    'hidden' =>
+      ProvincialAdminColors.red,
+    'pending' || 'under_review' || 'review' => ProvincialAdminColors.amber,
+    'draft' => ProvincialAdminColors.lightMuted,
+    _ => ProvincialAdminColors.blue,
+  };
 }

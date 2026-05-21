@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
@@ -7,6 +9,23 @@ class SubTenantService {
     : _supabase = client ?? Supabase.instance.client;
 
   final SupabaseClient _supabase;
+
+  String _assetPath({
+    required String folder,
+    required String city,
+    required String fileName,
+  }) {
+    final safeCity = city
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    final safeFile = fileName
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9._-]+'), '-')
+        .replaceAll(RegExp(r'^-+'), '');
+    final stamp = DateTime.now().toUtc().millisecondsSinceEpoch;
+    return '$folder/${safeCity.isEmpty ? 'city' : safeCity}/$stamp-$safeFile';
+  }
 
   Future<SubTenantProfile> loadCurrentProfile() async {
     final user = _supabase.auth.currentUser;
@@ -109,6 +128,100 @@ class SubTenantService {
           'profile_image_url': data.logoImageUrl,
         })
         .eq('id', profile.id);
+  }
+
+  Future<SubTenantSettingsData> loadSettings(SubTenantProfile profile) async {
+    try {
+      final row = await _supabase
+          .from('admin_settings')
+          .select('*')
+          .eq('user_id', profile.id)
+          .maybeSingle();
+      if (row == null) return const SubTenantSettingsData();
+      return SubTenantSettingsData.fromMap(Map<String, dynamic>.from(row));
+    } on PostgrestException {
+      return const SubTenantSettingsData();
+    }
+  }
+
+  Future<void> saveSettings(
+    SubTenantProfile profile,
+    SubTenantSettingsData settings,
+  ) async {
+    await _supabase
+        .from('admin_settings')
+        .upsert(settings.toMap(profile.id), onConflict: 'user_id');
+    await _logAudit(
+      actorId: profile.id,
+      action: 'update_subtenant_settings',
+      tableName: 'admin_settings',
+      recordId: profile.id,
+      description: 'Updated ${profile.assignedCity} subtenant settings.',
+    );
+  }
+
+  Future<SubTenantFareSettings> loadFareSettings(
+    SubTenantProfile profile,
+  ) async {
+    try {
+      final row = await _supabase
+          .from('subtenant_fare_settings')
+          .select('*')
+          .eq('subtenant_id', profile.id)
+          .eq('city', profile.assignedCity)
+          .eq('is_active', true)
+          .order('updated_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      if (row == null) return SubTenantFareSettings.defaults(profile);
+      return SubTenantFareSettings.fromMap(
+        Map<String, dynamic>.from(row),
+        profile,
+      );
+    } on PostgrestException {
+      return SubTenantFareSettings.defaults(profile);
+    }
+  }
+
+  Future<void> saveFareSettings(
+    SubTenantProfile profile,
+    SubTenantFareSettings settings,
+  ) async {
+    await _supabase.from('subtenant_fare_settings').upsert(
+      settings.toMap(),
+      onConflict: 'subtenant_id,city',
+    );
+    await _logAudit(
+      actorId: profile.id,
+      action: 'update_fare_settings',
+      tableName: 'subtenant_fare_settings',
+      recordId: profile.id,
+      description: 'Updated fare matrix for ${profile.assignedCity}.',
+    );
+  }
+
+  Future<String> uploadPublicAsset({
+    required SubTenantProfile profile,
+    required String bucket,
+    required String folder,
+    required String fileName,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final path = _assetPath(
+      folder: folder,
+      city: profile.assignedCity,
+      fileName: fileName,
+    );
+    await _supabase.storage.from(bucket).uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: contentType,
+            upsert: true,
+          ),
+        );
+    return _supabase.storage.from(bucket).getPublicUrl(path);
   }
 
   Future<SubTenantDashboardData> loadDashboard() async {
@@ -838,14 +951,31 @@ class SubTenantService {
     );
   }
 
-  Future<SubTenantReportData> fetchReports(SubTenantProfile profile) async {
+  Future<SubTenantReportData> fetchReports(
+    SubTenantProfile profile, {
+    SubTenantReportRange? range,
+  }) async {
+    final reportRange = range ?? SubTenantReportRange.currentMonth();
     final spots = await fetchSpots(profile);
     final packages = await fetchPackages(profile);
+    final drivers = await fetchDrivers(profile);
+    final reportSpots = spots
+        .where((spot) => reportRange.contains(spot.createdAt))
+        .toList(growable: false);
+    final reportPackages = packages
+        .where((package) => reportRange.contains(package.createdAt))
+        .toList(growable: false);
+    final reportDrivers = drivers
+        .where((driver) => reportRange.contains(stDate(driver.profile['created_at'])))
+        .toList(growable: false);
     final packageIds = packages.map((item) => item.id).toList(growable: false);
-    final bookings = await fetchBookings(
+    final allBookings = await fetchBookings(
       profile,
       packageIdsOverride: packageIds,
     );
+    final bookings = allBookings
+        .where((booking) => reportRange.contains(booking.travelDate ?? booking.createdAt))
+        .toList(growable: false);
 
     final completed = bookings
         .where((booking) => booking.status == 'completed')
@@ -874,7 +1004,7 @@ class SubTenantService {
         ),
       );
 
-    final topSpots = await _fetchTopViewedSpots(spots);
+    final topSpots = await _fetchTopViewedSpots(spots, range: reportRange);
     final feedback = await fetchFeedback(profile);
 
     final averageRating = feedback.isEmpty
@@ -883,9 +1013,11 @@ class SubTenantService {
               feedback.length;
 
     return SubTenantReportData(
-      totalSpots: spots.length,
-      totalPackages: packages.length,
+      rangeLabel: reportRange.label,
+      totalSpots: reportSpots.length,
+      totalPackages: reportPackages.length,
       totalBookings: bookings.length,
+      totalDrivers: reportDrivers.length,
       completedBookings: completed.length,
       cancelledBookings: cancelled.length,
       estimatedRevenue: revenue,
@@ -906,16 +1038,19 @@ class SubTenantService {
   }
 
   Future<List<SubTenantReportRow>> _fetchTopViewedSpots(
-    List<SubTenantSpot> spots,
-  ) async {
+    List<SubTenantSpot> spots, {
+    required SubTenantReportRange range,
+  }) async {
     if (spots.isEmpty) return const [];
 
     try {
       final spotIds = spots.map((spot) => spot.id).toList(growable: false);
       final rows = await _supabase
           .from('tourist_spot_views')
-          .select('spot_id')
-          .inFilter('spot_id', spotIds);
+          .select('spot_id, created_at')
+          .inFilter('spot_id', spotIds)
+          .gte('created_at', range.start.toUtc().toIso8601String())
+          .lte('created_at', range.end.toUtc().toIso8601String());
 
       final counts = <String, int>{};
       for (final row in rows as List) {

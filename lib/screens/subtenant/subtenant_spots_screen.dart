@@ -28,6 +28,7 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   Future<List<CitySpotSuggestion>>? _suggestionsFuture;
 
   String _status = 'all';
+  int _tabIndex = 0;
   String? _suggestionCity;
   int _suggestionRefreshKey = 0;
   bool _usingAiFallbackSuggestions = false;
@@ -497,36 +498,141 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
             onRefresh: () async => _reload(),
             child: ResponsivePageContainer(
               children: [
-                _SpotToolbar(
-                  controller: _searchCtrl,
-                  status: _status,
-                  onStatusChanged: (value) => setState(() => _status = value),
+                _SpotTabs(
+                  selectedIndex: _tabIndex,
+                  onChanged: (index) => setState(() => _tabIndex = index),
                 ),
                 const SizedBox(height: 16),
-                _AiSuggestionsSection(
-                  city: load.profile.assignedCity,
-                  future: _suggestionsFuture!,
-                  usingFallback: _usingAiFallbackSuggestions,
-                  onRefresh: () =>
-                      _refreshSuggestions(load.profile, load.spots),
-                  onAddSuggestion: (suggestion) =>
-                      _openForm(suggestion: suggestion),
-                  onAddManual: () => _openForm(),
-                ),
-                const SizedBox(height: 16),
-                if (spots.isEmpty)
-                  _SavedSpotsEmptyState(
+                if (_tabIndex == 0) ...[
+                  _SpotToolbar(
+                    controller: _searchCtrl,
+                    status: _status,
+                    onStatusChanged: (value) =>
+                        setState(() => _status = value),
+                  ),
+                  const SizedBox(height: 16),
+                  if (spots.isEmpty)
+                    _SavedSpotsEmptyState(
+                      city: load.profile.assignedCity,
+                      onAddManual: () => _openForm(),
+                    )
+                  else
+                    _SpotGrid(
+                      spots: spots,
+                      onEdit: (spot) => _openForm(spot: spot),
+                      onArchive: (spot) => _archive(load.profile, spot),
+                    ),
+                ] else
+                  _AiSuggestionsSection(
                     city: load.profile.assignedCity,
+                    future: _suggestionsFuture!,
+                    usingFallback: _usingAiFallbackSuggestions,
+                    onRefresh: () =>
+                        _refreshSuggestions(load.profile, load.spots),
+                    onAddSuggestion: (suggestion) =>
+                        _openForm(suggestion: suggestion),
                     onAddManual: () => _openForm(),
-                  )
-                else
-                  _SpotGrid(
-                    spots: spots,
-                    onEdit: (spot) => _openForm(spot: spot),
-                    onArchive: (spot) => _archive(load.profile, spot),
                   ),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SpotTabs extends StatelessWidget {
+  const _SpotTabs({
+    required this.selectedIndex,
+    required this.onChanged,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = const [
+      (label: 'Active Spots', icon: Icons.place_rounded),
+      (label: 'AI Suggested Spots', icon: Icons.auto_awesome_rounded),
+    ];
+
+    return DashboardSectionCard(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 520;
+          Widget buildTab(int index) {
+            final selected = selectedIndex == index;
+            final tab = tabs[index];
+            return InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => onChanged(index),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      selected ? SubTenantColors.blue : const Color(0xFFF8FBFF),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color:
+                        selected ? SubTenantColors.blue : SubTenantColors.line,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      tab.icon,
+                      size: 18,
+                      color: selected ? Colors.white : SubTenantColors.muted,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        tab.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color:
+                              selected ? Colors.white : SubTenantColors.text,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                buildTab(0),
+                const SizedBox(height: 10),
+                buildTab(1),
+              ],
+            );
+          }
+
+          return Flex(
+            direction: Axis.horizontal,
+            children: List.generate(tabs.length, (index) {
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    right: index == tabs.length - 1 ? 0 : 10,
+                  ),
+                  child: buildTab(index),
+                ),
+              );
+            }),
           );
         },
       ),

@@ -49,6 +49,17 @@ class TourisTrikeTables {
 class TourisTrikeRepository {
   static const activeTourErrorMessage =
       'You already have an active tour. Please complete or cancel it before booking another package.';
+  static const Set<String> approvedDriverStatuses = {
+    'active',
+    'approved',
+    'verified',
+  };
+  static const Set<String> blockedDriverStatuses = {
+    'disabled',
+    'inactive',
+    'rejected',
+    'suspended',
+  };
 
   TourisTrikeRepository({SupabaseClient? client})
     : _client = client ?? Supabase.instance.client;
@@ -178,6 +189,44 @@ class TourisTrikeRepository {
   Future<Profile?> fetchProfile(String id) async {
     final row = await fetchOne(TourisTrikeTables.profiles, equals: {'id': id});
     return row == null ? null : Profile(row);
+  }
+
+  bool isApprovedDriverStatus(String? status) {
+    if (status == null) return false;
+    return approvedDriverStatuses.contains(status.trim().toLowerCase());
+  }
+
+  bool isBlockedDriverStatus(String? status) {
+    if (status == null) return false;
+    return blockedDriverStatuses.contains(status.trim().toLowerCase());
+  }
+
+  Future<bool> currentDriverCanAcceptPackageBookings() async {
+    final driverId = requireUserId();
+
+    final details = await fetchOne(
+      TourisTrikeTables.driverDetails,
+      columns: 'status, approved_at',
+      equals: {'driver_id': driverId},
+    );
+    final detailsStatus = dbString(details?['status']);
+    if (isBlockedDriverStatus(detailsStatus)) return false;
+    if (isApprovedDriverStatus(detailsStatus) ||
+        (detailsStatus.isEmpty && details?['approved_at'] != null)) {
+      return true;
+    }
+
+    final applications = await _client
+        .from(TourisTrikeTables.driverApplications)
+        .select('status')
+        .eq('driver_id', driverId)
+        .order('submitted_at', ascending: false)
+        .limit(1);
+    final rows = _rows(applications);
+    if (rows.isEmpty) return false;
+
+    final application = rows.first;
+    return isApprovedDriverStatus(dbString(application['status']));
   }
 
   Future<List<EmergencyContactRecord>> fetchEmergencyContacts({

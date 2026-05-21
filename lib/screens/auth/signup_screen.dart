@@ -44,7 +44,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordKey = GlobalKey();
   final _confirmKey = GlobalKey();
 
-  PasswordStrength _strength = PasswordStrength.weak;
+  PasswordStrength? _strength;
   List<String> _passwordErrors = [];
 
   @override
@@ -95,7 +95,14 @@ class _SignupScreenState extends State<SignupScreen> {
 
   void _recalcStrength() {
     final password = _passwordCtrl.text;
+
     setState(() {
+      if (password.isEmpty) {
+        _strength = null;
+        _passwordErrors = [];
+        return;
+      }
+
       _strength = _computeStrength(password);
       _passwordErrors = _getPasswordErrors(password);
     });
@@ -286,8 +293,12 @@ class _SignupScreenState extends State<SignupScreen> {
                                   obscureConfirm: _obscureConfirm,
                                   loading: _loading,
                                   strength: _strength,
-                                  strengthLabel: _strengthLabel(_strength),
-                                  strengthColor: _strengthColor(_strength),
+                                  strengthLabel: _strength == null
+                                      ? ''
+                                      : _strengthLabel(_strength!),
+                                  strengthColor: _strength == null
+                                      ? const Color(0xFFE2E8F0)
+                                      : _strengthColor(_strength!),
                                   passwordErrors: _passwordErrors,
                                   onRoleChanged: (role) =>
                                       setState(() => _role = role),
@@ -412,7 +423,7 @@ class _SignupCard extends StatelessWidget {
   final bool obscurePassword;
   final bool obscureConfirm;
   final bool loading;
-  final PasswordStrength strength;
+  final PasswordStrength? strength;
   final String strengthLabel;
   final Color strengthColor;
   final List<String> passwordErrors;
@@ -488,12 +499,14 @@ class _SignupCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          _PasswordStrengthRow(
-            strength: strength,
-            label: strengthLabel,
-            color: strengthColor,
-          ),
+          if (strength != null) ...[
+            const SizedBox(height: 10),
+            _PasswordStrengthRow(
+              strength: strength!,
+              label: strengthLabel,
+              color: strengthColor,
+            ),
+          ],
           if (passwordErrors.isNotEmpty) ...[
             const SizedBox(height: 10),
             _PasswordRequirements(errors: passwordErrors),

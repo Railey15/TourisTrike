@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
-import 'package:touristrike/screens/admin/city_registrations_screen.dart';
 import 'package:touristrike/screens/admin/city_tenants_screen.dart';
 import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/province_packages_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
 import 'package:touristrike/screens/admin/revenue_summary_screen.dart';
-import 'package:touristrike/screens/admin/tourism_data_verification_screen.dart';
+import 'package:touristrike/screens/admin/provincial_spots_screen.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
@@ -78,10 +77,9 @@ class _ProvincialAdminDashboardScreenState
                     data: data,
                     money: money,
                     openTenants: () => _open(const CityTenantsScreen()),
-                    openRegistrations: () =>
-                        _open(const CityRegistrationsScreen()),
+                    openRegistrations: () => _open(const CityTenantsScreen()),
                     openSpots: () =>
-                        _open(const TourismDataVerificationScreen()),
+                        _open(const ProvincialSpotsScreen()),
                     openPackages: () => _open(const ProvincePackagesScreen()),
                     openRevenue: () => _open(const RevenueSummaryScreen()),
                   ),
@@ -95,10 +93,9 @@ class _ProvincialAdminDashboardScreenState
                   money: money,
                   availableHeight: constraints.maxHeight - 28,
                   openTenants: () => _open(const CityTenantsScreen()),
-                  openRegistrations: () =>
-                      _open(const CityRegistrationsScreen()),
+                  openRegistrations: () => _open(const CityTenantsScreen()),
                   openSpots: () =>
-                      _open(const TourismDataVerificationScreen()),
+                      _open(const ProvincialSpotsScreen()),
                   openPackages: () => _open(const ProvincePackagesScreen()),
                   openRevenue: () => _open(const RevenueSummaryScreen()),
                 ),
