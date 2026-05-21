@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -24,7 +25,9 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
   final List<_EditablePackageSpot> _selectedSpots = [];
   final Set<String> _removedOriginalKeys = <String>{};
+
   dynamic _initializedPackageId;
+  bool _isSaved = false;
 
   @override
   void initState() {
@@ -72,6 +75,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
   void _initializeSelection(_PackageDetailsData data) {
     if (_initializedPackageId == data.package.id) return;
+
     _initializedPackageId = data.package.id;
     _selectedSpots
       ..clear()
@@ -99,15 +103,14 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   void _removeSelectedSpot(_EditablePackageSpot spot) {
     setState(() {
       _selectedSpots.removeWhere((item) => item.key == spot.key);
-      if (spot.isOriginal) {
-        _removedOriginalKeys.add(spot.key);
-      }
+      if (spot.isOriginal) _removedOriginalKeys.add(spot.key);
     });
   }
 
   void _moveSpot(int index, int delta) {
     final nextIndex = index + delta;
     if (nextIndex < 0 || nextIndex >= _selectedSpots.length) return;
+
     setState(() {
       final item = _selectedSpots.removeAt(index);
       _selectedSpots.insert(nextIndex, item);
@@ -118,7 +121,19 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     return _selectedSpots.any((item) => item.key == spot.key);
   }
 
-  // ignore: unused_element
+  Future<void> _sharePackage(TourPackage package) async {
+    final text = '${package.title}\n${package.city}, Bulacan\n${package.priceText}';
+    await Clipboard.setData(ClipboardData(text: text));
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Package details copied for sharing'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> _buildCustomizationRows(
     TourPackage package,
     int originalCount,
@@ -153,8 +168,8 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
             : null,
         'recommended_visit_duration_minutes':
             spot.recommendedVisitDurationMinutes > 0
-            ? spot.recommendedVisitDurationMinutes
-            : null,
+                ? spot.recommendedVisitDurationMinutes
+                : null,
       });
     }
 
@@ -164,6 +179,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         isOriginal: true,
       );
       if (selectedKeys.contains(originalSpot.key)) continue;
+
       rows.add({
         'spot_id': originalSpot.spotId,
         'action_type': 'removed',
@@ -191,8 +207,8 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
             : null,
         'recommended_visit_duration_minutes':
             originalSpot.recommendedVisitDurationMinutes > 0
-            ? originalSpot.recommendedVisitDurationMinutes
-            : null,
+                ? originalSpot.recommendedVisitDurationMinutes
+                : null,
       });
     }
 
@@ -203,6 +219,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     final validationError = _selectedSpotValidationMessage(
       _selectedSpots.length,
     );
+
     if (validationError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -242,6 +259,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
     final originalCount = data.originalSpots.length;
     if (!mounted) return;
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -262,13 +280,14 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FB),
+      backgroundColor: Colors.white,
       body: FutureBuilder<_PackageDetailsData>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const _LoadingView();
           }
+
           if (snapshot.hasError) {
             return _ErrorView(
               message: snapshot.error.toString(),
@@ -288,15 +307,27 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                 physics: const BouncingScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(
-                    child: _HeroHeader(
-                      imageUrl: data.package.displayImageUrl,
-                      onBack: () => Navigator.pop(context),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _PackageHeroImage(imageUrl: data.package.displayImageUrl),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          top: 355,
+                          child: _PackageHeaderCard(
+                            package: data.package,
+                            currentUnitPrice: currentUnitPrice,
+                            spotCount: _selectedSpots.length,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   SliverToBoxAdapter(
-                    child: Transform.translate(
-                      offset: const Offset(0, -24),
-                      child: _DetailsSheet(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 30, 24, 142),
+                      child: _PackageDetailsBody(
                         data: data,
                         selectedSpots: _selectedSpots,
                         removedOriginalKeys: _removedOriginalKeys,
@@ -311,6 +342,35 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                     ),
                   ),
                 ],
+              ),
+              SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+                  child: Row(
+                    children: [
+                      _FloatingActionButton(
+                        icon: Icons.arrow_back_rounded,
+                        onTap: () => Navigator.pop(context),
+                      ),
+                      const Spacer(),
+                      _FloatingActionButton(
+                        icon: _isSaved
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded,
+                        iconColor: _isSaved
+                            ? const Color(0xFFEF4444)
+                            : const Color(0xFF0F172A),
+                        onTap: () => setState(() => _isSaved = !_isSaved),
+                      ),
+                      const SizedBox(width: 12),
+                      _FloatingActionButton(
+                        icon: Icons.ios_share_rounded,
+                        onTap: () => _sharePackage(data.package),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               Align(
                 alignment: Alignment.bottomCenter,
@@ -330,10 +390,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Data models
-// ---------------------------------------------------------------------------
 
 class _PackageDetailsData {
   const _PackageDetailsData({
@@ -397,8 +453,8 @@ class _EditablePackageSpot {
     final baseKey = googlePlaceId.isNotEmpty
         ? 'google:$googlePlaceId'
         : spot.id != null
-        ? 'db:${spot.id}'
-        : 'title:${_normalizeText(spot.title)}';
+            ? 'db:${spot.id}'
+            : 'title:${_normalizeText(spot.title)}';
 
     return _EditablePackageSpot(
       key: baseKey,
@@ -446,20 +502,15 @@ class _EditablePackageSpot {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Hero header
-// ---------------------------------------------------------------------------
-
-class _HeroHeader extends StatelessWidget {
-  const _HeroHeader({required this.imageUrl, required this.onBack});
+class _PackageHeroImage extends StatelessWidget {
+  const _PackageHeroImage({required this.imageUrl});
 
   final String imageUrl;
-  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 320,
+      height: 470,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
@@ -468,6 +519,7 @@ class _HeroHeader extends StatelessWidget {
             Image.network(
               imageUrl,
               fit: BoxFit.cover,
+              alignment: Alignment.center,
               errorBuilder: (_, _, _) => const _ImageFallback(),
             )
           else
@@ -479,24 +531,12 @@ class _HeroHeader extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.25),
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.12),
+                    Colors.black.withValues(alpha: 0.30),
+                    Colors.black.withValues(alpha: 0.02),
+                    Colors.black.withValues(alpha: 0.04),
                   ],
+                  stops: const [0, 0.45, 1],
                 ),
-              ),
-            ),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Row(
-                children: [
-                  _CircleButton(icon: Icons.arrow_back_rounded, onTap: onBack),
-                  const Spacer(),
-                  _CircleButton(icon: Icons.ios_share_rounded, onTap: () {}),
-                ],
               ),
             ),
           ),
@@ -506,12 +546,204 @@ class _HeroHeader extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Details sheet (stateful for category filter)
-// ---------------------------------------------------------------------------
+class _PackageHeaderCard extends StatelessWidget {
+  const _PackageHeaderCard({
+    required this.package,
+    required this.currentUnitPrice,
+    required this.spotCount,
+  });
 
-class _DetailsSheet extends StatefulWidget {
-  const _DetailsSheet({
+  final TourPackage package;
+  final double currentUnitPrice;
+  final int spotCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
+    final priceText = currentUnitPrice > 0
+        ? money.format(currentUnitPrice)
+        : package.priceText.isNotEmpty
+            ? package.priceText
+            : 'Ask office';
+    final duration = package.durationText.isEmpty ? 'Flexible' : package.durationText;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(30, 28, 30, 24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(34)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  package.title,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF182433),
+                    fontSize: 24,
+                    height: 1.15,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              _HeaderStatusBadge(text: package.status),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                color: Color(0xFF4A77A6),
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '${package.city}, Bulacan',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF4A77A6),
+                    fontSize: 15,
+                    height: 1.25,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          _PackageStatsRow(
+            priceText: priceText,
+            durationText: duration,
+            spotCount: spotCount,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderStatusBadge extends StatelessWidget {
+  const _HeaderStatusBadge({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDDFBEA),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text.isEmpty ? 'LISTED' : text.toUpperCase(),
+        style: const TextStyle(
+          color: Color(0xFF00A95A),
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _PackageStatsRow extends StatelessWidget {
+  const _PackageStatsRow({
+    required this.priceText,
+    required this.durationText,
+    required this.spotCount,
+  });
+
+  final String priceText;
+  final String durationText;
+  final int spotCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _DetailStat(
+            value: priceText.replaceAll('PHP ', '₱'),
+            label: 'Price',
+          ),
+        ),
+        const _StatDivider(),
+        Expanded(
+          child: _DetailStat(
+            value: durationText,
+            label: 'Duration',
+          ),
+        ),
+        const _StatDivider(),
+        Expanded(
+          child: _DetailStat(
+            value: '$spotCount',
+            label: spotCount == 1 ? 'Spot' : 'Spots',
+            valueColor: const Color(0xFF2A86FF),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailStat extends StatelessWidget {
+  const _DetailStat({
+    required this.value,
+    required this.label,
+    this.valueColor,
+  });
+
+  final String value;
+  final String label;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: valueColor ?? const Color(0xFF0F172A),
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.2,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF64748B),
+            fontWeight: FontWeight.w800,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PackageDetailsBody extends StatefulWidget {
+  const _PackageDetailsBody({
     required this.data,
     required this.selectedSpots,
     required this.removedOriginalKeys,
@@ -536,10 +768,10 @@ class _DetailsSheet extends StatefulWidget {
   final void Function(CitySpotSuggestion spot) onAddGoogleSpot;
 
   @override
-  State<_DetailsSheet> createState() => _DetailsSheetState();
+  State<_PackageDetailsBody> createState() => _PackageDetailsBodyState();
 }
 
-class _DetailsSheetState extends State<_DetailsSheet> {
+class _PackageDetailsBodyState extends State<_PackageDetailsBody> {
   static const _allCategories = [
     'All',
     'Cafe',
@@ -559,232 +791,124 @@ class _DetailsSheetState extends State<_DetailsSheet> {
         .map((s) => _normalizeText(s.title))
         .toSet();
 
-    return widget.googleSuggestions
-        .where((s) {
-          if (selectedKeys.contains('google:${s.id}')) return false;
-          if (selectedTitles.contains(_normalizeText(s.title))) return false;
-          if (_selectedCategory != 'All' && s.category != _selectedCategory) {
-            return false;
-          }
-          return true;
-        })
-        .toList(growable: false);
+    return widget.googleSuggestions.where((s) {
+      if (selectedKeys.contains('google:${s.id}')) return false;
+      if (selectedTitles.contains(_normalizeText(s.title))) return false;
+      if (_selectedCategory != 'All' && s.category != _selectedCategory) {
+        return false;
+      }
+      return true;
+    }).toList(growable: false);
   }
 
   @override
   Widget build(BuildContext context) {
     final package = widget.data.package;
-    final bottom = MediaQuery.of(context).padding.bottom;
-    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
-    final extraSpots = math.max(
-      0,
-      widget.selectedSpots.length - widget.data.originalSpots.length,
-    );
     final filteredSuggestions = _filteredSuggestions;
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(18, 22, 18, bottom + 116),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Title & status
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  package.title,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 28,
-                    height: 1.05,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              _StatusChip(text: package.status),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SoftDivider(),
+        const SizedBox(height: 24),
+        const _DetailsSectionTitle('About the Tour'),
+        const SizedBox(height: 12),
+        Text(
+          package.description.isEmpty
+              ? (package.subtitle.isEmpty
+                  ? 'No description has been added yet.'
+                  : package.subtitle)
+              : package.description,
+          style: const TextStyle(
+            color: Color(0xFF64748B),
+            fontSize: 15.8,
+            height: 1.58,
+            fontWeight: FontWeight.w700,
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.location_on_outlined,
-                color: Color(0xFF2A86FF),
-                size: 19,
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  '${package.city}, Bulacan',
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+        ),
+        const SizedBox(height: 28),
+        const _DetailsSectionTitle('Spots Preview'),
+        const SizedBox(height: 12),
+        _InfoBlock(
+          icon: Icons.map_outlined,
+          message:
+              'The itinerary is now handled in the booking screen. Review the package spots here, then tap Book Now to continue to itinerary selection.',
+        ),
+        const SizedBox(height: 28),
+        const _DetailsSectionTitle('Original Package'),
+        const SizedBox(height: 6),
+        const Text(
+          'These are the package spots included by the tour operator.',
+          style: TextStyle(
+            color: Color(0xFF64748B),
+            fontWeight: FontWeight.w700,
+            height: 1.4,
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetaPill(
-                icon: Icons.payments_rounded,
-                text: widget.currentUnitPrice > 0
-                    ? money.format(widget.currentUnitPrice)
-                    : _priceLabel(package),
-              ),
-              _MetaPill(
-                icon: Icons.schedule_rounded,
-                text: package.durationText.isEmpty
-                    ? 'Flexible'
-                    : package.durationText,
-              ),
-              _MetaPill(
-                icon: Icons.edit_location_alt_rounded,
-                text:
-                    '${widget.selectedSpots.length} spot${widget.selectedSpots.length == 1 ? '' : 's'}',
-              ),
-              if (extraSpots > 0)
-                _MetaPill(
-                  icon: Icons.add_circle_outline_rounded,
-                  text:
-                      '+${money.format(extraSpots * widget.additionalSpotFee)} extras',
-                ),
-            ],
-          ),
-          const SizedBox(height: 18),
-
-          // About
-          const _SectionTitle('About the Tour'),
-          const SizedBox(height: 8),
-          Text(
-            package.description.isEmpty
-                ? (package.subtitle.isEmpty
-                      ? 'No description has been added yet.'
-                      : package.subtitle)
-                : package.description,
-            style: const TextStyle(
-              color: Color(0xFF64748B),
-              height: 1.5,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 22),
-
-          // Customize info
-          const _SectionTitle('Spots Preview'),
-          const SizedBox(height: 10),
-          _InfoBlock(
-            icon: Icons.map_outlined,
+        ),
+        const SizedBox(height: 12),
+        if (widget.data.originalSpots.isEmpty)
+          const _EmptyBlock(
+            message: 'No tourist spots have been linked to this package yet.',
+          )
+        else
+          ...widget.data.originalSpots.map((spot) {
+            final item = _EditablePackageSpot.fromTouristSpot(
+              spot,
+              isOriginal: true,
+            );
+            return _OriginalSpotTile(spot: item, removed: false);
+          }),
+        const SizedBox(height: 24),
+        const _DetailsSectionTitle('Your Selected Spots'),
+        const SizedBox(height: 12),
+        if (widget.selectedSpots.isEmpty)
+          const _EmptyBlock(
             message:
-                'The itinerary is now handled in the booking screen. Review the package spots here, then tap Book Now to continue to itinerary selection.',
-          ),
-          const SizedBox(height: 22),
-
-          // ─── SECTION 1: Original Package ────────────────────────────────
-          const _SectionTitle('Original Package'),
-          const SizedBox(height: 6),
-          const Text(
-            'These are the package spots included by the tour operator.',
-            style: TextStyle(
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w700,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (widget.data.originalSpots.isEmpty)
-            const _EmptyBlock(
-              message: 'No tourist spots have been linked to this package yet.',
-            )
-          else
-            ...widget.data.originalSpots.map((spot) {
-              final item = _EditablePackageSpot.fromTouristSpot(
-                spot,
-                isOriginal: true,
-              );
-              return _OriginalSpotTile(spot: item, removed: false);
-            }),
-          const SizedBox(height: 22),
-
-          // ─── SECTION 2: Your Selected Spots ─────────────────────────────
-          const _SectionTitle('Your Selected Spots'),
-          const SizedBox(height: 10),
-          if (widget.selectedSpots.isEmpty)
-            const _EmptyBlock(
-              message:
-                  'You removed all spots. Add new ones from Google Places below before booking.',
-            )
-          else
-            ...widget.selectedSpots.asMap().entries.map(
-              (entry) => _SelectedSpotTile(
-                spot: entry.value,
-                index: entry.key,
-                total: widget.selectedSpots.length,
-                onMoveUp: entry.key == 0
-                    ? null
-                    : () => widget.onMoveUp(entry.key),
-                onMoveDown: entry.key == widget.selectedSpots.length - 1
-                    ? null
-                    : () => widget.onMoveDown(entry.key),
-                onRemove: () => widget.onRemoveSpot(entry.value),
+                'You removed all spots. Add new ones from Google Places below before booking.',
+          )
+        else
+          ...widget.selectedSpots.asMap().entries.map(
+                (entry) => _SelectedSpotTile(
+                  spot: entry.value,
+                  index: entry.key,
+                  total: widget.selectedSpots.length,
+                  onMoveUp: entry.key == 0
+                      ? null
+                      : () => widget.onMoveUp(entry.key),
+                  onMoveDown: entry.key == widget.selectedSpots.length - 1
+                      ? null
+                      : () => widget.onMoveDown(entry.key),
+                  onRemove: () => widget.onRemoveSpot(entry.value),
+                ),
               ),
+        const SizedBox(height: 24),
+        const _DetailsSectionTitle('Google Places Suggestions'),
+        const SizedBox(height: 12),
+        _CategoryFilterBar(
+          categories: _allCategories,
+          selected: _selectedCategory,
+          onSelect: (cat) => setState(() => _selectedCategory = cat),
+        ),
+        const SizedBox(height: 12),
+        if (filteredSuggestions.isEmpty)
+          _EmptyBlock(
+            message: _selectedCategory == 'All'
+                ? 'No additional Google Places suggestions are available for this area right now.'
+                : 'No $_selectedCategory spots found nearby. Try a different category.',
+          )
+        else
+          ...filteredSuggestions.map(
+            (spot) => _GoogleSuggestionTile(
+              spot: spot,
+              onAdd: () => widget.onAddGoogleSpot(spot),
             ),
-          const SizedBox(height: 22),
-
-          // ─── SECTION 3: Google Places Suggestions ───────────────────────
-          const _SectionTitle('Google Places Suggestions'),
-          const SizedBox(height: 10),
-          _CategoryFilterBar(
-            categories: _allCategories,
-            selected: _selectedCategory,
-            onSelect: (cat) => setState(() => _selectedCategory = cat),
           ),
-          const SizedBox(height: 12),
-          if (filteredSuggestions.isEmpty)
-            _EmptyBlock(
-              message: _selectedCategory == 'All'
-                  ? 'No additional Google Places suggestions are available for this area right now.'
-                  : 'No $_selectedCategory spots found nearby. Try a different category.',
-            )
-          else
-            ...filteredSuggestions.map(
-              (spot) => _GoogleSuggestionTile(
-                spot: spot,
-                onAdd: () => widget.onAddGoogleSpot(spot),
-              ),
-            ),
-          const SizedBox(height: 22),
-
-          // ─── SECTION 4: AI Suggested Itinerary ──────────────────────────
-          _OperatorBlock(package: package),
-        ],
-      ),
+        const SizedBox(height: 24),
+        _OperatorBlock(package: package),
+      ],
     );
   }
-
-  String _priceLabel(TourPackage package) {
-    if (package.priceText.isNotEmpty) return package.priceText;
-    if (package.estimatedBudget > 0) {
-      return 'PHP ${package.estimatedBudget.toStringAsFixed(0)}';
-    }
-    return 'Ask office';
-  }
 }
-
-// ---------------------------------------------------------------------------
-// Category filter bar
-// ---------------------------------------------------------------------------
 
 class _CategoryFilterBar extends StatelessWidget {
   const _CategoryFilterBar({
@@ -821,10 +945,7 @@ class _CategoryFilterBar extends StatelessWidget {
               onTap: () => onSelect(cat),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 9,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? const Color(0xFF2A86FF)
@@ -842,9 +963,8 @@ class _CategoryFilterBar extends StatelessWidget {
                     Icon(
                       _icons[cat] ?? Icons.place_rounded,
                       size: 15,
-                      color: isSelected
-                          ? Colors.white
-                          : const Color(0xFF64748B),
+                      color:
+                          isSelected ? Colors.white : const Color(0xFF64748B),
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -867,10 +987,6 @@ class _CategoryFilterBar extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Spot tiles
-// ---------------------------------------------------------------------------
 
 class _OriginalSpotTile extends StatelessWidget {
   const _OriginalSpotTile({required this.spot, required this.removed});
@@ -1077,10 +1193,6 @@ class _BaseSpotTile extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Small reusable widgets
-// ---------------------------------------------------------------------------
-
 class _AddButton extends StatelessWidget {
   const _AddButton({required this.onTap});
 
@@ -1213,8 +1325,8 @@ class _BottomBookBar extends StatelessWidget {
     final price = currentUnitPrice > 0
         ? 'PHP ${currentUnitPrice.toStringAsFixed(0)}'
         : package.priceText.isNotEmpty
-        ? package.priceText
-        : 'Ask office';
+            ? package.priceText
+            : 'Ask office';
 
     final blocked = validationMessage != null;
 
@@ -1356,66 +1468,8 @@ class _IconActionButton extends StatelessWidget {
   }
 }
 
-class _MetaPill extends StatelessWidget {
-  const _MetaPill({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: const Color(0xFF2A86FF), size: 17),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Color(0xFF334155),
-              fontWeight: FontWeight.w900,
-              fontSize: 12.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text.toUpperCase(),
-        style: const TextStyle(
-          color: Color(0xFF2A86FF),
-          fontWeight: FontWeight.w900,
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
+class _DetailsSectionTitle extends StatelessWidget {
+  const _DetailsSectionTitle(this.text);
 
   final String text;
 
@@ -1426,7 +1480,8 @@ class _SectionTitle extends StatelessWidget {
       style: const TextStyle(
         color: Color(0xFF0F172A),
         fontWeight: FontWeight.w900,
-        fontSize: 18,
+        fontSize: 21,
+        letterSpacing: -0.3,
       ),
     );
   }
@@ -1458,11 +1513,34 @@ class _EmptyBlock extends StatelessWidget {
   }
 }
 
-class _CircleButton extends StatelessWidget {
-  const _CircleButton({required this.icon, required this.onTap});
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 1, height: 58, color: const Color(0xFFE7EEF7));
+  }
+}
+
+class _SoftDivider extends StatelessWidget {
+  const _SoftDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(height: 1, color: const Color(0xFFE7EEF7));
+  }
+}
+
+class _FloatingActionButton extends StatelessWidget {
+  const _FloatingActionButton({
+    required this.icon,
+    required this.onTap,
+    this.iconColor = const Color(0xFF0F172A),
+  });
 
   final IconData icon;
   final VoidCallback onTap;
+  final Color iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -1470,20 +1548,20 @@ class _CircleButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 44,
-        height: 44,
+        width: 50,
+        height: 50,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.94),
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.10),
-              blurRadius: 18,
+              color: Colors.black.withValues(alpha: 0.13),
+              blurRadius: 20,
               offset: const Offset(0, 10),
             ),
           ],
         ),
-        child: Icon(icon, color: const Color(0xFF0F172A)),
+        child: Icon(icon, color: iconColor, size: 25),
       ),
     );
   }
@@ -1497,7 +1575,11 @@ class _ImageFallback extends StatelessWidget {
     return Container(
       color: const Color(0xFFEAF2FF),
       child: const Center(
-        child: Icon(Icons.map_rounded, color: Color(0xFF2A86FF), size: 42),
+        child: Icon(
+          Icons.map_rounded,
+          color: Color(0xFF2A86FF),
+          size: 42,
+        ),
       ),
     );
   }
@@ -1548,10 +1630,6 @@ class _ErrorView extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
 
 bool _sameMunicipality(String a, String b) {
   return _normalizeText(a) == _normalizeText(b);
