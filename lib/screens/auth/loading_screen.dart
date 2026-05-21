@@ -3,8 +3,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_screen.dart';
 import 'web_portal_landing_screen.dart';
+import '../tourist/tourist_home_screen.dart';
+import '../driver/driver_home_screen.dart';
+import '../admin/provincial_admin_dashboard_screen.dart';
+import '../subtenant/subtenant_dashboard_screen.dart';
 
 class TourisTrikeLoadingScreen extends StatefulWidget {
   const TourisTrikeLoadingScreen({super.key});
@@ -50,15 +55,71 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
     });
   }
 
-  void _onLoadingComplete() {
+  Future<void> _onLoadingComplete() async {
     if (!mounted) return;
 
+    if (kIsWeb) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const WebPortalLandingScreen()),
+      );
+      return;
+    }
+
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      _goToLogin();
+      return;
+    }
+
+    try {
+      final userId = Supabase.instance.client.auth.currentUser!.id;
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+      if (profile == null) {
+        _goToLogin();
+        return;
+      }
+
+      final role = (profile['role'] as String? ?? '').toLowerCase().trim();
+      Widget destination;
+      switch (role) {
+        case 'tourist':
+          destination = const TouristHomeScreen();
+          break;
+        case 'driver':
+          destination = const DriverHomeScreen();
+          break;
+        case 'admin':
+          destination = const ProvincialAdminDashboardScreen();
+          break;
+        case 'subtenant':
+          destination = const SubTenantDashboardScreen();
+          break;
+        default:
+          destination = const LoginScreen();
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => destination),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _goToLogin();
+    }
+  }
+
+  void _goToLogin() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (_) =>
-            kIsWeb ? const WebPortalLandingScreen() : const LoginScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
   }
 

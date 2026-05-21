@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 
@@ -39,6 +40,10 @@ class TourisTrikeTables {
   static const messages = 'messages';
   static const wallets = 'wallets';
   static const walletTransactions = 'wallet_transactions';
+  static const bookingDrivers = 'booking_drivers';
+  static const driverLiveLocations = 'driver_live_locations';
+  static const tripStatusLogs = 'trip_status_logs';
+  static const driverReviews = 'driver_reviews';
 }
 
 class TourisTrikeRepository {
@@ -58,6 +63,27 @@ class TourisTrikeRepository {
       throw StateError('No active Supabase session.');
     }
     return id;
+  }
+
+  String _normalizeLocationText(String value) {
+    final lowered = value.trim().toLowerCase();
+    return lowered.replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _firstNonEmptyLocation(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  bool _matchesNormalizedLocation(String actual, String expected) {
+    final normalizedActual = _normalizeLocationText(actual);
+    final normalizedExpected = _normalizeLocationText(expected);
+    return normalizedActual.isNotEmpty &&
+        normalizedExpected.isNotEmpty &&
+        normalizedActual == normalizedExpected;
   }
 
   Future<List<Json>> fetchRows(
@@ -434,6 +460,10 @@ class TourisTrikeRepository {
     String notes = '',
     List<Json> customizedSpots = const [],
     List<Json> itineraryItems = const [],
+    int requiredDrivers = 1,
+    String municipality = '',
+    String province = '',
+    int totalPassengers = 0,
   }) async {
     final hasActive = await hasActiveTour();
     if (hasActive) {
@@ -457,8 +487,12 @@ class TourisTrikeRepository {
           : pickupAddress.trim(),
       'pickup_latitude': pickupLatitude,
       'pickup_longitude': pickupLongitude,
-      'pickup_province': pickupProvince.trim().isEmpty ? null : pickupProvince.trim(),
-      'pickup_locality': pickupLocality.trim().isEmpty ? null : pickupLocality.trim(),
+      'pickup_province': pickupProvince.trim().isEmpty
+          ? null
+          : pickupProvince.trim(),
+      'pickup_locality': pickupLocality.trim().isEmpty
+          ? null
+          : pickupLocality.trim(),
       'pickup_country_code': pickupCountryCode.trim().isEmpty
           ? null
           : pickupCountryCode.trim(),
@@ -467,11 +501,22 @@ class TourisTrikeRepository {
           : dropoffAddress.trim(),
       'dropoff_latitude': dropoffLatitude,
       'dropoff_longitude': dropoffLongitude,
-      'dropoff_province': dropoffProvince.trim().isEmpty ? null : dropoffProvince.trim(),
-      'dropoff_locality': dropoffLocality.trim().isEmpty ? null : dropoffLocality.trim(),
+      'dropoff_province': dropoffProvince.trim().isEmpty
+          ? null
+          : dropoffProvince.trim(),
+      'dropoff_locality': dropoffLocality.trim().isEmpty
+          ? null
+          : dropoffLocality.trim(),
       'dropoff_country_code': dropoffCountryCode.trim().isEmpty
           ? null
           : dropoffCountryCode.trim(),
+      'required_drivers': requiredDrivers,
+      'municipality': municipality.trim().isEmpty ? null : municipality.trim(),
+      'province': province.trim().isEmpty ? null : province.trim(),
+      'total_passengers': totalPassengers > 0
+          ? totalPassengers
+          : (adults + children),
+      'booking_status': 'waiting_for_drivers',
       'status': 'pending',
     });
     if (customizedSpots.isNotEmpty) {
@@ -515,34 +560,33 @@ class TourisTrikeRepository {
     if (items.isEmpty) return;
 
     final payload = items.indexed
-        .map(
-          (entry) {
-            final index = entry.$1;
-            final row = entry.$2;
-            return <String, dynamic>{
-              'booking_id': bookingId,
-              'tourist_id': touristId,
-              'spot_id': row['spot_id'],
-              'destination_name': row['destination_name'],
-              'destination_address': row['destination_address'],
-              'order_number': row['order_number'] ?? row['destination_order'] ?? index + 1,
-              'destination_order': row['destination_order'] ?? index + 1,
-              'arrival_time': row['arrival_time'],
-              'estimated_stay_duration_minutes':
-                  row['estimated_stay_duration_minutes'],
-              'departure_time': row['departure_time'],
-              'activity_note': row['activity_note'],
-              'itinerary_source': row['itinerary_source'] ?? row['source_type'],
-              'source_type': row['source_type'],
-              'google_place_id': row['google_place_id'],
-              'municipality': row['municipality'],
-              'barangay': row['barangay'],
-              'latitude': row['latitude'],
-              'longitude': row['longitude'],
-              'image_url': row['image_url'],
-            }..removeWhere((_, value) => value == null);
-          },
-        )
+        .map((entry) {
+          final index = entry.$1;
+          final row = entry.$2;
+          return <String, dynamic>{
+            'booking_id': bookingId,
+            'tourist_id': touristId,
+            'spot_id': row['spot_id'],
+            'destination_name': row['destination_name'],
+            'destination_address': row['destination_address'],
+            'order_number':
+                row['order_number'] ?? row['destination_order'] ?? index + 1,
+            'destination_order': row['destination_order'] ?? index + 1,
+            'arrival_time': row['arrival_time'],
+            'estimated_stay_duration_minutes':
+                row['estimated_stay_duration_minutes'],
+            'departure_time': row['departure_time'],
+            'activity_note': row['activity_note'],
+            'itinerary_source': row['itinerary_source'] ?? row['source_type'],
+            'source_type': row['source_type'],
+            'google_place_id': row['google_place_id'],
+            'municipality': row['municipality'],
+            'barangay': row['barangay'],
+            'latitude': row['latitude'],
+            'longitude': row['longitude'],
+            'image_url': row['image_url'],
+          }..removeWhere((_, value) => value == null);
+        })
         .toList(growable: false);
 
     await _client.from(TourisTrikeTables.bookingItineraryItems).insert(payload);
@@ -615,28 +659,89 @@ class TourisTrikeRepository {
     return row == null ? null : PackageBooking(Json.from(row));
   }
 
+  Future<PackageBooking?> fetchPackageBookingDetails(String bookingId) async {
+    final row = await _client
+        .from(TourisTrikeTables.packageBookings)
+        .select(
+          '*, '
+          'tour_packages(title, city, cover_image_url, image_url)',
+        )
+        .eq('id', bookingId)
+        .maybeSingle();
+    if (row == null) return null;
+
+    final bookingRow = Json.from(row);
+    final touristId = dbString(bookingRow['tourist_id']);
+    final driverId = dbString(bookingRow['assigned_driver_id']);
+
+    final touristFuture = touristId.isEmpty
+        ? Future<Profile?>.value(null)
+        : fetchProfile(touristId);
+    final driverFuture = driverId.isEmpty
+        ? Future<Profile?>.value(null)
+        : fetchProfile(driverId);
+    final results = await Future.wait<Profile?>([touristFuture, driverFuture]);
+
+    final tourist = results[0];
+    final driver = results[1];
+
+    if (tourist != null) {
+      bookingRow['tourist'] = tourist.row;
+    }
+    if (driver != null) {
+      bookingRow['driver'] = driver.row;
+    }
+
+    return PackageBooking(bookingRow);
+  }
+
   Future<List<BookingItineraryItem>> fetchBookingItinerary(
     String bookingId,
   ) async {
-    final booking = await fetchPackageBooking(bookingId);
-    if (booking == null) return const [];
+    final rows = await _client
+        .from(TourisTrikeTables.bookingItineraryItems)
+        .select()
+        .eq('booking_id', bookingId)
+        .order('order_number', ascending: true)
+        .order('destination_order', ascending: true)
+        .order('arrival_time', ascending: true)
+        .order('created_at', ascending: true);
+    return _rows(rows).map(BookingItineraryItem.new).toList(growable: false);
+  }
+
+  Future<int> ensureBookingItinerary(String bookingId) async {
+    final result = await _client.rpc(
+      'ensure_booking_itinerary',
+      params: {'p_booking_id': bookingId},
+    );
+    return (result as num?)?.toInt() ?? 0;
+  }
+
+  Future<Map<String, int>> fetchBookingItineraryCounts(
+    Iterable<String> bookingIds,
+  ) async {
+    final ids = bookingIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return const {};
+
     try {
       final rows = await _client
           .from(TourisTrikeTables.bookingItineraryItems)
-          .select()
-          .eq('booking_id', bookingId)
-          .order('destination_order');
-      final saved = _rows(rows)
-          .map(BookingItineraryItem.new)
-          .toList(growable: false);
-      if (saved.isNotEmpty) return saved;
+          .select('booking_id')
+          .inFilter('booking_id', ids);
+      final counts = <String, int>{for (final id in ids) id: 0};
+      for (final row in _rows(rows)) {
+        final bookingId = dbString(row['booking_id']);
+        if (bookingId.isEmpty) continue;
+        counts[bookingId] = (counts[bookingId] ?? 0) + 1;
+      }
+      return counts;
     } on PostgrestException {
-      // Fall back to the legacy booking spots snapshot when the new
-      // itinerary table has not been migrated yet.
+      return const {};
     }
-
-    final spots = await fetchBookingSpots(bookingId);
-    return _buildFallbackItinerary(booking, spots);
   }
 
   Future<PaymentRecord> createPayment({
@@ -792,6 +897,15 @@ class TourisTrikeRepository {
       equals: {'driver_id': driverId},
     );
     return row == null ? null : DriverDetails(row);
+  }
+
+  Future<DriverApplication?> fetchCurrentDriverApplication() async {
+    final id = requireUserId();
+    final row = await fetchOne(
+      TourisTrikeTables.driverApplications,
+      equals: {'driver_id': id},
+    );
+    return row == null ? null : DriverApplication(row);
   }
 
   Future<DriverDocuments?> fetchDriverDocuments(String driverId) async {
@@ -1027,6 +1141,7 @@ class TourisTrikeRepository {
       'confirmed' => true,
       'accepted' => true,
       'driver_on_the_way' => true,
+      'on_tour' => true,
       'arrived' => true,
       'picked_up' => true,
       'tour_started' => true,
@@ -1048,7 +1163,8 @@ class TourisTrikeRepository {
           'package_bookings('
           '  travel_date, adults, children, payment_method, booking_type, '
           '  total_amount, assigned_driver_id, status, booking_status, '
-          '  pickup_address, dropoff_address'
+          '  pickup_address, dropoff_address, required_drivers, accepted_drivers_count, '
+          '  municipality, province, total_passengers'
           ')',
         )
         .eq('tourist_id', requireUserId())
@@ -1063,11 +1179,13 @@ class TourisTrikeRepository {
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
-          'tourist:profiles!package_activities_tourist_id_fkey(full_name, first_name, last_name, mobile), '
+          'tourist:profiles!package_activities_tourist_id_fkey(full_name, first_name, last_name, profile_image_url, mobile), '
           'package_bookings('
           '  travel_date, adults, children, payment_method, booking_type, '
           '  total_amount, assigned_driver_id, status, booking_status, '
-          '  pickup_address, dropoff_address, completed_at'
+          '  pickup_address, dropoff_address, completed_at, '
+          '  municipality, province, total_passengers, '
+          '  required_drivers, accepted_drivers_count'
           ')',
         )
         .eq('driver_id', requireUserId())
@@ -1100,17 +1218,21 @@ class TourisTrikeRepository {
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
+          'tourist:profiles!package_activities_tourist_id_fkey('
+          '  full_name, first_name, last_name, profile_image_url, mobile'
+          '), '
           'driver:profiles!package_activities_driver_id_fkey('
           '  full_name, first_name, last_name, profile_image_url, mobile'
           '), '
           'package_bookings('
-          '  travel_date, adults, children, booking_type, '
+          '  id, tourist_id, travel_date, adults, children, booking_type, '
           '  pickup_address, pickup_latitude, pickup_longitude, '
           '  dropoff_address, dropoff_latitude, dropoff_longitude, '
           '  total_amount, downpayment_amount, remaining_balance, '
           '  payment_method, assigned_driver_id, status, booking_status, '
           '  current_spot_index, driver_latitude, driver_longitude, '
-          '  accepted_at, arrived_at, picked_up_at, completed_at'
+          '  accepted_at, arrived_at, picked_up_at, completed_at, '
+          '  municipality, province, total_passengers, notes'
           ')',
         )
         .eq('booking_id', bookingId)
@@ -1175,46 +1297,6 @@ class TourisTrikeRepository {
         .toList(growable: false);
   }
 
-  List<BookingItineraryItem> _buildFallbackItinerary(
-    PackageBooking booking,
-    List<CustomizedPackageSpot> spots,
-  ) {
-    if (spots.isEmpty) return const [];
-
-    var nextArrival = '09:00:00';
-    return spots.indexed.map((entry) {
-      final index = entry.$1;
-      final spot = entry.$2;
-      final arrival = spot.estimatedArrivalTime.isNotEmpty
-          ? spot.estimatedArrivalTime
-          : nextArrival;
-      final stayMinutes = resolveItineraryStayMinutes(
-        estimatedMinutes: spot.estimatedDurationMinutes,
-        recommendedMinutes: spot.recommendedVisitDurationMinutes,
-      );
-      final departure = addMinutesToScheduleTime(arrival, stayMinutes);
-      nextArrival = addMinutesToScheduleTime(departure, 20);
-      return BookingItineraryItem({
-        'booking_id': booking.id,
-        'spot_id': spot.spotId,
-        'destination_name': spot.spotTitle,
-        'destination_address': spot.spotAddress,
-        'destination_order': index + 1,
-        'arrival_time': arrival,
-        'estimated_stay_duration_minutes': stayMinutes,
-        'departure_time': departure,
-        'activity_note': 'Explore ${spot.spotTitle} and enjoy the stop.',
-        'source_type': 'ai_suggested',
-        'google_place_id': spot.googlePlaceId,
-        'municipality': spot.municipality,
-        'barangay': spot.barangay,
-        'latitude': spot.latitude,
-        'longitude': spot.longitude,
-        'image_url': spot.imageUrl,
-      });
-    }).toList(growable: false);
-  }
-
   Future<Map<String, dynamic>> getOrCreateConversation({
     required String touristId,
     required String driverId,
@@ -1276,13 +1358,14 @@ class TourisTrikeRepository {
           '  full_name, first_name, last_name, profile_image_url, mobile'
           '), '
           'package_bookings('
-          '  id, travel_date, adults, children, booking_type, '
+          '  id, tourist_id, travel_date, adults, children, booking_type, '
           '  pickup_address, pickup_latitude, pickup_longitude, '
           '  dropoff_address, dropoff_latitude, dropoff_longitude, '
           '  total_amount, downpayment_amount, remaining_balance, '
           '  payment_method, assigned_driver_id, status, booking_status, '
           '  current_spot_index, driver_latitude, driver_longitude, '
-          '  accepted_at, arrived_at, picked_up_at, completed_at'
+          '  accepted_at, arrived_at, picked_up_at, completed_at, '
+          '  municipality, province, total_passengers, notes'
           ')',
         )
         .eq('id', activityId)
@@ -1295,48 +1378,184 @@ class TourisTrikeRepository {
   Future<List<PackageActivity>> fetchPendingPackageActivities({
     int limit = 30,
   }) async {
+    // Fetch driver's municipality for filtering.
+    // Some deployments may not have profiles.municipality in older schema versions.
+    final profileRow = await _client
+        .from('profiles')
+        .select('city, province')
+        .eq('id', requireUserId())
+        .maybeSingle();
+    final driverMunicipality = _normalizeLocationText(
+      _firstNonEmptyLocation([profileRow?['city']]),
+    );
+    final driverProvince = _normalizeLocationText(
+      _firstNonEmptyLocation([profileRow?['province'], 'Bulacan']),
+    );
+    if (driverMunicipality.isEmpty || driverProvince.isEmpty) {
+      return const [];
+    }
+
     final rows = await _client
         .from(TourisTrikeTables.packageActivities)
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
+          'tourist:profiles!package_activities_tourist_id_fkey('
+          '  full_name, first_name, last_name, profile_image_url, mobile'
+          '), '
           'package_bookings('
-          '  travel_date, adults, children, booking_type, '
+          '  id, travel_date, adults, children, booking_type, status, booking_status, '
           '  pickup_address, pickup_latitude, pickup_longitude, '
-          '  dropoff_address, dropoff_latitude, dropoff_longitude'
+          '  dropoff_address, dropoff_latitude, dropoff_longitude, '
+          '  required_drivers, accepted_drivers_count, municipality, province, '
+          '  total_amount, total_passengers, notes'
           ')',
         )
         .eq('status', 'pending')
         .isFilter('driver_id', null)
         .order('created_at', ascending: true)
-        .limit(limit);
-    return _rows(rows).map(PackageActivity.new).toList(growable: false);
+        .limit(limit * 3); // over-fetch so client filter doesn't under-return
+
+    return _rows(rows)
+        .map(PackageActivity.new)
+        .where((activity) {
+          final booking = activity.bookingRow;
+          final required = (booking?['required_drivers'] as num?)?.toInt() ?? 1;
+          final accepted =
+              (booking?['accepted_drivers_count'] as num?)?.toInt() ?? 0;
+          // Exclude fully-staffed bookings
+          if (accepted >= required) return false;
+
+          // Municipality filter — strict: legacy (no municipality) passes through;
+          // area-specific bookings only shown to drivers in that municipality.
+          final bookingStatus = dbString(
+            booking?['booking_status'],
+            fallback: dbString(booking?['status'], fallback: activity.status),
+          );
+          if (bookingStatus != 'pending' &&
+              bookingStatus != 'waiting_for_drivers') {
+            return false;
+          }
+
+          final bookingMunicipality = _normalizeLocationText(
+            _firstNonEmptyLocation([
+              booking?['municipality'],
+              activity.packageRow?['city'],
+            ]),
+          );
+          final bookingProvince = _normalizeLocationText(
+            _firstNonEmptyLocation([booking?['province'], 'Bulacan']),
+          );
+          return _matchesNormalizedLocation(
+                bookingMunicipality,
+                driverMunicipality,
+              ) &&
+              _matchesNormalizedLocation(bookingProvince, driverProvince);
+        })
+        .take(limit)
+        .toList(growable: false);
   }
 
   Future<bool> driverHasActivePackageTour() async {
-    final rows = await _client
+    final driverId = requireUserId();
+
+    // Terminal statuses — never block on these
+    const doneStatuses = {'completed', 'done', 'cancelled'};
+    // Active statuses for package_activities.status
+    const activeActivityStatuses = ['pending', 'accepted', 'ongoing'];
+
+    // Check direct driver_id link in package_activities
+    final direct = await _client
         .from(TourisTrikeTables.packageActivities)
-        .select('id')
-        .eq('driver_id', requireUserId())
-        .inFilter('status', ['accepted', 'ongoing'])
-        .limit(1);
-    return _rows(rows).isNotEmpty;
+        .select('id, status, tour_status')
+        .eq('driver_id', driverId)
+        .inFilter('status', activeActivityStatuses)
+        .limit(20);
+
+    final hasActiveDirect = _rows(direct).any((row) {
+      final status = dbString(row['status']).toLowerCase();
+      final tourStatus = dbString(row['tour_status']).toLowerCase();
+      final blocked =
+          doneStatuses.contains(status) || doneStatuses.contains(tourStatus);
+      debugPrint(
+        '[driverHasActiveTour] direct activity status=$status '
+        'tour_status=$tourStatus blocked=$blocked', // ignore: unnecessary_brace_in_string_interps
+      );
+      return !blocked;
+    });
+
+    if (hasActiveDirect) return true;
+
+    // Check via booking_drivers — join package_bookings to verify the booking
+    // is still active (booking_drivers.status stays 'accepted' forever otherwise)
+    final grouped = await _client
+        .from(TourisTrikeTables.bookingDrivers)
+        .select(
+          'booking_id, '
+          'package_bookings(status, booking_status)',
+        )
+        .eq('driver_id', driverId)
+        .eq('status', 'accepted')
+        .limit(20);
+
+    final hasActiveGrouped = _rows(grouped).any((row) {
+      final b = row['package_bookings'];
+      final bookingStatus =
+          (b is Map ? (b['booking_status'] ?? b['status'] ?? '') : '')
+              .toString()
+              .toLowerCase();
+      final blocked = doneStatuses.contains(bookingStatus);
+      debugPrint(
+        '[driverHasActiveTour] group booking bookingId=${row['booking_id']} '
+        'booking_status=$bookingStatus blocked=$blocked',
+      );
+      return !blocked;
+    });
+
+    debugPrint('[driverHasActiveTour] result=$hasActiveGrouped');
+    return hasActiveGrouped;
   }
 
-  Future<void> acceptPackageBooking({
-    required String activityId,
+  Future<Set<String>> fetchDriverAcceptedBookingIds() async {
+    // Only exclude bookings this driver has accepted that are still active
+    final rows = await _client
+        .from(TourisTrikeTables.bookingDrivers)
+        .select('booking_id')
+        .eq('driver_id', requireUserId())
+        .eq('status', 'accepted');
+    return _rows(rows)
+        .map((r) => r['booking_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  Future<Map<String, dynamic>> acceptPackageBooking({
     required String bookingId,
+    // activityId kept for backwards-compat callers but ignored; RPC resolves it
+    String? activityId,
   }) async {
-    await _client.rpc(
-      'driver_accept_package_activity',
-      params: {'p_activity_id': activityId},
-    );
+    try {
+      final result = await _client.rpc(
+        'accept_package_booking',
+        params: {'p_booking_id': bookingId},
+      );
+      return (result as Map<String, dynamic>?) ?? {};
+    } catch (error, stackTrace) {
+      debugPrint(
+        'acceptPackageBooking failed '
+        'bookingId=$bookingId driverId=${currentUserId ?? 'unknown'} '
+        'error=$error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
   Future<void> updateActivityTourStatus({
     required String activityId,
     required String tourStatus,
     String? activityStatus,
+    String? bookingStatus,
     int? currentSpotIndex,
     double? driverLat,
     double? driverLng,
@@ -1367,7 +1586,9 @@ class TourisTrikeRepository {
 
     final bookingUpdate = <String, dynamic>{
       'booking_status':
-          activityStatus ?? _bookingStatusFromTourStatus(tourStatus),
+          bookingStatus ??
+          activityStatus ??
+          _bookingStatusFromTourStatus(tourStatus),
       'current_spot_index': currentSpotIndex ?? activity?.currentSpotIndex ?? 0,
       'updated_at': DateTime.now().toIso8601String(),
       ...extra,
@@ -1424,6 +1645,26 @@ class TourisTrikeRepository {
     );
   }
 
+  Future<Map<String, dynamic>> completeCurrentItineraryItem(
+    String activityId, {
+    String itineraryItemId = '',
+    String remainingPaymentMethod = '',
+  }) async {
+    final result = await _client.rpc(
+      'complete_current_itinerary_item',
+      params: {
+        'p_activity_id': activityId,
+        'p_itinerary_item_id': itineraryItemId.trim().isEmpty
+            ? null
+            : itineraryItemId.trim(),
+        'p_remaining_payment_method': remainingPaymentMethod.trim().isEmpty
+            ? null
+            : remainingPaymentMethod,
+      },
+    );
+    return (result as Map<String, dynamic>?) ?? {};
+  }
+
   // ── WALLET DEDUCTION ─────────────────────────────────────────
 
   Future<void> deductWalletForBooking({
@@ -1454,16 +1695,250 @@ class TourisTrikeRepository {
       case 'driver_arrived':
         return 'driver_on_the_way';
       case 'picked_up':
+      case 'on_tour':
       case 'en_route_to_spot':
       case 'at_spot':
       case 'en_route_to_dropoff':
-        return 'in_progress';
+      case 'ready_to_complete':
+        return 'on_tour';
       case 'dropped_off':
       case 'completed':
         return 'completed';
       default:
         return 'accepted';
     }
+  }
+
+  // ── LIVE LOCATION ────────────────────────────────────────────
+
+  Future<void> upsertDriverLiveLocation({
+    required String activityId,
+    required double latitude,
+    required double longitude,
+    double heading = 0,
+    double speed = 0,
+  }) async {
+    final driverId = requireUserId();
+    await _client.from(TourisTrikeTables.driverLiveLocations).upsert({
+      'driver_id': driverId,
+      'activity_id': activityId,
+      'latitude': latitude,
+      'longitude': longitude,
+      'heading': heading,
+      'speed': speed,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, onConflict: 'driver_id');
+  }
+
+  Future<DriverLiveLocation?> fetchDriverLiveLocation(String driverId) async {
+    final row = await fetchOne(
+      TourisTrikeTables.driverLiveLocations,
+      equals: {'driver_id': driverId},
+    );
+    return row == null ? null : DriverLiveLocation(row);
+  }
+
+  // ── TRIP STATUS LOGS ─────────────────────────────────────────
+
+  Future<void> logTripStatus({
+    required String activityId,
+    required String bookingId,
+    required String status,
+    int? spotIndex,
+    double? latitude,
+    double? longitude,
+    String notes = '',
+  }) async {
+    final payload = <String, dynamic>{
+      'activity_id': activityId,
+      'booking_id': bookingId,
+      'status': status,
+      'logged_at': DateTime.now().toIso8601String(),
+    };
+    if (spotIndex != null) payload['spot_index'] = spotIndex;
+    if (latitude != null) {
+      payload['latitude'] = latitude;
+      payload['longitude'] = longitude;
+    }
+    if (notes.isNotEmpty) payload['notes'] = notes;
+    await _client.from(TourisTrikeTables.tripStatusLogs).insert(payload);
+  }
+
+  // ── ITINERARY ACTUAL TIMES ───────────────────────────────────
+
+  Future<void> markSpotActualArrival({
+    required String bookingId,
+    int spotIndex = 0,
+    String? itineraryItemId,
+  }) async {
+    String? targetId = itineraryItemId;
+    if (targetId == null || targetId.isEmpty) {
+      final rows = await _client
+          .from(TourisTrikeTables.bookingItineraryItems)
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('order_number', ascending: true)
+          .order('destination_order', ascending: true)
+          .order('arrival_time', ascending: true)
+          .range(spotIndex, spotIndex);
+      final list = _rows(rows);
+      if (list.isEmpty) return;
+      targetId = dbString(list.first['id']);
+    }
+    await _client
+        .from(TourisTrikeTables.bookingItineraryItems)
+        .update({
+          'actual_arrival_time': DateTime.now().toIso8601String(),
+          'spot_status': 'at_spot',
+        })
+        .eq('id', targetId);
+  }
+
+  Future<void> markSpotActualDeparture({
+    required String bookingId,
+    int spotIndex = 0,
+    String? itineraryItemId,
+  }) async {
+    String? targetId = itineraryItemId;
+    if (targetId == null || targetId.isEmpty) {
+      final rows = await _client
+          .from(TourisTrikeTables.bookingItineraryItems)
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('order_number', ascending: true)
+          .order('destination_order', ascending: true)
+          .order('arrival_time', ascending: true)
+          .range(spotIndex, spotIndex);
+      final list = _rows(rows);
+      if (list.isEmpty) return;
+      targetId = dbString(list.first['id']);
+    }
+    // Use .select() so we can detect when RLS silently blocks the update
+    // (Supabase returns an empty list instead of throwing when 0 rows match).
+    final updated = await _client
+        .from(TourisTrikeTables.bookingItineraryItems)
+        .update({
+          'actual_departure_time': DateTime.now().toIso8601String(),
+          'spot_status': 'completed',
+        })
+        .eq('id', targetId)
+        .select('id');
+    if (_rows(updated).isEmpty) {
+      throw StateError(
+        'markSpotActualDeparture: 0 rows updated for id=$targetId. '
+        'RLS may be blocking the update — apply migration '
+        '20260521040000_fix_spot_complete_driver_access.sql.',
+      );
+    }
+  }
+
+  Future<void> markSpotTravelling({
+    required String bookingId,
+    int spotIndex = 0,
+    String? itineraryItemId,
+  }) async {
+    String? targetId = itineraryItemId;
+    if (targetId == null || targetId.isEmpty) {
+      final rows = await _client
+          .from(TourisTrikeTables.bookingItineraryItems)
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('order_number', ascending: true)
+          .order('destination_order', ascending: true)
+          .order('arrival_time', ascending: true)
+          .range(spotIndex, spotIndex);
+      final list = _rows(rows);
+      if (list.isEmpty) return;
+      targetId = dbString(list.first['id']);
+    }
+    await _client
+        .from(TourisTrikeTables.bookingItineraryItems)
+        .update({'spot_status': 'travelling'})
+        .eq('id', targetId);
+  }
+
+  // ── GROUP BOOKING ────────────────────────────────────────────
+
+  Future<void> updateBookingRequiredDrivers({
+    required String bookingId,
+    required int requiredDrivers,
+  }) async {
+    await updateRows(
+      TourisTrikeTables.packageBookings,
+      {'required_drivers': requiredDrivers},
+      equals: {'id': bookingId},
+    );
+  }
+
+  Future<List<BookingDriver>> fetchBookingDrivers(String bookingId) async {
+    final rows = await fetchRows(
+      TourisTrikeTables.bookingDrivers,
+      equals: {'booking_id': bookingId},
+      orderBy: 'accepted_at',
+    );
+    return rows.map(BookingDriver.new).toList(growable: false);
+  }
+
+  // ── DRIVER REVIEWS ───────────────────────────────────────────
+
+  Future<bool> hasReviewedBooking(String bookingId) async {
+    final userId = currentUserId;
+    if (userId == null) return false;
+    final row = await _client
+        .from(TourisTrikeTables.driverReviews)
+        .select('id')
+        .eq('booking_id', bookingId)
+        .eq('tourist_id', userId)
+        .maybeSingle();
+    return row != null;
+  }
+
+  Future<void> submitDriverReview({
+    required String bookingId,
+    required String driverId,
+    required int rating,
+    String reviewText = '',
+  }) async {
+    final userId = requireUserId();
+    await _client.from(TourisTrikeTables.driverReviews).insert({
+      'booking_id': bookingId,
+      'driver_id': driverId,
+      'tourist_id': userId,
+      'rating': rating,
+      'review_text': reviewText.trim().isEmpty ? null : reviewText.trim(),
+    });
+  }
+
+  Future<String?> fetchAssignedDriverIdForBooking(String bookingId) async {
+    final bd = await _client
+        .from(TourisTrikeTables.bookingDrivers)
+        .select('driver_id')
+        .eq('booking_id', bookingId)
+        .eq('status', 'accepted')
+        .limit(1)
+        .maybeSingle();
+    if (bd != null) {
+      final id = bd['driver_id']?.toString();
+      if (id != null && id.isNotEmpty) return id;
+    }
+    final pa = await _client
+        .from(TourisTrikeTables.packageActivities)
+        .select('driver_id, assigned_driver_id')
+        .eq('booking_id', bookingId)
+        .limit(1)
+        .maybeSingle();
+    if (pa != null) {
+      return (pa['driver_id'] ?? pa['assigned_driver_id'])?.toString();
+    }
+    return null;
+  }
+
+  Future<Profile?> fetchDriverProfile(String driverId) async {
+    final row = await fetchOne(
+      TourisTrikeTables.profiles,
+      equals: {'id': driverId},
+    );
+    return row == null ? null : Profile(row);
   }
 
   List<Json> _rows(dynamic rows) {

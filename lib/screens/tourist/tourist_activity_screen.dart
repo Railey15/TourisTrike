@@ -65,21 +65,29 @@ class _ActivityScreenState extends State<ActivityScreen> {
           table: 'package_bookings',
           callback: (_) => _reload(),
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'booking_drivers',
+          callback: (_) => _reload(),
+        )
         .subscribe();
   }
 
   List<PackageActivity> _filtered(List<PackageActivity> list) {
     if (_filter == _StatusFilter.all) return list;
-    return list.where((a) {
-      return switch (_filter) {
-        _StatusFilter.all => true,
-        _StatusFilter.pending => a.status == 'pending',
-        _StatusFilter.active =>
-          a.status == 'accepted' || a.status == 'ongoing',
-        _StatusFilter.completed => a.status == 'completed',
-        _StatusFilter.cancelled => a.status == 'cancelled',
-      };
-    }).toList(growable: false);
+    return list
+        .where((a) {
+          return switch (_filter) {
+            _StatusFilter.all => true,
+            _StatusFilter.pending => a.status == 'pending',
+            _StatusFilter.active =>
+              a.status == 'accepted' || a.status == 'ongoing',
+            _StatusFilter.completed => a.status == 'completed',
+            _StatusFilter.cancelled => a.status == 'cancelled',
+          };
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -91,117 +99,128 @@ class _ActivityScreenState extends State<ActivityScreen> {
           top: false,
           child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 3)),
         ),
-      body: SafeArea(
-        child: FutureBuilder<_ActivityPayload>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
+        body: SafeArea(
+          child: FutureBuilder<_ActivityPayload>(
+            future: _future,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
+                );
+              }
+              if (snap.hasError) {
+                return _ErrorState(
+                  message: snap.error.toString(),
+                  onRetry: _reload,
+                );
+              }
+
+              final payload = snap.data ?? const _ActivityPayload();
+              final all = payload.activities;
+              final shown = _filtered(all);
+
+              // Summary stats
+              final totalSpent = all
+                  .where(
+                    (a) => a.status != 'cancelled' && a.paymentStatus == 'paid',
+                  )
+                  .fold<double>(
+                    0,
+                    (s, a) =>
+                        s +
+                        dbDouble(
+                          a.bookingRow?['total_amount'],
+                          fallback: a.price,
+                        ),
+                  );
+              final activeCount = all
+                  .where((a) => a.status == 'accepted' || a.status == 'ongoing')
+                  .length;
+
+              return RefreshIndicator(
+                onRefresh: () async => _reload(),
+                color: const Color(0xFF2A86FF),
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+                  children: [
+                    // ── Header ─────────────────────────────────
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4),
+                      child: Center(
+                        child: Text(
+                          'Activity',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // ── Summary cards ──────────────────────────
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Bookings',
+                            value: '${all.length}',
+                            icon: Icons.card_travel_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Active',
+                            value: '$activeCount',
+                            icon: Icons.directions_car_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Spent',
+                            value: NumberFormat.compactCurrency(
+                              symbol: '₱',
+                              decimalDigits: 0,
+                            ).format(totalSpent),
+                            icon: Icons.payments_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // ── Filter tabs ─────────────────────────────
+                    _FilterRow(
+                      value: _filter,
+                      onChanged: (v) => setState(() => _filter = v),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // ── Activity cards ─────────────────────────
+                    if (shown.isEmpty)
+                      const _EmptyState()
+                    else
+                      ...shown.map(
+                        (a) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _ActivityCard(
+                            activity: a,
+                            driverInfo: payload.driverInfos[a.driverId],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               );
-            }
-            if (snap.hasError) {
-              return _ErrorState(
-                  message: snap.error.toString(), onRetry: _reload);
-            }
-
-            final payload = snap.data ?? const _ActivityPayload();
-            final all = payload.activities;
-            final shown = _filtered(all);
-
-            // Summary stats
-            final totalSpent = all
-                .where((a) =>
-                    a.status != 'cancelled' && a.paymentStatus == 'paid')
-                .fold<double>(0, (s, a) => s + a.price);
-            final activeCount = all
-                .where((a) =>
-                    a.status == 'accepted' || a.status == 'ongoing')
-                .length;
-
-            return RefreshIndicator(
-              onRefresh: () async => _reload(),
-              color: const Color(0xFF2A86FF),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-                children: [
-                  // ── Header ─────────────────────────────────
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Center(
-                      child: Text(
-                        'Activity',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // ── Summary cards ──────────────────────────
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Bookings',
-                          value: '${all.length}',
-                          icon: Icons.card_travel_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Active',
-                          value: '$activeCount',
-                          icon: Icons.directions_car_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Spent',
-                          value: NumberFormat.compactCurrency(
-                            symbol: '₱',
-                            decimalDigits: 0,
-                          ).format(totalSpent),
-                          icon: Icons.payments_outlined,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Filter tabs ─────────────────────────────
-                  _FilterRow(
-                    value: _filter,
-                    onChanged: (v) => setState(() => _filter = v),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Activity cards ─────────────────────────
-                  if (shown.isEmpty)
-                    const _EmptyState()
-                  else
-                    ...shown.map(
-                      (a) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _ActivityCard(
-                          activity: a,
-                          driverInfo: payload.driverInfos[a.driverId],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
+            },
+          ),
         ),
       ),
-    ));
+    );
   }
 }
 
@@ -221,7 +240,11 @@ class _ActivityCard extends StatelessWidget {
     final driver = activity.driverRow;
 
     final packageTitle = dbString(pkg?['title'], fallback: 'Tour Package');
-    final city = dbString(pkg?['city']);
+    final municipality = dbString(booking?['municipality']);
+    final province = dbString(booking?['province'], fallback: 'Bulacan');
+    final areaLabel = municipality.isNotEmpty
+        ? '$municipality, $province'
+        : dbString(pkg?['city']);
     final imageUrl = dbString(
       pkg?['cover_image_url'],
       fallback: dbString(pkg?['image_url']),
@@ -237,13 +260,19 @@ class _ActivityCard extends StatelessWidget {
 
     final driverName = driverInfo?.name.isNotEmpty == true
         ? driverInfo!.name
-        : dbString(driver?['full_name'],
-        fallback: [
-          dbString(driver?['first_name']),
-          dbString(driver?['last_name']),
-        ].where((s) => s.isNotEmpty).join(' '));
+        : dbString(
+            driver?['full_name'],
+            fallback: [
+              dbString(driver?['first_name']),
+              dbString(driver?['last_name']),
+            ].where((s) => s.isNotEmpty).join(' '),
+          );
     final driverPhone = driverInfo?.phoneNumber ?? dbString(driver?['mobile']);
     final vehicleInfo = driverInfo?.vehicleDetails ?? '';
+    final bookingAmount = dbDouble(
+      booking?['total_amount'],
+      fallback: activity.price,
+    );
 
     final money = NumberFormat.currency(symbol: '₱', decimalDigits: 0);
 
@@ -253,9 +282,8 @@ class _ActivityCard extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => ActivityTrackingScreen(
-                bookingId: activity.bookingId,
-              ),
+              builder: (_) =>
+                  ActivityTrackingScreen(bookingId: activity.bookingId),
             ),
           );
         }
@@ -289,16 +317,20 @@ class _ActivityCard extends StatelessWidget {
                     child: imageUrl.isEmpty
                         ? Container(
                             color: const Color(0xFFEAF2FF),
-                            child: const Icon(Icons.map_rounded,
-                                color: Color(0xFF2A86FF)),
+                            child: const Icon(
+                              Icons.map_rounded,
+                              color: Color(0xFF2A86FF),
+                            ),
                           )
                         : Image.network(
                             imageUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) => Container(
                               color: const Color(0xFFEAF2FF),
-                              child: const Icon(Icons.map_rounded,
-                                  color: Color(0xFF2A86FF)),
+                              child: const Icon(
+                                Icons.map_rounded,
+                                color: Color(0xFF2A86FF),
+                              ),
                             ),
                           ),
                   ),
@@ -325,15 +357,18 @@ class _ActivityCard extends StatelessWidget {
                           _BookingStatusChip(status: activity.status),
                         ],
                       ),
-                      if (city.isNotEmpty) ...[
+                      if (areaLabel.isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Row(
                           children: [
-                            const Icon(Icons.location_on_rounded,
-                                size: 13, color: Color(0xFF64748B)),
+                            const Icon(
+                              Icons.location_on_rounded,
+                              size: 13,
+                              color: Color(0xFF64748B),
+                            ),
                             const SizedBox(width: 3),
                             Text(
-                              city,
+                              areaLabel,
                               style: const TextStyle(
                                 color: Color(0xFF64748B),
                                 fontWeight: FontWeight.w700,
@@ -353,7 +388,7 @@ class _ActivityCard extends StatelessWidget {
                           const SizedBox(width: 6),
                           _InfoPill(
                             icon: Icons.payments_outlined,
-                            text: money.format(activity.price),
+                            text: money.format(bookingAmount),
                           ),
                         ],
                       ),
@@ -361,6 +396,28 @@ class _ActivityCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+
+            // Group booking waiting indicator
+            Builder(
+              builder: (context) {
+                final required =
+                    (booking?['required_drivers'] as num?)?.toInt() ?? 1;
+                final accepted =
+                    (booking?['accepted_drivers_count'] as num?)?.toInt() ?? 0;
+                if (required <= 1) return const SizedBox.shrink();
+                final isWaiting =
+                    activity.status == 'pending' ||
+                    activity.status == 'accepted';
+                if (!isWaiting) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: _GroupDriversBar(
+                    accepted: accepted,
+                    required: required,
+                  ),
+                );
+              },
             ),
 
             // Divider
@@ -542,11 +599,11 @@ class _FilterRow extends StatelessWidget {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 9),
+                  horizontal: 16,
+                  vertical: 9,
+                ),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? const Color(0xFF2A86FF)
-                      : Colors.white,
+                  color: selected ? const Color(0xFF2A86FF) : Colors.white,
                   borderRadius: BorderRadius.circular(99),
                   border: Border.all(color: const Color(0xFFE7EEF7)),
                 ),
@@ -680,8 +737,11 @@ class _EmptyState extends StatelessWidget {
               color: const Color(0xFFEAF2FF),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(Icons.card_travel_rounded,
-                color: Color(0xFF2A86FF), size: 32),
+            child: const Icon(
+              Icons.card_travel_rounded,
+              color: Color(0xFF2A86FF),
+              size: 32,
+            ),
           ),
           const SizedBox(height: 14),
           const Text(
@@ -707,6 +767,72 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+// ── Group drivers bar ──────────────────────────────────────────
+class _GroupDriversBar extends StatelessWidget {
+  const _GroupDriversBar({required this.accepted, required this.required});
+
+  final int accepted;
+  final int required;
+
+  @override
+  Widget build(BuildContext context) {
+    final allConfirmed = accepted >= required;
+    final fg = allConfirmed ? const Color(0xFF16A34A) : const Color(0xFF92400E);
+    final bg = allConfirmed ? const Color(0xFFECFDF5) : const Color(0xFFFFF7ED);
+    final border = allConfirmed
+        ? const Color(0xFF86EFAC)
+        : const Color(0xFFFED7AA);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            allConfirmed
+                ? Icons.check_circle_rounded
+                : Icons.pending_actions_rounded,
+            size: 14,
+            color: fg,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              allConfirmed
+                  ? 'All $required drivers confirmed'
+                  : 'Waiting for drivers ($accepted / $required)',
+              style: TextStyle(
+                color: fg,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          if (!allConfirmed) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 56,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: required > 0 ? accepted / required : 0,
+                  backgroundColor: const Color(0xFFFED7AA),
+                  valueColor: const AlwaysStoppedAnimation(Color(0xFFF59E0B)),
+                  minHeight: 5,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ── Error state ────────────────────────────────────────────────
 class _ErrorState extends StatelessWidget {
   const _ErrorState({required this.message, required this.onRetry});
@@ -722,8 +848,11 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded,
-                color: Color(0xFFDC2626), size: 40),
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Color(0xFFDC2626),
+              size: 40,
+            ),
             const SizedBox(height: 12),
             Text(
               message,
@@ -734,10 +863,7 @@ class _ErrorState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: onRetry,
-              child: const Text('Retry'),
-            ),
+            ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),

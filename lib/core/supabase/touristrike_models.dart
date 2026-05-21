@@ -120,8 +120,11 @@ class Profile extends TourisTrikeRow {
   DateTime? get birthdate => dbDate(row['birthdate']);
   String get barangay => dbString(row['barangay']);
   String get city => dbString(row['city']);
+  String get municipality => dbString(row['municipality'], fallback: city);
   String get province => dbString(row['province'], fallback: 'Bulacan');
   String get postalCode => dbString(row['postal_code']);
+  bool get isAvailable => dbBool(row['is_available']);
+  bool get isVerified => dbBool(row['is_verified']);
 
   String get displayName {
     if (fullName.isNotEmpty) return fullName;
@@ -133,10 +136,29 @@ class Profile extends TourisTrikeRow {
     return parts.isEmpty ? 'User' : parts;
   }
 
+  double get averageRating => dbDouble(row['average_rating']);
+  int get totalReviews => dbInt(row['total_reviews']);
+
+  String get ratingLabel {
+    if (totalReviews == 0) return 'No ratings yet';
+    return '${averageRating.toStringAsFixed(1)} ($totalReviews review${totalReviews == 1 ? '' : 's'})';
+  }
+
   bool get isTourist => role == 'tourist';
   bool get isDriver => role == 'driver';
   bool get isAdmin => role == 'admin';
   bool get isSubtenant => role == 'subtenant';
+}
+
+class DriverReview extends TourisTrikeRow {
+  const DriverReview(super.row);
+
+  String get bookingId => dbString(row['booking_id']);
+  String get driverId => dbString(row['driver_id']);
+  String get touristId => dbString(row['tourist_id']);
+  int get rating => dbInt(row['rating']);
+  String get reviewText => dbString(row['review_text']);
+  DateTime? get createdAt => dbDate(row['created_at']);
 }
 
 class AdminSettings extends TourisTrikeRow {
@@ -339,9 +361,16 @@ class PackageBooking extends TourisTrikeRow {
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
   String get assignedDriverId => dbString(row['assigned_driver_id']);
-  String get bookingStatus =>
-      dbString(row['booking_status'], fallback: status);
+  String get bookingStatus => dbString(row['booking_status'], fallback: status);
+  String get municipality =>
+      dbString(row['municipality'], fallback: dbString(packageRow?['city']));
+  String get province => dbString(row['province'], fallback: 'Bulacan');
+  int get totalPassengers =>
+      dbInt(row['total_passengers'], fallback: adults + children);
   int get currentSpotIndex => dbInt(row['current_spot_index'], fallback: 0);
+  int get requiredDrivers => dbInt(row['required_drivers'], fallback: 1);
+  int get acceptedDriversCount =>
+      dbInt(row['accepted_drivers_count'], fallback: 0);
   double? get driverLatitude => row['driver_latitude'] is num
       ? (row['driver_latitude'] as num).toDouble()
       : null;
@@ -359,7 +388,11 @@ class PackageBooking extends TourisTrikeRow {
       ? Json.from(row['tour_packages'] as Map)
       : null;
   Json? get touristRow =>
-      row['profiles'] is Map ? Json.from(row['profiles'] as Map) : null;
+      row['profiles'] is Map
+      ? Json.from(row['profiles'] as Map)
+      : row['tourist'] is Map
+      ? Json.from(row['tourist'] as Map)
+      : null;
   Json? get driverRow =>
       row['driver'] is Map ? Json.from(row['driver'] as Map) : null;
 }
@@ -542,6 +575,10 @@ class BookingItineraryItem extends TourisTrikeRow {
 
   dynamic get bookingId => row['booking_id'];
   dynamic get spotId => row['spot_id'];
+  int get orderNumber => dbInt(
+    row['order_number'],
+    fallback: dbInt(row['destination_order'], fallback: 1),
+  );
   String get destinationName =>
       dbString(row['destination_name'], fallback: dbString(row['spot_title']));
   String get destinationAddress => dbString(
@@ -549,7 +586,7 @@ class BookingItineraryItem extends TourisTrikeRow {
     fallback: dbString(row['spot_address']),
   );
   int get destinationOrder =>
-      dbInt(row['order_number'] ?? row['destination_order'], fallback: 1);
+      dbInt(row['destination_order'], fallback: orderNumber);
   String get arrivalTime => dbTimeText(row['arrival_time']);
   int get estimatedStayDurationMinutes =>
       dbInt(row['estimated_stay_duration_minutes'], fallback: 0);
@@ -573,6 +610,9 @@ class BookingItineraryItem extends TourisTrikeRow {
   String get formattedArrivalTime => formatScheduleTimeLabel(arrivalTime);
   String get formattedDepartureTime => formatScheduleTimeLabel(departureTime);
   bool get isCustomized => sourceType == 'customized';
+  DateTime? get actualArrivalTime => dbDate(row['actual_arrival_time']);
+  DateTime? get actualDepartureTime => dbDate(row['actual_departure_time']);
+  String get spotStatus => dbString(row['spot_status'], fallback: 'pending');
 }
 
 class TourPackageView extends TourisTrikeRow {
@@ -769,6 +809,46 @@ class TouristSpot extends TourisTrikeRow {
         .map((item) => TouristSpotImage(Json.from(item)))
         .toList(growable: false);
   }
+}
+
+class BookingDriver extends TourisTrikeRow {
+  const BookingDriver(super.row);
+
+  dynamic get bookingId => row['booking_id'];
+  String get driverId => dbString(row['driver_id']);
+  dynamic get activityId => row['activity_id'];
+  String get status => dbString(row['status'], fallback: 'accepted');
+  DateTime? get acceptedAt => dbDate(row['accepted_at']);
+  DateTime? get completedAt => dbDate(row['completed_at']);
+  DateTime? get createdAt => dbDate(row['created_at']);
+}
+
+class DriverLiveLocation extends TourisTrikeRow {
+  const DriverLiveLocation(super.row);
+
+  String get driverId => dbString(row['driver_id']);
+  dynamic get activityId => row['activity_id'];
+  double get latitude => dbDouble(row['latitude']);
+  double get longitude => dbDouble(row['longitude']);
+  double get heading => dbDouble(row['heading']);
+  double get speed => dbDouble(row['speed']);
+  DateTime? get updatedAt => dbDate(row['updated_at']);
+}
+
+class TripStatusLog extends TourisTrikeRow {
+  const TripStatusLog(super.row);
+
+  dynamic get activityId => row['activity_id'];
+  dynamic get bookingId => row['booking_id'];
+  String get status => dbString(row['status']);
+  int? get spotIndex =>
+      row['spot_index'] is int ? row['spot_index'] as int : null;
+  double? get latitude =>
+      row['latitude'] is num ? (row['latitude'] as num).toDouble() : null;
+  double? get longitude =>
+      row['longitude'] is num ? (row['longitude'] as num).toDouble() : null;
+  DateTime? get loggedAt => dbDate(row['logged_at']);
+  String get notes => dbString(row['notes']);
 }
 
 class EmergencyContactRecord extends TourisTrikeRow {

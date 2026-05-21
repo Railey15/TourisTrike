@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/screens/tourist/tourist_activity_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_tracking_screen.dart';
 
 // ── Autocomplete result model ────────────────────────────────────────────────
@@ -40,7 +41,10 @@ class PackageBookingScreen extends StatefulWidget {
 }
 
 class _PackageBookingScreenState extends State<PackageBookingScreen> {
-  static const _mapsApiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+  static const int _tourStartMinutes = 7 * 60;
+  static const int _tourEndMinutes = 17 * 60;
+  static const String _tourHoursErrorMessage =
+      'Your itinerary exceeds the allowed tour hours. Tours are only available from 7:00 AM to 5:00 PM.';
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final _notesCtrl = TextEditingController();
@@ -55,12 +59,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   bool _walletLoading = true;
 
   // Pickup / drop-off
-  String? _pickupAddress;
-  double? _pickupLat;
-  double? _pickupLng;
-  String? _dropoffAddress;
-  double? _dropoffLat;
-  double? _dropoffLng;
+  _SelectedLocation? _selectedPickup;
+  _SelectedLocation? _selectedDropoff;
   String? _pickupLocationError;
   String? _dropoffLocationError;
 
@@ -88,7 +88,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   // ── Participant helpers ──────────────────────────────────────────────────
   int get _totalParticipants => _adults + _children;
-  int get _requiredTricycles => (_totalParticipants / 2).ceil();
+  static const int _tricycleCapacity = 3;
+  int get _requiredTricycles =>
+      (_totalParticipants / _tricycleCapacity).ceil().clamp(1, 99);
 
   // ── Booking type detection ───────────────────────────────────────────────
   bool get _isSameDay {
@@ -119,20 +121,163 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // ── Location callbacks ───────────────────────────────────────────────────
   void _onPickupSelected(String? address, double? lat, double? lng) {
     setState(() {
-      _pickupAddress = address;
-      _pickupLat = lat;
-      _pickupLng = lng;
-      _pickupLocationError = null;
+      if (address != null && lat != null && lng != null) {
+        _selectedPickup = _SelectedLocation(
+          address: address,
+          latitude: lat,
+          longitude: lng,
+          isValidWithinMunicipality: true,
+        );
+        _pickupLocationError = null;
+      } else {
+        _selectedPickup = null;
+      }
     });
   }
 
   void _onDropoffSelected(String? address, double? lat, double? lng) {
     setState(() {
-      _dropoffAddress = address;
-      _dropoffLat = lat;
-      _dropoffLng = lng;
-      _dropoffLocationError = null;
+      if (address != null && lat != null && lng != null) {
+        _selectedDropoff = _SelectedLocation(
+          address: address,
+          latitude: lat,
+          longitude: lng,
+          isValidWithinMunicipality: true,
+        );
+        _dropoffLocationError = null;
+      } else {
+        _selectedDropoff = null;
+      }
     });
+  }
+
+  String _packageProvince(TourPackage package) =>
+      dbString(package.row['province'], fallback: 'Bulacan');
+
+
+  String? _locationBlockingMessage(TourPackage package) {
+    if (_pickupLocationError != null) return _pickupLocationError;
+    if (_dropoffLocationError != null) return _dropoffLocationError;
+    final pickupValid =
+        _selectedPickup != null && _selectedPickup!.isValidWithinMunicipality;
+    final dropoffValid =
+        _selectedDropoff != null && _selectedDropoff!.isValidWithinMunicipality;
+    if (!pickupValid) {
+      return 'Select a pickup point within ${package.city}, ${_packageProvince(package)}.';
+    }
+    if (!dropoffValid) {
+      return 'Select a drop-off point within ${package.city}, ${_packageProvince(package)}.';
+    }
+    return null;
+  }
+
+  String? _passengerValidationMessage() {
+    if (_adults < 1) {
+      return 'Please include at least 1 adult passenger.';
+    }
+    if (_totalParticipants <= 0) {
+      return 'Please include at least 1 passenger before confirming your booking.';
+    }
+    return null;
+  }
+
+  String? _itineraryValidationMessage() {
+    final itinerary = _selectedItinerary;
+    if (itinerary.isEmpty) {
+      return 'Unable to prepare the itinerary for this booking.';
+    }
+    if (itinerary.length < 3) {
+      return 'Please keep at least 3 destinations in your itinerary.';
+    }
+    if (itinerary.length > 6) {
+      return 'You can only include up to 6 destinations.';
+    }
+
+    int? firstArrivalMinutes;
+    int? previousDepartureMinutes;
+    int? finalDepartureMinutes;
+
+    for (final item in itinerary) {
+      final arrivalMinutes = _storageTimeToMinutes(item.arrivalTime);
+      final departureMinutes = _storageTimeToMinutes(item.departureTime);
+
+      if (arrivalMinutes == null || departureMinutes == null) {
+        return 'Please complete the itinerary times before confirming your booking.';
+      }
+      if (item.stayMinutes <= 0) {
+        return 'Please enter a valid estimated stay for ${item.destinationName}.';
+      }
+      if (departureMinutes <= arrivalMinutes) {
+        return 'Please make sure departure time is after arrival time for ${item.destinationName}.';
+      }
+      if (arrivalMinutes < _tourStartMinutes ||
+          arrivalMinutes > _tourEndMinutes ||
+          departureMinutes < _tourStartMinutes ||
+          departureMinutes > _tourEndMinutes) {
+        return _tourHoursErrorMessage;
+      }
+      if (previousDepartureMinutes != null &&
+          arrivalMinutes < previousDepartureMinutes) {
+        return 'Please keep your itinerary times in chronological order.';
+      }
+
+      firstArrivalMinutes ??= arrivalMinutes;
+      previousDepartureMinutes = departureMinutes;
+      finalDepartureMinutes = departureMinutes;
+    }
+
+    if (finalDepartureMinutes == null) {
+      return 'Unable to prepare the itinerary for this booking.';
+    }
+    if (finalDepartureMinutes > _tourEndMinutes) {
+      return _tourHoursErrorMessage;
+    }
+    if (_selectedDate == null) {
+      return 'Please select a travel date.';
+    }
+    if (_isSameDay) {
+      final now = DateTime.now();
+      final currentMinutes = now.hour * 60 + now.minute;
+      if (currentMinutes > _tourEndMinutes) {
+        return 'Tours are no longer available today. Tours are only available from 7:00 AM to 5:00 PM.';
+      }
+      if (firstArrivalMinutes != null && firstArrivalMinutes < currentMinutes) {
+        if (currentMinutes + _selectedItineraryDurationMinutes >
+            _tourEndMinutes) {
+          return _tourHoursErrorMessage;
+        }
+        return 'For same-day bookings, your tour must start no earlier than the current time.';
+      }
+    }
+
+    return null;
+  }
+
+  String? _dateAndTimeValidationMessage() {
+    if (_selectedDate == null) {
+      return 'Please select a travel date.';
+    }
+    return _itineraryValidationMessage();
+  }
+
+  String? _confirmationBlockingMessage(TourPackage package) {
+    return _spotError ??
+        _passengerValidationMessage() ??
+        _locationBlockingMessage(package) ??
+        _dateAndTimeValidationMessage();
+  }
+
+  void _navigateToActivityTracking(String bookingId) {
+    final navigator = Navigator.of(context);
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const ActivityScreen()),
+      (route) => false,
+    );
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => ActivityTrackingScreen(bookingId: bookingId),
+      ),
+    );
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -337,27 +482,48 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     );
   }
 
+  static List<String> _tourTimeOptions() {
+    final result = <String>[];
+    for (var m = _tourStartMinutes; m <= _tourEndMinutes; m += 15) {
+      final h = m ~/ 60;
+      final min = m % 60;
+      result.add(
+        '${h.toString().padLeft(2, '0')}:${min.toString().padLeft(2, '0')}:00',
+      );
+    }
+    return result;
+  }
+
   Future<void> _pickItineraryTime(
     _EditableItineraryStop item, {
     required bool pickingArrival,
   }) async {
-    final initial = _parseTimeOfDay(
-      pickingArrival ? item.arrivalTime : item.departureTime,
-    );
-    final picked = await showTimePicker(
+    final options = _tourTimeOptions();
+    final current = pickingArrival ? item.arrivalTime : item.departureTime;
+
+    final picked = await showModalBottomSheet<String>(
       context: context,
-      initialTime: initial ?? const TimeOfDay(hour: 9, minute: 0),
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => _TimePickerSheet(
+        title: pickingArrival ? 'Select Arrival Time' : 'Select Departure Time',
+        options: options,
+        selected: current,
+      ),
     );
+
     if (picked == null) return;
     setState(() {
       if (pickingArrival) {
-        item.arrivalTime = _timeOfDayToStorage(picked);
+        item.arrivalTime = picked;
         item.departureTime = addMinutesToScheduleTime(
           item.arrivalTime,
           item.stayMinutes,
         );
       } else {
-        item.departureTime = _timeOfDayToStorage(picked);
+        item.departureTime = picked;
         if (item.arrivalTime.isNotEmpty) {
           final stay = scheduleMinutesBetween(
             item.arrivalTime,
@@ -370,19 +536,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     });
   }
 
-  TimeOfDay? _parseTimeOfDay(String value) {
+  int? _storageTimeToMinutes(String value) {
     final match = RegExp(
       r'^(\d{1,2}):(\d{2})(?::\d{2})?$',
     ).firstMatch(value.trim());
     if (match == null) return null;
-    return TimeOfDay(
-      hour: int.parse(match.group(1)!),
-      minute: int.parse(match.group(2)!),
-    );
-  }
-
-  String _timeOfDayToStorage(TimeOfDay time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:00';
+    return (int.parse(match.group(1)!) * 60) + int.parse(match.group(2)!);
   }
 
   void _moveCustomizedItineraryStop(int index, int delta) {
@@ -620,92 +779,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   // ── Confirm ──────────────────────────────────────────────────────────────
-  Future<_VerifiedPhilippineLocation?> _validatePhilippineLocation({
-    required String? address,
-    required double? lat,
-    required double? lng,
-  }) async {
-    if (address == null ||
-        address.trim().isEmpty ||
-        lat == null ||
-        lng == null) {
-      return null;
-    }
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/geocode/json'
-        '?latlng=$lat,$lng'
-        '&key=$_mapsApiKey'
-        '&language=en',
-      );
-      final res = await http.get(uri).timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) {
-        _snack(
-          'Unable to verify this location. Please choose another pickup/drop-off point.',
-        );
-        return null;
-      }
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      final results = (body['results'] as List?) ?? const [];
-      if (results.isEmpty) {
-        _snack(
-          'Unable to verify this location. Please choose another pickup/drop-off point.',
-        );
-        return null;
-      }
-
-      final result = Map<String, dynamic>.from(results.first as Map);
-      final components = (result['address_components'] as List?) ?? const [];
-      String countryCode = '';
-      String province = '';
-      String locality = '';
-
-      for (final raw in components.whereType<Map>()) {
-        final component = Map<String, dynamic>.from(raw);
-        final types = (component['types'] as List?)?.cast<String>() ?? const [];
-        final longName = dbString(component['long_name']);
-        final shortName = dbString(component['short_name']);
-        if (types.contains('country')) {
-          countryCode = shortName;
-        }
-        if (types.contains('administrative_area_level_1') && province.isEmpty) {
-          province = longName;
-        }
-        if ((types.contains('locality') ||
-                types.contains('administrative_area_level_2') ||
-                types.contains('administrative_area_level_3')) &&
-            locality.isEmpty) {
-          locality = longName;
-        }
-      }
-
-      if (countryCode.toUpperCase() != 'PH') {
-        _snack('Please select a valid location within the Philippines.');
-        return null;
-      }
-      if (province.isEmpty || locality.isEmpty) {
-        _snack(
-          'Unable to verify this location. Please choose another pickup/drop-off point.',
-        );
-        return null;
-      }
-
-      return _VerifiedPhilippineLocation(
-        address: dbString(result['formatted_address'], fallback: address.trim()),
-        latitude: lat,
-        longitude: lng,
-        province: province,
-        locality: locality,
-        countryCode: countryCode,
-      );
-    } catch (_) {
-      _snack(
-        'Unable to verify this location. Please choose another pickup/drop-off point.',
-      );
-      return null;
-    }
-  }
-
   Future<void> _confirm(TourPackage package) async {
     try {
       final hasActiveTour = await _repo.hasActiveTour();
@@ -725,12 +798,20 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
-    if (_pickupLat == null ||
-        _pickupLng == null ||
-        _dropoffLat == null ||
-        _dropoffLng == null) {
+    final passengerMessage = _passengerValidationMessage();
+    if (passengerMessage != null) {
+      _snack(passengerMessage);
+      return;
+    }
+
+    final pickupValid = _selectedPickup != null &&
+        _selectedPickup!.isValidWithinMunicipality;
+    final dropoffValid = _selectedDropoff != null &&
+        _selectedDropoff!.isValidWithinMunicipality;
+
+    if (!pickupValid || !dropoffValid) {
       _snack(
-        'Please select your pickup and drop-off points before confirming your booking.',
+        'Please select valid pickup and drop-off points before confirming your booking.',
       );
       return;
     }
@@ -740,29 +821,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
-    final pickupLocation = await _validatePhilippineLocation(
-      address: _pickupAddress,
-      lat: _pickupLat,
-      lng: _pickupLng,
-    );
-    if (pickupLocation == null) {
-      setState(() {
-        _pickupLocationError =
-            'Unable to verify this location. Please choose another pickup/drop-off point.';
-      });
-      return;
-    }
-
-    final dropoffLocation = await _validatePhilippineLocation(
-      address: _dropoffAddress,
-      lat: _dropoffLat,
-      lng: _dropoffLng,
-    );
-    if (dropoffLocation == null) {
-      setState(() {
-        _dropoffLocationError =
-            'Unable to verify this location. Please choose another pickup/drop-off point.';
-      });
+    final dateAndTimeMessage = _dateAndTimeValidationMessage();
+    if (dateAndTimeMessage != null) {
+      _snack(dateAndTimeMessage);
       return;
     }
 
@@ -815,21 +876,25 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         downpaymentAmount: downpayment,
         remainingBalance: remaining,
         bookingType: _bookingType,
-        pickupAddress: pickupLocation.address,
-        pickupLatitude: pickupLocation.latitude,
-        pickupLongitude: pickupLocation.longitude,
-        pickupProvince: pickupLocation.province,
-        pickupLocality: pickupLocation.locality,
-        pickupCountryCode: pickupLocation.countryCode,
-        dropoffAddress: dropoffLocation.address,
-        dropoffLatitude: dropoffLocation.latitude,
-        dropoffLongitude: dropoffLocation.longitude,
-        dropoffProvince: dropoffLocation.province,
-        dropoffLocality: dropoffLocation.locality,
-        dropoffCountryCode: dropoffLocation.countryCode,
+        pickupAddress: _selectedPickup!.address,
+        pickupLatitude: _selectedPickup!.latitude,
+        pickupLongitude: _selectedPickup!.longitude,
+        pickupProvince: _packageProvince(package),
+        pickupLocality: package.city,
+        pickupCountryCode: 'PH',
+        dropoffAddress: _selectedDropoff!.address,
+        dropoffLatitude: _selectedDropoff!.latitude,
+        dropoffLongitude: _selectedDropoff!.longitude,
+        dropoffProvince: _packageProvince(package),
+        dropoffLocality: package.city,
+        dropoffCountryCode: 'PH',
         notes: _buildNotesSummary(),
         customizedSpots: widget.customizedSpots,
         itineraryItems: finalItinerary,
+        requiredDrivers: _requiredTricycles,
+        municipality: package.city,
+        province: _packageProvince(package),
+        totalPassengers: _totalParticipants,
       );
 
       await _repo.createPayment(
@@ -852,20 +917,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       }
 
       if (!mounted) return;
-
-      if (_isSameDay) {
-        // Go directly to the live tracking screen
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                ActivityTrackingScreen(bookingId: booking.id.toString()),
-          ),
-        );
-      } else {
-        _snack('Booking submitted successfully!', error: false);
-        Navigator.pop(context);
-      }
+      _navigateToActivityTracking(booking.id.toString());
     } catch (e) {
       if (!mounted) return;
       _snack('Unable to create booking: $e');
@@ -976,55 +1028,164 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                       ),
                       const SizedBox(height: 22),
 
-                      // ── Pickup Point ───────────────────────────────────
-                      const _SectionTitle('Pickup Point'),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Where should the driver pick you up?',
-                        style: TextStyle(
-                          color: Color(0xFF64748B),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
+                      // ── Pickup and Drop-off (combined) ─────────────────
+                      const _SectionTitle(
+                        'Select Pickup Point and Drop-off Point',
                       ),
                       const SizedBox(height: 10),
-                      _LocationPickerCard(
-                        label: 'Pickup',
-                        showUseCurrentLocation: true,
-                        showMapPreview: false,
-                        errorText: _pickupLocationError,
-                        onLocationSelected: _onPickupSelected,
-                      ),
-                      const SizedBox(height: 22),
-
-                      // ── Drop-off Point ─────────────────────────────────
-                      const _SectionTitle('Drop-off Point'),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Where should the driver drop you off after the tour?',
-                        style: TextStyle(
-                          color: Color(0xFF64748B),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: const Color(0xFFDCE8F8)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      _LocationPickerCard(
-                        label: 'Drop-off',
-                        showUseCurrentLocation: true,
-                        showMapPreview: false,
-                        errorText: _dropoffLocationError,
-                        onLocationSelected: _onDropoffSelected,
-                      ),
-                      const SizedBox(height: 22),
-
-                      _SharedRouteMapPreview(
-                        pickupAddress: _pickupAddress,
-                        pickupLat: _pickupLat,
-                        pickupLng: _pickupLng,
-                        dropoffAddress: _dropoffAddress,
-                        dropoffLat: _dropoffLat,
-                        dropoffLng: _dropoffLng,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF16A34A),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Pickup Point',
+                                        style: TextStyle(
+                                          color: Color(0xFF0F172A),
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Where should the driver pick you up?',
+                                    style: TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  _LocationPickerCard(
+                                    label: 'Pickup',
+                                    showUseCurrentLocation: true,
+                                    showMapPreview: false,
+                                    requiredMunicipality: package.city,
+                                    requiredProvince:
+                                        _packageProvince(package),
+                                    errorText: _pickupLocationError,
+                                    onValidationMessageChanged: (message) {
+                                      if (!mounted) return;
+                                      setState(
+                                        () =>
+                                            _pickupLocationError = message,
+                                      );
+                                    },
+                                    onLocationSelected: _onPickupSelected,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                              child: Divider(
+                                height: 1,
+                                color: Color(0xFFE7EEF7),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFFDC2626),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Drop-off Point',
+                                        style: TextStyle(
+                                          color: Color(0xFF0F172A),
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Where should the driver drop you off after the tour?',
+                                    style: TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  _LocationPickerCard(
+                                    label: 'Drop-off',
+                                    showUseCurrentLocation: true,
+                                    showMapPreview: false,
+                                    requiredMunicipality: package.city,
+                                    requiredProvince:
+                                        _packageProvince(package),
+                                    errorText: _dropoffLocationError,
+                                    onValidationMessageChanged: (message) {
+                                      if (!mounted) return;
+                                      setState(
+                                        () =>
+                                            _dropoffLocationError = message,
+                                      );
+                                    },
+                                    onLocationSelected: _onDropoffSelected,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: _SharedRouteMapPreview(
+                                pickupAddress: _selectedPickup?.address,
+                                pickupLat: _selectedPickup?.latitude,
+                                pickupLng: _selectedPickup?.longitude,
+                                dropoffAddress: _selectedDropoff?.address,
+                                dropoffLat: _selectedDropoff?.latitude,
+                                dropoffLng: _selectedDropoff?.longitude,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 22),
 
@@ -1196,7 +1357,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                     amountToPayNow: amountToPayNow,
                     saving: _saving,
                     onConfirm: () => _confirm(package),
-                    spotError: _spotError,
+                    blockingMessage: _confirmationBlockingMessage(package),
                   ),
                 ),
               ],
@@ -1353,6 +1514,72 @@ String _formatDurationLabel(int minutes) {
   if (hours <= 0) return '${remainder}m';
   if (remainder == 0) return '${hours}h';
   return '${hours}h ${remainder}m';
+}
+
+String _normalizeLocationName(String value) {
+  var normalized = value.toLowerCase().trim();
+  normalized = normalized.replaceAll(
+    RegExp(r'\b(city|municipality|province)\s+of\b'),
+    '',
+  );
+  normalized = normalized.replaceAll(
+    RegExp(r'\b(city|municipality|province)\b'),
+    '',
+  );
+  normalized = normalized.replaceAll(RegExp(r'[^a-z0-9]+'), ' ');
+  normalized = normalized.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return normalized;
+}
+
+bool _locationNamesMatch(String actual, String expected) {
+  final normalizedActual = _normalizeLocationName(actual);
+  final normalizedExpected = _normalizeLocationName(expected);
+  if (normalizedActual.isEmpty || normalizedExpected.isEmpty) {
+    return false;
+  }
+  return normalizedActual == normalizedExpected ||
+      normalizedActual.contains(normalizedExpected) ||
+      normalizedExpected.contains(normalizedActual);
+}
+
+bool _addressContainsLocation(String address, String expected) {
+  final normalizedAddress = _normalizeLocationName(address);
+  final normalizedExpected = _normalizeLocationName(expected);
+  if (normalizedAddress.isEmpty || normalizedExpected.isEmpty) {
+    return false;
+  }
+  return normalizedAddress.contains(normalizedExpected);
+}
+
+_ParsedAddressComponents _parseAddressComponents(List<dynamic> rawComponents) {
+  String countryCode = '';
+  String province = '';
+  String locality = '';
+
+  for (final raw in rawComponents.whereType<Map>()) {
+    final component = Map<String, dynamic>.from(raw);
+    final types = (component['types'] as List?)?.cast<String>() ?? const [];
+    final longName = dbString(component['long_name']);
+    final shortName = dbString(component['short_name']);
+    if (types.contains('country') && countryCode.isEmpty) {
+      countryCode = shortName;
+    }
+    if (types.contains('administrative_area_level_1') && province.isEmpty) {
+      province = longName;
+    }
+    if ((types.contains('locality') ||
+            types.contains('administrative_area_level_2') ||
+            types.contains('administrative_area_level_3')) &&
+        locality.isEmpty) {
+      locality = longName;
+    }
+  }
+
+  return _ParsedAddressComponents(
+    countryCode: countryCode,
+    province: province,
+    locality: locality,
+  );
 }
 
 String _itineraryTimingSummary({
@@ -1941,15 +2168,21 @@ class _LocationPickerCard extends StatefulWidget {
   const _LocationPickerCard({
     required this.label,
     required this.onLocationSelected,
+    required this.requiredMunicipality,
+    required this.requiredProvince,
     this.showUseCurrentLocation = true,
     this.showMapPreview = true,
     this.errorText,
+    this.onValidationMessageChanged,
   });
 
   final String label;
+  final String requiredMunicipality;
+  final String requiredProvince;
   final bool showUseCurrentLocation;
   final bool showMapPreview;
   final String? errorText;
+  final ValueChanged<String?>? onValidationMessageChanged;
   final void Function(String? address, double? lat, double? lng)
   onLocationSelected;
 
@@ -1998,7 +2231,9 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
     if (!mounted) return;
     setState(() => _loadingSuggestions = true);
     try {
-      final encoded = Uri.encodeQueryComponent(query);
+      final scopedQuery =
+          '$query, ${widget.requiredMunicipality}, ${widget.requiredProvince}, Philippines';
+      final encoded = Uri.encodeQueryComponent(scopedQuery);
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/place/autocomplete/json'
         '?input=$encoded'
@@ -2033,7 +2268,6 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
 
   Future<void> _selectSuggestion(_AutocompleteResult suggestion) async {
     _focusNode.unfocus();
-    _searchCtrl.text = suggestion.description;
     setState(() {
       _suggestions = [];
       _loadingDetails = true;
@@ -2042,7 +2276,7 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/place/details/json'
         '?place_id=${suggestion.placeId}'
-        '&fields=geometry,formatted_address'
+        '&fields=geometry,formatted_address,address_components,name'
         '&key=$_apiKey',
       );
       final res = await http.get(uri).timeout(const Duration(seconds: 10));
@@ -2050,19 +2284,39 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
         final result = body['result'] as Map<String, dynamic>?;
-        final location =
-            (result?['geometry'] as Map?)?.cast<String, dynamic>()['location']
-                as Map?;
+        final geometry = result?['geometry'] as Map?;
+        final location = geometry == null
+            ? null
+            : Map<String, dynamic>.from(geometry)['location'] as Map?;
         final lat = (location?['lat'] as num?)?.toDouble();
         final lng = (location?['lng'] as num?)?.toDouble();
         final address =
             result?['formatted_address'] as String? ?? suggestion.description;
+        final components = _parseAddressComponents(
+          (result?['address_components'] as List?) ?? const [],
+        );
         if (lat != null && lng != null) {
+          final validationMessage = _locationValidationMessage(
+            address: address,
+            countryCode: components.countryCode,
+            province: components.province,
+            locality: components.locality,
+          );
+          if (validationMessage != null) {
+            _invalidateSelection(validationMessage);
+            return;
+          }
           _setLocation(address, lat, lng);
+          return;
         }
       }
+      _invalidateSelection(
+        'Unable to verify this location. Please choose another pickup/drop-off point.',
+      );
     } catch (_) {
-      // ignore
+      _invalidateSelection(
+        'Unable to verify this location. Please choose another pickup/drop-off point.',
+      );
     } finally {
       if (mounted) setState(() => _loadingDetails = false);
     }
@@ -2097,6 +2351,15 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
         position.longitude,
       );
       if (!mounted) return;
+      final validationMessage = _locationValidationMessage(
+        address: address,
+        countryCode:
+            _addressContainsLocation(address, 'Philippines') ? 'PH' : '',
+      );
+      if (validationMessage != null) {
+        _invalidateSelection(validationMessage);
+        return;
+      }
       _searchCtrl.text = address;
       _setLocation(address, position.latitude, position.longitude);
     } catch (_) {
@@ -2131,12 +2394,14 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
 
   // ── Set location ─────────────────────────────────────────────────────────
   void _setLocation(String address, double lat, double lng) {
+    _searchCtrl.text = address;
     setState(() {
       _selectedAddress = address;
       _selectedLat = lat;
       _selectedLng = lng;
       _suggestions = [];
     });
+    widget.onValidationMessageChanged?.call(null);
     widget.onLocationSelected(address, lat, lng);
   }
 
@@ -2148,7 +2413,65 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
       _selectedLng = null;
       _suggestions = [];
     });
+    widget.onValidationMessageChanged?.call(null);
     widget.onLocationSelected(null, null, null);
+  }
+
+  void _invalidateSelection(String message) {
+    _searchCtrl.clear();
+    setState(() {
+      _selectedAddress = null;
+      _selectedLat = null;
+      _selectedLng = null;
+      _suggestions = [];
+    });
+    widget.onValidationMessageChanged?.call(message);
+    widget.onLocationSelected(null, null, null);
+    _showError(message);
+  }
+
+  String? _locationValidationMessage({
+    required String address,
+    String countryCode = '',
+    String province = '',
+    String locality = '',
+  }) {
+    final normalizedCountry = countryCode.trim().toUpperCase();
+    final isPhilippines = normalizedCountry == 'PH' ||
+        _addressContainsLocation(address, 'Philippines');
+    if (!isPhilippines) {
+      return 'Please select a valid location within the Philippines.';
+    }
+
+    final structuredProvinceMatches =
+        province.isNotEmpty &&
+        _locationNamesMatch(province, widget.requiredProvince);
+    final structuredLocalityMatches =
+        locality.isNotEmpty &&
+        _locationNamesMatch(locality, widget.requiredMunicipality);
+
+    if (structuredProvinceMatches && structuredLocalityMatches) {
+      return null;
+    }
+
+    final fallbackAddressMatches =
+        _addressContainsLocation(address, widget.requiredMunicipality) &&
+        _addressContainsLocation(address, widget.requiredProvince) &&
+        _addressContainsLocation(address, 'Philippines');
+    if (fallbackAddressMatches) {
+      return null;
+    }
+
+    final provinceMatches = structuredProvinceMatches ||
+        _addressContainsLocation(address, widget.requiredProvince);
+    final localityMatches = structuredLocalityMatches ||
+        _addressContainsLocation(address, widget.requiredMunicipality);
+
+    if (!provinceMatches || !localityMatches) {
+      return 'Please select a pickup/drop-off point within ${widget.requiredMunicipality}, ${widget.requiredProvince}.';
+    }
+
+    return null;
   }
 
   void _showError(String message) {
@@ -2498,25 +2821,33 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
   }
 }
 
-class _VerifiedPhilippineLocation {
-  const _VerifiedPhilippineLocation({
+class _SelectedLocation {
+  const _SelectedLocation({
     required this.address,
     required this.latitude,
     required this.longitude,
-    required this.province,
-    required this.locality,
-    required this.countryCode,
+    this.isValidWithinMunicipality = true,
   });
 
   final String address;
   final double latitude;
   final double longitude;
-  final String province;
-  final String locality;
-  final String countryCode;
+  final bool isValidWithinMunicipality;
 }
 
-class _SharedRouteMapPreview extends StatefulWidget {
+class _ParsedAddressComponents {
+  const _ParsedAddressComponents({
+    required this.countryCode,
+    required this.province,
+    required this.locality,
+  });
+
+  final String countryCode;
+  final String province;
+  final String locality;
+}
+
+class _SharedRouteMapPreview extends StatelessWidget {
   const _SharedRouteMapPreview({
     required this.pickupAddress,
     required this.pickupLat,
@@ -2526,6 +2857,8 @@ class _SharedRouteMapPreview extends StatefulWidget {
     required this.dropoffLng,
   });
 
+  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+
   final String? pickupAddress;
   final double? pickupLat;
   final double? pickupLng;
@@ -2533,100 +2866,19 @@ class _SharedRouteMapPreview extends StatefulWidget {
   final double? dropoffLat;
   final double? dropoffLng;
 
-  @override
-  State<_SharedRouteMapPreview> createState() => _SharedRouteMapPreviewState();
-}
-
-class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
-  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
-
-  String? _polyline;
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _refreshRoute();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SharedRouteMapPreview oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.pickupLat != widget.pickupLat ||
-        oldWidget.pickupLng != widget.pickupLng ||
-        oldWidget.dropoffLat != widget.dropoffLat ||
-        oldWidget.dropoffLng != widget.dropoffLng) {
-      _refreshRoute();
-    }
-  }
-
-  Future<void> _refreshRoute() async {
-    if (widget.pickupLat == null ||
-        widget.pickupLng == null ||
-        widget.dropoffLat == null ||
-        widget.dropoffLng == null) {
-      if (mounted) {
-        setState(() {
-          _polyline = null;
-          _loading = false;
-        });
-      }
-      return;
-    }
-
-    setState(() => _loading = true);
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/directions/json'
-        '?origin=${widget.pickupLat},${widget.pickupLng}'
-        '&destination=${widget.dropoffLat},${widget.dropoffLng}'
-        '&mode=driving'
-        '&key=$_apiKey',
-      );
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (!mounted) return;
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final routes = (body['routes'] as List?) ?? const [];
-        if (routes.isNotEmpty) {
-          final first = Map<String, dynamic>.from(routes.first as Map);
-          final polyline =
-              dbString((first['overview_polyline'] as Map?)?['points']);
-          setState(() {
-            _polyline = polyline.isEmpty ? null : polyline;
-            _loading = false;
-          });
-          return;
-        }
-      }
-    } catch (_) {}
-    if (mounted) {
-      setState(() => _loading = false);
-    }
-  }
-
   String _staticMapUrl() {
     final params = StringBuffer(
-      'https://maps.googleapis.com/maps/api/staticmap?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
+      'https://maps.googleapis.com/maps/api/staticmap'
+      '?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
     );
-    if (widget.pickupLat != null && widget.pickupLng != null) {
+    if (pickupLat != null && pickupLng != null) {
       params.write(
-        '&markers=color:green%7Clabel:P%7C${widget.pickupLat},${widget.pickupLng}',
+        '&markers=color:green%7Clabel:P%7C$pickupLat,$pickupLng',
       );
     }
-    if (widget.dropoffLat != null && widget.dropoffLng != null) {
+    if (dropoffLat != null && dropoffLng != null) {
       params.write(
-        '&markers=color:red%7Clabel:D%7C${widget.dropoffLat},${widget.dropoffLng}',
-      );
-    }
-    if (_polyline != null && _polyline!.isNotEmpty) {
-      params.write('&path=color:0x2A86FFcc%7Cweight:5%7Cenc:${_polyline!}');
-    } else if (widget.pickupLat != null &&
-        widget.pickupLng != null &&
-        widget.dropoffLat != null &&
-        widget.dropoffLng != null) {
-      params.write(
-        '&path=color:0x2A86FFcc%7Cweight:5%7C${widget.pickupLat},${widget.pickupLng}%7C${widget.dropoffLat},${widget.dropoffLng}',
+        '&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng',
       );
     }
     return params.toString();
@@ -2634,118 +2886,100 @@ class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
 
   @override
   Widget build(BuildContext context) {
-    final hasAnyLocation = widget.pickupLat != null || widget.dropoffLat != null;
-    if (!hasAnyLocation) {
+    final hasBoth = pickupLat != null &&
+        pickupLng != null &&
+        dropoffLat != null &&
+        dropoffLng != null;
+
+    if (!hasBoth) {
+      final hasPickup = pickupLat != null && pickupLng != null;
+      final hasDropoff = dropoffLat != null && dropoffLng != null;
+      final msg = !hasPickup && !hasDropoff
+          ? 'Select both locations above to see the map preview.'
+          : !hasPickup
+          ? 'Select your pickup point to show the map preview.'
+          : 'Select your drop-off point to show the map preview.';
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xFFF8FAFF),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFE7EEF7)),
         ),
-        child: const Text(
-          'Your shared pickup and drop-off map preview will appear here after you select both locations.',
-          style: TextStyle(
-            color: Color(0xFF64748B),
-            fontWeight: FontWeight.w700,
-            height: 1.4,
-          ),
+        child: Row(
+          children: [
+            const Icon(Icons.map_outlined, color: Color(0xFF94A3B8), size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                msg,
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w700,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE7EEF7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Pickup and Drop-off Map',
-            style: TextStyle(
-              color: Color(0xFF0F172A),
-              fontWeight: FontWeight.w900,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'One shared preview keeps both markers and the route in one place.',
-            style: TextStyle(
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w700,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Stack(
-              children: [
-                Image.network(
-                  _staticMapUrl(),
-                  height: 220,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    height: 220,
-                    color: const Color(0xFFF1F5F9),
-                    alignment: Alignment.center,
-                    child: const Text(
-                      'Map preview unavailable',
-                      style: TextStyle(
-                        color: Color(0xFF64748B),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Image.network(
+            _staticMapUrl(),
+            height: 200,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            loadingBuilder: (_, child, progress) {
+              if (progress == null) return child;
+              return Container(
+                height: 200,
+                color: const Color(0xFFF1F5F9),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF2A86FF),
+                    strokeWidth: 2,
                   ),
                 ),
-                if (_loading)
-                  const Positioned.fill(
-                    child: ColoredBox(
-                      color: Color(0x33000000),
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.4,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (widget.pickupAddress != null && widget.pickupAddress!.isNotEmpty)
-            _MapLegendRow(
-              color: const Color(0xFF16A34A),
-              label: 'Pickup',
-              value: widget.pickupAddress!,
-            ),
-          if (widget.dropoffAddress != null && widget.dropoffAddress!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: _MapLegendRow(
-                color: const Color(0xFFDC2626),
-                label: 'Drop-off',
-                value: widget.dropoffAddress!,
+              );
+            },
+            errorBuilder: (_, _, _) => Container(
+              height: 200,
+              color: const Color(0xFFF1F5F9),
+              alignment: Alignment.center,
+              child: const Text(
+                'Map preview unavailable',
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-        ],
-      ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (pickupAddress != null && pickupAddress!.isNotEmpty)
+          _MapLegendRow(
+            color: const Color(0xFF16A34A),
+            label: 'Pickup',
+            value: pickupAddress!,
+          ),
+        if (dropoffAddress != null && dropoffAddress!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: _MapLegendRow(
+              color: const Color(0xFFDC2626),
+              label: 'Drop-off',
+              value: dropoffAddress!,
+            ),
+          ),
+      ],
     );
   }
 }
@@ -3739,7 +3973,7 @@ class _BottomBar extends StatelessWidget {
     required this.amountToPayNow,
     required this.saving,
     required this.onConfirm,
-    this.spotError,
+    this.blockingMessage,
   });
 
   final bool hasDate;
@@ -3747,7 +3981,7 @@ class _BottomBar extends StatelessWidget {
   final double amountToPayNow;
   final bool saving;
   final VoidCallback onConfirm;
-  final String? spotError;
+  final String? blockingMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -3758,7 +3992,7 @@ class _BottomBar extends StatelessWidget {
         : isSameDay
         ? 'Full Payment'
         : 'Down Payment (50%)';
-    final blocked = spotError != null;
+    final blocked = blockingMessage != null;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -3777,8 +4011,8 @@ class _BottomBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    spotError!,
+                    child: Text(
+                    blockingMessage!,
                     style: const TextStyle(
                       color: Color(0xFF92400E),
                       fontWeight: FontWeight.w700,
@@ -4083,6 +4317,122 @@ class _ErrorView extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Time picker bottom sheet (dropdown-style, 7 AM – 5 PM, 15-min steps)
+// ============================================================================
+
+class _TimePickerSheet extends StatefulWidget {
+  const _TimePickerSheet({
+    required this.title,
+    required this.options,
+    required this.selected,
+  });
+
+  final String title;
+  final List<String> options;
+  final String selected;
+
+  @override
+  State<_TimePickerSheet> createState() => _TimePickerSheetState();
+}
+
+class _TimePickerSheetState extends State<_TimePickerSheet> {
+  late final ScrollController _scrollCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final idx = widget.options.indexOf(widget.selected);
+    final offset = idx > 3 ? (idx - 3) * 54.0 : 0.0;
+    _scrollCtrl = ScrollController(initialScrollOffset: offset);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                  color: const Color(0xFF64748B),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFE7EEF7)),
+          Flexible(
+            child: ListView.builder(
+              controller: _scrollCtrl,
+              itemCount: widget.options.length,
+              itemExtent: 54,
+              itemBuilder: (_, i) {
+                final option = widget.options[i];
+                final isSelected = option == widget.selected;
+                return InkWell(
+                  onTap: () => Navigator.pop(context, option),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    color: isSelected
+                        ? const Color(0xFFEAF2FF)
+                        : Colors.transparent,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            formatScheduleTimeLabel(option),
+                            style: TextStyle(
+                              color: isSelected
+                                  ? const Color(0xFF2A86FF)
+                                  : const Color(0xFF0F172A),
+                              fontWeight: isSelected
+                                  ? FontWeight.w900
+                                  : FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(
+                            Icons.check_rounded,
+                            color: Color(0xFF2A86FF),
+                            size: 20,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
