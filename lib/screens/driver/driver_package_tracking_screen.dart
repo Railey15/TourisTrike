@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -85,12 +87,22 @@ class _DriverPackageTrackingScreenState
 
   // ── Custom marker loading ─────────────────────────────────────
 
+  Future<BitmapDescriptor> _bitmapFromAsset(String path, int width) async {
+    final data = await rootBundle.load(path);
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(),
+      targetWidth: width,
+    );
+    final frame = await codec.getNextFrame();
+    final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
+  }
+
   Future<void> _initCustomMarkers() async {
     try {
-      const cfg = ImageConfiguration(size: Size(96, 96));
       final results = await Future.wait([
-        BitmapDescriptor.asset(cfg, 'assets/icons/tricycle_marker.png'),
-        BitmapDescriptor.asset(cfg, 'assets/icons/passenger_marker.png'),
+        _bitmapFromAsset('assets/icons/tricycle_marker.png', 42),
+        _bitmapFromAsset('assets/icons/passenger_marker.png', 38),
       ]);
       if (!mounted) return;
       setState(() {
