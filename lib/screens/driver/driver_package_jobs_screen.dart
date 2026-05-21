@@ -60,6 +60,7 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
   bool _hasActiveTour = false;
   Set<String> _acceptedBookingIds = {};
   Map<String, int> _itineraryCounts = {};
+  Map<String, List<BookingItineraryItem>> _itineraryItemsMap = {};
   Profile? _driverProfile;
   DriverDetails? _driverDetails;
   DriverApplication? _driverApplication;
@@ -117,15 +118,37 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
                 ),
           )
           .toList();
+      final bookingIds = jobs.map((job) => job.bookingId).toSet().toList();
       final itineraryCounts = await _repo.fetchBookingItineraryCounts(
-        jobs.map((job) => job.bookingId),
+        bookingIds,
       );
+
+      // Fetch full itinerary items for preview (from booking_itinerary_items only)
+      Map<String, List<BookingItineraryItem>> itineraryItemsMap = {};
+      if (bookingIds.isNotEmpty) {
+        try {
+          final rows = await _supabase
+              .from('booking_itinerary_items')
+              .select('booking_id, destination_name, destination_order, destination_address')
+              .inFilter('booking_id', bookingIds)
+              .order('destination_order', ascending: true);
+          for (final row in (rows as List<dynamic>)) {
+            final m = Map<String, dynamic>.from(row as Map);
+            final bid = m['booking_id']?.toString() ?? '';
+            if (bid.isEmpty) continue;
+            itineraryItemsMap.putIfAbsent(bid, () => []);
+            itineraryItemsMap[bid]!.add(BookingItineraryItem(m));
+          }
+        } catch (_) {}
+      }
+
       if (!mounted) return;
       setState(() {
         _jobs = jobs;
         _hasActiveTour = hasActiveTour;
         _acceptedBookingIds = acceptedIds;
         _itineraryCounts = itineraryCounts;
+        _itineraryItemsMap = itineraryItemsMap;
         _driverProfile = profile;
         _driverDetails = driverDetails;
         _driverApplication = driverApplication;
@@ -564,6 +587,7 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
         itemBuilder: (context, index) => _JobCard(
           job: _jobs[index],
           itineraryCount: _itineraryCounts[_jobs[index].bookingId] ?? 0,
+          itineraryItems: _itineraryItemsMap[_jobs[index].bookingId] ?? [],
           accepting: _accepting,
           disabledReason: _acceptDisabledReason(_jobs[index]),
           onAccept: () => _accept(_jobs[index]),
@@ -591,6 +615,7 @@ class _JobCard extends StatelessWidget {
   const _JobCard({
     required this.job,
     required this.itineraryCount,
+    required this.itineraryItems,
     required this.accepting,
     required this.disabledReason,
     required this.onAccept,
@@ -599,6 +624,7 @@ class _JobCard extends StatelessWidget {
 
   final PackageActivity job;
   final int itineraryCount;
+  final List<BookingItineraryItem> itineraryItems;
   final bool accepting;
   final String? disabledReason;
   final VoidCallback onAccept;
@@ -734,9 +760,16 @@ class _JobCard extends StatelessWidget {
                     _InfoRow(
                       icon: Icons.map_rounded,
                       label: 'Itinerary',
-                      value:
-                          '$itineraryCount spot${itineraryCount == 1 ? '' : 's'}',
+                      value: itineraryItems.isNotEmpty
+                          ? '${itineraryItems.length} stop${itineraryItems.length == 1 ? '' : 's'}'
+                          : itineraryCount > 0
+                          ? '$itineraryCount spot${itineraryCount == 1 ? '' : 's'}'
+                          : 'No itinerary yet',
                     ),
+                    if (itineraryItems.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      _ItineraryPreview(items: itineraryItems),
+                    ],
                     const SizedBox(height: 10),
                     _InfoRow(
                       icon: Icons.trip_origin_rounded,
@@ -862,6 +895,95 @@ class _JobCard extends StatelessWidget {
   DateTime? _parseDate(dynamic v) {
     if (v == null) return null;
     return DateTime.tryParse(v.toString());
+  }
+}
+
+class _ItineraryPreview extends StatelessWidget {
+  const _ItineraryPreview({required this.items});
+  final List<BookingItineraryItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayItems = items.take(5).toList();
+    final extra = items.length - displayItems.length;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDDE8FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'ITINERARY PREVIEW',
+            style: TextStyle(
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w900,
+              fontSize: 9.5,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...displayItems.asMap().entries.map((entry) {
+            final i = entry.key;
+            final item = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF2FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${i + 1}',
+                        style: const TextStyle(
+                          color: Color(0xFF2F6FFF),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      item.destinationName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          if (extra > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '+$extra more stop${extra == 1 ? '' : 's'}',
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11.5,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

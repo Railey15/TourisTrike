@@ -74,4 +74,6 @@ flutter:
 
   assets:
     - assets/images/touristrike_logo.png
+    - assets/icons/tricycle_marker.png
+    - assets/icons/passenger_marker.png
     - .env

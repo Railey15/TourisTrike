@@ -47,6 +47,13 @@ class _DriverPackageTrackingScreenState
   bool _actionBusy = false;
   String? _eta;
 
+  // Navigation state
+  bool _isFollowingDriver = false;
+
+  // Custom bitmap markers (loaded from assets)
+  BitmapDescriptor? _tricycleMarker;
+  BitmapDescriptor? _passengerMarker;
+
   // Current driver GPS position
   Position? _currentPosition;
 
@@ -62,6 +69,7 @@ class _DriverPackageTrackingScreenState
   @override
   void initState() {
     super.initState();
+    _initCustomMarkers();
     _load();
   }
 
@@ -73,6 +81,26 @@ class _DriverPackageTrackingScreenState
     _gpsSub?.cancel();
     _mapCtrl?.dispose();
     super.dispose();
+  }
+
+  // ── Custom marker loading ─────────────────────────────────────
+
+  Future<void> _initCustomMarkers() async {
+    try {
+      const cfg = ImageConfiguration(size: Size(96, 96));
+      final results = await Future.wait([
+        BitmapDescriptor.asset(cfg, 'assets/icons/tricycle_marker.png'),
+        BitmapDescriptor.asset(cfg, 'assets/icons/passenger_marker.png'),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _tricycleMarker = results[0];
+        _passengerMarker = results[1];
+      });
+      _buildMarkers();
+    } catch (e) {
+      debugPrint('[Markers] Failed to load custom markers: $e');
+    }
   }
 
   // ── Data ─────────────────────────────────────────────────────
@@ -224,7 +252,13 @@ class _DriverPackageTrackingScreenState
             });
           });
           _buildMarkers();
-          _animateToDriver(LatLng(pos.latitude, pos.longitude));
+          // Only animate camera when user has tapped Recenter
+          if (_isFollowingDriver) {
+            _animateCameraFollowing(
+              LatLng(pos.latitude, pos.longitude),
+              pos.speed,
+            );
+          }
         }
       } catch (_) {}
     });
@@ -372,21 +406,23 @@ class _DriverPackageTrackingScreenState
     final dropoff = _dropoffLatLng();
     final driverPos = _driverLatLng();
 
+    // Pickup — passenger icon (tourist waits here)
     if (pickup != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('pickup'),
           position: pickup,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueGreen,
-          ),
+          icon: _passengerMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
           infoWindow: InfoWindow(
-            title: 'Pickup',
+            title: 'Pickup (Tourist)',
             snippet: _booking?.pickupAddress ?? '',
           ),
         ),
       );
     }
+
+    // Drop-off — standard red pin
     if (dropoff != null) {
       markers.add(
         Marker(
@@ -401,6 +437,7 @@ class _DriverPackageTrackingScreenState
       );
     }
 
+    // Tour spots — standard coloured pins (done=green, current=orange, upcoming=azure)
     for (var i = 0; i < _spots.length; i++) {
       final lat = _spots[i].latitude;
       final lng = _spots[i].longitude;
@@ -425,14 +462,17 @@ class _DriverPackageTrackingScreenState
       );
     }
 
+    // Driver's own position — tricycle icon, rotates with GPS heading
     if (driverPos != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('driver'),
           position: driverPos,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueOrange,
-          ),
+          icon: _tricycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          rotation: _currentPosition?.heading ?? 0.0,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
           infoWindow: const InfoWindow(title: 'You (Driver)'),
         ),
       );
@@ -578,8 +618,21 @@ class _DriverPackageTrackingScreenState
     return LatLng(item.latitude, item.longitude);
   }
 
-  void _animateToDriver(LatLng pos) {
-    _mapCtrl?.animateCamera(CameraUpdate.newLatLng(pos));
+  /// Animate to driver position with speed-based zoom (Google Maps style).
+  void _animateCameraFollowing(LatLng pos, double speedMs) {
+    if (!_isFollowingDriver) return;
+    _mapCtrl?.animateCamera(
+      CameraUpdate.newLatLngZoom(pos, _speedToZoom(speedMs)),
+    );
+  }
+
+  /// Dynamic zoom: slow speed → zoom in, fast speed → zoom out.
+  double _speedToZoom(double speedMs) {
+    final kmh = speedMs * 3.6;
+    if (kmh < 10) return 17.0;
+    if (kmh < 30) return 15.5;
+    if (kmh < 60) return 13.5;
+    return 12.0;
   }
 
   // ── Actions ───────────────────────────────────────────────────
@@ -1118,20 +1171,64 @@ class _DriverPackageTrackingScreenState
             ],
           ),
           flexibleSpace: FlexibleSpaceBar(
-            background: ClipRect(
-              child: GoogleMap(
-                initialCameraPosition: CameraPosition(
-                  target: _driverLatLng() ?? _pickupLatLng() ?? _defaultCenter,
-                  zoom: 14.5,
+            background: Stack(
+              children: [
+                ClipRect(
+                  child: GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target:
+                          _driverLatLng() ?? _pickupLatLng() ?? _defaultCenter,
+                      zoom: 14.5,
+                    ),
+                    markers: _markers,
+                    polylines: _polylines,
+                    zoomControlsEnabled: false,
+                    myLocationButtonEnabled: false,
+                    compassEnabled: true,
+                    mapToolbarEnabled: false,
+                    rotateGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    zoomGesturesEnabled: true,
+                    tiltGesturesEnabled: true,
+                    onMapCreated: (ctrl) => _mapCtrl = ctrl,
+                    // Detect user drag to disable auto-follow
+                    onCameraMove: (_) {
+                      if (_isFollowingDriver) {
+                        setState(() => _isFollowingDriver = false);
+                      }
+                    },
+                  ),
                 ),
-                markers: _markers,
-                polylines: _polylines,
-                zoomControlsEnabled: false,
-                myLocationButtonEnabled: false,
-                compassEnabled: false,
-                mapToolbarEnabled: false,
-                onMapCreated: (ctrl) => _mapCtrl = ctrl,
-              ),
+                // Recenter FAB
+                Positioned(
+                  right: 12,
+                  bottom: 16,
+                  child: FloatingActionButton.small(
+                    heroTag: 'driver_recenter',
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF2F6FFF),
+                    elevation: 4,
+                    onPressed: () {
+                      setState(() => _isFollowingDriver = true);
+                      final pos = _currentPosition;
+                      if (pos != null) {
+                        _animateCameraFollowing(
+                          LatLng(pos.latitude, pos.longitude),
+                          pos.speed,
+                        );
+                      } else {
+                        final driverPos = _driverLatLng();
+                        if (driverPos != null) {
+                          _mapCtrl?.animateCamera(
+                            CameraUpdate.newLatLngZoom(driverPos, 15),
+                          );
+                        }
+                      }
+                    },
+                    child: const Icon(Icons.my_location_rounded, size: 20),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -2228,29 +2325,22 @@ class _SpotRow extends StatelessWidget {
                     ],
                   ),
                 ],
-                if (actualArrival != null || actualDeparture != null) ...[
+                if (actualArrival != null) ...[
+                  const SizedBox(height: 4),
+                  _DriverTimestampBadge(
+                    icon: Icons.location_on_rounded,
+                    label: 'Arrived',
+                    time: timeFmt.format(actualArrival!.toLocal()),
+                    color: const Color(0xFF2F6FFF),
+                  ),
+                ],
+                if (actualDeparture != null) ...[
                   const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        size: 10,
-                        color: Color(0xFF16A34A),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _buildActualLabel(
-                          actualArrival,
-                          actualDeparture,
-                          timeFmt,
-                        ),
-                        style: const TextStyle(
-                          color: Color(0xFF16A34A),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
+                  _DriverTimestampBadge(
+                    icon: Icons.check_circle_rounded,
+                    label: 'Completed',
+                    time: timeFmt.format(actualDeparture!.toLocal()),
+                    color: const Color(0xFF16A34A),
                   ),
                 ],
               ],
@@ -2270,13 +2360,51 @@ class _SpotRow extends StatelessWidget {
     return '';
   }
 
-  String _buildActualLabel(DateTime? arr, DateTime? dep, DateFormat fmt) {
-    if (arr != null && dep != null) {
-      return '${fmt.format(arr)} – ${fmt.format(dep)}';
-    }
-    if (arr != null) return 'Arrived ${fmt.format(arr)}';
-    if (dep != null) return 'Left ${fmt.format(dep)}';
-    return '';
+}
+
+class _DriverTimestampBadge extends StatelessWidget {
+  const _DriverTimestampBadge({
+    required this.icon,
+    required this.label,
+    required this.time,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String time;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(color: color.withValues(alpha: 0.30)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 11, color: color),
+              const SizedBox(width: 4),
+              Text(
+                '$label at $time',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
