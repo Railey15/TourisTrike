@@ -919,7 +919,7 @@ class _TenantGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 1250 ? 3 : 2;
-        final aspectRatio = columns == 3 ? 3.0 : 2.5;
+        final aspectRatio = columns == 3 ? 2.2 : 2.0;
 
         return GridView.builder(
           shrinkWrap: true,
@@ -1043,37 +1043,7 @@ class _TenantCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   AdminStatusPill(status: tenant.status),
-                  PopupMenuButton<String>(
-                    tooltip: 'Tenant actions',
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'open':
-                          onTap();
-                          break;
-                        case 'edit_city':
-                          onEditCity();
-                          break;
-                        case 'active':
-                          onActivate();
-                          break;
-                        case 'inactive':
-                          onDeactivate();
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'open', child: Text('View Details')),
-                      PopupMenuItem(
-                        value: 'edit_city',
-                        child: Text('Edit Assigned City'),
-                      ),
-                      PopupMenuItem(value: 'active', child: Text('Activate')),
-                      PopupMenuItem(
-                        value: 'inactive',
-                        child: Text('Deactivate'),
-                      ),
-                    ],
-                  ),
+                  
                 ],
               ),
               const SizedBox(height: 14),
@@ -1309,7 +1279,7 @@ class _RegistrationTableRow extends StatelessWidget {
               flex: 5,
               child: Text(
                 registration.email.isEmpty ? 'No email' : registration.email,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: ProvincialAdminColors.muted,
@@ -1771,7 +1741,7 @@ class _TenantInfo extends StatelessWidget {
                     color: ProvincialAdminColors.text,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
-                    height: 1.1,
+                    height: 1.5,
                   ),
                 ),
               ],

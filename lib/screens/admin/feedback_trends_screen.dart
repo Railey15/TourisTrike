@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
 import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
@@ -34,6 +35,7 @@ class _FeedbackTrendsScreenState extends State<FeedbackTrendsScreen> {
       current: ProvincialAdminDestination.feedback,
       title: 'Feedback',
       subtitle: 'Review tourist feedback trends and low-rated experiences.',
+      
       child: FutureBuilder<FeedbackTrendData>(
         future: _future,
         builder: (context, snapshot) {
@@ -53,9 +55,12 @@ class _FeedbackTrendsScreenState extends State<FeedbackTrendsScreen> {
           final lowRated = data.lowRated;
           final averageRating = data.averageRating;
           final totalFeedback = feedback.length;
-          final driverFeedback = feedback
-              .where((item) => item.source.toLowerCase().contains('ride'))
-              .length;
+          final driverFeedback = feedback.where((item) {
+            final source = item.source.toLowerCase();
+            return source.contains('ride') ||
+                source.contains('driver') ||
+                adminId(item.raw['driver_id']).isNotEmpty;
+          }).length;
 
           final reviewsByCity = _countByCity(feedback);
           final ratingDistribution = _ratingDistribution(feedback);
@@ -114,16 +119,11 @@ class _FeedbackTrendsScreenState extends State<FeedbackTrendsScreen> {
   }
 
   Map<int, int> _ratingDistribution(List<ProvinceFeedback> feedback) {
-    final counts = <int, int>{
-      5: 0,
-      4: 0,
-      3: 0,
-      2: 0,
-      1: 0,
-    };
+    final counts = <int, int>{5: 0, 4: 0, 3: 0, 2: 0, 1: 0};
 
     for (final item in feedback) {
-      final rounded = item.rating.round().clamp(1, 5);
+      if (item.rating <= 0) continue;
+      final rounded = item.rating.round().clamp(1, 5).toInt();
       counts[rounded] = (counts[rounded] ?? 0) + 1;
     }
 
@@ -822,10 +822,7 @@ class _FeedbackPanel extends StatelessWidget {
 }
 
 class _FeedbackList extends StatelessWidget {
-  const _FeedbackList({
-    required this.items,
-    required this.empty,
-  });
+  const _FeedbackList({required this.items, required this.empty});
 
   final List<ProvinceFeedback> items;
   final String empty;
@@ -833,10 +830,7 @@ class _FeedbackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return _PanelEmpty(
-        title: empty,
-        icon: Icons.rate_review_rounded,
-      );
+      return _PanelEmpty(title: empty, icon: Icons.rate_review_rounded);
     }
 
     return ListView.separated(
@@ -846,6 +840,9 @@ class _FeedbackList extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final item = items[index];
+        final date = item.createdAt == null
+            ? 'No date'
+            : DateFormat.yMMMd().format(item.createdAt!);
 
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -890,7 +887,9 @@ class _FeedbackList extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      item.comment.isEmpty ? 'No comment provided.' : item.comment,
+                      item.comment.isEmpty
+                          ? 'No comment provided.'
+                          : item.comment,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -902,7 +901,7 @@ class _FeedbackList extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '${item.city} • ${item.reviewerName}',
+                      '${item.city} - ${item.reviewerName} - $date',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -940,8 +939,8 @@ class _RatingBadge extends StatelessWidget {
     final color = rating >= 4
         ? ProvincialAdminColors.green
         : rating >= 3
-            ? ProvincialAdminColors.amber
-            : ProvincialAdminColors.red;
+        ? ProvincialAdminColors.amber
+        : ProvincialAdminColors.red;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
@@ -963,10 +962,7 @@ class _RatingBadge extends StatelessWidget {
 }
 
 class _CityReviewRows extends StatelessWidget {
-  const _CityReviewRows({
-    required this.rows,
-    required this.empty,
-  });
+  const _CityReviewRows({required this.rows, required this.empty});
 
   final Map<String, int> rows;
   final String empty;
@@ -974,10 +970,7 @@ class _CityReviewRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
-      return _PanelEmpty(
-        title: empty,
-        icon: Icons.location_city_rounded,
-      );
+      return _PanelEmpty(title: empty, icon: Icons.location_city_rounded);
     }
 
     final entries = rows.entries.toList();
@@ -1007,7 +1000,9 @@ class _CityReviewRows extends StatelessWidget {
               child: Text(
                 '${index + 1}',
                 style: TextStyle(
-                  color: index == 0 ? Colors.white : ProvincialAdminColors.muted,
+                  color: index == 0
+                      ? Colors.white
+                      : ProvincialAdminColors.muted,
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
                 ),
@@ -1062,10 +1057,7 @@ class _CityReviewRows extends StatelessWidget {
 }
 
 class _RatingDistribution extends StatelessWidget {
-  const _RatingDistribution({
-    required this.ratings,
-    required this.total,
-  });
+  const _RatingDistribution({required this.ratings, required this.total});
 
   final Map<int, int> ratings;
   final int total;
@@ -1128,7 +1120,7 @@ class _RatingDistributionRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               minHeight: 8,
-              value: percent.clamp(.04, 1),
+              value: count == 0 ? 0 : percent.clamp(.04, 1),
               color: ProvincialAdminColors.amber,
               backgroundColor: const Color(0xFFEAF2FF),
             ),
@@ -1269,10 +1261,7 @@ class _InsightItem {
 }
 
 class _PanelEmpty extends StatelessWidget {
-  const _PanelEmpty({
-    required this.title,
-    required this.icon,
-  });
+  const _PanelEmpty({required this.title, required this.icon});
 
   final String title;
   final IconData icon;

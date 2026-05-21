@@ -661,12 +661,14 @@ class ProvincialAdminService {
     final packages = await fetchProvincePackages();
     final spots = await fetchProvinceSpots();
     final bookings = await fetchBookings(packages);
+    final feedback = (await fetchFeedback()).items;
 
     return AdminReportData(
       tenants: tenants,
       packages: packages,
       spots: spots,
       bookings: bookings,
+      feedback: feedback,
     );
   }
 
@@ -678,39 +680,74 @@ class ProvincialAdminService {
   }
 
   Future<TableResult<ProvinceFeedback>> fetchFeedback() async {
-    final items = <ProvinceFeedback>[];
+    final reviewRows = <_FeedbackSourceRow>[];
 
-    try {
-      final rows = await _selectRows(
-        'ride_reviews',
+    for (final source in const [
+      'ride_reviews',
+      'ride_feedback',
+      'driver_reviews',
+      'package_reviews',
+    ]) {
+      final rows = await _selectOptionalRows(
+        source,
         orderBy: 'created_at',
         ascending: false,
       );
 
-      items.addAll(
-        rows.map(
-          (row) => ProvinceFeedback.fromMap(row, source: 'ride_reviews'),
-        ),
+      reviewRows.addAll(
+        rows.map((row) => _FeedbackSourceRow(source: source, row: row)),
       );
-    } on PostgrestException {
-      // Optional table.
     }
 
-    try {
-      final rows = await _selectRows(
-        'ride_feedback',
-        orderBy: 'created_at',
-        ascending: false,
+    if (reviewRows.isEmpty) {
+      return const TableResult(available: true, items: []);
+    }
+
+    final packages = await _safeFetchProvincePackages();
+    final packageById = {for (final item in packages) adminId(item.id): item};
+    final bookings = await _safeFetchBookings(packages);
+    final bookingById = {for (final item in bookings) adminId(item.id): item};
+    final spots = await _safeFetchProvinceSpots();
+    final spotById = {for (final item in spots) adminId(item.id): item};
+
+    final profileIds = <String>{};
+    for (final item in reviewRows) {
+      final row = item.row;
+      profileIds.addAll(
+        [
+          adminId(row['tourist_id']),
+          adminId(row['user_id']),
+          adminId(row['reviewer_id']),
+          adminId(row['customer_id']),
+          adminId(row['driver_id']),
+          adminId(row['subject_id']),
+        ].where((id) => id.isNotEmpty),
       );
 
-      items.addAll(
-        rows.map(
-          (row) => ProvinceFeedback.fromMap(row, source: 'ride_feedback'),
-        ),
-      );
-    } on PostgrestException {
-      // Optional table.
+      final booking = bookingById[adminId(row['booking_id'])];
+      if (booking != null) {
+        profileIds.addAll(
+          [
+            adminId(booking.raw['tourist_id']),
+            adminId(booking.raw['assigned_driver_id']),
+          ].where((id) => id.isNotEmpty),
+        );
+      }
     }
+
+    final profileById = await _fetchProfilesByIds(profileIds);
+    final items = reviewRows
+        .map((item) {
+          return _normalizeFeedbackRow(
+            source: item.source,
+            row: item.row,
+            packageById: packageById,
+            bookingById: bookingById,
+            spotById: spotById,
+            profileById: profileById,
+          );
+        })
+        .toList(growable: false);
 
     items.sort((a, b) {
       final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -724,6 +761,189 @@ class ProvincialAdminService {
   Future<FeedbackTrendData> fetchFeedbackTrends() async {
     final result = await fetchFeedback();
     return FeedbackTrendData(feedback: result.items);
+  }
+
+  Future<List<Map<String, dynamic>>> _selectOptionalRows(
+    String table, {
+    String columns = '*',
+    String? orderBy,
+    bool ascending = true,
+  }) async {
+    try {
+      return await _selectRows(
+        table,
+        columns: columns,
+        orderBy: orderBy,
+        ascending: ascending,
+      );
+    } on PostgrestException {
+      return const [];
+    }
+  }
+
+  Future<List<ProvincePackage>> _safeFetchProvincePackages() async {
+    try {
+      return await fetchProvincePackages();
+    } on PostgrestException {
+      return const [];
+    }
+  }
+
+  Future<List<ProvinceBooking>> _safeFetchBookings(
+    List<ProvincePackage> packages,
+  ) async {
+    try {
+      return await fetchBookings(packages);
+    } on PostgrestException {
+      return const [];
+    }
+  }
+
+  Future<List<ProvinceSpot>> _safeFetchProvinceSpots() async {
+    try {
+      return await fetchProvinceSpots();
+    } on PostgrestException {
+      return const [];
+    }
+  }
+
+  Future<Map<String, Map<String, dynamic>>> _fetchProfilesByIds(
+    Iterable<String> ids,
+  ) async {
+    final cleanIds = ids
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (cleanIds.isEmpty) return const {};
+
+    try {
+      final rows = await _supabase
+          .from('profiles')
+          .select('*')
+          .inFilter('id', cleanIds);
+
+      return {for (final row in _asRows(rows)) adminId(row['id']): row};
+    } on PostgrestException {
+      return const {};
+    }
+  }
+
+  ProvinceFeedback _normalizeFeedbackRow({
+    required String source,
+    required Map<String, dynamic> row,
+    required Map<String, ProvincePackage> packageById,
+    required Map<String, ProvinceBooking> bookingById,
+    required Map<String, ProvinceSpot> spotById,
+    required Map<String, Map<String, dynamic>> profileById,
+  }) {
+    final booking =
+        bookingById[adminId(row['booking_id'] ?? row['package_booking_id'])];
+    final package =
+        packageById[adminId(row['package_id'] ?? booking?.packageId)];
+    final spot = spotById[adminId(row['spot_id'] ?? row['tourist_spot_id'])];
+    final touristId = adminId(
+      row['tourist_id'] ??
+          row['user_id'] ??
+          row['reviewer_id'] ??
+          row['customer_id'] ??
+          booking?.raw['tourist_id'],
+    );
+    final driverId = adminId(
+      row['driver_id'] ??
+          row['subject_id'] ??
+          row['assigned_driver_id'] ??
+          booking?.raw['assigned_driver_id'],
+    );
+    final tourist = profileById[touristId];
+    final driver = profileById[driverId];
+
+    final city = adminString(
+      row,
+      const ['city', 'municipality', 'locality'],
+      fallback: _firstNonEmpty([
+        package?.city,
+        booking?.city,
+        spot?.city,
+        adminString(driver ?? const <String, dynamic>{}, const ['city']),
+        adminString(tourist ?? const <String, dynamic>{}, const ['city']),
+        'Unknown',
+      ]),
+    );
+
+    final reviewerName = adminString(row, const [
+      'tourist_name',
+      'reviewer_name',
+      'customer_name',
+      'user_name',
+    ], fallback: _profileName(tourist, fallback: 'Tourist'));
+
+    final isDriverFeedback =
+        source.contains('ride') ||
+        source.contains('driver') ||
+        driverId.isNotEmpty;
+    final subjectName = adminString(
+      row,
+      const [
+        'driver_name',
+        'subject_name',
+        'package_title',
+        'spot_title',
+        'related_title',
+      ],
+      fallback: _firstNonEmpty([
+        isDriverFeedback ? _profileName(driver, fallback: '') : '',
+        package?.title,
+        spot?.title,
+        booking?.packageTitle,
+        isDriverFeedback ? 'Transport service' : 'Tourism experience',
+      ]),
+    );
+
+    final normalized = Map<String, dynamic>.from(row)
+      ..['city'] = city
+      ..['tourist_name'] = reviewerName
+      ..['subject_name'] = subjectName
+      ..['package_title'] = package?.title ?? booking?.packageTitle ?? ''
+      ..['driver_name'] = _profileName(driver, fallback: '')
+      ..['spot_title'] = spot?.title ?? ''
+      ..['comment'] = adminString(row, const [
+        'comment',
+        'review_text',
+        'feedback',
+        'message',
+        'body',
+        'content',
+      ])
+      ..['source_table'] = source;
+
+    return ProvinceFeedback.fromMap(normalized, source: source, city: city);
+  }
+
+  String _profileName(Map<String, dynamic>? profile, {String fallback = ''}) {
+    if (profile == null) return fallback;
+
+    final fullName = adminString(profile, const ['full_name', 'name']);
+    if (fullName.isNotEmpty) return fullName;
+
+    final generated = [
+      adminString(profile, const ['first_name']),
+      adminString(profile, const ['last_name']),
+    ].where((value) => value.isNotEmpty).join(' ');
+
+    if (generated.trim().isNotEmpty) return generated.trim();
+    return fallback;
+  }
+
+  String _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final cleaned = value?.trim() ?? '';
+      if (cleaned.isNotEmpty && cleaned.toLowerCase() != 'unknown') {
+        return cleaned;
+      }
+    }
+    return 'Unknown';
   }
 
   Future<TableResult<AdminPolicy>> fetchPolicies() async {
@@ -978,7 +1198,6 @@ class ProvincialAdminService {
     }
   }
 
-  
   List<Map<String, dynamic>> _asRows(dynamic rows) {
     if (rows is! List) return const [];
 
@@ -1039,4 +1258,11 @@ class CityTenantDetailsData {
     return feedback.fold<double>(0, (sum, item) => sum + item.rating) /
         feedback.length;
   }
+}
+
+class _FeedbackSourceRow {
+  const _FeedbackSourceRow({required this.source, required this.row});
+
+  final String source;
+  final Map<String, dynamic> row;
 }

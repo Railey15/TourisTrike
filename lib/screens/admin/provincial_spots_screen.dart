@@ -23,7 +23,8 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
   late Future<List<ProvinceSpot>> _future;
 
   String _cityFilter = 'all';
-  String _statusFilter = 'all';
+  String _spotStatusFilter = 'all';
+  String _verificationFilter = 'all';
 
   @override
   void initState() {
@@ -50,19 +51,26 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
       final status = spot.status.toLowerCase().trim();
       final verification = spot.verificationStatus.toLowerCase().trim();
 
+      // City filter
       final matchesCity = _cityFilter == 'all' || city == _cityFilter;
 
-      final matchesStatus = _statusFilter == 'all' ||
-          (_statusFilter == 'active' && status == 'active') ||
-          (_statusFilter == 'maintenance' && status == 'maintenance') ||
-          (_statusFilter == 'archived' && status == 'archived') ||
-          (_statusFilter == 'verified' && verification == 'verified') ||
-          (_statusFilter == 'unverified' &&
+      // Spot status filter
+      final matchesSpotStatus = _spotStatusFilter == 'all' ||
+          (_spotStatusFilter == 'active' && status == 'active') ||
+          (_spotStatusFilter == 'maintenance' && status == 'maintenance') ||
+          (_spotStatusFilter == 'archived' && status == 'archived');
+
+      // Verification filter
+      final matchesVerification = _verificationFilter == 'all' ||
+          (_verificationFilter == 'verified' && verification == 'verified') ||
+          (_verificationFilter == 'unverified' &&
               verification != 'verified' &&
               verification != 'flagged') ||
-          (_statusFilter == 'flagged' && verification == 'flagged');
+          (_verificationFilter == 'flagged' && verification == 'flagged');
 
-      if (!matchesCity || !matchesStatus) return false;
+      if (!matchesCity || !matchesSpotStatus || !matchesVerification) {
+        return false;
+      }
 
       if (query.isEmpty) return true;
 
@@ -79,16 +87,24 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
     }).toList(growable: false);
   }
 
-  int _count(List<ProvinceSpot> spots, String filter) {
+  int _countCity(List<ProvinceSpot> spots) {
+    if (_cityFilter == 'all') return spots.length;
+    return spots.where((spot) => spot.city.trim() == _cityFilter).length;
+  }
+
+  int _countSpotStatus(List<ProvinceSpot> spots, String filter) {
+    if (filter == 'all') return spots.length;
+    return spots
+        .where((spot) => spot.status.toLowerCase().trim() == filter)
+        .length;
+  }
+
+  int _countVerification(List<ProvinceSpot> spots, String filter) {
     if (filter == 'all') return spots.length;
 
     return spots.where((spot) {
-      final status = spot.status.toLowerCase().trim();
       final verification = spot.verificationStatus.toLowerCase().trim();
 
-      if (filter == 'active') return status == 'active';
-      if (filter == 'maintenance') return status == 'maintenance';
-      if (filter == 'archived') return status == 'archived';
       if (filter == 'verified') return verification == 'verified';
       if (filter == 'flagged') return verification == 'flagged';
       if (filter == 'unverified') {
@@ -167,16 +183,6 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
               .toList()
             ..sort();
 
-          final counts = {
-            'all': _count(allSpots, 'all'),
-            'active': _count(allSpots, 'active'),
-            'maintenance': _count(allSpots, 'maintenance'),
-            'archived': _count(allSpots, 'archived'),
-            'verified': _count(allSpots, 'verified'),
-            'unverified': _count(allSpots, 'unverified'),
-            'flagged': _count(allSpots, 'flagged'),
-          };
-
           final avgRating = allSpots.isEmpty
               ? 0.0
               : allSpots.fold<double>(0, (sum, spot) => sum + spot.rating) /
@@ -197,26 +203,41 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
                 children: [
                   _TourismHero(
                     total: allSpots.length,
-                    active: counts['active'] ?? 0,
-                    verified: counts['verified'] ?? 0,
-                    flagged: counts['flagged'] ?? 0,
+                    active: allSpots
+                        .where((s) =>
+                            s.status.toLowerCase().trim() == 'active')
+                        .length,
+                    verified: allSpots
+                        .where((s) =>
+                            s.verificationStatus.toLowerCase().trim() ==
+                            'verified')
+                        .length,
+                    flagged: allSpots
+                        .where((s) =>
+                            s.verificationStatus.toLowerCase().trim() ==
+                            'flagged')
+                        .length,
                     averageRating: avgRating,
                   ),
-                  const SizedBox(height: 16),
-                  _TourismToolbar(
-                    controller: _searchCtrl,
+                  const SizedBox(height: 20),
+                  _ToolbarClean(
+                    searchController: _searchCtrl,
                     cities: cities,
                     cityFilter: _cityFilter,
-                    statusFilter: _statusFilter,
-                    counts: counts,
+                    spotStatusFilter: _spotStatusFilter,
+                    verificationFilter: _verificationFilter,
+                    allSpots: allSpots,
                     onCityChanged: (value) {
                       setState(() => _cityFilter = value);
                     },
-                    onStatusChanged: (value) {
-                      setState(() => _statusFilter = value);
+                    onSpotStatusChanged: (value) {
+                      setState(() => _spotStatusFilter = value);
+                    },
+                    onVerificationChanged: (value) {
+                      setState(() => _verificationFilter = value);
                     },
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   if (spots.isEmpty)
                     const AdminEmptyState(
                       icon: Icons.travel_explore_outlined,
@@ -484,31 +505,44 @@ class _HeroStatData {
   final IconData icon;
 }
 
-class _TourismToolbar extends StatelessWidget {
-  const _TourismToolbar({
-    required this.controller,
+/// Clean, unified toolbar with search and filters dropdown
+class _ToolbarClean extends StatefulWidget {
+  const _ToolbarClean({
+    required this.searchController,
     required this.cities,
     required this.cityFilter,
-    required this.statusFilter,
-    required this.counts,
+    required this.spotStatusFilter,
+    required this.verificationFilter,
+    required this.allSpots,
     required this.onCityChanged,
-    required this.onStatusChanged,
+    required this.onSpotStatusChanged,
+    required this.onVerificationChanged,
   });
 
-  final TextEditingController controller;
+  final TextEditingController searchController;
   final List<String> cities;
   final String cityFilter;
-  final String statusFilter;
-  final Map<String, int> counts;
+  final String spotStatusFilter;
+  final String verificationFilter;
+  final List<ProvinceSpot> allSpots;
   final ValueChanged<String> onCityChanged;
-  final ValueChanged<String> onStatusChanged;
+  final ValueChanged<String> onSpotStatusChanged;
+  final ValueChanged<String> onVerificationChanged;
+
+  @override
+  State<_ToolbarClean> createState() => _ToolbarCleanState();
+}
+
+class _ToolbarCleanState extends State<_ToolbarClean> {
+  final GlobalKey<_FilterDropdownState> _filterKey =
+      GlobalKey<_FilterDropdownState>();
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
+    final mobile = Responsive.isMobile(context);
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -521,213 +555,484 @@ class _TourismToolbar extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        children: [
-          Flex(
-            direction: desktop ? Axis.horizontal : Axis.vertical,
-            crossAxisAlignment:
-                desktop ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                flex: desktop ? 1 : 0,
-                child: SizedBox(
-                  height: 48,
-                  child: TextField(
-                    controller: controller,
-                    decoration: InputDecoration(
-                      hintText: 'Search tourist spot, city, barangay...',
-                      hintStyle: const TextStyle(
-                        color: ProvincialAdminColors.lightMuted,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: ProvincialAdminColors.lightMuted,
-                      ),
-                      filled: true,
-                      fillColor: const Color(0xFFF8FBFF),
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(17),
-                        borderSide: const BorderSide(
-                          color: ProvincialAdminColors.line,
-                        ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(17),
-                        borderSide: const BorderSide(
-                          color: ProvincialAdminColors.line,
-                        ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(17),
-                        borderSide: const BorderSide(
-                          color: ProvincialAdminColors.blue,
-                          width: 1.3,
-                        ),
-                      ),
-                    ),
+      child: mobile
+          ? Column(
+              children: [
+                _SearchField(controller: widget.searchController),
+                const SizedBox(height: 12),
+                _FilterDropdown(
+                  key: _filterKey,
+                  cities: widget.cities,
+                  cityFilter: widget.cityFilter,
+                  spotStatusFilter: widget.spotStatusFilter,
+                  verificationFilter: widget.verificationFilter,
+                  allSpots: widget.allSpots,
+                  onCityChanged: widget.onCityChanged,
+                  onSpotStatusChanged: widget.onSpotStatusChanged,
+                  onVerificationChanged: widget.onVerificationChanged,
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  flex: 1,
+                  child: _SearchField(controller: widget.searchController),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 240,
+                  child: _FilterDropdown(
+                    key: _filterKey,
+                    cities: widget.cities,
+                    cityFilter: widget.cityFilter,
+                    spotStatusFilter: widget.spotStatusFilter,
+                    verificationFilter: widget.verificationFilter,
+                    allSpots: widget.allSpots,
+                    onCityChanged: widget.onCityChanged,
+                    onSpotStatusChanged: widget.onSpotStatusChanged,
+                    onVerificationChanged: widget.onVerificationChanged,
                   ),
                 ),
-              ),
-              SizedBox(width: desktop ? 14 : 0, height: desktop ? 0 : 12),
-              _CityDropdown(
-                cities: cities,
-                value: cityFilter,
-                onChanged: onCityChanged,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _FilterRow(
-            selected: statusFilter,
-            counts: counts,
-            filters: const [
-              ('all', 'All'),
-              ('active', 'Active'),
-              ('maintenance', 'Maintenance'),
-              ('archived', 'Archived'),
-              ('verified', 'Verified'),
-              ('unverified', 'Unverified'),
-              ('flagged', 'Flagged'),
-            ],
-            onSelected: onStatusChanged,
-          ),
-        ],
-      ),
+              ],
+            ),
     );
   }
 }
 
-class _CityDropdown extends StatelessWidget {
-  const _CityDropdown({
-    required this.cities,
-    required this.value,
-    required this.onChanged,
-  });
+class _SearchField extends StatelessWidget {
+  const _SearchField({required this.controller});
 
-  final List<String> cities;
-  final String value;
-  final ValueChanged<String> onChanged;
+  final TextEditingController controller;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 48,
-      width: Responsive.isDesktop(context) ? 230 : double.infinity,
-      child: DropdownButtonFormField<String>(
-        value: value,
-        isExpanded: true,
+      child: TextField(
+        controller: controller,
         decoration: InputDecoration(
+          hintText: 'Search tourist spot, city, barangay...',
+          hintStyle: const TextStyle(
+            color: ProvincialAdminColors.lightMuted,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: ProvincialAdminColors.lightMuted,
+          ),
           filled: true,
           fillColor: const Color(0xFFF8FBFF),
           contentPadding: const EdgeInsets.symmetric(horizontal: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(color: ProvincialAdminColors.line),
+            borderSide: const BorderSide(
+              color: ProvincialAdminColors.line,
+            ),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(color: ProvincialAdminColors.line),
+            borderSide: const BorderSide(
+              color: ProvincialAdminColors.line,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(17),
+            borderSide: const BorderSide(
+              color: ProvincialAdminColors.blue,
+              width: 1.3,
+            ),
           ),
         ),
-        items: [
-          const DropdownMenuItem(value: 'all', child: Text('All Cities')),
-          ...cities.map(
-            (city) => DropdownMenuItem(value: city, child: Text(city)),
-          ),
-        ],
-        onChanged: (value) {
-          if (value != null) onChanged(value);
-        },
       ),
     );
   }
 }
 
-class _FilterRow extends StatelessWidget {
-  const _FilterRow({
-    required this.selected,
-    required this.counts,
-    required this.filters,
-    required this.onSelected,
+/// Unified filters dropdown widget
+class _FilterDropdown extends StatefulWidget {
+  const _FilterDropdown({
+    super.key,
+    required this.cities,
+    required this.cityFilter,
+    required this.spotStatusFilter,
+    required this.verificationFilter,
+    required this.allSpots,
+    required this.onCityChanged,
+    required this.onSpotStatusChanged,
+    required this.onVerificationChanged,
   });
 
-  final String selected;
-  final Map<String, int> counts;
-  final List<(String, String)> filters;
-  final ValueChanged<String> onSelected;
+  final List<String> cities;
+  final String cityFilter;
+  final String spotStatusFilter;
+  final String verificationFilter;
+  final List<ProvinceSpot> allSpots;
+  final ValueChanged<String> onCityChanged;
+  final ValueChanged<String> onSpotStatusChanged;
+  final ValueChanged<String> onVerificationChanged;
 
   @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: filters.map((item) {
-          final key = item.$1;
-          final label = item.$2;
-          final active = selected == key;
+  State<_FilterDropdown> createState() => _FilterDropdownState();
+}
 
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () => onSelected(key),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                height: 40,
-                padding: const EdgeInsets.symmetric(horizontal: 13),
-                decoration: BoxDecoration(
-                  color: active ? ProvincialAdminColors.blue : Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: active
-                        ? ProvincialAdminColors.blue
-                        : ProvincialAdminColors.line,
+class _FilterDropdownState extends State<_FilterDropdown> {
+  late OverlayEntry _overlayEntry;
+  final LayerLink _layerLink = LayerLink();
+  bool _isOpen = false;
+
+  @override
+  void dispose() {
+    if (_isOpen) {
+      _overlayEntry.remove();
+    }
+    super.dispose();
+  }
+
+  void _toggleDropdown() {
+    if (_isOpen) {
+      _overlayEntry.remove();
+      setState(() => _isOpen = false);
+    } else {
+      _overlayEntry = _buildOverlayEntry();
+      Overlay.of(context).insert(_overlayEntry);
+      setState(() => _isOpen = true);
+    }
+  }
+
+  OverlayEntry _buildOverlayEntry() {
+    RenderBox renderBox = context.findRenderObject() as RenderBox;
+    var size = renderBox.size;
+
+    return OverlayEntry(
+      builder: (context) => Positioned(
+        width: size.width,
+        child: CompositedTransformFollower(
+          link: _layerLink,
+          showWhenUnlinked: false,
+          offset: Offset(0, size.height + 8),
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: ProvincialAdminColors.line),
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // City filter section
+                      _FilterSection(
+                        title: 'City',
+                        children: [
+                          _FilterOption(
+                            label: 'All Cities',
+                            value: 'all',
+                            selected: widget.cityFilter == 'all',
+                            onTap: () {
+                              widget.onCityChanged('all');
+                              _toggleDropdown();
+                            },
+                          ),
+                          ...widget.cities.map((city) {
+                            return _FilterOption(
+                              label: city,
+                              value: city,
+                              selected: widget.cityFilter == city,
+                              onTap: () {
+                                widget.onCityChanged(city);
+                                _toggleDropdown();
+                              },
+                            );
+                          }),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(
+                        height: 1,
+                        color: ProvincialAdminColors.line,
+                      ),
+                      const SizedBox(height: 12),
+                      // Spot status filter section
+                      _FilterSection(
+                        title: 'Spot Status',
+                        children: [
+                          _FilterOption(
+                            label: 'All',
+                            value: 'all',
+                            selected: widget.spotStatusFilter == 'all',
+                            onTap: () {
+                              widget.onSpotStatusChanged('all');
+                              _toggleDropdown();
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Active',
+                            value: 'active',
+                            selected: widget.spotStatusFilter == 'active',
+                            onTap: () {
+                              widget.onSpotStatusChanged('active');
+                              _toggleDropdown();
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Maintenance',
+                            value: 'maintenance',
+                            selected: widget.spotStatusFilter == 'maintenance',
+                            onTap: () {
+                              widget.onSpotStatusChanged('maintenance');
+                              _toggleDropdown();
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Archived',
+                            value: 'archived',
+                            selected: widget.spotStatusFilter == 'archived',
+                            onTap: () {
+                              widget.onSpotStatusChanged('archived');
+                              _toggleDropdown();
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(
+                        height: 1,
+                        color: ProvincialAdminColors.line,
+                      ),
+                      const SizedBox(height: 12),
+                      // Verification filter section
+                      _FilterSection(
+                        title: 'Verification',
+                        children: [
+                          _FilterOption(
+                            label: 'All Verification',
+                            value: 'all',
+                            selected: widget.verificationFilter == 'all',
+                            onTap: () {
+                              widget.onVerificationChanged('all');
+                              _toggleDropdown();
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Verified',
+                            value: 'verified',
+                            selected: widget.verificationFilter == 'verified',
+                            onTap: () {
+                              widget.onVerificationChanged('verified');
+                              _toggleDropdown();
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Unverified',
+                            value: 'unverified',
+                            selected: widget.verificationFilter == 'unverified',
+                            onTap: () {
+                              widget.onVerificationChanged('unverified');
+                              _toggleDropdown();
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Flagged',
+                            value: 'flagged',
+                            selected: widget.verificationFilter == 'flagged',
+                            onTap: () {
+                              widget.onVerificationChanged('flagged');
+                              _toggleDropdown();
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color:
-                            active ? Colors.white : ProvincialAdminColors.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? Colors.white.withValues(alpha: .22)
-                            : const Color(0xFFF1F6FF),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '${counts[key] ?? 0}',
-                        style: TextStyle(
-                          color: active
-                              ? Colors.white
-                              : ProvincialAdminColors.blue,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
-          );
-        }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getFilterSummary() {
+    final parts = <String>[];
+
+    if (widget.cityFilter != 'all') {
+      parts.add(widget.cityFilter);
+    }
+    if (widget.spotStatusFilter != 'all') {
+      parts.add(widget.spotStatusFilter);
+    }
+    if (widget.verificationFilter != 'all') {
+      parts.add(widget.verificationFilter);
+    }
+
+    if (parts.isEmpty) {
+      return 'Filters';
+    }
+    if (parts.length == 1) {
+      return parts.first;
+    }
+    return '${parts.length} active';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: SizedBox(
+        height: 48,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(17),
+            onTap: _toggleDropdown,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: _isOpen ? const Color(0xFFF1F6FF) : const Color(0xFFF8FBFF),
+                borderRadius: BorderRadius.circular(17),
+                border: Border.all(
+                  color: _isOpen
+                      ? ProvincialAdminColors.blue
+                      : ProvincialAdminColors.line,
+                  width: _isOpen ? 1.3 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.filter_list_rounded,
+                    color: ProvincialAdminColors.lightMuted,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _getFilterSummary(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _isOpen
+                            ? ProvincialAdminColors.blue
+                            : ProvincialAdminColors.muted,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _isOpen
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: ProvincialAdminColors.lightMuted,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterSection extends StatelessWidget {
+  const _FilterSection({
+    required this.title,
+    required this.children,
+  });
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: ProvincialAdminColors.text,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.3,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...children,
+      ],
+    );
+  }
+}
+
+class _FilterOption extends StatelessWidget {
+  const _FilterOption({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: selected ? ProvincialAdminColors.blue : Colors.white,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: selected
+                      ? ProvincialAdminColors.blue
+                      : ProvincialAdminColors.line,
+                  width: selected ? 0 : 1.5,
+                ),
+              ),
+              child: selected
+                  ? const Icon(
+                      Icons.check_rounded,
+                      color: Colors.white,
+                      size: 12,
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected
+                      ? ProvincialAdminColors.text
+                      : ProvincialAdminColors.muted,
+                  fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1011,7 +1316,7 @@ class _SpotInfo extends StatelessWidget {
                     color: ProvincialAdminColors.text,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
-                    height: 1.1,
+                    height: 1.5,
                   ),
                 ),
               ],

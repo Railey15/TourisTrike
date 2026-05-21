@@ -7,7 +7,6 @@ enum ProvincialAdminDestination {
   packages,
   tourismData,
   reports,
-  revenue,
   feedback,
   settings,
 }
@@ -49,11 +48,6 @@ const provincialAdminNavItems = [
     destination: ProvincialAdminDestination.reports,
     label: 'Reports',
     icon: Icons.query_stats_rounded,
-  ),
-  ProvincialAdminNavItem(
-    destination: ProvincialAdminDestination.revenue,
-    label: 'Revenue',
-    icon: Icons.payments_rounded,
   ),
   ProvincialAdminNavItem(
     destination: ProvincialAdminDestination.feedback,

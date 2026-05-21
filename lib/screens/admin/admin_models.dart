@@ -458,16 +458,27 @@ class ProvinceFeedback {
       source: source,
       city: adminString(map, const ['city'], fallback: city),
       rating: adminDouble(map['rating'], fallback: adminDouble(map['score'])),
-      comment: adminString(map, const ['comment', 'feedback', 'message']),
+      comment: adminString(map, const [
+        'comment',
+        'review_text',
+        'feedback',
+        'message',
+        'body',
+        'content',
+      ]),
       reviewerName: adminString(map, const [
         'tourist_name',
+        'reviewer',
         'reviewer_name',
         'customer_name',
+        'user_name',
       ], fallback: 'Tourist'),
       subjectName: adminString(map, const [
         'driver_name',
         'subject_name',
         'package_title',
+        'spot_title',
+        'related_title',
       ], fallback: 'Transport service'),
       createdAt: adminDate(map['created_at']),
       raw: map,
@@ -677,12 +688,14 @@ class AdminReportData {
     required this.packages,
     required this.spots,
     required this.bookings,
+    required this.feedback,
   });
 
   final List<CityTenant> tenants;
   final List<ProvincePackage> packages;
   final List<ProvinceSpot> spots;
   final List<ProvinceBooking> bookings;
+  final List<ProvinceFeedback> feedback;
 
   int get completedTours =>
       bookings.where((item) => item.status.toLowerCase() == 'completed').length;
@@ -718,9 +731,10 @@ class FeedbackTrendData {
   final List<ProvinceFeedback> feedback;
 
   double get averageRating {
-    if (feedback.isEmpty) return 0;
-    return feedback.fold<double>(0, (sum, item) => sum + item.rating) /
-        feedback.length;
+    final rated = feedback.where((item) => item.rating > 0).toList();
+    if (rated.isEmpty) return 0;
+    return rated.fold<double>(0, (sum, item) => sum + item.rating) /
+        rated.length;
   }
 
   List<ProvinceFeedback> get lowRated {

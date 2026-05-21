@@ -6,7 +6,6 @@ import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/province_packages_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
-import 'package:touristrike/screens/admin/revenue_summary_screen.dart';
 import 'package:touristrike/screens/admin/provincial_spots_screen.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
@@ -61,10 +60,7 @@ class _ProvincialAdminDashboardScreenState
           }
 
           final data = snapshot.data!;
-          final money = NumberFormat.currency(
-            symbol: 'PHP ',
-            decimalDigits: 0,
-          );
+          final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -78,10 +74,8 @@ class _ProvincialAdminDashboardScreenState
                     money: money,
                     openTenants: () => _open(const CityTenantsScreen()),
                     openRegistrations: () => _open(const CityTenantsScreen()),
-                    openSpots: () =>
-                        _open(const ProvincialSpotsScreen()),
+                    openSpots: () => _open(const ProvincialSpotsScreen()),
                     openPackages: () => _open(const ProvincePackagesScreen()),
-                    openRevenue: () => _open(const RevenueSummaryScreen()),
                   ),
                 );
               }
@@ -94,10 +88,8 @@ class _ProvincialAdminDashboardScreenState
                   availableHeight: constraints.maxHeight - 28,
                   openTenants: () => _open(const CityTenantsScreen()),
                   openRegistrations: () => _open(const CityTenantsScreen()),
-                  openSpots: () =>
-                      _open(const ProvincialSpotsScreen()),
+                  openSpots: () => _open(const ProvincialSpotsScreen()),
                   openPackages: () => _open(const ProvincePackagesScreen()),
-                  openRevenue: () => _open(const RevenueSummaryScreen()),
                 ),
               );
             },
@@ -117,7 +109,6 @@ class _WideDashboard extends StatelessWidget {
     required this.openRegistrations,
     required this.openSpots,
     required this.openPackages,
-    required this.openRevenue,
   });
 
   final AdminDashboardData data;
@@ -127,7 +118,6 @@ class _WideDashboard extends StatelessWidget {
   final VoidCallback openRegistrations;
   final VoidCallback openSpots;
   final VoidCallback openPackages;
-  final VoidCallback openRevenue;
 
   @override
   Widget build(BuildContext context) {
@@ -160,7 +150,6 @@ class _WideDashboard extends StatelessWidget {
               onOpenRegistrations: openRegistrations,
               onOpenSpots: openSpots,
               onOpenPackages: openPackages,
-              onOpenRevenue: openRevenue,
             ),
           ),
           const SizedBox(height: gap),
@@ -173,10 +162,7 @@ class _WideDashboard extends StatelessWidget {
                   child: _TopCities(rows: data.bookingsByCity.take(6).toList()),
                 ),
                 const SizedBox(width: gap),
-                Expanded(
-                  flex: 6,
-                  child: _RecentActivity(data: data),
-                ),
+                Expanded(flex: 6, child: _RecentActivity(data: data)),
                 const SizedBox(width: gap),
                 Expanded(
                   flex: 5,
@@ -192,15 +178,9 @@ class _WideDashboard extends StatelessWidget {
             height: bottomHeight,
             child: Row(
               children: [
-                Expanded(
-                  flex: 12,
-                  child: _BookingsOverview(data: data),
-                ),
+                Expanded(flex: 12, child: _BookingsOverview(data: data)),
                 const SizedBox(width: gap),
-                Expanded(
-                  flex: 5,
-                  child: _Alerts(data: data),
-                ),
+                Expanded(flex: 5, child: _Alerts(data: data)),
               ],
             ),
           ),
@@ -218,7 +198,6 @@ class _StackedDashboard extends StatelessWidget {
     required this.openRegistrations,
     required this.openSpots,
     required this.openPackages,
-    required this.openRevenue,
   });
 
   final AdminDashboardData data;
@@ -227,7 +206,6 @@ class _StackedDashboard extends StatelessWidget {
   final VoidCallback openRegistrations;
   final VoidCallback openSpots;
   final VoidCallback openPackages;
-  final VoidCallback openRevenue;
 
   @override
   Widget build(BuildContext context) {
@@ -248,7 +226,6 @@ class _StackedDashboard extends StatelessWidget {
           onOpenRegistrations: openRegistrations,
           onOpenSpots: openSpots,
           onOpenPackages: openPackages,
-          onOpenRevenue: openRevenue,
         ),
         const SizedBox(height: 14),
         SizedBox(
@@ -272,10 +249,7 @@ class _StackedDashboard extends StatelessWidget {
 }
 
 class _HeroBanner extends StatelessWidget {
-  const _HeroBanner({
-    required this.name,
-    required this.activeCities,
-  });
+  const _HeroBanner({required this.name, required this.activeCities});
 
   final String name;
   final int activeCities;
@@ -378,7 +352,6 @@ class _MetricsRow extends StatelessWidget {
     required this.onOpenRegistrations,
     required this.onOpenSpots,
     required this.onOpenPackages,
-    required this.onOpenRevenue,
   });
 
   final NumberFormat money;
@@ -387,7 +360,6 @@ class _MetricsRow extends StatelessWidget {
   final VoidCallback onOpenRegistrations;
   final VoidCallback onOpenSpots;
   final VoidCallback onOpenPackages;
-  final VoidCallback onOpenRevenue;
 
   @override
   Widget build(BuildContext context) {
@@ -437,7 +409,6 @@ class _MetricsRow extends StatelessWidget {
         value: money.format(data.totalRevenue),
         subtitle: 'completed value',
         color: ProvincialAdminColors.green,
-        onTap: onOpenRevenue,
       ),
     ];
 
@@ -460,7 +431,6 @@ class _MetricsGrid extends StatelessWidget {
     required this.onOpenRegistrations,
     required this.onOpenSpots,
     required this.onOpenPackages,
-    required this.onOpenRevenue,
   });
 
   final NumberFormat money;
@@ -469,7 +439,6 @@ class _MetricsGrid extends StatelessWidget {
   final VoidCallback onOpenRegistrations;
   final VoidCallback onOpenSpots;
   final VoidCallback onOpenPackages;
-  final VoidCallback onOpenRevenue;
 
   @override
   Widget build(BuildContext context) {
@@ -519,7 +488,6 @@ class _MetricsGrid extends StatelessWidget {
         value: money.format(data.totalRevenue),
         subtitle: 'completed value',
         color: ProvincialAdminColors.green,
-        onTap: onOpenRevenue,
       ),
     ];
 
@@ -1048,11 +1016,7 @@ class _CompactTile extends StatelessWidget {
               color: const Color(0xFFEAF4FF),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              icon,
-              color: ProvincialAdminColors.blue,
-              size: 18,
-            ),
+            child: Icon(icon, color: ProvincialAdminColors.blue, size: 18),
           ),
           const SizedBox(width: 11),
           Expanded(
@@ -1083,10 +1047,7 @@ class _CompactTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 10),
-            trailing!,
-          ],
+          if (trailing != null) ...[const SizedBox(width: 10), trailing!],
         ],
       ),
     );
@@ -1179,11 +1140,7 @@ class _CenteredEmpty extends StatelessWidget {
                 color: const Color(0xFFEAF4FF),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Icon(
-                icon,
-                color: ProvincialAdminColors.blue,
-                size: 30,
-              ),
+              child: Icon(icon, color: ProvincialAdminColors.blue, size: 30),
             ),
             const SizedBox(height: 14),
             Text(

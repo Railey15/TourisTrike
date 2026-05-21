@@ -67,8 +67,9 @@ class ProvincialAdminSidebar extends StatelessWidget {
                   : MainAxisAlignment.start,
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 52,
+                  height: 52,
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(18),
@@ -76,12 +77,14 @@ class ProvincialAdminSidebar extends StatelessWidget {
                       color: Colors.white.withValues(alpha: 0.20),
                     ),
                   ),
-                  child: const Icon(
-                    Icons.account_balance_rounded,
-                    color: Colors.white,
-                    size: 24,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.network(
+                      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo1.png',
+                      fit: BoxFit.cover,
+                    ),
                   ),
-                ),
+                ),  
                 if (!compact) ...[
                   const SizedBox(width: 12),
                   const Expanded(
