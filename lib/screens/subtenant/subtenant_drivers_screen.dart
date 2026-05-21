@@ -19,6 +19,7 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   late Future<_DriverListLoad> _future;
+  String _status = 'all';
 
   @override
   void initState() {
@@ -58,34 +59,22 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
     if (changed == true) _reload();
   }
 
-  Future<void> _setStatus(
-    SubTenantProfile profile,
-    SubTenantDriver driver,
-    String status,
-  ) async {
-    try {
-      await _service.updateDriverStatus(profile, driver, status);
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Driver status updated.', error: false);
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showSubTenantSnack(
-        context,
-        'Driver status update needs a profiles.status column: $e',
-      );
-    }
-  }
-
   List<SubTenantDriver> _filtered(List<SubTenantDriver> drivers) {
     final query = _searchCtrl.text.trim().toLowerCase();
-    if (query.isEmpty) return drivers;
     return drivers
         .where((driver) {
-          return driver.fullName.toLowerCase().contains(query) ||
+          final matchesSearch = query.isEmpty ||
+              driver.fullName.toLowerCase().contains(query) ||
               driver.mobile.toLowerCase().contains(query) ||
               driver.plateNumber.toLowerCase().contains(query) ||
               driver.todaName.toLowerCase().contains(query);
+          final matchesStatus = switch (_status) {
+            'online' => driver.isOnline,
+            'offline' => !driver.isOnline,
+            'all' => true,
+            _ => driver.status == _status,
+          };
+          return matchesSearch && matchesStatus;
         })
         .toList(growable: false);
   }
@@ -118,10 +107,28 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
             child: ResponsivePageContainer(
               children: [
                 DashboardSectionCard(
-                  child: SubTenantSearchBar(
-                    controller: _searchCtrl,
-                    hintText: 'Search name, mobile, plate, TODA...',
-                    onChanged: (_) => setState(() {}),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SubTenantSearchBar(
+                        controller: _searchCtrl,
+                        hintText: 'Search name, mobile, plate, TODA...',
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 12),
+                      SubTenantFilterChips(
+                        values: const [
+                          'all',
+                          'pending',
+                          'approved',
+                          'suspended',
+                          'online',
+                          'offline',
+                        ],
+                        selected: _status,
+                        onSelected: (value) => setState(() => _status = value),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -139,10 +146,6 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
                       child: _DriverCard(
                         driver: driver,
                         onTap: () => _openDetails(driver),
-                        onApprove: () =>
-                            _setStatus(load.profile, driver, 'approved'),
-                        onSuspend: () =>
-                            _setStatus(load.profile, driver, 'suspended'),
                       ),
                     ),
                   )
@@ -150,8 +153,6 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
                   _DriversTable(
                     drivers: drivers,
                     onOpenDetails: _openDetails,
-                    onStatus: (driver, status) =>
-                        _setStatus(load.profile, driver, status),
                   ),
               ],
             ),
@@ -166,12 +167,10 @@ class _DriversTable extends StatelessWidget {
   const _DriversTable({
     required this.drivers,
     required this.onOpenDetails,
-    required this.onStatus,
   });
 
   final List<SubTenantDriver> drivers;
   final ValueChanged<SubTenantDriver> onOpenDetails;
-  final void Function(SubTenantDriver driver, String status) onStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +195,7 @@ class _DriversTable extends StatelessWidget {
           DataColumn(label: Text('TODA')),
           DataColumn(label: Text('Online')),
           DataColumn(label: Text('Status')),
-          DataColumn(label: Text('Actions')),
+          DataColumn(label: Text('Docs')),
         ],
         rows: drivers
             .map((driver) {
@@ -221,21 +220,9 @@ class _DriversTable extends StatelessWidget {
                   ),
                   DataCell(SubTenantStatusPill(status: driver.status)),
                   DataCell(
-                    Wrap(
-                      spacing: 4,
-                      children: [
-                        TextButton(
-                          onPressed: () => onStatus(driver, 'approved'),
-                          child: const Text('Approve'),
-                        ),
-                        TextButton(
-                          onPressed: () => onStatus(driver, 'suspended'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFFDC2626),
-                          ),
-                          child: const Text('Suspend'),
-                        ),
-                      ],
+                    Text(
+                      driver.documentCompleteness,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
                 ],
@@ -287,14 +274,10 @@ class _DriverCard extends StatelessWidget {
   const _DriverCard({
     required this.driver,
     required this.onTap,
-    required this.onApprove,
-    required this.onSuspend,
   });
 
   final SubTenantDriver driver;
   final VoidCallback onTap;
-  final VoidCallback onApprove;
-  final VoidCallback onSuspend;
 
   @override
   Widget build(BuildContext context) {
@@ -375,21 +358,15 @@ class _DriverCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                Wrap(
-                  spacing: 4,
-                  children: [
-                    TextButton(
-                      onPressed: onApprove,
-                      child: const Text('Approve'),
-                    ),
-                    TextButton(
-                      onPressed: onSuspend,
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFFDC2626),
-                      ),
-                      child: const Text('Suspend'),
-                    ),
-                  ],
+                SubTenantStatusPill(status: driver.status),
+                const SizedBox(width: 8),
+                Text(
+                  driver.documentCompleteness,
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
@@ -63,12 +64,17 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
 
   bool _saving = false;
   bool _autoFilling = false;
+  bool _uploadingImage = false;
 
   String? _selectedSuggestionId;
   String? _selectedBarangay;
   String? _selectedGooglePlaceId;
   String? _selectedGooglePhotoReference;
   String _sourceType = 'manual';
+  Timer? _addressSearchTimer;
+  bool _addressSearching = false;
+  List<CitySpotSuggestion> _addressSuggestions = const [];
+  SubTenantProfile? _addressProfile;
 
   GoogleMapController? _mapController;
   LatLng? _pickedLocation;
@@ -76,6 +82,64 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   bool get _editing => widget.spot != null;
 
   String? get _currentUserId => Supabase.instance.client.auth.currentUser?.id;
+
+  bool _isSupportedImage(XFile file) {
+    final name = file.name.toLowerCase();
+    return name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp');
+  }
+
+  String _contentTypeFor(XFile file) {
+    final name = file.name.toLowerCase();
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  Future<void> _pickAndUploadImage(SubTenantProfile profile) async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1800,
+      imageQuality: 88,
+    );
+    if (file == null) return;
+
+    if (!_isSupportedImage(file)) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Use JPG, PNG, or WebP images only.');
+      return;
+    }
+
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Image must be 5 MB or smaller.');
+      return;
+    }
+
+    setState(() => _uploadingImage = true);
+    try {
+      final url = await _service.uploadPublicAsset(
+        profile: profile,
+        bucket: 'public-assets',
+        folder: 'tourist-spots',
+        fileName: file.name,
+        bytes: bytes,
+        contentType: _contentTypeFor(file),
+      );
+      if (!mounted) return;
+      setState(() => _imageCtrl.text = url);
+      showSubTenantSnack(context, 'Spot image uploaded.', error: false);
+    } catch (e) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Image upload failed: $e');
+    } finally {
+      if (mounted) setState(() => _uploadingImage = false);
+    }
+  }
 
   @override
   void initState() {
@@ -97,6 +161,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     ]) {
       ctrl.addListener(_refreshPreview);
     }
+    _addressCtrl.addListener(_scheduleAddressSearch);
   }
 
   void _refreshPreview() {
@@ -143,6 +208,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
 
   Future<_SpotFormData> _loadData() async {
     final profile = await _service.loadCurrentProfile();
+    _addressProfile = profile;
     final categories = await _service.loadTourismCategories();
     final existingSpots = await _service.fetchSpots(profile);
     final city = profile.assignedCity.trim();
@@ -216,6 +282,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
 
   @override
   void dispose() {
+    _addressSearchTimer?.cancel();
     _scrollController.dispose();
     _mapController?.dispose();
 
@@ -354,6 +421,67 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     });
 
     _animateToLocation(position, zoom: 16);
+  }
+
+  void _scheduleAddressSearch() {
+    final profile = _addressProfile;
+    final query = _addressCtrl.text.trim();
+    _addressSearchTimer?.cancel();
+    if (profile == null || query.length < 4) {
+      if (_addressSuggestions.isNotEmpty && mounted) {
+        setState(() => _addressSuggestions = const []);
+      }
+      return;
+    }
+
+    _addressSearchTimer = Timer(const Duration(milliseconds: 550), () async {
+      if (!mounted) return;
+      setState(() => _addressSearching = true);
+      try {
+        final suggestions = await const CitySpotSuggestionService()
+            .searchPlaces(
+              query: query,
+              city: profile.assignedCity,
+              province: profile.province,
+              center: _municipalityCenter(profile.assignedCity),
+            );
+        if (!mounted || _addressCtrl.text.trim() != query) return;
+        setState(() => _addressSuggestions = suggestions);
+      } catch (_) {
+        if (mounted) setState(() => _addressSuggestions = const []);
+      } finally {
+        if (mounted) setState(() => _addressSearching = false);
+      }
+    });
+  }
+
+  void _applyAddressSuggestion(
+    CitySpotSuggestion suggestion,
+    List<String> barangays,
+  ) {
+    final matchedBarangay = _matchBarangay(suggestion.barangayHint, barangays);
+    setState(() {
+      if (_titleCtrl.text.trim().isEmpty) _titleCtrl.text = suggestion.title;
+      if (_descriptionCtrl.text.trim().isEmpty) {
+        _descriptionCtrl.text = _enhancedDescription(
+          suggestion.title,
+          suggestion.description,
+        );
+      }
+      _addressCtrl.text = suggestion.address;
+      _latCtrl.text = suggestion.latitude.toStringAsFixed(7);
+      _lngCtrl.text = suggestion.longitude.toStringAsFixed(7);
+      _selectedBarangay = matchedBarangay;
+      if (matchedBarangay != null) _barangayCtrl.text = matchedBarangay;
+      _selectedGooglePlaceId = suggestion.id;
+      _selectedGooglePhotoReference = suggestion.photoReference.trim().isEmpty
+          ? null
+          : suggestion.photoReference.trim();
+      _sourceType = 'google_places';
+      _pickedLocation = LatLng(suggestion.latitude, suggestion.longitude);
+      _addressSuggestions = const [];
+    });
+    _animateToLocation(_pickedLocation!, zoom: 16);
   }
 
   void _animateToLocation(LatLng position, {double zoom = 15.5}) {
@@ -827,7 +955,11 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                                     children: [
                                       _basicInfoCard(data),
                                       const SizedBox(height: 14),
+                                      _mapCard(data.profile),
+                                      const SizedBox(height: 14),
                                       _detailsCard(data),
+                                      const SizedBox(height: 14),
+                                      _mediaCard(data.profile),
                                       const SizedBox(height: 14),
                                       _statusCard(),
                                       const SizedBox(height: 18),
@@ -838,15 +970,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                                 const SizedBox(width: 20),
                                 Expanded(
                                   flex: 45,
-                                  child: Column(
-                                    children: [
-                                      _mapCard(data.profile),
-                                      const SizedBox(height: 14),
-                                      _mediaCard(),
-                                      const SizedBox(height: 14),
-                                      _previewCard(),
-                                    ],
-                                  ),
+                                  child: Column(children: [_previewCard()]),
                                 ),
                               ],
                             )
@@ -858,7 +982,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                                 const SizedBox(height: 14),
                                 _detailsCard(data),
                                 const SizedBox(height: 14),
-                                _mediaCard(),
+                                _mediaCard(data.profile),
                                 const SizedBox(height: 14),
                                 _statusCard(),
                                 const SizedBox(height: 14),
@@ -1115,6 +1239,15 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
             hint: 'Street, landmark, or nearby reference',
             maxLines: 2,
           ),
+          if (_addressSearching || _addressSuggestions.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _AddressSuggestionPanel(
+              loading: _addressSearching,
+              suggestions: _addressSuggestions,
+              onSelected: (suggestion) =>
+                  _applyAddressSuggestion(suggestion, data.barangays),
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
@@ -1361,7 +1494,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     );
   }
 
-  Widget _mediaCard() {
+  Widget _mediaCard(SubTenantProfile profile) {
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1375,6 +1508,20 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
             controller: _imageCtrl,
             label: 'Image URL',
             keyboardType: TextInputType.url,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _uploadingImage
+                ? null
+                : () => _pickAndUploadImage(profile),
+            icon: _uploadingImage
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.upload_file_rounded),
+            label: Text(_uploadingImage ? 'Uploading...' : 'Upload Image'),
           ),
           const SizedBox(height: 12),
           _imagePreview(),
@@ -1857,6 +2004,119 @@ class _InfoChip extends StatelessWidget {
               fontWeight: FontWeight.w800,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddressSuggestionPanel extends StatelessWidget {
+  const _AddressSuggestionPanel({
+    required this.loading,
+    required this.suggestions,
+    required this.onSelected,
+  });
+
+  final bool loading;
+  final List<CitySpotSuggestion> suggestions;
+  final ValueChanged<CitySpotSuggestion> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (loading) ...[
+            const SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.6),
+                ),
+              ),
+            ),
+          ],
+          if (!loading && suggestions.isEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'No matching address suggestions were found.',
+                style: TextStyle(
+                  color: SubTenantColors.muted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+          if (suggestions.isNotEmpty)
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: suggestions.length,
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 1, thickness: 1),
+              itemBuilder: (context, index) {
+                final suggestion = suggestions[index];
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => onSelected(suggestion),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            suggestion.title,
+                            style: const TextStyle(
+                              color: SubTenantColors.text,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            suggestion.address,
+                            style: const TextStyle(
+                              color: SubTenantColors.muted,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                          if (suggestion.barangayHint.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                suggestion.barangayHint,
+                                style: const TextStyle(
+                                  color: SubTenantColors.blue,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );

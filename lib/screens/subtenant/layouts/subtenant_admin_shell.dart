@@ -234,6 +234,7 @@ class _MobileShell extends StatelessWidget {
           ],
         ),
         actions: [
+          const _NotificationButton(),
           ...actions,
           const SizedBox(width: 6),
         ],
@@ -304,11 +305,7 @@ class _DesktopHeader extends StatelessWidget {
             _HeaderSearch(),
             const SizedBox(width: 12),
           ],
-          _HeaderIconButton(
-            tooltip: 'Notifications',
-            icon: Icons.notifications_none_rounded,
-            onPressed: () {},
-          ),
+          const _NotificationButton(),
           const SizedBox(width: 10),
           if (actions.isNotEmpty) ...[
             Container(
@@ -375,6 +372,214 @@ class _HeaderSearch extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _NotificationButton extends StatefulWidget {
+  const _NotificationButton();
+
+  @override
+  State<_NotificationButton> createState() => _NotificationButtonState();
+}
+
+class _NotificationButtonState extends State<_NotificationButton> {
+  SupabaseClient get _client => Supabase.instance.client;
+  String? get _userId => _client.auth.currentUser?.id;
+
+  Stream<List<Map<String, dynamic>>> _stream(String userId) {
+    return _client
+        .from('notifications')
+        .stream(primaryKey: const ['id'])
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .map(
+          (rows) =>
+              rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+        );
+  }
+
+  Future<List<Map<String, dynamic>>> _latest() async {
+    final userId = _userId;
+    if (userId == null) return const [];
+    final rows = await _client
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .limit(20);
+    return (rows as List)
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList(growable: false);
+  }
+
+  Future<void> _markRead(dynamic id) async {
+    final userId = _userId;
+    if (userId == null) return;
+    await _client
+        .from('notifications')
+        .update({'is_read': true})
+        .eq('id', id)
+        .eq('user_id', userId);
+  }
+
+  Future<void> _markAllRead() async {
+    final userId = _userId;
+    if (userId == null) return;
+    await _client
+        .from('notifications')
+        .update({'is_read': true})
+        .eq('user_id', userId)
+        .eq('is_read', false);
+  }
+
+  Future<void> _openPanel() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              const Expanded(child: Text('Notifications')),
+              TextButton(
+                onPressed: () async {
+                  await _markAllRead();
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Mark all read'),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 420,
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _latest(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 160,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final rows = snapshot.data ?? const [];
+                if (rows.isEmpty) {
+                  return const SizedBox(
+                    height: 140,
+                    child: Center(child: Text('No notifications yet.')),
+                  );
+                }
+                return ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 420),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final row = rows[index];
+                      final unread = row['is_read'] != true;
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          unread
+                              ? Icons.notifications_active_rounded
+                              : Icons.notifications_none_rounded,
+                          color: unread
+                              ? SubTenantColors.blue
+                              : SubTenantColors.lightMuted,
+                        ),
+                        title: Text(
+                          (row['title'] ?? 'Notification').toString(),
+                          style: TextStyle(
+                            fontWeight:
+                                unread ? FontWeight.w900 : FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text((row['body'] ?? '').toString()),
+                        onTap: () async {
+                          await _markRead(row['id']);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = _userId;
+    if (userId == null) {
+      return _HeaderIconButton(
+        tooltip: 'Notifications',
+        icon: Icons.notifications_none_rounded,
+        onPressed: () {},
+      );
+    }
+
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _stream(userId),
+      builder: (context, snapshot) {
+        final rows = snapshot.data ?? const [];
+        final unread = rows.where((row) => row['is_read'] != true).length;
+        return Tooltip(
+          message: 'Notifications',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: _openPanel,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF4FF),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: SubTenantColors.blue.withValues(alpha: 0.08),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: SubTenantColors.blue,
+                    size: 22,
+                  ),
+                ),
+                if (unread > 0)
+                  Positioned(
+                    right: -2,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC2626),
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      child: Text(
+                        unread > 9 ? '9+' : '$unread',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

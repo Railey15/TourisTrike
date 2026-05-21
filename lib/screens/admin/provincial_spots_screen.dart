@@ -9,16 +9,14 @@ import 'package:touristrike/screens/admin/widgets/admin_empty_state.dart';
 import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 
-class TourismDataVerificationScreen extends StatefulWidget {
-  const TourismDataVerificationScreen({super.key});
+class ProvincialSpotsScreen extends StatefulWidget {
+  const ProvincialSpotsScreen({super.key});
 
   @override
-  State<TourismDataVerificationScreen> createState() =>
-      _TourismDataVerificationScreenState();
+  State<ProvincialSpotsScreen> createState() => _ProvincialSpotsScreenState();
 }
 
-class _TourismDataVerificationScreenState
-    extends State<TourismDataVerificationScreen> {
+class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
   final ProvincialAdminService _service = ProvincialAdminService();
   final TextEditingController _searchCtrl = TextEditingController();
 

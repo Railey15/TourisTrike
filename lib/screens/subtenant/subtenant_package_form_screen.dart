@@ -3,6 +3,7 @@ import 'dart:math' show sqrt, sin, cos, atan2;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_package_itinerary_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
@@ -17,6 +18,7 @@ class _BuilderData {
     required this.categories,
     required this.popularIds,
     required this.googleSuggestions,
+    required this.fareSettings,
   });
 
   final SubTenantProfile profile;
@@ -24,6 +26,7 @@ class _BuilderData {
   final List<SubTenantCategory> categories;
   final Set<dynamic> popularIds;
   final Map<String, List<_GPlaceSuggestion>> googleSuggestions;
+  final SubTenantFareSettings fareSettings;
 }
 
 // ─── Google Place suggestion model ───────────────────────────────────────────
@@ -220,6 +223,8 @@ class _SubTenantPackageFormScreenState
   String _visibility = 'visible';
   dynamic _packageCategoryId;
   bool _saving = false;
+  bool _uploadingImage = false;
+  bool _uploadingCover = false;
   bool _spotsInitialized = false;
 
   // Spot builder state
@@ -237,6 +242,8 @@ class _SubTenantPackageFormScreenState
     _prefillFromPackage();
     _dataFuture = _loadData();
     _spotSearchCtrl.addListener(() => setState(() {}));
+    _groupSizeCtrl.addListener(() => setState(() {}));
+    _distanceCtrl.addListener(() => setState(() {}));
   }
 
   void _prefillFromPackage() {
@@ -274,11 +281,13 @@ class _SubTenantPackageFormScreenState
       profile.assignedCity,
       profile.province,
     );
+    final fareF = _service.loadFareSettings(profile);
 
     final spots = await spotsF;
     final categories = await categoriesF;
     final popularIds = await popularIdsF;
     final googleSuggestions = await googleF;
+    final fareSettings = await fareF;
 
     if (_editing && !_spotsInitialized) {
       final existing = await _service.loadPackageSelectedSpots(
@@ -300,6 +309,7 @@ class _SubTenantPackageFormScreenState
       categories: categories,
       popularIds: popularIds,
       googleSuggestions: googleSuggestions,
+      fareSettings: fareSettings,
     );
   }
 
@@ -405,6 +415,98 @@ class _SubTenantPackageFormScreenState
   }
 
   double _toRad(double deg) => deg * (3.141592653589793 / 180);
+
+  FareCalculation _fareCalculation(SubTenantFareSettings settings) {
+    final distance =
+        double.tryParse(_distanceCtrl.text.trim().replaceAll(',', '')) ?? 0;
+    final groupSize = int.tryParse(_groupSizeCtrl.text.trim()) ?? 1;
+    return settings.calculate(routeDistanceKm: distance, groupSize: groupSize);
+  }
+
+  void _useSuggestedPrice(SubTenantFareSettings settings) {
+    final calculation = _fareCalculation(settings);
+    setState(() {
+      _budgetCtrl.text = calculation.total.toStringAsFixed(0);
+      _priceCtrl.text = 'From PHP ${calculation.total.toStringAsFixed(0)}';
+    });
+  }
+
+  bool _isSupportedImage(XFile file) {
+    final name = file.name.toLowerCase();
+    return name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp');
+  }
+
+  String _contentTypeFor(XFile file) {
+    final name = file.name.toLowerCase();
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  Future<void> _pickAndUploadImage({
+    required SubTenantProfile profile,
+    required TextEditingController target,
+    required bool cover,
+  }) async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1800,
+      imageQuality: 88,
+    );
+    if (file == null) return;
+
+    if (!_isSupportedImage(file)) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Use JPG, PNG, or WebP images only.');
+      return;
+    }
+
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Image must be 5 MB or smaller.');
+      return;
+    }
+
+    setState(() {
+      if (cover) {
+        _uploadingCover = true;
+      } else {
+        _uploadingImage = true;
+      }
+    });
+
+    try {
+      final url = await _service.uploadPublicAsset(
+        profile: profile,
+        bucket: 'public-assets',
+        folder: 'tour-packages',
+        fileName: file.name,
+        bytes: bytes,
+        contentType: _contentTypeFor(file),
+      );
+      if (!mounted) return;
+      setState(() => target.text = url);
+      showSubTenantSnack(context, 'Image uploaded.', error: false);
+    } catch (e) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Image upload failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (cover) {
+            _uploadingCover = false;
+          } else {
+            _uploadingImage = false;
+          }
+        });
+      }
+    }
+  }
 
   // ─── Filtering / recommendations ─────────────────────────────────────────
 
@@ -620,9 +722,9 @@ class _SubTenantPackageFormScreenState
   List<Widget> _leftChildren(_BuilderData data) => [
     _basicInfoCard(data),
     const SizedBox(height: 14),
-    _detailsCard(),
+    _detailsCard(data),
     const SizedBox(height: 14),
-    _imagesCard(),
+    _imagesCard(data),
     const SizedBox(height: 14),
     _publishingCard(),
     const SizedBox(height: 18),
@@ -717,7 +819,8 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  Widget _detailsCard() {
+  Widget _detailsCard(_BuilderData data) {
+    final calculation = _fareCalculation(data.fareSettings);
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -769,12 +872,17 @@ class _SubTenantPackageFormScreenState
             hint: 'Auto-filled when spots have coordinates',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
+          const SizedBox(height: 12),
+          _PackageFareSuggestion(
+            calculation: calculation,
+            onUse: () => _useSuggestedPrice(data.fareSettings),
+          ),
         ],
       ),
     );
   }
 
-  Widget _imagesCard() {
+  Widget _imagesCard(_BuilderData data) {
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -789,12 +897,48 @@ class _SubTenantPackageFormScreenState
             label: 'Image URL',
             keyboardType: TextInputType.url,
           ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _uploadingImage
+                ? null
+                : () => _pickAndUploadImage(
+                      profile: data.profile,
+                      target: _imageCtrl,
+                      cover: false,
+                    ),
+            icon: _uploadingImage
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.upload_file_rounded),
+            label: Text(_uploadingImage ? 'Uploading...' : 'Upload Image'),
+          ),
           const SizedBox(height: 12),
           SubTenantTextField(
             controller: _coverCtrl,
             label: 'Cover Image URL',
             hint: 'Defaults to Image URL if empty',
             keyboardType: TextInputType.url,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _uploadingCover
+                ? null
+                : () => _pickAndUploadImage(
+                      profile: data.profile,
+                      target: _coverCtrl,
+                      cover: true,
+                    ),
+            icon: _uploadingCover
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.upload_file_rounded),
+            label: Text(_uploadingCover ? 'Uploading...' : 'Upload Cover'),
           ),
           const SizedBox(height: 12),
           ValueListenableBuilder<TextEditingValue>(
@@ -1329,6 +1473,104 @@ class _SubTenantPackageFormScreenState
 }
 
 // ─── Spot card ────────────────────────────────────────────────────────────────
+
+class _PackageFareSuggestion extends StatelessWidget {
+  const _PackageFareSuggestion({
+    required this.calculation,
+    required this.onUse,
+  });
+
+  final FareCalculation calculation;
+  final VoidCallback onUse;
+
+  String _money(double value) => 'PHP ${value.toStringAsFixed(0)}';
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [
+      ('Base fare', calculation.baseFare),
+      ('Distance fee', calculation.distanceFee),
+      ('Passenger fee', calculation.passengerFee),
+      ('Waiting fee', calculation.waitingFee),
+      ('Guide/service fee', calculation.guideFee),
+      if (calculation.minimumFareAdjustment > 0)
+        ('Minimum fare adjustment', calculation.minimumFareAdjustment),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: SubTenantColors.blue.withValues(alpha: .07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SubTenantColors.blue.withValues(alpha: .14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Suggested Price',
+                  style: TextStyle(
+                    color: SubTenantColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                _money(calculation.total),
+                style: const TextStyle(
+                  color: SubTenantColors.blue,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...rows.map(
+            (row) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      row.$1,
+                      style: const TextStyle(
+                        color: SubTenantColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _money(row.$2),
+                    style: const TextStyle(
+                      color: SubTenantColors.text,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: onUse,
+              icon: const Icon(Icons.price_check_rounded, size: 18),
+              label: const Text('Use Suggested Price'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SpotCard extends StatelessWidget {
   const _SpotCard({required this.spot, required this.onAdd});

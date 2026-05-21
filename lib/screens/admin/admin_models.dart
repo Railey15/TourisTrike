@@ -207,9 +207,15 @@ class CityTenant {
       province: adminString(map, const ['province'], fallback: 'Bulacan'),
       adminName: adminString(map, const [
         'full_name',
+        'contact_person',
+        'office_name',
         'name',
       ], fallback: generatedName.isEmpty ? 'City Admin' : generatedName),
-      email: adminString(map, const ['email']),
+      email: adminString(map, const [
+        'email',
+        'contact_email',
+        'office_email',
+      ]),
       mobile: adminString(map, const ['mobile', 'contact_number']),
       address: adminString(map, const ['address', 'office_address']),
       status: status,
