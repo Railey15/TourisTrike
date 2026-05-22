@@ -645,11 +645,11 @@ class _TouristChatScreenState extends State<TouristChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: const Color(0xFFF5F7FB),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             // AppBar
@@ -752,10 +752,13 @@ class _TouristChatScreenState extends State<TouristChatScreen> {
                 },
               ),
             ),
-            // Input
+            // Input — Scaffold resizes for keyboard; add home indicator manually
             Container(
               color: Colors.white,
-              padding: EdgeInsets.fromLTRB(16, 10, 16, 10 + bottomInset),
+              padding: EdgeInsets.fromLTRB(
+                16, 10, 16,
+                10 + MediaQuery.of(context).padding.bottom,
+              ),
               child: Row(
                 children: [
                   Expanded(

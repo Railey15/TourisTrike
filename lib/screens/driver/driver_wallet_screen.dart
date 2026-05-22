@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -365,6 +366,18 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
     );
   }
 
+  Future<void> _showScanToPay() async {
+    try {
+      final picker = ImagePicker();
+      await picker.pickImage(source: ImageSource.camera);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Camera unavailable: $e'), backgroundColor: const Color(0xFFDC2626)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -397,6 +410,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
                         setState(() => _balanceHidden = !_balanceHidden);
                       },
                       onCashIn: _showCashIn,
+                      onScanToPay: _showScanToPay,
                     ),
                     const SizedBox(height: 16),
                     _DriverWalletStats(activities: _activities),
@@ -436,12 +450,14 @@ class _DriverWalletHero extends StatelessWidget {
     required this.balanceHidden,
     required this.onToggleHide,
     required this.onCashIn,
+    required this.onScanToPay,
   });
 
   final Wallet wallet;
   final bool balanceHidden;
   final VoidCallback onToggleHide;
   final VoidCallback onCashIn;
+  final VoidCallback onScanToPay;
 
   @override
   Widget build(BuildContext context) {
@@ -530,25 +546,49 @@ class _DriverWalletHero extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onCashIn,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text(
-                'Top Up via PayMongo',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF2F6FFF),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onCashIn,
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text(
+                    'Cash In',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF2F6FFF),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
                 ),
-                elevation: 0,
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onScanToPay,
+                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                  label: const Text(
+                    'Scan To Pay',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.18),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

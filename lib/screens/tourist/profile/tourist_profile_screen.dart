@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 
 import 'package:touristrike/screens/auth/login_screen.dart';
 import 'package:touristrike/screens/tourist/profile/change_password_screen.dart';
@@ -181,6 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
+      await clearAiChatbotHistory();
       await _supabase.auth.signOut();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(

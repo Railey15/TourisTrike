@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -343,14 +344,14 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
     );
   }
 
-  void _showComingSoon(String feature) {
-    _showSnack(
-      '$feature - coming soon!',
-      backgroundColor: const Color(0xFF334155),
-    );
+  Future<void> _showScanToPay() async {
+    try {
+      final picker = ImagePicker();
+      await picker.pickImage(source: ImageSource.camera);
+    } catch (e) {
+      _showSnack('Camera unavailable: $e', backgroundColor: const Color(0xFFDC2626));
+    }
   }
-
-  void _scrollToHistory() {}
 
   @override
   Widget build(BuildContext context) {
@@ -398,22 +399,10 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
                                 onTap: _showCashIn,
                               ),
                               _ActionButton(
-                                icon: Icons.payment_rounded,
-                                label: 'Pay Package',
-                                color: const Color(0xFF0EA5E9),
-                                onTap: () => _showComingSoon('Pay Package'),
-                              ),
-                              _ActionButton(
-                                icon: Icons.send_rounded,
-                                label: 'Transfer',
-                                color: const Color(0xFF6366F1),
-                                onTap: () => _showComingSoon('Transfer'),
-                              ),
-                              _ActionButton(
-                                icon: Icons.receipt_long_rounded,
-                                label: 'History',
-                                color: const Color(0xFF475569),
-                                onTap: _scrollToHistory,
+                                icon: Icons.qr_code_scanner_rounded,
+                                label: 'Scan To Pay',
+                                color: const Color(0xFF16A34A),
+                                onTap: _showScanToPay,
                               ),
                             ],
                           ),

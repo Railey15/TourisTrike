@@ -484,32 +484,51 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final start = DateTime(now.year, now.month, now.day);
     final end = start.add(const Duration(days: 1));
 
-    final rows = await supabase
-        .from('rides')
-        .select('fare_amount')
-        .eq('driver_id', _user.id)
-        .eq('status', 'completed')
-        .gte('completed_at', start.toIso8601String())
-        .lt('completed_at', end.toIso8601String());
-
     num sum = 0;
     var trips = 0;
+    var completedTotal = 0;
 
-    for (final r in rows) {
-      final fare = r['fare_amount'];
-      if (fare is num) sum += fare;
-      trips++;
+    try {
+      // Today's earnings from wallet_transactions (type: driver_earning)
+      final txRows = await supabase
+          .from('wallet_transactions')
+          .select('amount, created_at')
+          .eq('user_id', _user.id)
+          .eq('type', 'driver_earning')
+          .gte('created_at', start.toIso8601String())
+          .lt('created_at', end.toIso8601String());
+
+      for (final r in txRows) {
+        final amount = r['amount'];
+        if (amount is num) sum += amount;
+        trips++;
+      }
+    } catch (_) {
+      // Fallback: use package_activities price sum
+      try {
+        final actRows = await supabase
+            .from('package_activities')
+            .select('price, updated_at')
+            .eq('driver_id', _user.id)
+            .eq('status', 'completed')
+            .gte('updated_at', start.toIso8601String())
+            .lt('updated_at', end.toIso8601String());
+
+        for (final r in actRows) {
+          final price = r['price'];
+          if (price is num) sum += price;
+          trips++;
+        }
+      } catch (_) {}
     }
 
-    var completedTotal = trips;
     try {
       final totalRows = await supabase
-          .from('rides')
+          .from('package_activities')
           .select('id')
           .eq('driver_id', _user.id)
           .eq('status', 'completed')
           .limit(1000);
-
       completedTotal = totalRows.length;
     } catch (_) {}
 
@@ -561,13 +580,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               const SizedBox(height: 14),
               _buildActiveTourAssignment(),
               const SizedBox(height: 14),
-              _buildTourProgressTracker(_activeRide),
-              const SizedBox(height: 14),
               _buildTodayTourEarnings(),
               const SizedBox(height: 14),
               _buildGuideStats(),
-              const SizedBox(height: 14),
-              _buildQuickActions(),
             ],
           ),
         ),

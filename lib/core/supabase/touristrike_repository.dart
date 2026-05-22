@@ -1934,7 +1934,7 @@ class TourisTrikeRepository {
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────
 
-  Future<bool> hasReviewedBooking(String bookingId) async {
+  Future<bool> hasReviewedDriver(String bookingId) async {
     final userId = currentUserId;
     if (userId == null) return false;
     final row = await _client
@@ -1944,6 +1944,26 @@ class TourisTrikeRepository {
         .eq('tourist_id', userId)
         .maybeSingle();
     return row != null;
+  }
+
+  /// Returns true only when BOTH driver review and package review exist.
+  Future<bool> hasReviewedBooking(String bookingId) async {
+    final userId = currentUserId;
+    if (userId == null) return false;
+    final driverRow = await _client
+        .from(TourisTrikeTables.driverReviews)
+        .select('id')
+        .eq('booking_id', bookingId)
+        .eq('tourist_id', userId)
+        .maybeSingle();
+    if (driverRow == null) return false;
+    final packageRow = await _client
+        .from('package_reviews')
+        .select('id')
+        .eq('booking_id', bookingId)
+        .eq('tourist_id', userId)
+        .maybeSingle();
+    return packageRow != null;
   }
 
   Future<void> submitDriverReview({
@@ -1960,6 +1980,34 @@ class TourisTrikeRepository {
       'rating': rating,
       'review_text': reviewText.trim().isEmpty ? null : reviewText.trim(),
     });
+  }
+
+  Future<void> submitPackageReview({
+    required String bookingId,
+    required int rating,
+    String reviewText = '',
+    dynamic packageId,
+  }) async {
+    final userId = requireUserId();
+    await _client.from('package_reviews').insert({
+      'booking_id': bookingId,
+      'tourist_id': userId,
+      'rating': rating,
+      'review_text': reviewText.trim().isEmpty ? null : reviewText.trim(),
+      ?'package_id': packageId,
+    });
+  }
+
+  Future<bool> hasReviewedPackage(String bookingId) async {
+    final userId = currentUserId;
+    if (userId == null) return false;
+    final row = await _client
+        .from('package_reviews')
+        .select('id')
+        .eq('booking_id', bookingId)
+        .eq('tourist_id', userId)
+        .maybeSingle();
+    return row != null;
   }
 
   Future<String?> fetchAssignedDriverIdForBooking(String bookingId) async {

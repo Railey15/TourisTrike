@@ -402,11 +402,11 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: const Color(0xFFF5F7FB),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             Container(
@@ -560,7 +560,10 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
             ),
             Container(
               color: Colors.white,
-              padding: EdgeInsets.fromLTRB(14, 10, 14, 10 + bottomInset),
+              padding: EdgeInsets.fromLTRB(
+                14, 10, 14,
+                10 + MediaQuery.of(context).padding.bottom,
+              ),
               child: Row(
                 children: [
                   Expanded(

@@ -1,11 +1,23 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/chatbot_models.dart';
 import 'package:touristrike/core/services/gemini_service.dart';
 import 'package:touristrike/screens/tourist/package_details_screen.dart';
 import 'package:touristrike/screens/tourist/spot_details_screen.dart';
+
+const _kChatHistoryKey = 'ai_chatbot_history_v1';
+
+Future<void> clearAiChatbotHistory() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kChatHistoryKey);
+  } catch (_) {}
+}
 
 // ── System prompt ──────────────────────────────────────────────────────────────
 const _kSystemPrompt =
@@ -238,15 +250,21 @@ class _AiChatSheetState extends State<_AiChatSheet> {
   final _scrollCtrl = ScrollController();
   bool _thinking = false;
 
-  final List<_ChatMessage> _messages = [
-    const _ChatMessage(
-      text: 'Hi! I\'m your TourisTrike AI Assistant \u{1F44B}\n\n'
-          'Ask me about tourist spots, travel packages, tricycle routes, '
-          'cafes, food places, or anything about exploring Bulacan!',
-      isUser: false,
-      isUiOnly: true,
-    ),
-  ];
+  static const _kGreeting = _ChatMessage(
+    text: 'Hi! I\'m your TourisTrike AI Assistant \u{1F44B}\n\n'
+        'Ask me about tourist spots, travel packages, tricycle routes, '
+        'cafes, food places, or anything about exploring Bulacan!',
+    isUser: false,
+    isUiOnly: true,
+  );
+
+  final List<_ChatMessage> _messages = [_kGreeting];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
 
   @override
   void dispose() {
@@ -254,6 +272,57 @@ class _AiChatSheetState extends State<_AiChatSheet> {
     _scrollCtrl.dispose();
     super.dispose();
   }
+
+  Future<void> _loadHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_kChatHistoryKey);
+      if (raw == null || raw.isEmpty) return;
+      final loaded = raw
+          .map((s) {
+            try {
+              final m = jsonDecode(s) as Map<String, dynamic>;
+              return _ChatMessage(
+                text: m['text'] as String? ?? '',
+                isUser: m['isUser'] as bool? ?? false,
+                isError: false,
+                isUiOnly: m['isUiOnly'] as bool? ?? false,
+              );
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<_ChatMessage>()
+          .toList();
+      if (loaded.isEmpty) return;
+      if (!mounted) return;
+      setState(() {
+        _messages
+          ..clear()
+          ..add(_kGreeting)
+          ..addAll(loaded);
+      });
+      _scrollToBottom();
+    } catch (_) {}
+  }
+
+  Future<void> _saveHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Skip the greeting (first message, isUiOnly), save the rest
+      final toSave = _messages
+          .skip(1)
+          .where((m) => !m.isError)
+          .map((m) => jsonEncode({
+                'text': m.text,
+                'isUser': m.isUser,
+                'isUiOnly': m.isUiOnly,
+              }))
+          .toList();
+      await prefs.setStringList(_kChatHistoryKey, toSave);
+    } catch (_) {}
+  }
+
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -309,6 +378,7 @@ class _AiChatSheetState extends State<_AiChatSheet> {
         ));
         _thinking = false;
       });
+      unawaited(_saveHistory());
       _scrollToBottom();
       return;
     }
@@ -337,6 +407,7 @@ class _AiChatSheetState extends State<_AiChatSheet> {
         ));
         _thinking = false;
       });
+      unawaited(_saveHistory());
     } catch (e) {
       debugPrint('[Chat] Error: $e');
       if (!mounted) return;
