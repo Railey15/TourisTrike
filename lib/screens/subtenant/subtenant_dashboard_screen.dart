@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_announcements_screen.dart';
@@ -24,16 +27,188 @@ class SubTenantDashboardScreen extends StatefulWidget {
 
 class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
   final SubTenantService _service = SubTenantService();
-  late Future<SubTenantDashboardData> _future;
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  SubTenantDashboardData? _data;
+  Object? _error;
+  bool _loading = true;
+  bool _loadingDashboard = false;
+  bool _reloadQueued = false;
+  Timer? _reloadDebounce;
+  RealtimeChannel? _dashboardChannel;
+  Set<String> _packageIds = const {};
+  String? _subscribedCity;
 
   @override
   void initState() {
     super.initState();
-    _future = _service.loadDashboard();
+    unawaited(_loadDashboard(showLoading: true));
   }
 
-  void _reload() {
-    setState(() => _future = _service.loadDashboard());
+  @override
+  void dispose() {
+    _reloadDebounce?.cancel();
+    final channel = _dashboardChannel;
+    if (channel != null) {
+      unawaited(_supabase.removeChannel(channel));
+    }
+    super.dispose();
+  }
+
+  Future<void> _reload() => _loadDashboard();
+
+  Future<void> _loadDashboard({bool showLoading = false}) async {
+    if (_loadingDashboard) {
+      _reloadQueued = true;
+      return;
+    }
+
+    _loadingDashboard = true;
+    if (mounted && (showLoading || _data == null)) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final data = await _service.loadDashboard();
+      if (!mounted) return;
+      setState(() {
+        _data = data;
+        _packageIds = data.packageIds.map(stId).toSet();
+        _error = null;
+        _loading = false;
+      });
+      _setupRealtimeSubscriptions(data.profile);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    } finally {
+      _loadingDashboard = false;
+      if (_reloadQueued && mounted) {
+        _reloadQueued = false;
+        unawaited(_loadDashboard());
+      }
+    }
+  }
+
+  void _setupRealtimeSubscriptions(SubTenantProfile profile) {
+    final city = profile.assignedCity;
+    if (_subscribedCity == city && _dashboardChannel != null) return;
+
+    final oldChannel = _dashboardChannel;
+    if (oldChannel != null) {
+      unawaited(_supabase.removeChannel(oldChannel));
+    }
+
+    _subscribedCity = city;
+    _dashboardChannel = _supabase
+        .channel('subtenant-dashboard:${profile.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'tourist_spots',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'city',
+            value: city,
+          ),
+          callback: (_) => _scheduleRealtimeReload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'tour_packages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'city',
+            value: city,
+          ),
+          callback: (_) => _scheduleRealtimeReload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'package_bookings',
+          callback: _schedulePackageScopedReload,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'package_activities',
+          callback: _schedulePackageScopedReload,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'city_announcements',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'city',
+            value: city,
+          ),
+          callback: (_) => _scheduleRealtimeReload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'profiles',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'city',
+            value: city,
+          ),
+          callback: (_) => _scheduleRealtimeReload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_applications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'city',
+            value: city,
+          ),
+          callback: (_) => _scheduleRealtimeReload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_details',
+          callback: (_) => _scheduleRealtimeReload(),
+        )
+        .subscribe();
+  }
+
+  void _scheduleRealtimeReload() {
+    if (!mounted) return;
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 450),
+      () => unawaited(_loadDashboard()),
+    );
+  }
+
+  void _schedulePackageScopedReload(PostgresChangePayload payload) {
+    if (_payloadTouchesCurrentPackage(payload)) {
+      _scheduleRealtimeReload();
+    }
+  }
+
+  bool _payloadTouchesCurrentPackage(PostgresChangePayload payload) {
+    final packageId =
+        payload.newRecord['package_id'] ?? payload.oldRecord['package_id'];
+    if (packageId == null) {
+      return true;
+    }
+    if (_packageIds.isEmpty) {
+      return false;
+    }
+    return _packageIds.contains(stId(packageId));
   }
 
   Future<void> _open(Widget page) async {
@@ -42,7 +217,7 @@ class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
       MaterialPageRoute(builder: (_) => page),
     );
     if (!mounted) return;
-    if (changed == true) _reload();
+    if (changed == true) await _reload();
   }
 
   @override
@@ -51,32 +226,31 @@ class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
       currentIndex: 0,
       title: 'Dashboard',
       subtitle: 'City tourism overview, package operations, and bookings.',
-      child: FutureBuilder<SubTenantDashboardData>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SubTenantLoadingView();
-          }
-          if (snapshot.hasError) {
-            return SubTenantErrorView(
-              message: snapshot.error.toString(),
-              onRetry: _reload,
-            );
-          }
-          final data = snapshot.data!;
-          return _DashboardContent(
-            data: data,
-            onRefresh: _reload,
-            onAddSpot: () => _open(const SubTenantSpotFormScreen()),
-            onCreatePackage: () => _open(const SubTenantPackageFormScreen()),
-            onDrivers: () => _open(const SubTenantDriversScreen()),
-            onBookings: () => _open(const SubTenantBookingsScreen()),
-            onReports: () => _open(const SubTenantReportsScreen()),
-            onAnnouncements: () => _open(const SubTenantAnnouncementsScreen()),
-            onProfile: () => _open(const SubTenantCityProfileScreen()),
-          );
-        },
-      ),
+      child: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    final data = _data;
+    if (_loading && data == null) {
+      return const SubTenantLoadingView();
+    }
+    if (_error != null && data == null) {
+      return SubTenantErrorView(
+        message: _error.toString(),
+        onRetry: () => unawaited(_loadDashboard(showLoading: true)),
+      );
+    }
+    return _DashboardContent(
+      data: data!,
+      onRefresh: _reload,
+      onAddSpot: () => _open(const SubTenantSpotFormScreen()),
+      onCreatePackage: () => _open(const SubTenantPackageFormScreen()),
+      onDrivers: () => _open(const SubTenantDriversScreen()),
+      onBookings: () => _open(const SubTenantBookingsScreen()),
+      onReports: () => _open(const SubTenantReportsScreen()),
+      onAnnouncements: () => _open(const SubTenantAnnouncementsScreen()),
+      onProfile: () => _open(const SubTenantCityProfileScreen()),
     );
   }
 }
@@ -97,7 +271,7 @@ class _DashboardContent extends StatelessWidget {
   });
 
   final SubTenantDashboardData data;
-  final VoidCallback onRefresh;
+  final Future<void> Function() onRefresh;
   final VoidCallback onAddSpot;
   final VoidCallback onCreatePackage;
   final VoidCallback onDrivers;
@@ -113,7 +287,7 @@ class _DashboardContent extends StatelessWidget {
     // ── Mobile / tablet ─────────────────────────────────────────────────────
     if (!desktop) {
       return RefreshIndicator(
-        onRefresh: () async => onRefresh(),
+        onRefresh: onRefresh,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(
             parent: BouncingScrollPhysics(),
@@ -194,9 +368,7 @@ class _DashboardContent extends StatelessWidget {
                         onAnnouncements: onAnnouncements,
                       ),
                       const SizedBox(height: 8),
-                      Expanded(
-                        child: _AnalyticsCard(data: data),
-                      ),
+                      Expanded(child: _AnalyticsCard(data: data)),
                     ],
                   ),
                 ),
@@ -341,7 +513,11 @@ class _CityScopeBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.verified_user_rounded, color: Colors.white, size: 17),
+          const Icon(
+            Icons.verified_user_rounded,
+            color: Colors.white,
+            size: 17,
+          ),
           const SizedBox(width: 7),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 180),
@@ -534,8 +710,9 @@ class _CompactMetricCardState extends State<_CompactMetricCard> {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      cursor:
-          widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+      cursor: widget.onTap == null
+          ? MouseCursor.defer
+          : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: Material(
@@ -557,8 +734,9 @@ class _CompactMetricCardState extends State<_CompactMetricCard> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color:
-                      Colors.black.withValues(alpha: _hovered ? 0.07 : 0.032),
+                  color: Colors.black.withValues(
+                    alpha: _hovered ? 0.07 : 0.032,
+                  ),
                   blurRadius: _hovered ? 18 : 12,
                   offset: const Offset(0, 6),
                 ),
@@ -847,10 +1025,7 @@ class _CompactRecentBookings extends StatelessWidget {
 
 // Mobile variant — static list, natural height.
 class _RecentBookings extends StatelessWidget {
-  const _RecentBookings({
-    required this.bookings,
-    required this.onViewAll,
-  });
+  const _RecentBookings({required this.bookings, required this.onViewAll});
 
   final List<SubTenantBooking> bookings;
   final VoidCallback onViewAll;
@@ -876,7 +1051,9 @@ class _RecentBookings extends StatelessWidget {
               message: 'New bookings will appear here.',
             )
           else
-            ...bookings.take(5).map(
+            ...bookings
+                .take(5)
+                .map(
                   (b) => Padding(
                     padding: const EdgeInsets.only(bottom: 5),
                     child: _BookingCompactTile(booking: b),
@@ -981,11 +1158,36 @@ class _AnalyticsCard extends StatelessWidget {
     final chart = Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        _ChartBar(label: 'Spots', value: data.totalSpots, maxValue: maxValue, color: const Color(0xFF2A86FF)),
-        _ChartBar(label: 'Packages', value: data.totalPackages, maxValue: maxValue, color: const Color(0xFF0EA5E9)),
-        _ChartBar(label: 'Drivers', value: data.totalDrivers, maxValue: maxValue, color: const Color(0xFF16A34A)),
-        _ChartBar(label: 'Pending', value: data.pendingBookings, maxValue: maxValue, color: const Color(0xFFF59E0B)),
-        _ChartBar(label: 'Active', value: data.activeTours, maxValue: maxValue, color: const Color(0xFF7C3AED)),
+        _ChartBar(
+          label: 'Spots',
+          value: data.totalSpots,
+          maxValue: maxValue,
+          color: const Color(0xFF2A86FF),
+        ),
+        _ChartBar(
+          label: 'Packages',
+          value: data.totalPackages,
+          maxValue: maxValue,
+          color: const Color(0xFF0EA5E9),
+        ),
+        _ChartBar(
+          label: 'Drivers',
+          value: data.totalDrivers,
+          maxValue: maxValue,
+          color: const Color(0xFF16A34A),
+        ),
+        _ChartBar(
+          label: 'Pending',
+          value: data.pendingBookings,
+          maxValue: maxValue,
+          color: const Color(0xFFF59E0B),
+        ),
+        _ChartBar(
+          label: 'Active',
+          value: data.activeTours,
+          maxValue: maxValue,
+          color: const Color(0xFF7C3AED),
+        ),
       ],
     );
 
@@ -1112,9 +1314,7 @@ class _CompactSidePanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Expanded(
-          child: _ActivityFeed(bookings: data.recentBookings),
-        ),
+        Expanded(child: _ActivityFeed(bookings: data.recentBookings)),
       ],
     );
   }
@@ -1179,10 +1379,7 @@ class _ProfileSummary extends StatelessWidget {
 }
 
 class _AnnouncementsCard extends StatelessWidget {
-  const _AnnouncementsCard({
-    required this.data,
-    required this.onAnnouncements,
-  });
+  const _AnnouncementsCard({required this.data, required this.onAnnouncements});
 
   final SubTenantDashboardData data;
   final VoidCallback onAnnouncements;
@@ -1388,10 +1585,7 @@ class _CompactSectionTitle extends StatelessWidget {
             ),
             child: Text(
               trailing!,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-              ),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
             ),
           ),
       ],
@@ -1467,10 +1661,7 @@ class _MiniInfoTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (trailing != null) ...[
-                const SizedBox(width: 6),
-                trailing!,
-              ],
+              if (trailing != null) ...[const SizedBox(width: 6), trailing!],
             ],
           ),
         ),

@@ -367,16 +367,12 @@ class SubTenantSettingsData {
         map['show_top_packages'],
         fallback: defaults.showTopPackages,
       ),
-      defaultPackageVisibility: stString(
-        map,
-        const ['default_package_visibility'],
-        fallback: defaults.defaultPackageVisibility,
-      ),
-      defaultSpotStatus: stString(
-        map,
-        const ['default_spot_status'],
-        fallback: defaults.defaultSpotStatus,
-      ),
+      defaultPackageVisibility: stString(map, const [
+        'default_package_visibility',
+      ], fallback: defaults.defaultPackageVisibility),
+      defaultSpotStatus: stString(map, const [
+        'default_spot_status',
+      ], fallback: defaults.defaultSpotStatus),
       requirePackageReview: _stBool(
         map['require_package_review'],
         fallback: defaults.requirePackageReview,
@@ -585,11 +581,9 @@ class SubTenantFareSettings {
     final defaults = SubTenantFareSettings.defaults(profile);
     return SubTenantFareSettings(
       id: map['id'],
-      subtenantId: stString(
-        map,
-        const ['subtenant_id'],
-        fallback: defaults.subtenantId,
-      ),
+      subtenantId: stString(map, const [
+        'subtenant_id',
+      ], fallback: defaults.subtenantId),
       city: stString(map, const ['city'], fallback: defaults.city),
       baseFare: stDouble(map['base_fare'], fallback: defaults.baseFare),
       farePerKm: stDouble(map['fare_per_km'], fallback: defaults.farePerKm),
@@ -634,12 +628,19 @@ class SubTenantFareSettings {
   }) {
     final normalizedGroupSize = groupSize < 1 ? 1 : groupSize;
     final normalizedDistance = routeDistanceKm < 0 ? 0.0 : routeDistanceKm;
-    final extraPassengers = normalizedGroupSize > 1 ? normalizedGroupSize - 1 : 0;
+    final extraPassengers = normalizedGroupSize > 1
+        ? normalizedGroupSize - 1
+        : 0;
     final distanceFee = farePerKm * normalizedDistance;
     final passengerFee = additionalPassengerFee * extraPassengers;
     final surcharge = includeWeekendSurcharge ? weekendSurcharge : 0.0;
     final rawTotal =
-        baseFare + distanceFee + passengerFee + waitingFee + guideFee + surcharge;
+        baseFare +
+        distanceFee +
+        passengerFee +
+        waitingFee +
+        guideFee +
+        surcharge;
     final total = minimumFare > 0 && rawTotal < minimumFare
         ? minimumFare
         : rawTotal;
@@ -932,6 +933,7 @@ class SubTenantDashboardData {
     required this.recentBookings,
     required this.announcementsTableAvailable,
     required this.announcements,
+    this.packageIds = const [],
   });
 
   final SubTenantProfile profile;
@@ -943,6 +945,7 @@ class SubTenantDashboardData {
   final List<SubTenantBooking> recentBookings;
   final bool announcementsTableAvailable;
   final List<SubTenantAnnouncement> announcements;
+  final List<dynamic> packageIds;
 }
 
 class PackageItineraryDay {
@@ -1053,9 +1056,10 @@ class SubTenantReportRange {
   static SubTenantReportRange currentMonth() {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month);
-    final end = DateTime(now.year, now.month + 1).subtract(
-      const Duration(milliseconds: 1),
-    );
+    final end = DateTime(
+      now.year,
+      now.month + 1,
+    ).subtract(const Duration(milliseconds: 1));
     return SubTenantReportRange(label: 'Current Month', start: start, end: end);
   }
 
@@ -1066,18 +1070,18 @@ class SubTenantReportRange {
       now.month,
       now.day,
     ).subtract(Duration(days: now.weekday - 1));
-    final end = start.add(const Duration(days: 7)).subtract(
-      const Duration(milliseconds: 1),
-    );
+    final end = start
+        .add(const Duration(days: 7))
+        .subtract(const Duration(milliseconds: 1));
     return SubTenantReportRange(label: 'This Week', start: start, end: end);
   }
 
   static SubTenantReportRange yearly() {
     final now = DateTime.now();
     final start = DateTime(now.year);
-    final end = DateTime(now.year + 1).subtract(
-      const Duration(milliseconds: 1),
-    );
+    final end = DateTime(
+      now.year + 1,
+    ).subtract(const Duration(milliseconds: 1));
     return SubTenantReportRange(label: 'This Year', start: start, end: end);
   }
 

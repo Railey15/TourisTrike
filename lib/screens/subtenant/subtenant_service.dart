@@ -187,10 +187,9 @@ class SubTenantService {
     SubTenantProfile profile,
     SubTenantFareSettings settings,
   ) async {
-    await _supabase.from('subtenant_fare_settings').upsert(
-      settings.toMap(),
-      onConflict: 'subtenant_id,city',
-    );
+    await _supabase
+        .from('subtenant_fare_settings')
+        .upsert(settings.toMap(), onConflict: 'subtenant_id,city');
     await _logAudit(
       actorId: profile.id,
       action: 'update_fare_settings',
@@ -213,13 +212,12 @@ class SubTenantService {
       city: profile.assignedCity,
       fileName: fileName,
     );
-    await _supabase.storage.from(bucket).uploadBinary(
+    await _supabase.storage
+        .from(bucket)
+        .uploadBinary(
           path,
           bytes,
-          fileOptions: FileOptions(
-            contentType: contentType,
-            upsert: true,
-          ),
+          fileOptions: FileOptions(contentType: contentType, upsert: true),
         );
     return _supabase.storage.from(bucket).getPublicUrl(path);
   }
@@ -253,16 +251,10 @@ class SubTenantService {
       limit: 5,
     );
 
-    final pendingBookings =
-        recentBookings.where((booking) => booking.status == 'pending').length +
-        await _countBookingsByStatuses(packageIds, const [
-          'pending',
-        ], excludeRecentIds: recentBookings.map((e) => e.id).toSet());
-
-    final activeTours = await _countBookingsByStatuses(packageIds, const [
-      'confirmed',
-      'active',
+    final pendingBookings = await _countBookingsByStatuses(packageIds, const [
+      'pending',
     ]);
+    final activeTours = await _countActivePackageActivities(packageIds);
     final announcements = await fetchAnnouncements(profile);
 
     return SubTenantDashboardData(
@@ -275,31 +267,66 @@ class SubTenantService {
       recentBookings: recentBookings,
       announcementsTableAvailable: announcements.tableAvailable,
       announcements: announcements.items.take(3).toList(growable: false),
+      packageIds: packageIds,
     );
   }
 
   Future<int> _countBookingsByStatuses(
     List<dynamic> packageIds,
-    List<String> statuses, {
-    Set<dynamic> excludeRecentIds = const {},
-  }) async {
+    List<String> statuses,
+  ) async {
     if (packageIds.isEmpty) return 0;
 
-    dynamic query = _supabase
+    final rows = await _supabase
         .from('package_bookings')
-        .select('id, status')
+        .select('*')
         .inFilter('package_id', packageIds);
 
-    if (statuses.length == 1) {
-      query = query.eq('status', statuses.first);
-    } else {
-      query = query.inFilter('status', statuses);
-    }
+    final normalizedStatuses = statuses.map((status) => status.toLowerCase());
+    return (rows as List).where((row) {
+      final map = Map<String, dynamic>.from(row as Map);
+      final status = stString(map, const ['status']).toLowerCase();
+      final bookingStatus = stString(map, const [
+        'booking_status',
+      ]).toLowerCase();
+      return normalizedStatuses.contains(status) ||
+          normalizedStatuses.contains(bookingStatus);
+    }).length;
+  }
 
-    final rows = await query;
+  Future<int> _countActivePackageActivities(List<dynamic> packageIds) async {
+    if (packageIds.isEmpty) return 0;
+
+    final rows = await _supabase
+        .from('package_activities')
+        .select('*')
+        .inFilter('package_id', packageIds);
+
     return (rows as List)
-        .where((row) => !excludeRecentIds.contains((row as Map)['id']))
+        .where(
+          (row) =>
+              _isActivePackageActivity(Map<String, dynamic>.from(row as Map)),
+        )
         .length;
+  }
+
+  bool _isActivePackageActivity(Map<String, dynamic> row) {
+    final status = stString(row, const ['status']).toLowerCase();
+    final tourStatus = stString(row, const ['tour_status']).toLowerCase();
+    const activeActivityStatuses = {'accepted', 'ongoing', 'active'};
+    const activeTourStatuses = {
+      'driver_accepted',
+      'driver_on_the_way',
+      'driver_arrived',
+      'arrived',
+      'picked_up',
+      'tour_started',
+      'on_tour',
+      'ongoing',
+      'in_progress',
+    };
+    return activeActivityStatuses.contains(status) ||
+        activeTourStatuses.contains(tourStatus);
   }
 
   Future<List<SubTenantSpot>> fetchSpots(SubTenantProfile profile) async {
@@ -966,7 +993,10 @@ class SubTenantService {
         .where((package) => reportRange.contains(package.createdAt))
         .toList(growable: false);
     final reportDrivers = drivers
-        .where((driver) => reportRange.contains(stDate(driver.profile['created_at'])))
+        .where(
+          (driver) =>
+              reportRange.contains(stDate(driver.profile['created_at'])),
+        )
         .toList(growable: false);
     final packageIds = packages.map((item) => item.id).toList(growable: false);
     final allBookings = await fetchBookings(
@@ -974,7 +1004,10 @@ class SubTenantService {
       packageIdsOverride: packageIds,
     );
     final bookings = allBookings
-        .where((booking) => reportRange.contains(booking.travelDate ?? booking.createdAt))
+        .where(
+          (booking) =>
+              reportRange.contains(booking.travelDate ?? booking.createdAt),
+        )
         .toList(growable: false);
 
     final completed = bookings
@@ -1414,10 +1447,9 @@ class SubTenantService {
               sortOrder: stInt(row['sort_order']),
               openingTime: stString(row, const ['opening_time']),
               closingTime: stString(row, const ['closing_time']),
-              estimatedArrivalTime: stString(
-                row,
-                const ['estimated_arrival_time'],
-              ),
+              estimatedArrivalTime: stString(row, const [
+                'estimated_arrival_time',
+              ]),
               estimatedDurationMinutes: stInt(
                 row['estimated_duration_minutes'],
               ),
@@ -1456,16 +1488,18 @@ class SubTenantService {
           'closing_time': selectedSpots[i].closingTime.isEmpty
               ? null
               : selectedSpots[i].closingTime,
-          'estimated_arrival_time': selectedSpots[i].estimatedArrivalTime.isEmpty
+          'estimated_arrival_time':
+              selectedSpots[i].estimatedArrivalTime.isEmpty
               ? null
               : selectedSpots[i].estimatedArrivalTime,
-          'estimated_duration_minutes': selectedSpots[i].estimatedDurationMinutes > 0
+          'estimated_duration_minutes':
+              selectedSpots[i].estimatedDurationMinutes > 0
               ? selectedSpots[i].estimatedDurationMinutes
               : null,
           'recommended_visit_duration_minutes':
               selectedSpots[i].recommendedVisitDurationMinutes > 0
-                  ? selectedSpots[i].recommendedVisitDurationMinutes
-                  : null,
+              ? selectedSpots[i].recommendedVisitDurationMinutes
+              : null,
         },
     ]);
   }
