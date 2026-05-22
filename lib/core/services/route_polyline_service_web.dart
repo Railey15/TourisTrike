@@ -1,8 +1,9 @@
 // ignore_for_file: avoid_web_libraries_in_flutter
 //
-// Web-only implementation. Delegates to window._flutterGetRoute() — a small
-// async JS helper injected in web/index.html — which uses
-// google.maps.DirectionsService (already loaded, no CORS issues).
+// Web-only implementation. Delegates to window._flutterGetRoute() — an async
+// JS helper injected in web/index.html — which wraps google.maps.DirectionsService
+// (already loaded, no CORS issues).
+// Conditional export in route_polyline_service.dart selects this for web targets.
 
 import 'dart:async';
 import 'dart:convert';
@@ -20,7 +21,7 @@ class RouteResult {
 class RoutePolylineService {
   const RoutePolylineService({required this.apiKey});
 
-  // API key unused on web — Maps JS API is loaded with its key in index.html.
+  // API key unused on web — Maps JS API is already loaded with its key in index.html.
   // ignore: unused_field
   final String apiKey;
 
@@ -29,15 +30,16 @@ class RoutePolylineService {
     LatLng dest, {
     List<LatLng> waypoints = const [],
   }) async {
-    const tag = '[RoutePolyline/Web]';
+    const tag = '[RoutePolyline/WEB]';
 
     // ignore: avoid_print
-    print('$tag ${_fmt(origin)} → ${_fmt(dest)}'
+    print('$tag platform=WEB '
+        '${_fmt(origin)} → ${_fmt(dest)}'
         '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}');
 
     try {
       // Encode all params as a single JSON string so callMethod stays within
-      // its 4-argument limit (method + up to 4 positional args).
+      // its 4-positional-argument limit (method + up to 4 args).
       final paramsJson = jsonEncode({
         'originLat': origin.latitude,
         'originLng': origin.longitude,
@@ -48,11 +50,11 @@ class RoutePolylineService {
             .toList(),
       });
 
-      // Get window._flutterGetRoute and call it: fn.call(window, paramsJson)
+      // Get window._flutterGetRoute and invoke: fn.call(window, paramsJson)
       final JSObject window = globalContext;
       final fn = window.getProperty<JSObject>('_flutterGetRoute'.toJS);
 
-      // callMethod('call', thisArg, arg0) → fn.call(window, paramsJson) in JS
+      // fn.callMethod('call', thisArg, arg) → fn.call(window, paramsJson) in JS
       final JSAny? promise = fn.callMethod(
         'call'.toJS,
         window,
@@ -61,7 +63,7 @@ class RoutePolylineService {
 
       if (promise == null) {
         // ignore: avoid_print
-        print('$tag _flutterGetRoute returned null — helper not installed');
+        print('$tag _flutterGetRoute returned null — JS helper not installed');
         return RouteResult(points: [origin, dest]);
       }
 
@@ -77,7 +79,8 @@ class RoutePolylineService {
       }
 
       // ignore: avoid_print
-      print('$tag raw result: ${jsonStr.length > 200 ? '${jsonStr.substring(0, 200)}…' : jsonStr}');
+      print('$tag raw result (first 200): '
+          '${jsonStr.length > 200 ? '${jsonStr.substring(0, 200)}…' : jsonStr}');
 
       final Map<String, dynamic> data;
       try {
@@ -90,7 +93,7 @@ class RoutePolylineService {
 
       final status = data['status'] as String? ?? 'UNKNOWN';
       // ignore: avoid_print
-      print('$tag status=$status');
+      print('$tag API status=$status');
 
       if (status != 'OK') {
         final err = data['error'] as String? ?? '';
@@ -114,7 +117,7 @@ class RoutePolylineService {
       }).toList();
 
       // ignore: avoid_print
-      print('$tag decoded ${pts.length} pts, ETA=$eta');
+      print('$tag decoded ${pts.length} pts, ETA=$eta ✓ road-following');
       return RouteResult(points: pts, durationText: eta);
     } catch (e, st) {
       // ignore: avoid_print

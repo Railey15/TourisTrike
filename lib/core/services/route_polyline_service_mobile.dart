@@ -1,5 +1,6 @@
 // Native (iOS/Android) implementation.
-// Uses the Directions REST API over HTTP — no CORS issues on native.
+// Uses the Google Directions REST API over HTTP — no CORS restrictions on native.
+// Conditional export in route_polyline_service.dart selects this for non-web targets.
 
 import 'dart:convert';
 
@@ -22,7 +23,12 @@ class RoutePolylineService {
     LatLng dest, {
     List<LatLng> waypoints = const [],
   }) async {
-    const tag = '[RoutePolyline/Native]';
+    const tag = '[RoutePolyline/MOBILE]';
+
+    // ignore: avoid_print
+    print('$tag platform=MOBILE '
+        '${_fmt(origin)} → ${_fmt(dest)}'
+        '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}');
 
     final waypointsParam = waypoints.isNotEmpty
         ? '&waypoints=${waypoints.map((p) => '${p.latitude},${p.longitude}').join('|')}'
@@ -35,17 +41,14 @@ class RoutePolylineService {
         '&key=$apiKey';
 
     // ignore: avoid_print
-    print('$tag ${origin.latitude.toStringAsFixed(5)},'
-        '${origin.longitude.toStringAsFixed(5)} → '
-        '${dest.latitude.toStringAsFixed(5)},'
-        '${dest.longitude.toStringAsFixed(5)}');
+    print('$tag GET directions (key omitted from log)');
 
     try {
       final res =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
 
       // ignore: avoid_print
-      print('$tag HTTP ${res.statusCode}, ${res.body.length} chars');
+      print('$tag HTTP ${res.statusCode}, body_len=${res.body.length}');
 
       if (res.statusCode != 200) {
         // ignore: avoid_print
@@ -65,10 +68,15 @@ class RoutePolylineService {
       final status = body['status'] as String? ?? 'UNKNOWN';
       final errMsg = body['error_message'] as String? ?? '';
       // ignore: avoid_print
-      print(
-          '$tag status=$status${errMsg.isNotEmpty ? "  error_message=$errMsg" : ""}');
+      print('$tag API status=$status'
+          '${errMsg.isNotEmpty ? "  error_message=$errMsg" : ""}');
 
-      if (status != 'OK') return RouteResult(points: [origin, dest]);
+      if (status != 'OK') {
+        // ignore: avoid_print
+        print('$tag Non-OK status → fallback straight line. '
+            'Check: Directions API enabled, key restrictions, billing.');
+        return RouteResult(points: [origin, dest]);
+      }
 
       final routes = (body['routes'] as List?) ?? const [];
       if (routes.isEmpty) {
@@ -94,7 +102,7 @@ class RoutePolylineService {
 
       if (pts.isNotEmpty) {
         // ignore: avoid_print
-        print('$tag Step pts=${pts.length}, ETA=$durationText');
+        print('$tag step_pts=${pts.length}, ETA=$durationText ✓ road-following');
         return RouteResult(points: pts, durationText: durationText);
       }
 
@@ -104,12 +112,12 @@ class RoutePolylineService {
       if (overviewEnc.isNotEmpty) {
         final ovPts = _decode(overviewEnc);
         // ignore: avoid_print
-        print('$tag overview_polyline pts=${ovPts.length}, ETA=$durationText');
+        print('$tag overview_pts=${ovPts.length}, ETA=$durationText (fallback)');
         return RouteResult(points: ovPts, durationText: durationText);
       }
 
       // ignore: avoid_print
-      print('$tag No polyline data. Straight-line fallback.');
+      print('$tag No polyline data in response → straight-line fallback');
       return RouteResult(points: [origin, dest], durationText: durationText);
     } catch (e, st) {
       // ignore: avoid_print
@@ -144,6 +152,9 @@ class RoutePolylineService {
     return pts;
   }
 
-  String _clip(String s, [int max = 400]) =>
+  String _clip(String s, [int max = 500]) =>
       s.length <= max ? s : '${s.substring(0, max)}…';
+
+  String _fmt(LatLng p) =>
+      '${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}';
 }
