@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -28,8 +27,6 @@ class DriverWalletScreen extends StatefulWidget {
 class _DriverWalletScreenState extends State<DriverWalletScreen>
     with WidgetsBindingObserver {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
-  final AppLinks _appLinks = AppLinks();
-
   Wallet? _wallet;
   List<WalletTransaction> _transactions = [];
   List<PackageActivity> _activities = [];
@@ -217,12 +214,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
   }
 
   void _listenForWalletDeepLinks() {
-    _walletLinkSubscription = _appLinks.uriLinkStream.listen(
-      (uri) => unawaited(_handleWalletDeepLink(uri)),
-      onError: (Object error) {
-        debugPrint('Driver wallet deep link error: $error');
-      },
-    );
+    // app_links removed for web compatibility; deep links handled at startup on mobile
   }
 
   bool _isWalletDeepLink(Uri uri) {

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +13,7 @@ import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
+import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -40,6 +43,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   String? _eta;
   bool _reviewShown = false;
 
+  // Navigation state
+  bool _isFollowingDriver = false;
+  double _driverSpeed = 0.0; // m/s from live location
+  double _driverHeading = 0.0; // degrees clockwise from North
+
+  // Custom bitmap markers (loaded from assets once on init)
+  BitmapDescriptor? _tricycleMarker;
+  BitmapDescriptor? _passengerMarker;
+
   RealtimeChannel? _activityChannel;
   RealtimeChannel? _locationChannel;
   RealtimeChannel? _bookingChannel;
@@ -57,6 +69,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   @override
   void initState() {
     super.initState();
+    _initCustomMarkers();
     _load();
   }
 
@@ -68,6 +81,35 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     _itineraryChannel?.unsubscribe();
     _mapCtrl?.dispose();
     super.dispose();
+  }
+
+  // ── Custom marker loading ─────────────────────────────────────
+  Future<BitmapDescriptor> _bitmapFromAsset(String path, int width) async {
+    final data = await rootBundle.load(path);
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(),
+      targetWidth: width,
+    );
+    final frame = await codec.getNextFrame();
+    final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
+  }
+
+  Future<void> _initCustomMarkers() async {
+    try {
+      final results = await Future.wait([
+        _bitmapFromAsset('assets/icons/tricycle_marker.png', 42),
+        _bitmapFromAsset('assets/icons/passenger_marker.png', 38),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _tricycleMarker = results[0];
+        _passengerMarker = results[1];
+      });
+      _buildMarkers();
+    } catch (e) {
+      debugPrint('[Markers] Failed to load custom markers: $e');
+    }
   }
 
   // ── Data loading ─────────────────────────────────────────────
@@ -167,10 +209,13 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
               if (!mounted || newRow.isEmpty) return;
               final lat = newRow['latitude'] as num?;
               final lng = newRow['longitude'] as num?;
+              final speed = (newRow['speed'] as num?)?.toDouble() ?? 0.0;
+              final heading = (newRow['heading'] as num?)?.toDouble() ?? _driverHeading;
               if (lat == null || lng == null) return;
-              // Update driver position in the activity row locally
               if (_activity != null) {
                 setState(() {
+                  _driverSpeed = speed;
+                  _driverHeading = heading;
                   _activity = PackageActivity({
                     ..._activity!.row,
                     'driver_latitude': lat.toDouble(),
@@ -179,7 +224,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                   });
                 });
                 _buildMarkers();
-                _animateCameraToDriver();
+                // Only follow camera when user has tapped Recenter
+                if (_isFollowingDriver) _animateCameraToDriver();
               }
             },
           )
@@ -198,7 +244,28 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
             type: PostgresChangeFilterType.eq,
             value: widget.bookingId,
           ),
-          callback: (_) => _refreshSpots(logTag: 'itinerary-update'),
+          callback: (payload) {
+            final newRow = payload.newRecord;
+            if (!mounted) return;
+            // Optimistic local update so tourist sees timestamps immediately
+            // without waiting for the full _refreshSpots round-trip.
+            if (newRow.isNotEmpty) {
+              final itemId = newRow['id']?.toString();
+              if (itemId != null && itemId.isNotEmpty) {
+                setState(() {
+                  _spots = _spots.map((s) {
+                    if (s.id?.toString() == itemId) {
+                      return BookingItineraryItem(
+                        Map<String, dynamic>.from({...s.row, ...newRow}),
+                      );
+                    }
+                    return s;
+                  }).toList();
+                });
+              }
+            }
+            _refreshSpots(logTag: 'itinerary-update');
+          },
         )
         .subscribe();
   }
@@ -243,7 +310,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     );
   }
 
-  // ── Booking status (driver acceptance counter) ───────────────
+  // ── Refresh ───────────────────────────────────────────────────
   Future<void> _refreshSpots({String logTag = 'refresh-spots'}) async {
     final activity = await _repo.fetchActivityForBooking(widget.bookingId);
     final booking = await _repo.fetchPackageBookingDetails(widget.bookingId);
@@ -316,6 +383,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final markers = <Marker>{};
     final booking = _booking;
 
+    // Pickup point — passenger icon (tourist waits here)
     if (booking != null &&
         booking.pickupLatitude != null &&
         booking.pickupLongitude != null) {
@@ -323,9 +391,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         Marker(
           markerId: const MarkerId('pickup'),
           position: LatLng(booking.pickupLatitude!, booking.pickupLongitude!),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueGreen,
-          ),
+          icon: _passengerMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
           infoWindow: InfoWindow(
             title: 'Pickup Point',
             snippet: booking.pickupAddress,
@@ -334,6 +401,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       );
     }
 
+    // Drop-off point — keep standard red pin
     if (booking != null &&
         booking.dropoffLatitude != null &&
         booking.dropoffLongitude != null) {
@@ -350,31 +418,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       );
     }
 
+    // Current itinerary spot — standard orange pin
     final currentItem = _currentItineraryItem;
-    for (var i = 0; i < _spots.length; i++) {
-      final spot = _spots[i];
-      if (spot.latitude == 0 && spot.longitude == 0) continue;
-      final isCompleted = spot.spotStatus == 'completed';
-      final isCurrent = !isCompleted && spot.id == currentItem?.id;
+    if (currentItem != null &&
+        !(currentItem.latitude == 0 && currentItem.longitude == 0)) {
       markers.add(
         Marker(
-          markerId: MarkerId('spot_$i'),
-          position: LatLng(spot.latitude, spot.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            isCompleted
-                ? BitmapDescriptor.hueGreen
-                : isCurrent
-                ? BitmapDescriptor.hueOrange
-                : BitmapDescriptor.hueAzure,
-          ),
+          markerId: const MarkerId('current_spot'),
+          position: LatLng(currentItem.latitude, currentItem.longitude),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
           infoWindow: InfoWindow(
-            title: 'Stop ${i + 1}: ${spot.destinationName}',
-            snippet: spot.destinationAddress,
+            title: currentItem.destinationName,
+            snippet: currentItem.destinationAddress,
           ),
         ),
       );
     }
 
+    // Driver position — tricycle icon, rotates with heading
     final activity = _activity;
     if (activity != null &&
         activity.driverLatitude != null &&
@@ -383,9 +444,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         Marker(
           markerId: const MarkerId('driver'),
           position: LatLng(activity.driverLatitude!, activity.driverLongitude!),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueOrange,
-          ),
+          icon: _tricycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+          rotation: _driverHeading,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
           infoWindow: const InfoWindow(title: 'Your Driver'),
         ),
       );
@@ -456,7 +519,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
           polylineId: const PolylineId('route'),
           points: result.points,
           color: const Color(0xFF2A86FF),
-          width: 5,
+          width: 6,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
         ),
       };
       _eta = result.durationText;
@@ -491,13 +557,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         final routes = (body['routes'] as List?) ?? const [];
         if (routes.isNotEmpty) {
           final route = routes.first as Map;
-          final encoded = route['overview_polyline']?['points'] as String?;
           final legs = (route['legs'] as List?) ?? const [];
           String? durationText;
+          final points = <LatLng>[];
           if (legs.isNotEmpty) {
             final leg = legs.first as Map;
             durationText = leg['duration']?['text'] as String?;
+            // Use step-by-step polylines for smoother rendering
+            final steps = (leg['steps'] as List?) ?? const [];
+            for (final step in steps) {
+              final encoded = (step as Map)['polyline']?['points'] as String?;
+              if (encoded != null) points.addAll(_decodePolyline(encoded));
+            }
           }
+          if (points.isNotEmpty) {
+            return _RouteResult(points: points, durationText: durationText);
+          }
+          // Fallback to overview polyline
+          final encoded = route['overview_polyline']?['points'] as String?;
           if (encoded != null) {
             return _RouteResult(
               points: _decodePolyline(encoded),
@@ -536,12 +613,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     return points;
   }
 
+  // ── Camera helpers ────────────────────────────────────────────
+
+  /// Dynamic zoom: slow speed → zoom in, fast speed → zoom out (like Google Maps).
+  double _speedToZoom(double speedMs) {
+    final kmh = speedMs * 3.6;
+    if (kmh < 10) return 17.0;
+    if (kmh < 30) return 15.5;
+    if (kmh < 60) return 13.5;
+    return 12.0;
+  }
+
   void _animateCameraToDriver() {
     final activity = _activity;
     if (_mapCtrl == null || activity?.driverLatitude == null) return;
     _mapCtrl!.animateCamera(
-      CameraUpdate.newLatLng(
+      CameraUpdate.newLatLngZoom(
         LatLng(activity!.driverLatitude!, activity.driverLongitude!),
+        _speedToZoom(_driverSpeed),
       ),
     );
   }
@@ -554,14 +643,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       _mapCtrl!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(activity!.driverLatitude!, activity.driverLongitude!),
-          14,
+          15,
         ),
       );
     } else if (booking?.pickupLatitude != null) {
       _mapCtrl!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(booking!.pickupLatitude!, booking.pickupLongitude!),
-          14,
+          15,
         ),
       );
     }
@@ -769,9 +858,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final size = MediaQuery.sizeOf(context);
     final bottom = MediaQuery.of(context).padding.bottom;
     final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
-    final mapHeight = (size.height * 0.32).clamp(200.0, 320.0);
+    final mapHeight = (size.height * 0.40).clamp(240.0, 380.0);
 
-    // Show "Finding Drivers" overlay until all drivers accept
     final requiredDrivers = booking?.requiredDrivers ?? 1;
     final acceptedDrivers = booking?.acceptedDriversCount ?? 0;
     final bookingStatus = booking?.bookingStatus ?? '';
@@ -809,331 +897,430 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
     return Stack(
       children: [
-        Column(
-          children: [
-            // ── Header ─────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Row(
+        CustomScrollView(
+          slivers: [
+            // ── Map as hero SliverAppBar ─────────────────────────
+            SliverAppBar(
+              expandedHeight: mapHeight,
+              pinned: true,
+              backgroundColor: const Color(0xFF2A86FF),
+              foregroundColor: Colors.white,
+              automaticallyImplyLeading: false,
+              title: Row(
                 children: [
-                  _CircleBtn(
-                    icon: Icons.arrow_back_rounded,
+                  InkWell(
                     onTap: () => Navigator.pop(context),
+                    borderRadius: BorderRadius.circular(99),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
                       'Tour Tracking',
-                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontSize: 20,
                         fontWeight: FontWeight.w900,
+                        fontSize: 18,
                       ),
                     ),
                   ),
-                  _CircleBtn(icon: Icons.refresh_rounded, onTap: _load),
+                  if (_eta != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.schedule_rounded,
+                            size: 12,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _eta!,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () {
+                      ShareTripBottomSheet.show(
+                        context,
+                        bookingId: widget.bookingId,
+                        travelDate: _booking?.travelDate,
+                      );
+                    },
+                    icon: const Icon(Icons.share_location_rounded, size: 20),
+                    color: Colors.white,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    tooltip: 'Share Trip',
+                  ),
+                  IconButton(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    color: Colors.white,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                  ),
                 ],
               ),
-            ),
-
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(16, 14, 16, 24 + bottom),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              flexibleSpace: FlexibleSpaceBar(
+                background: Stack(
                   children: [
-                    // ── Live Status Card ──────────────────────────
-                    _StatusCard(
-                      icon: statusIcon,
-                      label: statusLabel,
-                      description: statusDesc,
-                      color: statusColor,
-                      eta: _eta,
-                    ),
-                    const SizedBox(height: 12),
-
-                    // ── Group Booking Counter ─────────────────────
-                    if (requiredDrivers > 1) ...[
-                      _GroupBookingCard(
-                        requiredDrivers: requiredDrivers,
-                        acceptedDrivers: acceptedDrivers,
+                    ClipRect(
+                      child: GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: _initialCenter,
+                          zoom: 14,
+                        ),
+                        markers: _markers,
+                        polylines: _polylines,
+                        onMapCreated: (ctrl) {
+                          _mapCtrl = ctrl;
+                          _animateCameraToRelevant();
+                        },
+                        // Detect user pan/zoom to disable auto-follow
+                        onCameraMove: (_) {
+                          if (_isFollowingDriver) {
+                            setState(() => _isFollowingDriver = false);
+                          }
+                        },
+                        zoomControlsEnabled: false,
+                        myLocationButtonEnabled: false,
+                        compassEnabled: true,
+                        mapToolbarEnabled: false,
+                        rotateGesturesEnabled: true,
+                        scrollGesturesEnabled: true,
+                        zoomGesturesEnabled: true,
+                        tiltGesturesEnabled: true,
                       ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // ── Emergency shortcuts ───────────────────────
-                    _EmergencyShortcutCard(
-                      contact: _primaryEmergencyContact,
-                      onCall: _primaryEmergencyContact == null
-                          ? null
-                          : () => _launchPhone(
-                              _primaryEmergencyContact!.phoneNumber,
-                            ),
-                      onText: _primaryEmergencyContact == null
-                          ? null
-                          : () => _launchSms(
-                              _primaryEmergencyContact!.phoneNumber,
-                            ),
-                      onShareLocation: _primaryEmergencyContact == null
-                          ? null
-                          : _shareLiveLocation,
                     ),
-                    const SizedBox(height: 12),
-
-                    // ── Map ───────────────────────────────────────
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: SizedBox(
-                        height: mapHeight,
-                        child: GoogleMap(
-                          initialCameraPosition: CameraPosition(
-                            target: _initialCenter,
-                            zoom: 13,
-                          ),
-                          markers: _markers,
-                          polylines: _polylines,
-                          onMapCreated: (ctrl) {
-                            _mapCtrl = ctrl;
-                            _animateCameraToRelevant();
-                          },
-                          zoomControlsEnabled: false,
-                          myLocationButtonEnabled: false,
+                    // Recenter FAB
+                    Positioned(
+                      right: 12,
+                      bottom: 16,
+                      child: FloatingActionButton.small(
+                        heroTag: 'tourist_recenter',
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF2A86FF),
+                        elevation: 4,
+                        onPressed: () {
+                          setState(() => _isFollowingDriver = true);
+                          _animateCameraToRelevant();
+                        },
+                        child: const Icon(
+                          Icons.my_location_rounded,
+                          size: 20,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
 
-                    // ── Driver Info ───────────────────────────────
-                    if (driverName.isNotEmpty) ...[
-                      _SectionLabel('Your Driver'),
-                      const SizedBox(height: 8),
-                      _InfoCard(
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 46,
-                              height: 46,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEAF2FF),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: const Icon(
-                                Icons.person_rounded,
-                                color: Color(0xFF2A86FF),
-                              ),
+            // ── Content cards ────────────────────────────────────
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(16, 14, 16, 24 + bottom),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  // ── Live Status Card ──────────────────────────
+                  _StatusCard(
+                    icon: statusIcon,
+                    label: statusLabel,
+                    description: statusDesc,
+                    color: statusColor,
+                    eta: _eta,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── Group Booking Counter ─────────────────────
+                  if (requiredDrivers > 1) ...[
+                    _GroupBookingCard(
+                      requiredDrivers: requiredDrivers,
+                      acceptedDrivers: acceptedDrivers,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // ── Emergency shortcuts ───────────────────────
+                  _EmergencyShortcutCard(
+                    contact: _primaryEmergencyContact,
+                    onCall: _primaryEmergencyContact == null
+                        ? null
+                        : () => _launchPhone(
+                            _primaryEmergencyContact!.phoneNumber,
+                          ),
+                    onText: _primaryEmergencyContact == null
+                        ? null
+                        : () => _launchSms(
+                            _primaryEmergencyContact!.phoneNumber,
+                          ),
+                    onShareLocation: _primaryEmergencyContact == null
+                        ? null
+                        : _shareLiveLocation,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── Driver Info ───────────────────────────────
+                  if (driverName.isNotEmpty) ...[
+                    _SectionLabel('Your Driver'),
+                    const SizedBox(height: 8),
+                    _InfoCard(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEAF2FF),
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    driverName,
-                                    style: const TextStyle(
-                                      color: Color(0xFF0F172A),
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 15,
-                                    ),
+                            child: const Icon(
+                              Icons.person_rounded,
+                              color: Color(0xFF2A86FF),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  driverName,
+                                  style: const TextStyle(
+                                    color: Color(0xFF0F172A),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
                                   ),
-                                  if (driverPhone.isNotEmpty)
-                                    InkWell(
-                                      onTap: () => _launchPhone(driverPhone),
-                                      child: Text(
-                                        driverPhone,
-                                        style: const TextStyle(
-                                          color: Color(0xFF64748B),
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ),
-                                  if (vehicleDetails.isNotEmpty)
-                                    Text(
-                                      vehicleDetails,
+                                ),
+                                if (driverPhone.isNotEmpty)
+                                  InkWell(
+                                    onTap: () => _launchPhone(driverPhone),
+                                    child: Text(
+                                      driverPhone,
                                       style: const TextStyle(
                                         color: Color(0xFF64748B),
                                         fontWeight: FontWeight.w700,
                                         fontSize: 13,
                                       ),
                                     ),
-                                  if (driverReviewCount > 0)
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.star_rounded, size: 13, color: Color(0xFFF59E0B)),
-                                        const SizedBox(width: 3),
-                                        Text(
-                                          '${driverRating.toStringAsFixed(1)} ($driverReviewCount)',
-                                          style: const TextStyle(
-                                            color: Color(0xFF64748B),
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                      ],
+                                  ),
+                                if (vehicleDetails.isNotEmpty)
+                                  Text(
+                                    vehicleDetails,
+                                    style: const TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
                                     ),
-                                ],
-                              ),
-                            ),
-                            Column(
-                              children: [
-                                IconButton(
-                                  onPressed: driverPhone.isEmpty
-                                      ? null
-                                      : () => _launchPhone(driverPhone),
-                                  tooltip: 'Call driver',
-                                  icon: const Icon(
-                                    Icons.phone_rounded,
-                                    color: Color(0xFF16A34A),
                                   ),
-                                ),
-                                IconButton(
-                                  onPressed: _openDriverChat,
-                                  tooltip: 'Message driver',
-                                  icon: const Icon(
-                                    Icons.chat_bubble_outline_rounded,
-                                    color: Color(0xFF2A86FF),
+                                if (driverReviewCount > 0)
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.star_rounded,
+                                        size: 13,
+                                        color: Color(0xFFF59E0B),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        '${driverRating.toStringAsFixed(1)} ($driverReviewCount)',
+                                        style: const TextStyle(
+                                          color: Color(0xFF64748B),
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 12.5,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // ── Booking Details ───────────────────────────
-                    _SectionLabel('Booking Details'),
-                    const SizedBox(height: 8),
-                    _InfoCard(
-                      child: Column(
-                        children: [
-                          _DetailRow(
-                            label: 'Date',
-                            value: travelDate != null
-                                ? DateFormat(
-                                    'EEE, MMM d, yyyy',
-                                  ).format(travelDate)
-                                : '—',
                           ),
-                          const SizedBox(height: 8),
-                          _DetailRow(
-                            label: 'Booking Type',
-                            value: bookingType == 'same_day'
-                                ? 'Same-day'
-                                : 'Advanced',
-                          ),
-                          const SizedBox(height: 8),
-                          _DetailRow(
-                            label: 'Participants',
-                            value:
-                                '$adults adult${adults != 1 ? 's' : ''}'
-                                '${children > 0 ? ', $children child${children != 1 ? 'ren' : ''}' : ''}',
-                          ),
-                          if (requiredDrivers > 1) ...[
-                            const SizedBox(height: 8),
-                            _DetailRow(
-                              label: 'Tricycles',
-                              value: '$requiredDrivers required',
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          _DetailRow(
-                            label: 'Total Amount',
-                            value: money.format(totalAmount),
-                            bold: true,
+                          Column(
+                            children: [
+                              IconButton(
+                                onPressed: driverPhone.isEmpty
+                                    ? null
+                                    : () => _launchPhone(driverPhone),
+                                tooltip: 'Call driver',
+                                icon: const Icon(
+                                  Icons.phone_rounded,
+                                  color: Color(0xFF16A34A),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: _openDriverChat,
+                                tooltip: 'Message driver',
+                                icon: const Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  color: Color(0xFF2A86FF),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 12),
-
-                    // ── Pickup & Drop-off ─────────────────────────
-                    if (booking != null) ...[
-                      _SectionLabel('Locations'),
-                      const SizedBox(height: 8),
-                      _InfoCard(
-                        child: Column(
-                          children: [
-                            _LocationRow(
-                              icon: Icons.trip_origin_rounded,
-                              iconColor: const Color(0xFF16A34A),
-                              label: 'Pickup',
-                              address: booking.pickupAddress.isNotEmpty
-                                  ? booking.pickupAddress
-                                  : '—',
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Divider(
-                                height: 1,
-                                color: Color(0xFFE7EEF7),
-                              ),
-                            ),
-                            _LocationRow(
-                              icon: Icons.location_on_rounded,
-                              iconColor: const Color(0xFFDC2626),
-                              label: 'Drop-off',
-                              address: booking.dropoffAddress.isNotEmpty
-                                  ? booking.dropoffAddress
-                                  : '—',
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // ── Tour Spots ────────────────────────────────
-                    if (_spots.isNotEmpty) ...[
-                      _SectionLabel('Tour Itinerary (${_spots.length} stops)'),
-                      const SizedBox(height: 8),
-                      _InfoCard(
-                        child: Column(
-                          children: _spots.asMap().entries.map((entry) {
-                            final idx = entry.key;
-                            final spot = entry.value;
-                            final isCurrent =
-                                activity != null &&
-                                spot.id == _currentItineraryItem?.id &&
-                                spot.spotStatus != 'completed' &&
-                                (activity.tourStatus == 'on_tour' ||
-                                    activity.tourStatus == 'en_route_to_spot' ||
-                                    activity.tourStatus == 'at_spot' ||
-                                    activity.tourStatus == 'picked_up');
-                            final isDone = spot.spotStatus == 'completed';
-                            return _SpotRow(
-                              index: idx + 1,
-                              title: spot.destinationName,
-                              scheduledArrival: spot.arrivalTime,
-                              scheduledDeparture: spot.departureTime,
-                              actualArrival: spot.actualArrivalTime,
-                              actualDeparture: spot.actualDepartureTime,
-                              spotStatus: spot.spotStatus,
-                              stayMinutes: spot.estimatedStayDurationMinutes,
-                              isCurrent: isCurrent,
-                              isDone: isDone,
-                              isLast: idx == _spots.length - 1,
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ],
                   ],
-                ),
+
+                  // ── Booking Details ───────────────────────────
+                  _SectionLabel('Booking Details'),
+                  const SizedBox(height: 8),
+                  _InfoCard(
+                    child: Column(
+                      children: [
+                        _DetailRow(
+                          label: 'Date',
+                          value: travelDate != null
+                              ? DateFormat('EEE, MMM d, yyyy').format(travelDate)
+                              : '—',
+                        ),
+                        const SizedBox(height: 8),
+                        _DetailRow(
+                          label: 'Booking Type',
+                          value: bookingType == 'same_day'
+                              ? 'Same-day'
+                              : 'Advanced',
+                        ),
+                        const SizedBox(height: 8),
+                        _DetailRow(
+                          label: 'Participants',
+                          value:
+                              '$adults adult${adults != 1 ? 's' : ''}'
+                              '${children > 0 ? ', $children child${children != 1 ? 'ren' : ''}' : ''}',
+                        ),
+                        if (requiredDrivers > 1) ...[
+                          const SizedBox(height: 8),
+                          _DetailRow(
+                            label: 'Tricycles',
+                            value: '$requiredDrivers required',
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        _DetailRow(
+                          label: 'Total Amount',
+                          value: money.format(totalAmount),
+                          bold: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── Pickup & Drop-off ─────────────────────────
+                  if (booking != null) ...[
+                    _SectionLabel('Locations'),
+                    const SizedBox(height: 8),
+                    _InfoCard(
+                      child: Column(
+                        children: [
+                          _LocationRow(
+                            icon: Icons.trip_origin_rounded,
+                            iconColor: const Color(0xFF16A34A),
+                            label: 'Pickup',
+                            address: booking.pickupAddress.isNotEmpty
+                                ? booking.pickupAddress
+                                : '—',
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Divider(height: 1, color: Color(0xFFE7EEF7)),
+                          ),
+                          _LocationRow(
+                            icon: Icons.location_on_rounded,
+                            iconColor: const Color(0xFFDC2626),
+                            label: 'Drop-off',
+                            address: booking.dropoffAddress.isNotEmpty
+                                ? booking.dropoffAddress
+                                : '—',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // ── Tour Itinerary ────────────────────────────
+                  if (_spots.isNotEmpty) ...[
+                    _SectionLabel('Tour Itinerary (${_spots.length} stops)'),
+                    const SizedBox(height: 8),
+                    _InfoCard(
+                      child: Column(
+                        children: _spots.asMap().entries.map((entry) {
+                          final idx = entry.key;
+                          final spot = entry.value;
+                          final isCurrent =
+                              activity != null &&
+                              spot.id == _currentItineraryItem?.id &&
+                              spot.spotStatus != 'completed' &&
+                              (activity.tourStatus == 'on_tour' ||
+                                  activity.tourStatus == 'en_route_to_spot' ||
+                                  activity.tourStatus == 'at_spot' ||
+                                  activity.tourStatus == 'picked_up');
+                          final isDone = spot.spotStatus == 'completed';
+                          return _SpotRow(
+                            index: idx + 1,
+                            title: spot.destinationName,
+                            scheduledArrival: spot.arrivalTime,
+                            scheduledDeparture: spot.departureTime,
+                            actualArrival: spot.actualArrivalTime,
+                            actualDeparture: spot.actualDepartureTime,
+                            spotStatus: spot.spotStatus,
+                            stayMinutes: spot.estimatedStayDurationMinutes,
+                            isCurrent: isCurrent,
+                            isDone: isDone,
+                            isLast: idx == _spots.length - 1,
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ]),
               ),
             ),
           ],
-        ), // end Column
+        ),
+
         // ── Finding Drivers overlay ───────────────────────────────
         if (isWaitingForDrivers)
           _FindingDriversOverlay(
             accepted: acceptedDrivers,
             required: requiredDrivers,
           ),
-      ], // end Stack.children
-    ); // end Stack
+      ],
+    );
   }
 }
 
@@ -1703,7 +1890,6 @@ class _SpotRow extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  // Scheduled times
                   if (scheduledArrival.isNotEmpty ||
                       scheduledDeparture.isNotEmpty)
                     Row(
@@ -1724,33 +1910,24 @@ class _SpotRow extends StatelessWidget {
                         ),
                       ],
                     ),
-                  // Actual times (shown when available)
-                  if (actualArrival != null || actualDeparture != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.check_circle_rounded,
-                            size: 11,
-                            color: Color(0xFF16A34A),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _buildActualTimeLabel(
-                              actualArrival,
-                              actualDeparture,
-                              timeFmt,
-                            ),
-                            style: const TextStyle(
-                              color: Color(0xFF16A34A),
-                              fontWeight: FontWeight.w800,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
+                  if (actualArrival != null) ...[
+                    const SizedBox(height: 4),
+                    _TimestampBadge(
+                      icon: Icons.location_on_rounded,
+                      label: 'Arrived',
+                      time: timeFmt.format(actualArrival!.toLocal()),
+                      color: const Color(0xFF2A86FF),
                     ),
+                  ],
+                  if (actualDeparture != null) ...[
+                    const SizedBox(height: 3),
+                    _TimestampBadge(
+                      icon: Icons.check_circle_rounded,
+                      label: 'Completed',
+                      time: timeFmt.format(actualDeparture!.toLocal()),
+                      color: const Color(0xFF16A34A),
+                    ),
+                  ],
                   if (stayMinutes > 0) ...[
                     const SizedBox(height: 2),
                     Text(
@@ -1789,17 +1966,51 @@ class _SpotRow extends StatelessWidget {
     return '';
   }
 
-  String _buildActualTimeLabel(
-    DateTime? arrival,
-    DateTime? departure,
-    DateFormat fmt,
-  ) {
-    if (arrival != null && departure != null) {
-      return 'Actual: ${fmt.format(arrival)} – ${fmt.format(departure)}';
-    }
-    if (arrival != null) return 'Arrived: ${fmt.format(arrival)}';
-    if (departure != null) return 'Departed: ${fmt.format(departure)}';
-    return '';
+}
+
+class _TimestampBadge extends StatelessWidget {
+  const _TimestampBadge({
+    required this.icon,
+    required this.label,
+    required this.time,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String time;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(color: color.withValues(alpha: 0.30)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 11, color: color),
+              const SizedBox(width: 4),
+              Text(
+                '$label at $time',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1833,30 +2044,6 @@ class _SpotStatusChip extends StatelessWidget {
           fontWeight: FontWeight.w900,
           fontSize: 9.5,
         ),
-      ),
-    );
-  }
-}
-
-class _CircleBtn extends StatelessWidget {
-  const _CircleBtn({required this.icon, required this.onTap});
-
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: const Color(0xFF0F172A), size: 20),
       ),
     );
   }
@@ -1900,7 +2087,6 @@ class _ErrorView extends StatelessWidget {
 }
 
 // ── Finding Drivers overlay ───────────────────────────────────
-// Shown on top of the tracking screen until all required drivers accept.
 class _FindingDriversOverlay extends StatefulWidget {
   const _FindingDriversOverlay({
     required this.accepted,
@@ -1945,7 +2131,6 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Pulsing icon
                 AnimatedBuilder(
                   animation: _pulse,
                   builder: (_, child) => Container(
@@ -1969,7 +2154,6 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
                   ),
                 ),
                 const SizedBox(height: 24),
-
                 const Text(
                   'Finding Drivers...',
                   style: TextStyle(
@@ -1989,8 +2173,6 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // Progress bar
                 SizedBox(
                   width: 220,
                   child: ClipRRect(
@@ -2008,8 +2190,6 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // Per-slot indicator
                 if (widget.required > 1)
                   Wrap(
                     spacing: 8,
@@ -2042,7 +2222,6 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
                     }),
                   ),
                 const SizedBox(height: 20),
-
                 Text(
                   remaining > 0
                       ? 'Waiting for $remaining more driver${remaining == 1 ? '' : 's'} to accept.'

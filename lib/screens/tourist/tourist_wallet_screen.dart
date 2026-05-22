@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -23,8 +22,6 @@ class TouristWalletScreen extends StatefulWidget {
 class _TouristWalletScreenState extends State<TouristWalletScreen>
     with WidgetsBindingObserver {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
-  final AppLinks _appLinks = AppLinks();
-
   Wallet? _wallet;
   List<WalletTransaction> _transactions = [];
   bool _loading = true;
@@ -193,12 +190,7 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
   }
 
   void _listenForWalletDeepLinks() {
-    _walletLinkSubscription = _appLinks.uriLinkStream.listen(
-      (uri) => unawaited(_handleWalletDeepLink(uri)),
-      onError: (Object error) {
-        debugPrint('Wallet deep link error: $error');
-      },
-    );
+    // app_links removed for web compatibility; deep links handled via initialDeepLink on mobile
   }
 
   bool _isWalletDeepLink(Uri uri) {
