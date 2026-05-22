@@ -1,21 +1,20 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:touristrike/core/places/city_spot_suggestions.dart';
-import 'package:touristrike/core/supabase/touristrike_models.dart';
-import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
 import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
+import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/route_polyline_service.dart';
+import 'package:touristrike/core/supabase/touristrike_models.dart';
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -30,6 +29,7 @@ class ActivityTrackingScreen extends StatefulWidget {
 
 class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+  final _routeService = const RoutePolylineService(apiKey: _apiKey);
 
   final _repo = TourisTrikeRepository();
   final _supabase = Supabase.instance.client;
@@ -514,7 +514,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       return;
     }
 
-    final result = await _fetchRoute(origin, destination);
+    final result = await _routeService.fetchRoute(origin, destination);
     if (!mounted) return;
     setState(() {
       _polylines = {
@@ -526,6 +526,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
           jointType: JointType.round,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
+          patterns: result.isFallback
+              ? [PatternItem.dash(12), PatternItem.gap(6)]
+              : [],
         ),
       };
       _eta = result.durationText;
@@ -543,77 +546,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       return;
     }
     await _fetchCurrentRoute();
-  }
-
-  Future<_RouteResult> _fetchRoute(LatLng origin, LatLng dest) async {
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/directions/json'
-        '?origin=${origin.latitude},${origin.longitude}'
-        '&destination=${dest.latitude},${dest.longitude}'
-        '&mode=driving'
-        '&key=$_apiKey',
-      );
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final routes = (body['routes'] as List?) ?? const [];
-        if (routes.isNotEmpty) {
-          final route = routes.first as Map;
-          final legs = (route['legs'] as List?) ?? const [];
-          String? durationText;
-          final points = <LatLng>[];
-          if (legs.isNotEmpty) {
-            final leg = legs.first as Map;
-            durationText = leg['duration']?['text'] as String?;
-            // Use step-by-step polylines for smoother rendering
-            final steps = (leg['steps'] as List?) ?? const [];
-            for (final step in steps) {
-              final encoded = (step as Map)['polyline']?['points'] as String?;
-              if (encoded != null) points.addAll(_decodePolyline(encoded));
-            }
-          }
-          if (points.isNotEmpty) {
-            return _RouteResult(points: points, durationText: durationText);
-          }
-          // Fallback to overview polyline
-          final encoded = route['overview_polyline']?['points'] as String?;
-          if (encoded != null) {
-            return _RouteResult(
-              points: _decodePolyline(encoded),
-              durationText: durationText,
-            );
-          }
-        }
-      }
-    } catch (_) {}
-    return _RouteResult(points: [origin, dest]);
-  }
-
-  List<LatLng> _decodePolyline(String encoded) {
-    final points = <LatLng>[];
-    int index = 0;
-    final len = encoded.length;
-    int lat = 0, lng = 0;
-    while (index < len) {
-      int b, shift = 0, result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lat += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      shift = 0;
-      result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lng += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      points.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-    return points;
   }
 
   // ── Camera helpers ────────────────────────────────────────────
@@ -1368,12 +1300,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   }
 }
 
-// ── Route result ──────────────────────────────────────────────
-class _RouteResult {
-  const _RouteResult({required this.points, this.durationText});
-  final List<LatLng> points;
-  final String? durationText;
-}
 
 // ── Widgets ───────────────────────────────────────────────────
 

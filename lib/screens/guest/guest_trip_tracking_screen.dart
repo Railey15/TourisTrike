@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -7,10 +6,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -34,6 +33,7 @@ class GuestTripTrackingScreen extends StatefulWidget {
 
 class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+  final _routeService = const RoutePolylineService(apiKey: _apiKey);
 
   final _repo = TourisTrikeRepository();
   final _supabase = Supabase.instance.client;
@@ -348,7 +348,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       return;
     }
 
-    final result = await _fetchRoute(origin, destination);
+    final result = await _routeService.fetchRoute(origin, destination);
     if (!mounted) return;
     setState(() {
       _polylines = {
@@ -360,6 +360,9 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
           jointType: JointType.round,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
+          patterns: result.isFallback
+              ? [PatternItem.dash(12), PatternItem.gap(6)]
+              : [],
         ),
       };
       _eta = result.durationText;
@@ -370,76 +373,6 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
     final ts = _details.tourStatus;
     if (ts == 'at_spot' || ts == 'dropped_off' || ts == 'completed') return;
     await _fetchCurrentRoute();
-  }
-
-  Future<_RouteResult> _fetchRoute(LatLng origin, LatLng dest) async {
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/directions/json'
-        '?origin=${origin.latitude},${origin.longitude}'
-        '&destination=${dest.latitude},${dest.longitude}'
-        '&mode=driving'
-        '&key=$_apiKey',
-      );
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final routes = (body['routes'] as List?) ?? const [];
-        if (routes.isNotEmpty) {
-          final route = routes.first as Map;
-          final legs = (route['legs'] as List?) ?? const [];
-          String? durationText;
-          final points = <LatLng>[];
-          if (legs.isNotEmpty) {
-            final leg = legs.first as Map;
-            durationText = leg['duration']?['text'] as String?;
-            final steps = (leg['steps'] as List?) ?? const [];
-            for (final step in steps) {
-              final encoded =
-                  (step as Map)['polyline']?['points'] as String?;
-              if (encoded != null) points.addAll(_decodePolyline(encoded));
-            }
-          }
-          if (points.isNotEmpty) {
-            return _RouteResult(points: points, durationText: durationText);
-          }
-          final encoded = route['overview_polyline']?['points'] as String?;
-          if (encoded != null) {
-            return _RouteResult(
-              points: _decodePolyline(encoded),
-              durationText: durationText,
-            );
-          }
-        }
-      }
-    } catch (_) {}
-    return _RouteResult(points: [origin, dest]);
-  }
-
-  List<LatLng> _decodePolyline(String encoded) {
-    final points = <LatLng>[];
-    int index = 0;
-    final len = encoded.length;
-    int lat = 0, lng = 0;
-    while (index < len) {
-      int b, shift = 0, result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lat += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      shift = 0;
-      result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lng += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      points.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-    return points;
   }
 
   // ── Camera ────────────────────────────────────────────────────────────────
@@ -791,14 +724,6 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       ),
     );
   }
-}
-
-// ── Route result data class ───────────────────────────────────────────────────
-
-class _RouteResult {
-  const _RouteResult({required this.points, this.durationText});
-  final List<LatLng> points;
-  final String? durationText;
 }
 
 // ── Status card ───────────────────────────────────────────────────────────────

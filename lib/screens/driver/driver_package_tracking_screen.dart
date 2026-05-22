@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,10 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
@@ -32,6 +31,7 @@ class _DriverPackageTrackingScreenState
     extends State<DriverPackageTrackingScreen> {
   static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
   static const _defaultCenter = LatLng(14.9597, 120.9206);
+  final _routeService = const RoutePolylineService(apiKey: _apiKey);
   // Driver must be within 150m to mark arrival/pickup
   static const double _proximityMeters = 150.0;
 
@@ -538,71 +538,25 @@ class _DriverPackageTrackingScreenState
       return;
     }
 
-    try {
-      final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/directions/json'
-        '?origin=${origin.latitude},${origin.longitude}'
-        '&destination=${destination.latitude},${destination.longitude}'
-        '&mode=driving'
-        '&key=$_apiKey',
-      );
-      final res = await http.get(url).timeout(const Duration(seconds: 10));
-      if (res.statusCode != 200) return;
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final routes = data['routes'] as List?;
-      if (routes == null || routes.isEmpty) return;
-      final route = routes.first as Map;
-      final legs = (route['legs'] as List?) ?? const [];
-      String? durationText;
-      if (legs.isNotEmpty) {
-        final leg = legs.first as Map;
-        durationText = leg['duration']?['text'] as String?;
-        final steps = (leg['steps'] as List?) ?? const [];
-        final points = <LatLng>[];
-        for (final step in steps) {
-          final encoded = (step as Map)['polyline']?['points'] as String?;
-          if (encoded != null) points.addAll(_decodePolyline(encoded));
-        }
-        if (!mounted) return;
-        setState(() {
-          _polylines = {
-            Polyline(
-              polylineId: const PolylineId('route'),
-              points: points,
-              color: const Color(0xFF2F6FFF),
-              width: 5,
-            ),
-          };
-          _eta = durationText;
-        });
-      }
-    } catch (_) {}
-  }
-
-  List<LatLng> _decodePolyline(String encoded) {
-    final result = <LatLng>[];
-    int index = 0;
-    int lat = 0;
-    int lng = 0;
-    while (index < encoded.length) {
-      int b, shift = 0, r = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        r |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lat += (r & 1) != 0 ? ~(r >> 1) : (r >> 1);
-      shift = 0;
-      r = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        r |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lng += (r & 1) != 0 ? ~(r >> 1) : (r >> 1);
-      result.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-    return result;
+    final result = await _routeService.fetchRoute(origin, destination);
+    if (!mounted) return;
+    setState(() {
+      _polylines = {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: result.points,
+          color: const Color(0xFF2F6FFF),
+          width: 5,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          patterns: result.isFallback
+              ? [PatternItem.dash(12), PatternItem.gap(6)]
+              : [],
+        ),
+      };
+      _eta = result.durationText;
+    });
   }
 
   LatLng? _driverLatLng() {
