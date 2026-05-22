@@ -25,7 +25,7 @@ class TouristExploreScreen extends StatefulWidget {
 class _TouristExploreScreenState extends State<TouristExploreScreen> {
   final supabase = Supabase.instance.client;
   final CitySpotSuggestionService _spotSuggestionService =
-      const CitySpotSuggestionService();
+      CitySpotSuggestionService();
 
   static const LatLng _defaultCenter = LatLng(14.9597, 120.9206);
 
@@ -40,6 +40,9 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   String? _selectedPackageCategory;
 
   final _searchCtrl = TextEditingController();
+  final List<_SpotModel> _googleSearchSpots = [];
+  bool _isSearchingGoogle = false;
+  Timer? _searchDebounce;
   late Future<_ExploreData> _future;
 
   LatLng? _lastKnownCenter;
@@ -72,6 +75,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   @override
   void dispose() {
     touristLocationStore.removeListener(_onLocationSelectionChanged);
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -535,8 +539,86 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _loadExploreData());
+    setState(() {
+      _future = _loadExploreData();
+      _googleSearchSpots.clear();
+      _isSearchingGoogle = false;
+    });
     await _future;
+  }
+
+  void _onSearchTextChanged(String query, _ExploreData data) {
+    _searchDebounce?.cancel();
+    final trimmed = query.trim();
+
+    if (trimmed.length < 3) {
+      if (_googleSearchSpots.isNotEmpty || _isSearchingGoogle) {
+        setState(() {
+          _googleSearchSpots.clear();
+          _isSearchingGoogle = false;
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _isSearchingGoogle = true;
+    });
+
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+      _performGoogleSearch(trimmed, data);
+    });
+  }
+
+  Future<void> _performGoogleSearch(String query, _ExploreData data) async {
+    if (!mounted || data.municipality == null) return;
+
+    try {
+      final suggestions = await _spotSuggestionService.searchPlaces(
+        query: query,
+        city: data.municipality!,
+        province: 'Bulacan',
+        center: data.center,
+      );
+
+      if (!mounted || _searchCtrl.text.trim() != query) return;
+
+      setState(() {
+        _googleSearchSpots
+          ..clear()
+          ..addAll(suggestions.map((suggestion) {
+            final category = _normalizeSpotCategory(
+              suggestion.category,
+              placeTypes: suggestion.placeTypes,
+            );
+            return _SpotModel(
+              id: suggestion.id,
+              title: suggestion.title,
+              address: suggestion.address,
+              distance: suggestion.distanceText,
+              distanceKm: suggestion.distanceKm,
+              tag: category,
+              category: category,
+              rating: suggestion.rating,
+              userRatingsTotal: 0,
+              imageUrl: suggestion.imageUrl,
+              latitude: suggestion.latitude,
+              longitude: suggestion.longitude,
+              openNow: null,
+              types: suggestion.placeTypes,
+              municipality: data.municipality!,
+              googlePlaceId: suggestion.id,
+            );
+          }));
+        _isSearchingGoogle = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _googleSearchSpots.clear();
+        _isSearchingGoogle = false;
+      });
+    }
   }
 
   Future<void> _selectMunicipality() async {
@@ -879,7 +961,11 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                     }
 
                     final data = snap.data!;
-                    final spots = _filteredSpots(data.spots);
+                    final query = _searchCtrl.text.trim();
+                    final isGoogleSearch = query.length >= 3 && data.municipality != null;
+                    final spots = isGoogleSearch
+                        ? List<_SpotModel>.unmodifiable(_googleSearchSpots)
+                        : _filteredSpots(data.spots);
                     final packages = _filteredPackages(data.packages);
 
                     final showSpots =
@@ -913,7 +999,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                             const SizedBox(height: 16),
                             _SearchFilterRow(
                               controller: _searchCtrl,
-                              onChanged: (_) => setState(() {}),
+                              onChanged: (query) => _onSearchTextChanged(query, data),
                               hasActiveFilter: _hasActiveFilter,
                               onFilterTap: () => _openFilterSheet(data.packages),
                             ),
@@ -921,7 +1007,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                             _ExploreTabBar(
                               selectedType: _selectedType,
                               onSelected: _selectContentType,
-                              spotsCount: _filteredSpots(data.spots).length,
+                              spotsCount: spots.length,
                               packagesCount:
                                   _filteredPackages(data.packages).length,
                             ),
@@ -952,12 +1038,22 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                               ),
                               const SizedBox(height: 12),
                               if (spots.isEmpty)
-                                const _EmptyState(
-                                  icon: Icons.travel_explore_rounded,
-                                  title: 'No spots found',
-                                  message:
-                                      'Try another keyword, filter, or make sure your location is inside Bulacan.',
-                                )
+                                if (isGoogleSearch && _isSearchingGoogle)
+                                  const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 24),
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFF2A86FF),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  const _EmptyState(
+                                    icon: Icons.travel_explore_rounded,
+                                    title: 'No spots found',
+                                    message:
+                                        'Try another keyword, filter, or make sure your location is inside Bulacan.',
+                                  )
                               else
                                 ...spots.map(
                                   (s) => Padding(

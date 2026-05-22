@@ -1,77 +1,127 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
+import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
 
-class DriverRoleScreen extends StatelessWidget {
-  const DriverRoleScreen({
-    super.key,
-    required this.profile,
-  });
+class DriverRoleScreen extends StatefulWidget {
+  const DriverRoleScreen({super.key, required this.bundle, this.flowStep});
 
-  final DriverProfile profile;
+  final DriverProfileBundle bundle;
+  final DriverProfileStep? flowStep;
+
+  @override
+  State<DriverRoleScreen> createState() => _DriverRoleScreenState();
+}
+
+class _DriverRoleScreenState extends State<DriverRoleScreen> {
+  final DriverProfileService _service = DriverProfileService();
+  bool _saving = false;
+
+  String get _userId => widget.bundle.profile.id;
+
+  Future<void> _save() async {
+    if (_saving) return;
+
+    if (mounted) {
+      setState(() => _saving = true);
+    }
+
+    try {
+      await _service.saveRoleSelection(_userId);
+
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showSuccess('Driver role confirmed.');
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('Failed to confirm driver role: $error');
+    }
+  }
+
+  void _showSuccess(String message) => _showSnack(message, isError: false);
+
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final role = profile.role.isEmpty ? 'driver' : profile.role;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        title: const Text('Role'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+    return DriverProfilePageScaffold(
+      title: 'Role Selection',
+      subtitle: widget.flowStep == null
+          ? 'Review the role attached to your driver account.'
+          : 'Step 5 of 7: confirm your driver role.',
+      bottomBar: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: DriverPrimaryButton(
+          label: widget.flowStep == null ? 'Confirm Role' : 'Save and Continue',
+          onPressed: _save,
+          loading: _saving,
+          icon: Icons.verified_user_rounded,
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-            ),
+          DriverProfileCard(
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 52,
+                  height: 52,
                   decoration: BoxDecoration(
                     color: const Color(0xFFEAF2FF),
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                   child: const Icon(
-                    Icons.verified_user_outlined,
-                    color: Color(0xFF2F6FFF),
+                    Icons.verified_user_rounded,
+                    color: Color(0xFF2A86FF),
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    role,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF172033),
-                    ),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Driver Account',
+                        style: TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'This flow is intended for drivers. Confirming this step saves the role as driver in your profile record.',
+                        style: TextStyle(
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: const Text(
-              'Your role is controlled by the system and cannot be changed from this screen.',
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.4,
-                color: Color(0xFF6B7280),
-                fontWeight: FontWeight.w600,
-              ),
             ),
           ),
         ],
@@ -79,3 +129,5 @@ class DriverRoleScreen extends StatelessWidget {
     );
   }
 }
+
+

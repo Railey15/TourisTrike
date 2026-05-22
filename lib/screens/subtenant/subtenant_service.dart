@@ -350,10 +350,10 @@ class SubTenantService {
         .toList(growable: false);
 
     final center =
-        const CitySpotSuggestionService().centerForCity(profile.assignedCity) ??
+        CitySpotSuggestionService().centerForCity(profile.assignedCity) ??
         CitySpotSuggestionService.defaultBulacanCenter;
 
-    return const CitySpotSuggestionService().fetchSuggestions(
+    return CitySpotSuggestionService().fetchSuggestions(
       city: profile.assignedCity,
       province: profile.province.isEmpty ? 'Bulacan' : profile.province,
       center: center,
@@ -798,11 +798,107 @@ class SubTenantService {
     SubTenantProfile profile,
     String driverId,
   ) async {
-    final drivers = await fetchDrivers(profile);
-    for (final driver in drivers) {
-      if (driver.id == driverId) return driver;
+    final profileRow = await _supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', driverId)
+        .eq('role', 'driver')
+        .eq('city', profile.assignedCity)
+        .maybeSingle();
+
+    if (profileRow == null) return null;
+
+    final detailsRow = await _supabase
+        .from('driver_details')
+        .select('*')
+        .eq('driver_id', driverId)
+        .maybeSingle();
+
+    final docsRow = await _supabase
+        .from('driver_documents')
+        .select('*')
+        .eq('driver_id', driverId)
+        .maybeSingle();
+
+    return SubTenantDriver(
+      profile: Map<String, dynamic>.from(profileRow),
+      details: detailsRow == null
+          ? null
+          : Map<String, dynamic>.from(detailsRow),
+      documents:
+          docsRow == null ? null : Map<String, dynamic>.from(docsRow),
+    );
+  }
+
+  Future<List<SubTenantDriverReview>> fetchDriverReviews(
+    SubTenantProfile profile,
+    String driverId,
+  ) async {
+    final driverRow = await _supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', driverId)
+        .eq('role', 'driver')
+        .eq('city', profile.assignedCity)
+        .maybeSingle();
+
+    if (driverRow == null) return const [];
+
+    final response = await _supabase
+        .from('driver_reviews')
+        .select(
+          'id, booking_id, driver_id, tourist_id, rating, review_text, created_at',
+        )
+        .eq('driver_id', driverId)
+        .order('created_at', ascending: false);
+
+    final reviewRows = (response as List)
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
+
+    if (reviewRows.isEmpty) return const [];
+
+    final touristIds = reviewRows
+        .map((row) => stId(row['tourist_id']))
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    final touristNames = <String, String>{};
+
+    if (touristIds.isNotEmpty) {
+      final profileResponse = await _supabase
+          .from('profiles')
+          .select('id, full_name, first_name, last_name, mobile')
+          .inFilter('id', touristIds);
+
+      for (final row in profileResponse as List) {
+        if (row is! Map) continue;
+        final profileMap = Map<String, dynamic>.from(row);
+        final id = stId(profileMap['id']);
+        if (id.isEmpty) continue;
+
+        touristNames[id] = stProfileDisplayName(profileMap);
+      }
     }
-    return null;
+
+    return reviewRows
+        .map((row) {
+          final touristId = stId(row['tourist_id']);
+          return SubTenantDriverReview(
+            id: stId(row['id']),
+            bookingId: stId(row['booking_id']),
+            driverId: stId(row['driver_id']),
+            touristId: touristId,
+            touristName: touristNames[touristId] ?? 'Tourist',
+            rating: stInt(row['rating']),
+            reviewText: stString(row, const ['review_text']),
+            createdAt:
+                DateTime.tryParse(stString(row, const ['created_at'])),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<void> updateDriverStatus(
@@ -986,18 +1082,7 @@ class SubTenantService {
     final spots = await fetchSpots(profile);
     final packages = await fetchPackages(profile);
     final drivers = await fetchDrivers(profile);
-    final reportSpots = spots
-        .where((spot) => reportRange.contains(spot.createdAt))
-        .toList(growable: false);
-    final reportPackages = packages
-        .where((package) => reportRange.contains(package.createdAt))
-        .toList(growable: false);
-    final reportDrivers = drivers
-        .where(
-          (driver) =>
-              reportRange.contains(stDate(driver.profile['created_at'])),
-        )
-        .toList(growable: false);
+
     final packageIds = packages.map((item) => item.id).toList(growable: false);
     final allBookings = await fetchBookings(
       profile,
@@ -1047,10 +1132,10 @@ class SubTenantService {
 
     return SubTenantReportData(
       rangeLabel: reportRange.label,
-      totalSpots: reportSpots.length,
-      totalPackages: reportPackages.length,
+      totalSpots: spots.length,
+      totalPackages: packages.length,
       totalBookings: bookings.length,
-      totalDrivers: reportDrivers.length,
+      totalDrivers: drivers.length,
       completedBookings: completed.length,
       cancelledBookings: cancelled.length,
       estimatedRevenue: revenue,
@@ -1067,6 +1152,11 @@ class SubTenantService {
       topSpots: topSpots,
       averageRating: averageRating,
       feedbackCount: feedback.length,
+      bookings: allBookings,
+      feedback: feedback,
+      allPackages: packages,
+      allSpots: spots,
+      allDrivers: drivers,
     );
   }
 

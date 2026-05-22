@@ -1,13 +1,66 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Privacy Policy Screen (local text)
-/// - Same UI language: blue, rounded cards, soft shadows
-/// - Scrollable policy content
-///
-/// Navigate:
-/// Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen()));
-class PrivacyPolicyScreen extends StatelessWidget {
+class PrivacyPolicyScreen extends StatefulWidget {
   const PrivacyPolicyScreen({super.key});
+
+  @override
+  State<PrivacyPolicyScreen> createState() => _PrivacyPolicyScreenState();
+}
+
+class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  bool _loading = true;
+  _PolicyDocument? _policy;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    if (mounted) {
+      setState(() => _loading = true);
+    }
+
+    try {
+      final row = await _supabase
+          .from('tourism_policies')
+          .select()
+          .eq('status', 'published')
+          .order('updated_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (!mounted) return;
+      setState(() {
+        _policy = row == null ? null : _PolicyDocument.fromMap(row);
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('PrivacyPolicyScreen _loadData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError('Unable to load the privacy policy.');
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +72,6 @@ class PrivacyPolicyScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Header
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Row(
@@ -36,104 +88,37 @@ class PrivacyPolicyScreen extends StatelessWidget {
                         fontSize: 20.5,
                         fontWeight: FontWeight.w900,
                         color: textDark,
-                        letterSpacing: -0.3,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
-                children: const [
-                  _PolicyCard(
-                    children: [
-                      _PolicyTitle('Last updated'),
-                      _PolicyText('February 21, 2026'),
-                      SizedBox(height: 14),
-
-                      _PolicyTitle('1. Overview'),
-                      _PolicyText(
-                        'This Privacy Policy explains how TouriStrike collects, uses, and protects '
-                        'your information when you use the app for tricycle rides and tours.',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('2. Information We Collect'),
-                      _PolicyBullet(
-                        'Account info (name, email, phone number if provided).',
-                      ),
-                      _PolicyBullet(
-                        'Trip info (pickup, drop-off, date/time, fare, trip status).',
-                      ),
-                      _PolicyBullet(
-                        'Saved Places (places you choose to save).',
-                      ),
-                      _PolicyBullet(
-                        'Emergency Contacts (contacts you choose to add).',
-                      ),
-                      _PolicyBullet(
-                        'Device info (basic diagnostics, app version).',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('3. How We Use Your Information'),
-                      _PolicyBullet(
-                        'To provide ride and tour booking features.',
-                      ),
-                      _PolicyBullet('To show trip history and receipts.'),
-                      _PolicyBullet('To improve app safety and reliability.'),
-                      _PolicyBullet(
-                        'To provide support and respond to issues.',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('4. Location Data'),
-                      _PolicyText(
-                        'Location data may be used to support pickup and drop-off functionality. '
-                        'If location permissions are denied, some features may not work properly.',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('5. Sharing of Information'),
-                      _PolicyText(
-                        'We do not sell your personal information. We only share data when necessary '
-                        'to provide services (e.g., trip details with the driver), comply with legal '
-                        'requirements, or protect user safety.',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('6. Data Retention'),
-                      _PolicyText(
-                        'We keep your data only as long as needed to provide the service, comply with '
-                        'legal obligations, and maintain records for safety and support.',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('7. Security'),
-                      _PolicyText(
-                        'We use reasonable security practices to protect your data. However, no method '
-                        'of transmission or storage is 100% secure.',
-                      ),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('8. Your Choices'),
-                      _PolicyBullet('You can edit your profile information.'),
-                      _PolicyBullet(
-                        'You can remove Saved Places and Emergency Contacts.',
-                      ),
-                      _PolicyBullet('You can manage notification preferences.'),
-                      SizedBox(height: 12),
-
-                      _PolicyTitle('9. Contact Us'),
-                      _PolicyText(
-                        'If you have questions about this policy, contact support through the app.',
-                      ),
-                    ],
-                  ),
-                ],
+              child: RefreshIndicator(
+                color: const Color(0xFF2A86FF),
+                onRefresh: _loadData,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+                  children: [
+                    if (_loading)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(28),
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF2A86FF),
+                          ),
+                        ),
+                      )
+                    else if (_policy == null)
+                      const _EmptyState(
+                        message:
+                            'No published privacy policy is available yet.',
+                      )
+                    else
+                      _PolicyCard(policy: _policy!),
+                  ],
+                ),
               ),
             ),
           ],
@@ -143,8 +128,34 @@ class PrivacyPolicyScreen extends StatelessWidget {
   }
 }
 
+class _PolicyDocument {
+  const _PolicyDocument({
+    required this.title,
+    required this.content,
+    required this.updatedAt,
+  });
+
+  factory _PolicyDocument.fromMap(Map<String, dynamic> map) {
+    return _PolicyDocument(
+      title: (map['title'] ?? '').toString(),
+      content: (map['content'] ?? '').toString(),
+      updatedAt: DateTime.tryParse((map['updated_at'] ?? '').toString()),
+    );
+  }
+
+  final String title;
+  final String content;
+  final DateTime? updatedAt;
+
+  String get updatedLabel {
+    if (updatedAt == null) return 'Unknown date';
+    return DateFormat.yMMMMd().format(updatedAt!.toLocal());
+  }
+}
+
 class _TopCircleButton extends StatelessWidget {
   const _TopCircleButton({required this.icon, required this.onTap});
+
   final IconData icon;
   final VoidCallback onTap;
 
@@ -174,18 +185,18 @@ class _TopCircleButton extends StatelessWidget {
 }
 
 class _PolicyCard extends StatelessWidget {
-  const _PolicyCard({required this.children});
-  final List<Widget> children;
+  const _PolicyCard({required this.policy});
+
+  final _PolicyDocument policy;
 
   @override
   Widget build(BuildContext context) {
-    const line = Color(0xFFE7EEF7);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: line),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -196,69 +207,60 @@ class _PolicyCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ),
-    );
-  }
-}
-
-class _PolicyTitle extends StatelessWidget {
-  const _PolicyTitle(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    const textDark = Color(0xFF0F172A);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontWeight: FontWeight.w900,
-          color: textDark,
-          fontSize: 16,
-        ),
-      ),
-    );
-  }
-}
-
-class _PolicyText extends StatelessWidget {
-  const _PolicyText(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    const textMid = Color(0xFF64748B);
-    return Text(
-      text,
-      style: const TextStyle(
-        fontWeight: FontWeight.w800,
-        color: textMid,
-        height: 1.35,
-      ),
-    );
-  }
-}
-
-class _PolicyBullet extends StatelessWidget {
-  const _PolicyBullet(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    const textMid = Color(0xFF64748B);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
+        children: [
           Text(
-            'â€¢ ',
-            style: TextStyle(fontWeight: FontWeight.w900, color: textMid),
+            policy.title.trim().isEmpty ? 'Privacy Policy' : policy.title,
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF0F172A),
+              fontSize: 18,
+            ),
           ),
-          // NOTE: Expanded must not be const because it depends on text
+          const SizedBox(height: 8),
+          Text(
+            'Last updated ${policy.updatedLabel}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF64748B),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            policy.content.trim().isEmpty
+                ? 'No policy content was provided.'
+                : policy.content,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF64748B),
+              height: 1.45,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
+      ),
+      child: Text(
+        message,
+        style: const TextStyle(
+          color: Color(0xFF64748B),
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }

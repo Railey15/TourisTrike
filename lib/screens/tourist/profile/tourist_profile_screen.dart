@@ -2,16 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/screens/auth/login_screen.dart';
-import 'package:touristrike/screens/tourist/profile/emergency_contact_screen.dart';
 import 'package:touristrike/screens/tourist/profile/change_password_screen.dart';
+import 'package:touristrike/screens/tourist/profile/emergency_contact_screen.dart';
 import 'package:touristrike/screens/tourist/profile/notifications_screen.dart';
-import 'package:touristrike/screens/tourist/profile/payment_history_screen.dart';
-import 'package:touristrike/screens/tourist/profile/payment_methods_screen.dart';
 import 'package:touristrike/screens/tourist/profile/personal_info_screen.dart';
 import 'package:touristrike/screens/tourist/profile/privacy_policy_screen.dart';
 import 'package:touristrike/screens/tourist/profile/saved_places_screen.dart';
 import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
-import 'package:touristrike/screens/tourist/tourist_saved_places_state.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -26,104 +23,106 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _loading = true;
   bool _loggingOut = false;
-  bool _isDarkMode = false;
-  bool _savingTheme = false;
-  Map<String, dynamic>? _profile;
+  int _savedPlacesCount = 0;
+  _TouristProfileData? _profile;
+  RealtimeChannel? _profileChannel;
+
+  User? get _user => _supabase.auth.currentUser;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _loadData();
+    _subscribeToRealtime();
   }
 
-  User? get _user => _supabase.auth.currentUser;
+  @override
+  void dispose() {
+    _profileChannel?.unsubscribe();
+    super.dispose();
+  }
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadData() async {
     final user = _user;
     if (user == null) {
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _profile = null;
+          _savedPlacesCount = 0;
+        });
+      }
       return;
     }
 
-    setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loading = true);
+    }
 
     try {
-      final profile = await _supabase
+      final profileRow = await _supabase
           .from('profiles')
-          .select(
-            'id, full_name, first_name, middle_name, last_name, mobile, '
-            'address, barangay, city, province, profile_image_url, avatar_url, '
-            'theme_mode',
-          )
+          .select()
           .eq('id', user.id)
-          .maybeSingle()
-          .timeout(const Duration(seconds: 12));
+          .maybeSingle();
+      final savedPlacesRows = await _supabase
+          .from('saved_places')
+          .select('id')
+          .eq('user_id', user.id);
 
       if (!mounted) return;
       setState(() {
-        _profile = profile;
-        _isDarkMode =
-            (profile?['theme_mode'] as String? ?? 'light') == 'dark';
+        _profile = _TouristProfileData.fromMap(
+          profileRow ?? <String, dynamic>{},
+        );
+        _savedPlacesCount = savedPlacesRows.length;
+        _loading = false;
       });
-    } catch (e) {
-      _showSnack('Unable to load profile details.', error: true);
-    } finally {
-      if (mounted) setState(() => _loading = false);
+    } catch (error, stackTrace) {
+      debugPrint('ProfileScreen _loadData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError('Unable to load your profile right now.');
     }
   }
 
-  String get _displayName {
-    final full = (_profile?['full_name'] ?? '').toString().trim();
-    if (full.isNotEmpty) return full;
+  void _subscribeToRealtime() {
+    final userId = _user?.id;
+    if (userId == null) return;
 
-    final first = (_profile?['first_name'] ?? '').toString().trim();
-    final middle = (_profile?['middle_name'] ?? '').toString().trim();
-    final last = (_profile?['last_name'] ?? '').toString().trim();
-    final parts =
-        [first, middle, last].where((e) => e.isNotEmpty).toList();
-    if (parts.isNotEmpty) return parts.join(' ');
-
-    final metadataName =
-        (_user?.userMetadata?['full_name'] ?? '').toString().trim();
-    if (metadataName.isNotEmpty) return metadataName;
-
-    return 'Tourist';
+    _profileChannel?.unsubscribe();
+    _profileChannel = _supabase
+        .channel('tourist_profile_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'profiles',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: userId,
+          ),
+          callback: (payload) {
+            final row = payload.newRecord;
+            if (row.isEmpty) {
+              _loadData();
+              return;
+            }
+            if (!mounted) return;
+            setState(() {
+              _profile = _TouristProfileData.fromMap(
+                Map<String, dynamic>.from(row),
+              );
+            });
+          },
+        )
+        .subscribe();
   }
 
-  String get _email {
-    final value = _user?.email?.trim() ?? '';
-    return value.isEmpty ? 'No email available' : value;
-  }
+  void _showError(String message) => _showSnack(message, isError: true);
 
-  String get _phone {
-    final value = (_profile?['mobile'] ?? '').toString().trim();
-    return value.isEmpty ? 'Add mobile number' : value;
-  }
-
-  String get _address {
-    final address = (_profile?['address'] ?? '').toString().trim();
-    final barangay = (_profile?['barangay'] ?? '').toString().trim();
-    final city = (_profile?['city'] ?? '').toString().trim();
-    final province = (_profile?['province'] ?? '').toString().trim();
-    final parts =
-        [address, barangay, city, province]
-            .where((v) => v.isNotEmpty)
-            .toList();
-    return parts.isEmpty ? 'Complete your tourist profile' : parts.join(', ');
-  }
-
-  String get _imageUrl {
-    final profileImage =
-        (_profile?['profile_image_url'] ?? '').toString().trim();
-    if (profileImage.isNotEmpty) return profileImage;
-    final avatar = (_profile?['avatar_url'] ?? '').toString().trim();
-    if (avatar.isNotEmpty) return avatar;
-    return (_user?.userMetadata?['avatar_url'] ?? '').toString().trim();
-  }
-
-  bool get _emailVerified => _user?.emailConfirmedAt != null;
-
-  void _showSnack(String message, {bool error = false}) {
+  void _showSnack(String message, {required bool isError}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -131,8 +130,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SnackBar(
           content: Text(message),
           behavior: SnackBarBehavior.floating,
-          backgroundColor:
-              error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -142,54 +142,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _openPage(Widget screen, {bool refreshAfter = false}) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => screen),
-    );
-    if (refreshAfter && mounted) _loadProfile();
-  }
-
-  // ── Reset password ─────────────────────────────────────────────────────
-
-  Future<void> _openChangePassword() async {
-    await _openPage(const ChangePasswordScreen());
-  }
-
-  // ── Dark mode toggle ───────────────────────────────────────────────────
-
-  Future<void> _toggleTheme(bool isDark) async {
-    setState(() {
-      _isDarkMode = isDark;
-      _savingTheme = true;
-    });
-
-    final user = _user;
-    if (user == null) {
-      setState(() => _savingTheme = false);
-      return;
-    }
-
-    try {
-      await _supabase
-          .from('profiles')
-          .update({
-            'theme_mode': isDark ? 'dark' : 'light',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', user.id);
-
-      _showSnack(
-        isDark ? 'Dark mode enabled.' : 'Light mode enabled.',
-        error: false,
-      );
-    } catch (e) {
-      _showSnack('Could not save theme: $e', error: true);
-      setState(() => _isDarkMode = !isDark);
-    } finally {
-      if (mounted) setState(() => _savingTheme = false);
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    if (refreshAfter && mounted) {
+      await _loadData();
     }
   }
-
-  // ── Logout ─────────────────────────────────────────────────────────────
 
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
@@ -219,7 +176,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirmed != true) return;
 
-    setState(() => _loggingOut = true);
+    if (mounted) {
+      setState(() => _loggingOut = true);
+    }
 
     try {
       await _supabase.auth.signOut();
@@ -228,40 +187,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
       );
-    } catch (e) {
+    } catch (error, stackTrace) {
+      debugPrint('ProfileScreen _logout error: $error');
+      debugPrintStack(stackTrace: stackTrace);
       if (!mounted) return;
       setState(() => _loggingOut = false);
-      _showSnack('Unable to log out. Please try again.', error: true);
+      _showError('Unable to log out. Please try again.');
     }
   }
+
+  String get _displayName {
+    final profile = _profile;
+    if (profile != null && profile.displayName.isNotEmpty) {
+      return profile.displayName;
+    }
+    final metadataName = (_user?.userMetadata?['full_name'] ?? '')
+        .toString()
+        .trim();
+    return metadataName.isEmpty ? 'Tourist' : metadataName;
+  }
+
+  String get _email {
+    final email = _user?.email?.trim() ?? '';
+    return email.isEmpty ? 'No email available' : email;
+  }
+
+  String get _phone {
+    final phone = _profile?.mobile.trim() ?? '';
+    return phone.isEmpty ? 'Add mobile number' : phone;
+  }
+
+  String get _address {
+    final profile = _profile;
+    if (profile == null) return 'Complete your tourist profile';
+    final parts = [
+      profile.address,
+      profile.barangay,
+      profile.city,
+      profile.province,
+      profile.postalCode,
+    ].where((value) => value.trim().isNotEmpty).toList();
+    return parts.isEmpty ? 'Complete your tourist profile' : parts.join(', ');
+  }
+
+  String get _imageUrl {
+    final profileImage = _profile?.profileImageUrl.trim() ?? '';
+    if (profileImage.isNotEmpty) return profileImage;
+    final avatarUrl = _profile?.avatarUrl.trim() ?? '';
+    if (avatarUrl.isNotEmpty) return avatarUrl;
+    return (_user?.userMetadata?['avatar_url'] ?? '').toString().trim();
+  }
+
+  bool get _isProfileComplete => _profile?.isProfileComplete ?? false;
 
   @override
   Widget build(BuildContext context) {
     const bg = Color(0xFFF5F7FB);
-    const blue = Color(0xFF2A86FF);
+    const textDark = Color(0xFF0F172A);
 
     return Scaffold(
       backgroundColor: bg,
-      // Profile is now accessed from Home top button — no bottom nav index for Profile
-      // Keep the bottom nav here so user can navigate away
       bottomNavigationBar: const AppBottomNav(selectedIndex: -1),
       body: SafeArea(
         child: RefreshIndicator(
-          color: blue,
-          onRefresh: _loadProfile,
+          color: const Color(0xFF2A86FF),
+          onRefresh: _loadData,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
             children: [
-              // Back button row
               Row(
                 children: [
                   IconButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.arrow_back_rounded,
-                      color: Color(0xFF0F172A),
-                    ),
+                    icon: const Icon(Icons.arrow_back_rounded, color: textDark),
                   ),
                   const Expanded(
                     child: Text(
@@ -269,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF0F172A),
+                        color: textDark,
                       ),
                     ),
                   ),
@@ -283,47 +282,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 email: _email,
                 phone: _phone,
                 address: _address,
-                emailVerified: _emailVerified,
-                onEdit: () =>
-                    _openPage(const PersonalInfoScreen(), refreshAfter: true),
               ),
-              const SizedBox(height: 12),
-              ValueListenableBuilder<List<TouristSavedPlace>>(
-                valueListenable: touristSavedPlacesStore,
-                builder: (context, places, _) {
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: _SummaryTile(
-                          icon: Icons.bookmark_rounded,
-                          value: places.length.toString(),
-                          label: 'Saved',
-                        ),
+              if (!_isProfileComplete) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: const Color(0xFFFCD34D)),
+                  ),
+                  child: Row(
+                    children: const [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFB45309),
                       ),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 10),
                       Expanded(
-                        child: _SummaryTile(
-                          icon: Icons.verified_user_rounded,
-                          value: _emailVerified ? 'Verified' : 'Pending',
-                          label: 'Email',
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SummaryTile(
-                          icon: Icons.location_on_rounded,
-                          value: (_profile?['city'] ?? '')
-                                      .toString()
-                                      .trim()
-                                      .isEmpty
-                              ? 'Unset'
-                              : (_profile?['city'] ?? '').toString(),
-                          label: 'City',
+                        child: Text(
+                          'Complete your tourist profile to unlock better matches and faster service.',
+                          style: TextStyle(
+                            color: Color(0xFF92400E),
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ],
-                  );
-                },
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SummaryTile(
+                      icon: Icons.bookmark_rounded,
+                      value: _savedPlacesCount.toString(),
+                      label: 'Saved',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _SummaryTile(
+                      icon: Icons.verified_user_rounded,
+                      value: _isProfileComplete ? 'Complete' : 'Pending',
+                      label: 'Profile',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _SummaryTile(
+                      icon: Icons.location_on_rounded,
+                      value: (_profile?.city.trim().isNotEmpty ?? false)
+                          ? _profile!.city
+                          : 'Unset',
+                      label: 'City',
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               _SectionCard(
@@ -332,7 +349,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _SettingRow(
                     icon: Icons.person_outline_rounded,
                     title: 'Personal Info',
-                    subtitle: 'Name, email, phone, and address',
+                    subtitle: 'Name, mobile number, birthdate, and address',
                     onTap: () => _openPage(
                       const PersonalInfoScreen(),
                       refreshAfter: true,
@@ -341,56 +358,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _SettingRow(
                     icon: Icons.lock_reset_rounded,
                     title: 'Change Password',
-                    subtitle: 'Verify with OTP before updating your password',
-                    onTap: _openChangePassword,
+                    subtitle: 'Update your account password securely',
+                    onTap: () => _openPage(const ChangePasswordScreen()),
                   ),
                   _SettingRow(
                     icon: Icons.bookmark_border_rounded,
                     title: 'Saved Places',
-                    subtitle: 'Spots you saved from details pages',
-                    onTap: () => _openPage(const SavedPlacesScreen()),
+                    subtitle: 'Manage places saved to your account',
+                    onTap: () => _openPage(
+                      const SavedPlacesScreen(),
+                      refreshAfter: true,
+                    ),
                   ),
                   _SettingRow(
                     icon: Icons.emergency_share_rounded,
                     title: 'Emergency Contacts',
-                    subtitle: 'Manage contacts for safety sharing',
+                    subtitle: 'Manage safety contacts with realtime sync',
                     onTap: () => _openPage(const EmergencyContactsScreen()),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SectionCard(
-                title: 'Payments',
-                children: [
-                  _SettingRow(
-                    icon: Icons.payments_outlined,
-                    title: 'Payment History',
-                    subtitle: 'View completed ride and tour payments',
-                    onTap: () => _openPage(const PaymentHistoryScreen()),
-                  ),
-                  _SettingRow(
-                    icon: Icons.credit_card_rounded,
-                    title: 'Payment Methods',
-                    subtitle: 'Cash, GCash, and card options',
-                    onTap: () => _openPage(const PaymentMethodsScreen()),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _SectionCard(
-                title: 'App',
-                children: [
-                  _SettingRow(
-                    icon: Icons.notifications_none_rounded,
-                    title: 'Notifications',
-                    subtitle: 'Ride, tour, promo, and safety alerts',
-                    onTap: () => _openPage(const NotificationsScreen()),
-                  ),
-                  // Dark/Light mode
-                  _ThemeSwitchRow(
-                    isDarkMode: _isDarkMode,
-                    saving: _savingTheme,
-                    onChanged: _toggleTheme,
                   ),
                 ],
               ),
@@ -401,13 +385,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _SettingRow(
                     icon: Icons.privacy_tip_outlined,
                     title: 'Privacy Policy',
-                    subtitle: 'How Touristrike handles your data',
+                    subtitle: 'Latest published privacy policy',
                     onTap: () => _openPage(const PrivacyPolicyScreen()),
                   ),
                   _SettingRow(
                     icon: Icons.article_outlined,
                     title: 'Terms',
-                    subtitle: 'Service rules and user responsibilities',
+                    subtitle: 'Latest published terms and conditions',
                     onTap: () => _openPage(const TermsScreen()),
                   ),
                 ],
@@ -425,7 +409,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-// ── Profile header ─────────────────────────────────────────────────────────
+class _TouristProfileData {
+  const _TouristProfileData({
+    required this.firstName,
+    required this.middleName,
+    required this.lastName,
+    required this.fullName,
+    required this.mobile,
+    required this.profileImageUrl,
+    required this.avatarUrl,
+    required this.address,
+    required this.barangay,
+    required this.city,
+    required this.province,
+    required this.postalCode,
+    required this.isProfileComplete,
+  });
+
+  factory _TouristProfileData.fromMap(Map<String, dynamic> map) {
+    return _TouristProfileData(
+      firstName: (map['first_name'] ?? '').toString(),
+      middleName: (map['middle_name'] ?? '').toString(),
+      lastName: (map['last_name'] ?? '').toString(),
+      fullName: (map['full_name'] ?? '').toString(),
+      mobile: (map['mobile'] ?? '').toString(),
+      profileImageUrl: (map['profile_image_url'] ?? '').toString(),
+      avatarUrl: (map['avatar_url'] ?? '').toString(),
+      address: (map['address'] ?? '').toString(),
+      barangay: (map['barangay'] ?? '').toString(),
+      city: (map['city'] ?? '').toString(),
+      province: (map['province'] ?? '').toString(),
+      postalCode: (map['postal_code'] ?? '').toString(),
+      isProfileComplete: map['is_profile_complete'] == true,
+    );
+  }
+
+  final String firstName;
+  final String middleName;
+  final String lastName;
+  final String fullName;
+  final String mobile;
+  final String profileImageUrl;
+  final String avatarUrl;
+  final String address;
+  final String barangay;
+  final String city;
+  final String province;
+  final String postalCode;
+  final bool isProfileComplete;
+
+  String get displayName {
+    final normalizedFullName = fullName.trim();
+    if (normalizedFullName.isNotEmpty) return normalizedFullName;
+
+    final parts = [
+      firstName.trim(),
+      middleName.trim(),
+      lastName.trim(),
+    ].where((value) => value.isNotEmpty).toList();
+    return parts.join(' ');
+  }
+}
 
 class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
@@ -435,8 +479,6 @@ class _ProfileHeader extends StatelessWidget {
     required this.email,
     required this.phone,
     required this.address,
-    required this.emailVerified,
-    required this.onEdit,
   });
 
   final bool loading;
@@ -445,8 +487,6 @@ class _ProfileHeader extends StatelessWidget {
   final String email;
   final String phone;
   final String address;
-  final bool emailVerified;
-  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -472,7 +512,7 @@ class _ProfileHeader extends StatelessWidget {
       child: loading
           ? const SizedBox(
               height: 104,
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: CircularProgressIndicator(color: blue)),
             )
           : Column(
               children: [
@@ -484,28 +524,15 @@ class _ProfileHeader extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w900,
-                                    color: textDark,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                              ),
-                              if (emailVerified)
-                                const Icon(
-                                  Icons.verified_rounded,
-                                  color: blue,
-                                  size: 19,
-                                ),
-                            ],
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: textDark,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           Text(
@@ -525,58 +552,39 @@ class _ProfileHeader extends StatelessWidget {
                             style: const TextStyle(
                               fontWeight: FontWeight.w800,
                               color: textMid,
-                              fontSize: 12.5,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    IconButton.filledTonal(
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit_rounded),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: line),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on_outlined,
-                        color: blue,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          address,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: textMid,
-                            fontWeight: FontWeight.w800,
-                            height: 1.3,
-                          ),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      color: textMid,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        address,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: textMid,
+                          height: 1.35,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ],
             ),
     );
   }
 }
-
-// ── Avatar ─────────────────────────────────────────────────────────────────
 
 class _Avatar extends StatelessWidget {
   const _Avatar({required this.imageUrl, required this.name});
@@ -586,48 +594,43 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initial =
-        name.trim().isEmpty ? 'T' : name.trim()[0].toUpperCase();
+    final initials = name.trim().isEmpty
+        ? 'T'
+        : name
+              .trim()
+              .split(RegExp(r'\s+'))
+              .where((part) => part.isNotEmpty)
+              .take(2)
+              .map((part) => part[0].toUpperCase())
+              .join();
 
     return Container(
-      width: 76,
-      height: 76,
+      width: 74,
+      height: 74,
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFE7EEF7), width: 2),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2A86FF), Color(0xFF60A5FA)],
+        ),
+        image: imageUrl.trim().isEmpty
+            ? null
+            : DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: imageUrl.isEmpty
-          ? Center(
+      child: imageUrl.trim().isNotEmpty
+          ? null
+          : Center(
               child: Text(
-                initial,
+                initials,
                 style: const TextStyle(
-                  color: Color(0xFF2A86FF),
+                  color: Colors.white,
                   fontWeight: FontWeight.w900,
-                  fontSize: 30,
-                ),
-              ),
-            )
-          : Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Center(
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    color: Color(0xFF2A86FF),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 30,
-                  ),
+                  fontSize: 24,
                 ),
               ),
             ),
     );
   }
 }
-
-// ── Summary tile ───────────────────────────────────────────────────────────
 
 class _SummaryTile extends StatelessWidget {
   const _SummaryTile({
@@ -642,52 +645,40 @@ class _SummaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const blue = Color(0xFF2A86FF);
+    const textDark = Color(0xFF0F172A);
+    const textMid = Color(0xFF64748B);
+
     return Container(
-      height: 92,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFE7EEF7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.045),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
-          ),
-        ],
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: const Color(0xFF2A86FF), size: 21),
-          const SizedBox(height: 7),
+          Icon(icon, color: blue),
+          const SizedBox(height: 10),
           Text(
             value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Color(0xFF0F172A),
+              color: textDark,
               fontWeight: FontWeight.w900,
-              fontSize: 13,
+              fontSize: 18,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w800,
-              fontSize: 11.5,
-            ),
+            style: const TextStyle(color: textMid, fontWeight: FontWeight.w800),
           ),
         ],
       ),
     );
   }
 }
-
-// ── Section card ───────────────────────────────────────────────────────────
 
 class _SectionCard extends StatelessWidget {
   const _SectionCard({required this.title, required this.children});
@@ -698,52 +689,33 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const line = Color(0xFFE7EEF7);
-    const textMid = Color(0xFF64748B);
+    const textDark = Color(0xFF0F172A);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: line),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 22,
-            offset: const Offset(0, 14),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            title.toUpperCase(),
+            title,
             style: const TextStyle(
-              fontSize: 12,
+              color: textDark,
               fontWeight: FontWeight.w900,
-              color: textMid,
-              letterSpacing: 0.7,
+              fontSize: 16,
             ),
           ),
-          const SizedBox(height: 10),
-          ..._withDividers(children),
+          const SizedBox(height: 6),
+          ...children,
         ],
       ),
     );
   }
-
-  static List<Widget> _withDividers(List<Widget> kids) {
-    final out = <Widget>[];
-    for (var i = 0; i < kids.length; i++) {
-      out.add(kids[i]);
-      if (i != kids.length - 1) out.add(const _RowDivider());
-    }
-    return out;
-  }
 }
-
-// ── Setting row ────────────────────────────────────────────────────────────
 
 class _SettingRow extends StatelessWidget {
   const _SettingRow({
@@ -761,143 +733,63 @@ class _SettingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const blue = Color(0xFF2A86FF);
+    const line = Color(0xFFE7EEF7);
     const textDark = Color(0xFF0F172A);
     const textMid = Color(0xFF64748B);
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF2FF),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(icon, color: blue),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: textDark,
-                      fontSize: 15.5,
-                    ),
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF2FF),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: textMid,
-                      fontSize: 12.3,
-                    ),
+                  child: Icon(icon, color: blue),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: textDark,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: textMid,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: textMid),
+              ],
             ),
-            const SizedBox(width: 8),
-            const Icon(Icons.chevron_right_rounded, color: textMid),
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: line),
           ],
         ),
       ),
     );
   }
 }
-
-// ── Theme switch row ───────────────────────────────────────────────────────
-
-class _ThemeSwitchRow extends StatelessWidget {
-  const _ThemeSwitchRow({
-    required this.isDarkMode,
-    required this.saving,
-    required this.onChanged,
-  });
-
-  final bool isDarkMode;
-  final bool saving;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    const blue = Color(0xFF2A86FF);
-    const textDark = Color(0xFF0F172A);
-    const textMid = Color(0xFF64748B);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              isDarkMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-              color: blue,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isDarkMode ? 'Dark Mode' : 'Light Mode',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: textDark,
-                    fontSize: 15.5,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  isDarkMode
-                      ? 'App is in dark theme'
-                      : 'App is in light theme',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: textMid,
-                    fontSize: 12.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          saving
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Switch.adaptive(
-                  value: isDarkMode,
-                  activeTrackColor: blue.withValues(alpha: 0.35),
-                  activeThumbColor: blue,
-                  onChanged: onChanged,
-                ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Logout button ──────────────────────────────────────────────────────────
 
 class _LogoutButton extends StatelessWidget {
   const _LogoutButton({required this.loading, required this.onTap});
@@ -907,74 +799,31 @@ class _LogoutButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const red = Color(0xFFDC2626);
-    const line = Color(0xFFE7EEF7);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: line),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.045),
-              blurRadius: 18,
-              offset: const Offset(0, 12),
-            ),
-          ],
+    return SizedBox(
+      height: 54,
+      child: ElevatedButton(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFDC2626),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1F2),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: loading
-                  ? const Padding(
-                      padding: EdgeInsets.all(11),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.logout_rounded, color: red),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                loading ? 'Logging out...' : 'Logout',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: red,
-                  fontSize: 16,
+        child: loading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
+              )
+            : const Text(
+                'Log Out',
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
-            ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFFFCA5A5),
-            ),
-          ],
-        ),
       ),
-    );
-  }
-}
-
-// ── Row divider ────────────────────────────────────────────────────────────
-
-class _RowDivider extends StatelessWidget {
-  const _RowDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(left: 56),
-      child: Divider(height: 16, color: Color(0xFFE7EEF7)),
     );
   }
 }

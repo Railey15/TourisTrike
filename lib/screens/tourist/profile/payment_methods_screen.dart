@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PaymentMethodsScreen extends StatefulWidget {
   const PaymentMethodsScreen({super.key});
@@ -8,42 +10,151 @@ class PaymentMethodsScreen extends StatefulWidget {
 }
 
 class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  bool _loading = true;
   int _selectedIndex = 0;
+  List<_PaymentMethodViewModel> _methods = const [];
 
-  final List<PaymentMethod> _methods = [
-    const PaymentMethod(
-      type: PaymentType.cash,
-      title: 'Cash',
-      subtitle: 'Pay directly to your driver or guide',
-      icon: Icons.payments_rounded,
-    ),
-  ];
+  User? get _user => _supabase.auth.currentUser;
 
-  Future<void> _addMethod() async {
-    final method = await showModalBottomSheet<PaymentMethod>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _PaymentMethodSheet(),
-    );
-
-    if (method == null) return;
-
-    setState(() {
-      _methods.add(method);
-      _selectedIndex = _methods.length - 1;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
   }
 
-  void _removeMethod(int index) {
-    if (_methods[index].type == PaymentType.cash) return;
-
-    setState(() {
-      _methods.removeAt(index);
-      if (_selectedIndex >= _methods.length) {
-        _selectedIndex = 0;
+  Future<void> _loadData() async {
+    final userId = _user?.id;
+    if (userId == null) {
+      if (mounted) {
+        setState(() {
+          _methods = _buildStaticMethods(const <String, _MethodUsage>{});
+          _loading = false;
+        });
       }
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _loading = true);
+    }
+
+    try {
+      final results = await Future.wait([
+        _supabase
+            .from('payments')
+            .select('payment_method, created_at')
+            .eq('user_id', userId),
+        _supabase
+            .from('wallet_transactions')
+            .select('payment_method, created_at')
+            .eq('user_id', userId),
+      ]);
+
+      final usage = <String, _MethodUsage>{};
+
+      for (final row in results.expand((value) => value as List<dynamic>)) {
+        final map = Map<String, dynamic>.from(row as Map);
+        final method = (map['payment_method'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (method.isEmpty) continue;
+        final createdAt = DateTime.tryParse(
+          (map['created_at'] ?? '').toString(),
+        );
+        final current = usage[method];
+        usage[method] = _MethodUsage(
+          count: (current?.count ?? 0) + 1,
+          lastUsedAt: _latestDate(current?.lastUsedAt, createdAt),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _methods = _buildStaticMethods(usage);
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('PaymentMethodsScreen _loadData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _methods = _buildStaticMethods(const <String, _MethodUsage>{});
+        _loading = false;
+      });
+      _showError('Unable to load payment methods.');
+    }
+  }
+
+  List<_PaymentMethodViewModel> _buildStaticMethods(
+    Map<String, _MethodUsage> usage,
+  ) {
+    final supported = <_PaymentMethodViewModel>[
+      _PaymentMethodViewModel(
+        key: 'cash',
+        title: 'Cash',
+        subtitle: 'Pay directly during your booking',
+        icon: Icons.payments_rounded,
+        usage: usage['cash'],
+      ),
+      _PaymentMethodViewModel(
+        key: 'gcash',
+        title: 'GCash',
+        subtitle: 'Mobile wallet payments',
+        icon: Icons.account_balance_wallet_rounded,
+        usage: usage['gcash'],
+      ),
+      _PaymentMethodViewModel(
+        key: 'maya',
+        title: 'Maya',
+        subtitle: 'Maya digital wallet payments',
+        icon: Icons.wallet_rounded,
+        usage: usage['maya'],
+      ),
+      _PaymentMethodViewModel(
+        key: 'card',
+        title: 'Card',
+        subtitle: 'Debit or credit card payments',
+        icon: Icons.credit_card_rounded,
+        usage: usage['card'],
+      ),
+      _PaymentMethodViewModel(
+        key: 'wallet',
+        title: 'Wallet',
+        subtitle: 'Use your in-app wallet balance',
+        icon: Icons.account_balance_wallet_outlined,
+        usage: usage['wallet'],
+      ),
+    ];
+
+    supported.sort((a, b) {
+      final aUsed = a.usage?.count ?? 0;
+      final bUsed = b.usage?.count ?? 0;
+      if (aUsed != bUsed) return bUsed.compareTo(aUsed);
+      return a.title.compareTo(b.title);
     });
+    return supported;
+  }
+
+  DateTime? _latestDate(DateTime? first, DateTime? second) {
+    if (first == null) return second;
+    if (second == null) return first;
+    return first.isAfter(second) ? first : second;
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
   }
 
   @override
@@ -82,294 +193,163 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
               ),
             ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
-                children: [
-                  const Text(
-                    'Your Methods',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      color: textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  ..._methods.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final method = entry.value;
-                    final isSelected = index == _selectedIndex;
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: InkWell(
+              child: RefreshIndicator(
+                color: blue,
+                onRefresh: _loadData,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(22),
-                        onTap: () => setState(() => _selectedIndex = index),
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: isSelected ? blue : line,
-                              width: isSelected ? 2 : 1,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.045),
-                                blurRadius: 18,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEAF2FF),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Icon(method.icon, color: blue),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      method.title,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        color: textDark,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      method.subtitle,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        color: textMid,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (isSelected)
-                                const Icon(
-                                  Icons.check_circle_rounded,
-                                  color: blue,
-                                ),
-                              if (method.type != PaymentType.cash)
-                                IconButton(
-                                  onPressed: () => _removeMethod(index),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Color(0xFFDC2626),
-                                  ),
-                                ),
-                            ],
-                          ),
+                        border: Border.all(color: line),
+                      ),
+                      child: const Text(
+                        'This screen reflects supported payment methods plus methods found in your payments and wallet transaction history. No separate payment methods table is used.',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: textMid,
+                          height: 1.4,
                         ),
                       ),
-                    );
-                  }),
-                  const SizedBox(height: 4),
-                  InkWell(
-                    onTap: _addMethod,
-                    borderRadius: BorderRadius.circular(18),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEAF2FF),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0xFFBBD7FF)),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Available Methods',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: textDark,
                       ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.add_rounded, color: blue),
-                          SizedBox(width: 8),
-                          Text(
-                            'Add Payment Method',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              color: blue,
+                    ),
+                    const SizedBox(height: 10),
+                    if (_loading)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(28),
+                          child: CircularProgressIndicator(color: blue),
+                        ),
+                      )
+                    else
+                      ..._methods.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final method = entry.value;
+                        final isSelected = index == _selectedIndex;
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(22),
+                            onTap: () => setState(() => _selectedIndex = index),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(22),
+                                border: Border.all(
+                                  color: isSelected ? blue : line,
+                                  width: isSelected ? 2 : 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(
+                                      alpha: 0.045,
+                                    ),
+                                    blurRadius: 18,
+                                    offset: const Offset(0, 12),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEAF2FF),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Icon(method.icon, color: blue),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                method.title,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  color: textDark,
+                                                ),
+                                              ),
+                                            ),
+                                            if (method.usage != null)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFFEAF2FF,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        999,
+                                                      ),
+                                                ),
+                                                child: Text(
+                                                  '${method.usage!.count} used',
+                                                  style: const TextStyle(
+                                                    color: blue,
+                                                    fontWeight: FontWeight.w900,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          method.subtitle,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            color: textMid,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          method.lastUsedLabel,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            color: textMid,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: blue,
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Cash remains available even when no digital method is added.',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: textMid,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PaymentMethodSheet extends StatefulWidget {
-  const _PaymentMethodSheet();
-
-  @override
-  State<_PaymentMethodSheet> createState() => _PaymentMethodSheetState();
-}
-
-class _PaymentMethodSheetState extends State<_PaymentMethodSheet> {
-  PaymentType _type = PaymentType.gcash;
-  final _labelCtrl = TextEditingController();
-  final _detailCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _labelCtrl.dispose();
-    _detailCtrl.dispose();
-    super.dispose();
-  }
-
-  bool get _canSave =>
-      _labelCtrl.text.trim().isNotEmpty && _detailCtrl.text.trim().isNotEmpty;
-
-  String get _detailLabel =>
-      _type == PaymentType.gcash ? 'Mobile number' : 'Last 4 digits';
-
-  String get _detailHint => _type == PaymentType.gcash ? '09XXXXXXXXX' : '1234';
-
-  IconData get _icon => _type == PaymentType.gcash
-      ? Icons.account_balance_wallet_rounded
-      : Icons.credit_card_rounded;
-
-  @override
-  Widget build(BuildContext context) {
-    const blue = Color(0xFF2A86FF);
-    const textDark = Color(0xFF0F172A);
-
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 44,
-              height: 5,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2E8F0),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Add Payment Method',
-                    style: TextStyle(
-                      color: textDark,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SegmentedButton<PaymentType>(
-              segments: const [
-                ButtonSegment(
-                  value: PaymentType.gcash,
-                  icon: Icon(Icons.account_balance_wallet_rounded),
-                  label: Text('GCash'),
-                ),
-                ButtonSegment(
-                  value: PaymentType.card,
-                  icon: Icon(Icons.credit_card_rounded),
-                  label: Text('Card'),
-                ),
-              ],
-              selected: {_type},
-              onSelectionChanged: (value) {
-                setState(() {
-                  _type = value.first;
-                  _labelCtrl.clear();
-                  _detailCtrl.clear();
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            _SheetTextField(
-              label: 'Label',
-              hint: _type == PaymentType.gcash ? 'My GCash' : 'Personal Card',
-              controller: _labelCtrl,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 10),
-            _SheetTextField(
-              label: _detailLabel,
-              hint: _detailHint,
-              controller: _detailCtrl,
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton.icon(
-                onPressed: !_canSave
-                    ? null
-                    : () {
-                        final detail = _detailCtrl.text.trim();
-                        final subtitle = _type == PaymentType.gcash
-                            ? _maskPhone(detail)
-                            : 'Card ending in ${detail.length <= 4 ? detail : detail.substring(detail.length - 4)}';
-
-                        Navigator.pop(
-                          context,
-                          PaymentMethod(
-                            type: _type,
-                            title: _labelCtrl.text.trim(),
-                            subtitle: subtitle,
-                            icon: _icon,
-                          ),
                         );
-                      },
-                icon: const Icon(Icons.check_rounded),
-                label: const Text('Save Method'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: blue,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFFBBD7FF),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                      }),
+                  ],
                 ),
               ),
             ),
@@ -378,49 +358,35 @@ class _PaymentMethodSheetState extends State<_PaymentMethodSheet> {
       ),
     );
   }
-
-  String _maskPhone(String value) {
-    if (value.length <= 4) return value;
-    return '${value.substring(0, 4)} ${'*' * (value.length - 7)} ${value.substring(value.length - 3)}';
-  }
 }
 
-class _SheetTextField extends StatelessWidget {
-  const _SheetTextField({
-    required this.label,
-    required this.hint,
-    required this.controller,
-    this.keyboardType,
-    this.onChanged,
+class _MethodUsage {
+  const _MethodUsage({required this.count, required this.lastUsedAt});
+
+  final int count;
+  final DateTime? lastUsedAt;
+}
+
+class _PaymentMethodViewModel {
+  const _PaymentMethodViewModel({
+    required this.key,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.usage,
   });
 
-  final String label;
-  final String hint;
-  final TextEditingController controller;
-  final TextInputType? keyboardType;
-  final ValueChanged<String>? onChanged;
+  final String key;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final _MethodUsage? usage;
 
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      onChanged: onChanged,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFE7EEF7)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFE7EEF7)),
-        ),
-      ),
-    );
+  String get lastUsedLabel {
+    if (usage?.lastUsedAt == null) {
+      return 'No recorded usage yet';
+    }
+    return 'Last used ${DateFormat.yMMMd().add_jm().format(usage!.lastUsedAt!.toLocal())}';
   }
 }
 
@@ -438,28 +404,19 @@ class _TopCircleButton extends StatelessWidget {
       child: Container(
         width: 44,
         height: 44,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.white,
           shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
         ),
         child: Icon(icon, color: const Color(0xFF0F172A)),
       ),
     );
   }
-}
-
-enum PaymentType { cash, gcash, card }
-
-class PaymentMethod {
-  const PaymentMethod({
-    required this.type,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
-
-  final PaymentType type;
-  final String title;
-  final String subtitle;
-  final IconData icon;
 }

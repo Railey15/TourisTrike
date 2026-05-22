@@ -1,24 +1,24 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
+import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
 
 class DriverDetailsScreen extends StatefulWidget {
-  const DriverDetailsScreen({
-    super.key,
-    required this.profile,
-    required this.details,
-  });
+  const DriverDetailsScreen({super.key, required this.bundle, this.flowStep});
 
-  final DriverProfile profile;
-  final DriverDetails details;
+  final DriverProfileBundle bundle;
+  final DriverProfileStep? flowStep;
 
   @override
   State<DriverDetailsScreen> createState() => _DriverDetailsScreenState();
 }
 
 class _DriverDetailsScreenState extends State<DriverDetailsScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final DriverProfileService _service = DriverProfileService();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _mobileController;
   late final TextEditingController _licenseController;
@@ -27,17 +27,24 @@ class _DriverDetailsScreenState extends State<DriverDetailsScreen> {
   late final TextEditingController _operatorController;
 
   DateTime? _selectedExpiry;
-  bool _isSaving = false;
+  bool _saving = false;
+
+  String get _userId => widget.bundle.profile.id;
 
   @override
   void initState() {
     super.initState();
-    _mobileController = TextEditingController(text: widget.details.mobile);
-    _licenseController = TextEditingController(text: widget.details.licenseNumber);
-    _plateController = TextEditingController(text: widget.details.plateNumber);
-    _todaController = TextEditingController(text: widget.details.todaName);
-    _operatorController = TextEditingController(text: widget.details.operatorCode);
-    _selectedExpiry = widget.details.licenseExpiry;
+    final details = widget.bundle.details;
+    _mobileController = TextEditingController(
+      text: details.mobile.isNotEmpty
+          ? details.mobile
+          : widget.bundle.profile.mobile,
+    );
+    _licenseController = TextEditingController(text: details.licenseNumber);
+    _plateController = TextEditingController(text: details.plateNumber);
+    _todaController = TextEditingController(text: details.todaName);
+    _operatorController = TextEditingController(text: details.operatorCode);
+    _selectedExpiry = details.licenseExpiry;
   }
 
   @override
@@ -53,195 +60,157 @@ class _DriverDetailsScreenState extends State<DriverDetailsScreen> {
   Future<void> _pickExpiry() async {
     final picked = await showDatePicker(
       context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
+      firstDate: DateTime(2020, 1, 1),
+      lastDate: DateTime(2100, 12, 31),
       initialDate: _selectedExpiry ?? DateTime.now(),
     );
-
-    if (picked != null) {
-      setState(() => _selectedExpiry = picked);
-    }
+    if (picked == null || !mounted) return;
+    setState(() => _selectedExpiry = picked);
   }
 
   Future<void> _save() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_selectedExpiry == null) {
+      _showError('Please select your license expiry date.');
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _saving = true);
+    }
+
     try {
-      setState(() => _isSaving = true);
-
-      await _supabase.from('driver_details').upsert({
-        'driver_id': widget.details.driverId,
-        'mobile':
-            _mobileController.text.trim().isEmpty ? null : _mobileController.text.trim(),
-        'license_number': _licenseController.text.trim().isEmpty
-            ? null
-            : _licenseController.text.trim(),
-        'plate_number':
-            _plateController.text.trim().isEmpty ? null : _plateController.text.trim(),
-        'license_expiry': _selectedExpiry?.toIso8601String().split('T').first,
-        'toda_name':
-            _todaController.text.trim().isEmpty ? null : _todaController.text.trim(),
-        'operator_code': _operatorController.text.trim().isEmpty
-            ? null
-            : _operatorController.text.trim(),
-      });
+      await _service.saveDriverDetails(
+        userId: _userId,
+        mobile: _mobileController.text,
+        licenseNumber: _licenseController.text,
+        licenseExpiry: _selectedExpiry,
+        todaName: _todaController.text,
+        operatorCode: _operatorController.text,
+        plateNumber: _plateController.text,
+      );
 
       if (!mounted) return;
-      _showSnack('Driver details updated', error: false);
-      Navigator.pop(context, true);
-    } catch (e) {
+      setState(() => _saving = false);
+      _showSuccess('Driver details saved.');
+      Navigator.of(context).pop(true);
+    } catch (error) {
       if (!mounted) return;
-      _showSnack('Failed to update driver details: $e');
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+      setState(() => _saving = false);
+      _showError('Failed to save driver details: $error');
     }
   }
 
-  void _showSnack(String message, {bool error = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor:
-            error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
-      ),
-    );
-  }
+  void _showSuccess(String message) => _showSnack(message, isError: false);
 
-  Widget _field(String label, TextEditingController controller,
-      {TextInputType? keyboardType}) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFF2F6FFF), width: 1.3),
-        ),
-      ),
-    );
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        title: const Text('Driver Details'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+    return DriverProfilePageScaffold(
+      title: 'Driver Details',
+      subtitle: widget.flowStep == null
+          ? 'Manage your mobile number, license, plate, and TODA details.'
+          : 'Fill out all driver details before proceeding.',
+      bottomBar: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: DriverPrimaryButton(
+          label: widget.flowStep == null ? 'Save Changes' : 'Save and Continue',
+          onPressed: _save,
+          loading: _saving,
+          icon: Icons.save_rounded,
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _Card(
-            child: Column(
-              children: [
-                _field('Driver Mobile', _mobileController,
-                    keyboardType: TextInputType.phone),
-                const SizedBox(height: 12),
-                _field('License Number', _licenseController),
-                const SizedBox(height: 12),
-                _field('Plate Number', _plateController),
-                const SizedBox(height: 12),
-                InkWell(
-                  onTap: _pickExpiry,
-                  child: InputDecorator(
-                    decoration: InputDecoration(
-                      labelText: 'License Expiry',
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide:
-                            const BorderSide(color: Color(0xFFE5EAF1)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide:
-                            const BorderSide(color: Color(0xFFE5EAF1)),
-                      ),
-                    ),
-                    child: Text(
-                      _selectedExpiry == null
-                          ? 'Select expiry date'
-                          : DateFormat('MMMM dd, yyyy').format(_selectedExpiry!),
-                      style: const TextStyle(
-                        color: Color(0xFF172033),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+      child: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+          children: [
+            DriverProfileCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const DriverSectionTitle('Driver Details'),
+                  const SizedBox(height: 14),
+                  DriverTextField(
+                    controller: _mobileController,
+                    label: 'Phone Number',
+                    keyboardType: TextInputType.phone,
+                    validator: _phoneValidator,
                   ),
-                ),
-                const SizedBox(height: 12),
-                _field('TODA Name', _todaController),
-                const SizedBox(height: 12),
-                _field('Operator Code', _operatorController),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 54,
-            child: ElevatedButton(
-              onPressed: _isSaving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2F6FFF),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
+                  const SizedBox(height: 12),
+                  DriverTextField(
+                    controller: _licenseController,
+                    label: 'License Number',
+                    validator: _requiredValidator,
+                  ),
+                  const SizedBox(height: 12),
+                  DriverReadOnlyField(
+                    label: 'License Expiry',
+                    value: _selectedExpiry == null
+                        ? 'Select expiry date'
+                        : DateFormat('MMMM dd, yyyy').format(_selectedExpiry!),
+                    onTap: _pickExpiry,
+                    trailingIcon: Icons.calendar_month_rounded,
+                  ),
+                  const SizedBox(height: 12),
+                  DriverTextField(
+                    controller: _plateController,
+                    label: 'Plate Number',
+                    validator: _requiredValidator,
+                  ),
+                  const SizedBox(height: 12),
+                  DriverTextField(
+                    controller: _todaController,
+                    label: 'TODA Assignment',
+                    hintText: 'Example: San Miguel TODA',
+                    validator: _requiredValidator,
+                  ),
+                  const SizedBox(height: 12),
+                  DriverTextField(
+                    controller: _operatorController,
+                    label: 'Operator Code',
+                    validator: _requiredValidator,
+                  ),
+                ],
               ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Text(
-                      'Save Changes',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
-}
 
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
-  final Widget child;
+  String? _requiredValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required.';
+    }
+    return null;
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: child,
-    );
+  String? _phoneValidator(String? value) {
+    final normalized = (value ?? '').trim();
+    if (normalized.isEmpty) return 'This field is required.';
+    if (!RegExp(r'^09\d{9}$').hasMatch(normalized)) {
+      return 'Use an 11-digit number starting with 09.';
+    }
+    return null;
   }
 }
+
+

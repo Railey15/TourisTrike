@@ -455,8 +455,6 @@ class _SignupCard extends StatelessWidget {
         children: [
           _AuthTabs(onLogin: onLogin),
           const SizedBox(height: 20),
-          const _InfoBanner(),
-          const SizedBox(height: 20),
           const _Label(text: 'Select Your Role'),
           const SizedBox(height: 9),
           _RoleSegment(role: role, onChanged: onRoleChanged),
@@ -661,54 +659,6 @@ class _AuthTabs extends StatelessWidget {
               child: Text(
                 'Sign Up',
                 style: AppTextStyles.tab(context, selected: true),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoBanner extends StatelessWidget {
-  const _InfoBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFEFF6FF), Color(0xFFF0FDF4)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFD6E8FF)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.verified_user_rounded,
-              color: Color(0xFF2A86FF),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Choose your role, verify your email, and complete your TourisTrike profile.',
-              style: AppTextStyles.helper(context).copyWith(
-                fontSize: 13.2,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF1E3A5F),
-                height: 1.35,
               ),
             ),
           ),

@@ -45,7 +45,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     if (package == null) throw StateError('Package not found.');
 
     final originalSpotsFuture = _repo.fetchPackageSpots(widget.packageId);
-    final googleSuggestionsFuture = const CitySpotSuggestionService()
+    final googleSuggestionsFuture = CitySpotSuggestionService()
         .fetchSuggestions(
           city: package.city,
           province: package.city.isEmpty ? 'Bulacan' : package.provinceFallback,
@@ -904,7 +904,6 @@ class _PackageDetailsBodyState extends State<_PackageDetailsBody> {
             ),
           ),
         const SizedBox(height: 24),
-        _OperatorBlock(package: package),
       ],
     );
   }
@@ -1245,59 +1244,6 @@ class _InfoBlock extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 height: 1.4,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OperatorBlock extends StatelessWidget {
-  const _OperatorBlock({required this.package});
-
-  final TourPackage package;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFBBD7FF)),
-      ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            backgroundColor: Colors.white,
-            child: Icon(Icons.verified_rounded, color: Color(0xFF2A86FF)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'OPERATED BY',
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 11,
-                    letterSpacing: 0.6,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  package.submittedByName.isEmpty
-                      ? '${package.city} Tourism Office'
-                      : package.submittedByName,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
             ),
           ),
         ],

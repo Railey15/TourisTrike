@@ -10,7 +10,7 @@ import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
 LatLng _municipalityCenter(String city) {
-  return const CitySpotSuggestionService().centerForCity(city) ??
+  return CitySpotSuggestionService().centerForCity(city) ??
       CitySpotSuggestionService.defaultBulacanCenter;
 }
 
@@ -60,7 +60,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   final _suggestedSpotCtrl = TextEditingController();
 
   String _status = 'active';
-  String _verificationStatus = 'pending';
+  String _verificationStatus = 'approved';
   dynamic _categoryId;
 
   bool _saving = false;
@@ -201,7 +201,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _imageCtrl.text = spot.imageUrl;
     _status = spot.status.trim().isEmpty ? 'active' : spot.status;
     _verificationStatus = spot.verificationStatus.trim().isEmpty
-        ? 'pending'
+        ? 'approved'
         : spot.verificationStatus;
     _categoryId = spot.categoryId;
     _sourceType = spot.sourceType.trim().isEmpty ? 'manual' : spot.sourceType;
@@ -224,10 +224,10 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         ? 'Bulacan'
         : profile.province.trim();
     final center =
-        const CitySpotSuggestionService().centerForCity(city) ??
+        CitySpotSuggestionService().centerForCity(city) ??
         CitySpotSuggestionService.defaultBulacanCenter;
 
-    var suggestions = await const CitySpotSuggestionService().fetchSuggestions(
+    var suggestions = await CitySpotSuggestionService().fetchSuggestions(
       city: city,
       province: province,
       center: center,
@@ -449,7 +449,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       if (!mounted) return;
       setState(() => _placeSearching = true);
       try {
-        final suggestions = await const CitySpotSuggestionService()
+        final suggestions = await CitySpotSuggestionService()
             .searchPlaces(
               query: query,
               city: profile.assignedCity,
@@ -504,7 +504,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       if (!mounted) return;
       setState(() => _addressSearching = true);
       try {
-        final suggestions = await const CitySpotSuggestionService()
+        final suggestions = await CitySpotSuggestionService()
             .searchPlaces(
               query: query,
               city: profile.assignedCity,
@@ -1398,7 +1398,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      initialValue: _editing ? _verificationStatus : 'pending',
+                      initialValue: _editing ? _verificationStatus : 'approved',
                       isExpanded: true,
                       decoration: _inputDecoration(hint: 'Verification'),
                       items: const [

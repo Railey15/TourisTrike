@@ -56,7 +56,7 @@ class TouristAiRecommendationService {
   SupabaseClient get supabase => _supabase ?? Supabase.instance.client;
 
   CitySpotSuggestionService get spotSuggestionService =>
-      _spotSuggestionService ?? const CitySpotSuggestionService();
+      _spotSuggestionService ?? CitySpotSuggestionService();
 
   Future<List<TouristAiRecommendationSpot>> loadMunicipalitySpots({
     required String municipality,

@@ -338,7 +338,7 @@ class GeminiService {
     }
 
     try {
-      const service = CitySpotSuggestionService();
+      final service = CitySpotSuggestionService();
       // fetchSuggestions resolves the city center internally.
       final suggestions = await service.fetchSuggestions(
         city: city,
@@ -692,30 +692,56 @@ ${jsonEncode(packageCatalog)}
               final map = Map<String, dynamic>.from(item);
               final idStr = '${map['id']}';
               final cached = spotById[idStr];
-              if (cached == null) return null;
+
+              final name = (cached?['title'] as String?) ??
+                  (map['name'] as String?) ??
+                  '';
+              if (name.isEmpty) return null;
 
               final municipality =
-                  ((cached['municipality'] as String?)?.trim().isNotEmpty ??
+                  ((cached?['municipality'] as String?)?.trim().isNotEmpty ??
                           false)
-                      ? (cached['municipality'] as String).trim()
-                      : ((cached['city'] as String?) ?? '').trim();
+                      ? (cached!['municipality'] as String).trim()
+                      : ((cached?['city'] as String?) ??
+                              (map['municipality'] as String?) ??
+                              (map['city'] as String?) ??
+                              '')
+                          .toString()
+                          .trim();
+
+              final category = (cached?['_category'] as String?) ??
+                  (map['category'] as String?) ??
+                  'Attraction';
+
+              final address = (cached?['address'] as String?) ??
+                  (map['address'] as String?) ??
+                  '';
+
+              final imageUrl = cached != null
+                  ? _spotImageUrl(cached)
+                  : (map['imageUrl'] as String?) ??
+                      (map['image_url'] as String?) ??
+                      '';
 
               return ChatSpotSuggestion(
                 id: idStr,
-                name: (cached['title'] as String?) ??
-                    (map['name'] as String?) ??
-                    '',
+                name: name,
                 municipality: municipality,
-                category: (cached['_category'] as String?) ??
-                    (map['category'] as String?) ??
-                    'Attraction',
-                address: (cached['address'] as String?) ?? '',
-                imageUrl: _spotImageUrl(cached),
-                rating: (cached['rating'] as num?)?.toDouble() ?? 4.5,
-                latitude: (cached['latitude'] as num?)?.toDouble() ?? 0,
-                longitude: (cached['longitude'] as num?)?.toDouble() ?? 0,
-                googlePlaceId:
-                    (cached['google_place_id'] as String?) ?? '',
+                category: category,
+                address: address,
+                imageUrl: imageUrl,
+                rating: (cached?['rating'] as num?)?.toDouble() ??
+                    (map['rating'] as num?)?.toDouble() ??
+                    4.5,
+                latitude: (cached?['latitude'] as num?)?.toDouble() ??
+                    (map['latitude'] as num?)?.toDouble() ??
+                    0,
+                longitude: (cached?['longitude'] as num?)?.toDouble() ??
+                    (map['longitude'] as num?)?.toDouble() ??
+                    0,
+                googlePlaceId: (cached?['google_place_id'] as String?) ??
+                    (map['google_place_id'] as String?) ??
+                    idStr,
               );
             })
             .whereType<ChatSpotSuggestion>()

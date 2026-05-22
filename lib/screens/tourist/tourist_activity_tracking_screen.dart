@@ -1992,7 +1992,7 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
                 const SizedBox(height: 20),
                 Text(
                   remaining > 0
-                      ? 'Waiting for $remaining more driver${remaining == 1 ? '' : 's'} to accept.'
+                      ? 'Waiting for driver/s to accept.'
                       : 'All drivers confirmed!',
                   textAlign: TextAlign.center,
                   style: const TextStyle(

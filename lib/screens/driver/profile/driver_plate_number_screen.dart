@@ -1,14 +1,19 @@
-import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:flutter/material.dart';
+
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
+import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
 
 class DriverPlateNumberScreen extends StatefulWidget {
   const DriverPlateNumberScreen({
     super.key,
-    required this.details,
+    required this.bundle,
+    this.flowStep,
   });
 
-  final DriverDetails details;
+  final DriverProfileBundle bundle;
+  final DriverProfileStep? flowStep;
 
   @override
   State<DriverPlateNumberScreen> createState() =>
@@ -16,14 +21,20 @@ class DriverPlateNumberScreen extends StatefulWidget {
 }
 
 class _DriverPlateNumberScreenState extends State<DriverPlateNumberScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final DriverProfileService _service = DriverProfileService();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
   late final TextEditingController _plateController;
-  bool _isSaving = false;
+  bool _saving = false;
+
+  String get _userId => widget.bundle.profile.id;
 
   @override
   void initState() {
     super.initState();
-    _plateController = TextEditingController(text: widget.details.plateNumber);
+    _plateController = TextEditingController(
+      text: widget.bundle.details.plateNumber,
+    );
   }
 
   @override
@@ -33,111 +44,89 @@ class _DriverPlateNumberScreenState extends State<DriverPlateNumberScreen> {
   }
 
   Future<void> _save() async {
-    try {
-      setState(() => _isSaving = true);
+    if (_saving || !_formKey.currentState!.validate()) return;
 
-      await _supabase.from('driver_details').upsert({
-        'driver_id': widget.details.driverId,
-        'plate_number':
-            _plateController.text.trim().isEmpty ? null : _plateController.text.trim(),
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Plate number updated'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Color(0xFF16A34A),
-        ),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update plate number: $e'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFFDC2626),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+    if (mounted) {
+      setState(() => _saving = true);
     }
+
+    try {
+      await _service.savePlateNumber(
+        userId: _userId,
+        plateNumber: _plateController.text,
+      );
+
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showSuccess('Plate number saved.');
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('Failed to save plate number: $error');
+    }
+  }
+
+  void _showSuccess(String message) => _showSnack(message, isError: false);
+
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        title: const Text('Plate Number'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+    return DriverProfilePageScaffold(
+      title: 'Plate Number',
+      subtitle: widget.flowStep == null
+          ? 'Update your tricycle plate number.'
+          : 'Step 4 of 7: add your assigned plate number.',
+      bottomBar: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: DriverPrimaryButton(
+          label: widget.flowStep == null ? 'Save Changes' : 'Save and Continue',
+          onPressed: _save,
+          loading: _saving,
+          icon: Icons.directions_bike_rounded,
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: TextField(
-              controller: _plateController,
-              decoration: InputDecoration(
-                labelText: 'Plate Number',
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide:
-                      const BorderSide(color: Color(0xFF2F6FFF), width: 1.3),
-                ),
+      child: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+          children: [
+            DriverProfileCard(
+              child: DriverTextField(
+                controller: _plateController,
+                label: 'Plate Number',
+                hintText: 'Example: ABC-1234',
+                validator: _requiredValidator,
               ),
             ),
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 54,
-            child: ElevatedButton(
-              onPressed: _isSaving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2F6FFF),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Text(
-                      'Save Changes',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+
+  String? _requiredValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required.';
+    }
+    return null;
+  }
 }
+
+

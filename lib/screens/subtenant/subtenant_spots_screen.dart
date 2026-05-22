@@ -21,7 +21,7 @@ class SubTenantSpotsScreen extends StatefulWidget {
 class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   final SubTenantService _service = SubTenantService();
   final CitySpotSuggestionService _suggestionService =
-      const CitySpotSuggestionService();
+      CitySpotSuggestionService();
   final TextEditingController _searchCtrl = TextEditingController();
 
   late Future<_SpotListLoad> _future;

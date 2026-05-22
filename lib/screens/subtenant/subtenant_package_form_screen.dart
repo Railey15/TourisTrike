@@ -1,15 +1,12 @@
 import 'dart:convert' show jsonDecode;
-import 'dart:math' show sqrt, sin, cos, atan2;
+import 'dart:math' show atan2, cos, sin, sqrt;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
-import 'package:touristrike/screens/subtenant/subtenant_package_itinerary_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
-
-// ─── Internal data holder ────────────────────────────────────────────────────
 
 class _BuilderData {
   const _BuilderData({
@@ -28,8 +25,6 @@ class _BuilderData {
   final Map<String, List<_GPlaceSuggestion>> googleSuggestions;
   final SubTenantFareSettings fareSettings;
 }
-
-// ─── Google Place suggestion model ───────────────────────────────────────────
 
 class _GPlaceSuggestion {
   const _GPlaceSuggestion({
@@ -52,8 +47,6 @@ class _GPlaceSuggestion {
   final double latitude;
   final double longitude;
 }
-
-// ─── Google Places fetch helpers ─────────────────────────────────────────────
 
 const _kGoogleApiKey = 'AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k';
 
@@ -90,7 +83,9 @@ Future<Map<String, List<_GPlaceSuggestion>>> _fetchGoogleSuggestions(
   final results = await Future.wait(futures);
   final map = <String, List<_GPlaceSuggestion>>{};
   for (var i = 0; i < specs.length; i++) {
-    if (results[i].isNotEmpty) map[specs[i].tag] = results[i];
+    if (results[i].isNotEmpty) {
+      map[specs[i].tag] = results[i];
+    }
   }
   return map;
 }
@@ -132,9 +127,9 @@ Future<List<_GPlaceSuggestion>> _fetchGoogleSpotsForTag({
       if (!_isPlaceInSelectedCity(address: address, city: city)) {
         continue;
       }
+
       final rating = ((item['rating'] as num?) ?? 4.0).toDouble();
       final placeId = (item['place_id'] as String?) ?? title;
-
       final photos = (item['photos'] as List?) ?? const [];
       final photoRef =
           ((photos.firstOrNull as Map?)?['photo_reference'] as String?) ?? '';
@@ -161,8 +156,8 @@ Future<List<_GPlaceSuggestion>> _fetchGoogleSpotsForTag({
 
     spots.sort((a, b) => b.rating.compareTo(a.rating));
     return spots.take(3).toList();
-  } catch (e) {
-    debugPrint('Google Places [$tag]: $e');
+  } catch (error) {
+    debugPrint('Google Places [$tag]: $error');
     return const [];
   }
 }
@@ -179,15 +174,13 @@ bool _isPlaceInSelectedCity({required String address, required String city}) {
 String _normalizeText(String value) {
   return value
       .toLowerCase()
+      .replaceAll('ÃƒÂ±', 'n')
       .replaceAll('Ã±', 'n')
-      .replaceAll('ñ', 'n')
       .replaceAll('-', '')
       .replaceAll(' ', '')
       .replaceAll(',', '')
       .replaceAll('.', '');
 }
-
-// ─── Screen ──────────────────────────────────────────────────────────────────
 
 class SubTenantPackageFormScreen extends StatefulWidget {
   const SubTenantPackageFormScreen({super.key, this.package});
@@ -204,7 +197,6 @@ class _SubTenantPackageFormScreenState
   final SubTenantService _service = SubTenantService();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  // Form controllers
   final _titleCtrl = TextEditingController();
   final _subtitleCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
@@ -218,32 +210,55 @@ class _SubTenantPackageFormScreenState
   final _coverCtrl = TextEditingController();
   final _spotSearchCtrl = TextEditingController();
 
-  // Form state
   String _status = 'draft';
   String _visibility = 'visible';
   dynamic _packageCategoryId;
+  int _currentStep = 0;
   bool _saving = false;
   bool _uploadingImage = false;
   bool _uploadingCover = false;
   bool _spotsInitialized = false;
+  bool _itineraryLoading = false;
 
-  // Spot builder state
   String _spotCategoryFilter = 'all';
   final List<SelectedPackageSpot> _selectedSpots = [];
   final Set<String> _addingPlaceIds = {};
+  List<PackageItineraryDay> _itineraryDays = const [];
+  dynamic _workingPackageId;
 
   late Future<_BuilderData> _dataFuture;
 
   bool get _editing => widget.package != null;
+  bool get _isFinalStep => _currentStep == 3;
+  bool get _wizardBusy =>
+      _saving || _uploadingImage || _uploadingCover || _itineraryLoading;
 
   @override
   void initState() {
     super.initState();
+    _workingPackageId = widget.package?.id;
     _prefillFromPackage();
     _dataFuture = _loadData();
     _spotSearchCtrl.addListener(() => setState(() {}));
     _groupSizeCtrl.addListener(() => setState(() {}));
     _distanceCtrl.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _subtitleCtrl.dispose();
+    _descriptionCtrl.dispose();
+    _cityCtrl.dispose();
+    _priceCtrl.dispose();
+    _durationCtrl.dispose();
+    _budgetCtrl.dispose();
+    _groupSizeCtrl.dispose();
+    _distanceCtrl.dispose();
+    _imageCtrl.dispose();
+    _coverCtrl.dispose();
+    _spotSearchCtrl.dispose();
+    super.dispose();
   }
 
   void _prefillFromPackage() {
@@ -270,24 +285,28 @@ class _SubTenantPackageFormScreenState
 
   Future<_BuilderData> _loadData() async {
     final profile = await _service.loadCurrentProfile();
-    if (!mounted) throw StateError('disposed');
-    if (!_editing) setState(() => _cityCtrl.text = profile.assignedCity);
+    if (!mounted) throw StateError('Screen was disposed.');
 
-    // Fire all fetches in parallel
-    final spotsF = _service.loadCityTouristSpots(profile);
-    final categoriesF = _service.loadTourismCategories();
-    final popularIdsF = _service.loadPopularSpotIdsByCity(profile.assignedCity);
-    final googleF = _fetchGoogleSuggestions(
+    if (!_editing) {
+      setState(() => _cityCtrl.text = profile.assignedCity);
+    }
+
+    final spotsFuture = _service.loadCityTouristSpots(profile);
+    final categoriesFuture = _service.loadTourismCategories();
+    final popularIdsFuture = _service.loadPopularSpotIdsByCity(
+      profile.assignedCity,
+    );
+    final googleFuture = _fetchGoogleSuggestions(
       profile.assignedCity,
       profile.province,
     );
-    final fareF = _service.loadFareSettings(profile);
+    final fareFuture = _service.loadFareSettings(profile);
 
-    final spots = await spotsF;
-    final categories = await categoriesF;
-    final popularIds = await popularIdsF;
-    final googleSuggestions = await googleF;
-    final fareSettings = await fareF;
+    final spots = await spotsFuture;
+    final categories = await categoriesFuture;
+    final popularIds = await popularIdsFuture;
+    final googleSuggestions = await googleFuture;
+    final fareSettings = await fareFuture;
 
     if (_editing && !_spotsInitialized) {
       final existing = await _service.loadPackageSelectedSpots(
@@ -296,8 +315,9 @@ class _SubTenantPackageFormScreenState
       );
       if (mounted && !_spotsInitialized) {
         setState(() {
-          _selectedSpots.clear();
-          _selectedSpots.addAll(existing);
+          _selectedSpots
+            ..clear()
+            ..addAll(existing);
           _spotsInitialized = true;
         });
       }
@@ -313,27 +333,14 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _subtitleCtrl.dispose();
-    _descriptionCtrl.dispose();
-    _cityCtrl.dispose();
-    _priceCtrl.dispose();
-    _durationCtrl.dispose();
-    _budgetCtrl.dispose();
-    _groupSizeCtrl.dispose();
-    _distanceCtrl.dispose();
-    _imageCtrl.dispose();
-    _coverCtrl.dispose();
-    _spotSearchCtrl.dispose();
-    super.dispose();
+  void _reloadData() {
+    setState(() => _dataFuture = _loadData());
   }
 
-  // ─── Spot management ─────────────────────────────────────────────────────
-
   void _addSpot(SubTenantSpot spot) {
-    if (_selectedSpots.any((s) => stId(s.spot.id) == stId(spot.id))) return;
+    if (_selectedSpots.any((item) => stId(item.spot.id) == stId(spot.id))) {
+      return;
+    }
     setState(() {
       _selectedSpots.add(
         SelectedPackageSpot(spot: spot, sortOrder: _selectedSpots.length),
@@ -345,9 +352,7 @@ class _SubTenantPackageFormScreenState
   void _removeSpot(int index) {
     setState(() {
       _selectedSpots.removeAt(index);
-      for (var i = 0; i < _selectedSpots.length; i++) {
-        _selectedSpots[i].sortOrder = i;
-      }
+      _normalizeSelectedSpots();
       _recalcDistance();
     });
   }
@@ -357,9 +362,7 @@ class _SubTenantPackageFormScreenState
     setState(() {
       final item = _selectedSpots.removeAt(index);
       _selectedSpots.insert(index - 1, item);
-      for (var i = 0; i < _selectedSpots.length; i++) {
-        _selectedSpots[i].sortOrder = i;
-      }
+      _normalizeSelectedSpots();
       _recalcDistance();
     });
   }
@@ -369,11 +372,15 @@ class _SubTenantPackageFormScreenState
     setState(() {
       final item = _selectedSpots.removeAt(index);
       _selectedSpots.insert(index + 1, item);
-      for (var i = 0; i < _selectedSpots.length; i++) {
-        _selectedSpots[i].sortOrder = i;
-      }
+      _normalizeSelectedSpots();
       _recalcDistance();
     });
+  }
+
+  void _normalizeSelectedSpots() {
+    for (var i = 0; i < _selectedSpots.length; i++) {
+      _selectedSpots[i].sortOrder = i;
+    }
   }
 
   Future<void> _editSpotSchedule(int index) async {
@@ -384,12 +391,13 @@ class _SubTenantPackageFormScreenState
       backgroundColor: Colors.transparent,
       builder: (_) => _SpotScheduleSheet(spot: current),
     );
-    if (updated == null) return;
+    if (updated == null || !mounted) return;
     setState(() => _selectedSpots[index] = updated);
   }
 
   void _recalcDistance() {
     if (_selectedSpots.length < 2) return;
+
     double total = 0;
     for (var i = 0; i < _selectedSpots.length - 1; i++) {
       final a = _selectedSpots[i].spot;
@@ -401,7 +409,10 @@ class _SubTenantPackageFormScreenState
         total += _haversine(a.latitude, a.longitude, b.latitude, b.longitude);
       }
     }
-    if (total > 0) _distanceCtrl.text = total.toStringAsFixed(1);
+
+    if (total > 0) {
+      _distanceCtrl.text = total.toStringAsFixed(1);
+    }
   }
 
   double _haversine(double lat1, double lon1, double lat2, double lon2) {
@@ -489,12 +500,13 @@ class _SubTenantPackageFormScreenState
         bytes: bytes,
         contentType: _contentTypeFor(file),
       );
+
       if (!mounted) return;
       setState(() => target.text = url);
       showSubTenantSnack(context, 'Image uploaded.', error: false);
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
-      showSubTenantSnack(context, 'Image upload failed: $e');
+      showSubTenantSnack(context, 'Image upload failed: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -508,25 +520,36 @@ class _SubTenantPackageFormScreenState
     }
   }
 
-  // ─── Filtering / recommendations ─────────────────────────────────────────
-
-  List<SubTenantSpot> _filteredSpots(List<SubTenantSpot> all) {
-    final selectedIds = _selectedSpots.map((s) => stId(s.spot.id)).toSet();
-    final q = _spotSearchCtrl.text.toLowerCase().trim();
-    return all.where((spot) {
+  List<SubTenantSpot> _filteredSpots(
+    List<SubTenantSpot> all,
+    Set<dynamic> popularIds,
+  ) {
+    final selectedIds = _selectedSpots
+        .map((item) => stId(item.spot.id))
+        .toSet();
+    final query = _spotSearchCtrl.text.toLowerCase().trim();
+    final filtered = all.where((spot) {
       if (selectedIds.contains(stId(spot.id))) return false;
-      if (q.isNotEmpty) {
-        if (!spot.title.toLowerCase().contains(q) &&
-            !spot.barangay.toLowerCase().contains(q) &&
-            !spot.description.toLowerCase().contains(q)) {
-          return false;
-        }
+      if (query.isNotEmpty &&
+          !spot.title.toLowerCase().contains(query) &&
+          !spot.barangay.toLowerCase().contains(query) &&
+          !spot.description.toLowerCase().contains(query)) {
+        return false;
       }
       if (_spotCategoryFilter != 'all' && spot.categoryId != null) {
         if (stId(spot.categoryId) != _spotCategoryFilter) return false;
       }
-      return true;
+      return spot.status != 'archived';
     }).toList();
+
+    filtered.sort((a, b) {
+      final aPopular = popularIds.contains(a.id) ? 1 : 0;
+      final bPopular = popularIds.contains(b.id) ? 1 : 0;
+      if (aPopular != bPopular) return bPopular.compareTo(aPopular);
+      return b.rating.compareTo(a.rating);
+    });
+
+    return filtered;
   }
 
   static const _tagOrder = [
@@ -561,6 +584,7 @@ class _SubTenantPackageFormScreenState
     _GPlaceSuggestion suggestion,
   ) async {
     if (_addingPlaceIds.contains(suggestion.placeId)) return;
+
     setState(() => _addingPlaceIds.add(suggestion.placeId));
     try {
       final spot = await _service.upsertSpotFromGoogle(
@@ -575,90 +599,345 @@ class _SubTenantPackageFormScreenState
         tag: suggestion.tag,
         googlePlaceId: suggestion.placeId,
       );
-      if (mounted) _addSpot(spot);
-    } catch (e) {
-      if (mounted) showSubTenantSnack(context, 'Could not add spot: $e');
+      if (mounted) {
+        _addSpot(spot);
+      }
+    } catch (error) {
+      if (mounted) {
+        showSubTenantSnack(context, 'Could not add spot: $error');
+      }
     } finally {
-      if (mounted) setState(() => _addingPlaceIds.remove(suggestion.placeId));
+      if (mounted) {
+        setState(() => _addingPlaceIds.remove(suggestion.placeId));
+      }
     }
   }
 
-  // ─── Save ────────────────────────────────────────────────────────────────
+  String? _validateWizard() {
+    if (_titleCtrl.text.trim().isEmpty) return 'Package title is required.';
+    if (_descriptionCtrl.text.trim().isEmpty) {
+      return 'Package description is required.';
+    }
+    if (_priceCtrl.text.trim().isEmpty) return 'Price text is required.';
+    if (_durationCtrl.text.trim().isEmpty) {
+      return 'Duration text is required.';
+    }
+    return null;
+  }
 
-  Future<void> _save(
+  Future<dynamic> _savePackageDraft(
     SubTenantProfile profile, {
-    bool openItinerary = false,
+    bool showSuccess = false,
   }) async {
-    FocusScope.of(context).unfocus();
-    if (!_formKey.currentState!.validate()) return;
-
     final budget = double.tryParse(_budgetCtrl.text.trim().replaceAll(',', ''));
     final groupSize = int.tryParse(_groupSizeCtrl.text.trim());
     final distance = double.tryParse(
       _distanceCtrl.text.trim().replaceAll(',', ''),
     );
 
-    setState(() => _saving = true);
-    try {
-      final id = await _service.savePackage(
-        profile: profile,
-        packageId: widget.package?.id,
-        values: {
-          'title': _titleCtrl.text.trim(),
-          'subtitle': _subtitleCtrl.text.trim(),
-          'description': _descriptionCtrl.text.trim(),
-          'price_text': _priceCtrl.text.trim(),
-          'duration_text': _durationCtrl.text.trim(),
-          'estimated_budget': budget ?? 0,
-          'group_size': groupSize ?? 0,
-          'route_distance_km': distance ?? 0,
-          'image_url': _imageCtrl.text.trim(),
-          'cover_image_url': _coverCtrl.text.trim().isEmpty
-              ? _imageCtrl.text.trim()
-              : _coverCtrl.text.trim(),
-          'status': _status,
-          'visibility_status': _visibility,
-          if (_packageCategoryId != null) 'category_id': _packageCategoryId,
-        },
-      );
+    final id = await _service.savePackage(
+      profile: profile,
+      packageId: _workingPackageId,
+      values: {
+        'title': _titleCtrl.text.trim(),
+        'subtitle': _subtitleCtrl.text.trim(),
+        'description': _descriptionCtrl.text.trim(),
+        'price_text': _priceCtrl.text.trim(),
+        'duration_text': _durationCtrl.text.trim(),
+        'estimated_budget': budget ?? 0,
+        'group_size': groupSize ?? 0,
+        'route_distance_km': distance ?? 0,
+        'image_url': _imageCtrl.text.trim(),
+        'cover_image_url': _coverCtrl.text.trim().isEmpty
+            ? _imageCtrl.text.trim()
+            : _coverCtrl.text.trim(),
+        'status': _status,
+        'visibility_status': _visibility,
+        if (_packageCategoryId != null) 'category_id': _packageCategoryId,
+      },
+    );
 
-      if (_selectedSpots.isNotEmpty) {
-        await _service.savePackageSelectedSpots(
-          packageId: id,
-          selectedSpots: _selectedSpots,
-        );
-      }
+    await _service.savePackageSelectedSpots(
+      packageId: id,
+      selectedSpots: _selectedSpots,
+    );
 
-      if (!mounted) return;
-      showSubTenantSnack(
-        context,
-        _editing ? 'Package updated.' : 'Package created.',
-        error: false,
-      );
-
-      if (openItinerary) {
-        final pkg = await _service.fetchPackageById(profile, id);
-        if (!mounted || pkg == null) return;
-        await Navigator.push(
+    if (mounted) {
+      setState(() => _workingPackageId = id);
+      if (showSuccess) {
+        showSubTenantSnack(
           context,
-          MaterialPageRoute(
-            builder: (_) => SubTenantPackageItineraryScreen(package: pkg),
-          ),
+          widget.package == null ? 'Package saved.' : 'Package updated.',
+          error: false,
         );
-        if (!mounted) return;
-        Navigator.pop(context, true);
-      } else {
-        Navigator.pop(context, true);
       }
-    } catch (e) {
+    }
+    return id;
+  }
+
+  Future<void> _ensurePackageAndLoadItinerary(SubTenantProfile profile) async {
+    if (_wizardBusy) return;
+
+    final validationMessage = _validateWizard();
+    if (validationMessage != null) {
+      showSubTenantSnack(context, validationMessage);
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _itineraryLoading = true;
+    });
+
+    try {
+      await _savePackageDraft(profile);
+      final days = await _service.fetchItinerary(profile, _workingPackageId);
       if (!mounted) return;
-      showSubTenantSnack(context, 'Failed to save package: $e');
+      setState(() {
+        _itineraryDays = days;
+        _currentStep = 3;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Failed to prepare itinerary editor: $error');
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _itineraryLoading = false;
+        });
+      }
     }
   }
 
-  // ─── Build ───────────────────────────────────────────────────────────────
+  Future<void> _saveAndClose(SubTenantProfile profile) async {
+    if (_wizardBusy) return;
+
+    final validationMessage = _validateWizard();
+    if (validationMessage != null) {
+      showSubTenantSnack(context, validationMessage);
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await _savePackageDraft(profile, showSuccess: true);
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Failed to save package: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _handleNext(_BuilderData data) async {
+    if (_wizardBusy) return;
+
+    if (_currentStep == 0 || _currentStep == 1) {
+      if (!_formKey.currentState!.validate()) return;
+    }
+
+    if (_currentStep == 2) {
+      await _ensurePackageAndLoadItinerary(data.profile);
+      return;
+    }
+
+    if (_currentStep < 3) {
+      setState(() => _currentStep += 1);
+    }
+  }
+
+  void _handleBack() {
+    if (_wizardBusy || _currentStep == 0) return;
+    setState(() => _currentStep -= 1);
+  }
+
+  List<SubTenantSpot> _itinerarySpots(_BuilderData data) {
+    if (_selectedSpots.isNotEmpty) {
+      return _selectedSpots.map((item) => item.spot).toList(growable: false);
+    }
+    return data.spots
+        .where((spot) => spot.status != 'archived')
+        .toList(growable: false);
+  }
+
+  Future<void> _reloadItinerary(SubTenantProfile profile) async {
+    if (_workingPackageId == null) return;
+
+    setState(() => _itineraryLoading = true);
+    try {
+      final days = await _service.fetchItinerary(profile, _workingPackageId);
+      if (!mounted) return;
+      setState(() => _itineraryDays = days);
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Failed to load itinerary: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _itineraryLoading = false);
+      }
+    }
+  }
+
+  Future<void> _addDay(SubTenantProfile profile) async {
+    if (_workingPackageId == null || _itineraryLoading) return;
+    setState(() => _itineraryLoading = true);
+    try {
+      await _service.addPackageDay(
+        profile,
+        _workingPackageId,
+        _itineraryDays.length + 1,
+      );
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Package day added.', error: false);
+      await _reloadItinerary(profile);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _itineraryLoading = false);
+      showSubTenantSnack(context, 'Failed to add day: $error');
+    }
+  }
+
+  Future<void> _renameDay(
+    SubTenantProfile profile,
+    PackageItineraryDay day,
+  ) async {
+    final controller = TextEditingController(text: day.title);
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename day'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Day title'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (title == null || _workingPackageId == null) return;
+
+    setState(() => _itineraryLoading = true);
+    try {
+      await _service.updatePackageDayTitle(
+        profile,
+        _workingPackageId,
+        day.id,
+        title,
+      );
+      await _reloadItinerary(profile);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _itineraryLoading = false);
+      showSubTenantSnack(context, 'Failed to rename day: $error');
+    }
+  }
+
+  Future<void> _openItemForm(
+    _BuilderData data,
+    PackageItineraryDay day, {
+    PackageItineraryItem? item,
+  }) async {
+    if (_workingPackageId == null) return;
+
+    final spots = _itinerarySpots(data);
+    if (spots.isEmpty) {
+      showSubTenantSnack(
+        context,
+        'Select tourist spots for this package first before editing the itinerary.',
+      );
+      return;
+    }
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ItineraryItemSheet(
+        service: _service,
+        profile: data.profile,
+        packageId: _workingPackageId,
+        day: day,
+        spots: spots,
+        item: item,
+      ),
+    );
+
+    if (saved == true) {
+      await _reloadItinerary(data.profile);
+    }
+  }
+
+  Future<void> _deleteItem(
+    SubTenantProfile profile,
+    PackageItineraryItem item,
+  ) async {
+    if (_workingPackageId == null) return;
+    setState(() => _itineraryLoading = true);
+    try {
+      await _service.deleteItineraryItem(profile, _workingPackageId, item);
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Itinerary item removed.', error: false);
+      await _reloadItinerary(profile);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _itineraryLoading = false);
+      showSubTenantSnack(context, 'Failed to remove item: $error');
+    }
+  }
+
+  Future<void> _moveItem(
+    SubTenantProfile profile,
+    PackageItineraryDay day,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (_workingPackageId == null ||
+        newIndex < 0 ||
+        newIndex >= day.items.length) {
+      return;
+    }
+
+    final items = [...day.items];
+    final moved = items.removeAt(oldIndex);
+    items.insert(newIndex, moved);
+
+    setState(() => _itineraryLoading = true);
+    try {
+      await _service.updateItineraryItemOrder(
+        profile,
+        _workingPackageId,
+        items,
+      );
+      await _reloadItinerary(profile);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _itineraryLoading = false);
+      showSubTenantSnack(context, 'Failed to reorder item: $error');
+    }
+  }
+
+  String get _stepSubtitle => switch (_currentStep) {
+    0 => 'Set the package title, description, city, and category.',
+    1 => 'Configure pricing, route details, images, and publish settings.',
+    2 => 'Pick the tourist spots to include and arrange their visit order.',
+    _ =>
+      'Build the day-by-day itinerary, then review everything before saving.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -675,10 +954,11 @@ class _SubTenantPackageFormScreenState
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const SubTenantLoadingView();
           }
+
           if (snapshot.hasError) {
             return SubTenantErrorView(
               message: snapshot.error.toString(),
-              onRetry: () => setState(() => _dataFuture = _loadData()),
+              onRetry: _reloadData,
             );
           }
 
@@ -687,14 +967,33 @@ class _SubTenantPackageFormScreenState
             key: _formKey,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final isWide = constraints.maxWidth > 860;
-                final h = isWide
-                    ? const EdgeInsets.fromLTRB(24, 16, 24, 36)
-                    : const EdgeInsets.fromLTRB(14, 12, 14, 28);
+                final isWide = constraints.maxWidth > 960;
+                final padding = isWide
+                    ? const EdgeInsets.fromLTRB(24, 16, 24, 30)
+                    : const EdgeInsets.fromLTRB(14, 12, 14, 24);
+
                 return SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
-                  padding: h,
-                  child: isWide ? _buildWide(data) : _buildNarrow(data),
+                  padding: padding,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _WizardProgressCard(
+                        currentStep: _currentStep,
+                        subtitle: _stepSubtitle,
+                      ),
+                      const SizedBox(height: 14),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: KeyedSubtree(
+                          key: ValueKey<int>(_currentStep),
+                          child: _buildStepContent(data, isWide),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _buildNavigationBar(data),
+                    ],
+                  ),
                 );
               },
             ),
@@ -704,46 +1003,225 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  Widget _buildWide(_BuilderData data) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(flex: 60, child: Column(children: _leftChildren(data))),
-        const SizedBox(width: 20),
-        Expanded(flex: 40, child: Column(children: _rightChildren(data))),
-      ],
+  Widget _buildStepContent(_BuilderData data, bool isWide) {
+    switch (_currentStep) {
+      case 0:
+        return isWide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 58, child: _basicInfoCard(data)),
+                  const SizedBox(width: 18),
+                  Expanded(flex: 42, child: _previewCard()),
+                ],
+              )
+            : Column(
+                children: [
+                  _basicInfoCard(data),
+                  const SizedBox(height: 14),
+                  _previewCard(),
+                ],
+              );
+      case 1:
+        return isWide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 58,
+                    child: Column(
+                      children: [
+                        _detailsCard(data),
+                        const SizedBox(height: 14),
+                        _imagesCard(data),
+                        const SizedBox(height: 14),
+                        _publishingCard(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    flex: 42,
+                    child: Column(
+                      children: [
+                        _previewCard(),
+                        const SizedBox(height: 14),
+                        _fareBreakdownCard(data),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  _detailsCard(data),
+                  const SizedBox(height: 14),
+                  _imagesCard(data),
+                  const SizedBox(height: 14),
+                  _publishingCard(),
+                  const SizedBox(height: 14),
+                  _fareBreakdownCard(data),
+                  const SizedBox(height: 14),
+                  _previewCard(),
+                ],
+              );
+      case 2:
+        return isWide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 54,
+                    child: Column(
+                      children: [
+                        _smartRecsCard(data),
+                        const SizedBox(height: 14),
+                        _suggestedSpotsCard(data),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    flex: 46,
+                    child: Column(
+                      children: [
+                        _selectedSpotsCard(),
+                        const SizedBox(height: 14),
+                        _previewCard(),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  _smartRecsCard(data),
+                  const SizedBox(height: 14),
+                  _suggestedSpotsCard(data),
+                  const SizedBox(height: 14),
+                  _selectedSpotsCard(),
+                  const SizedBox(height: 14),
+                  _previewCard(),
+                ],
+              );
+      default:
+        return isWide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 58, child: _itineraryEditorCard(data)),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    flex: 42,
+                    child: Column(
+                      children: [
+                        _PackageReviewCard(
+                          title: _titleCtrl.text.trim(),
+                          subtitle: _subtitleCtrl.text.trim(),
+                          city: _cityCtrl.text.trim(),
+                          priceText: _priceCtrl.text.trim(),
+                          durationText: _durationCtrl.text.trim(),
+                          status: _status,
+                          visibility: _visibility,
+                          selectedSpotCount: _selectedSpots.length,
+                          itineraryDayCount: _itineraryDays.length,
+                          itineraryStopCount: _itineraryDays.fold<int>(
+                            0,
+                            (sum, day) => sum + day.items.length,
+                          ),
+                          packageId: _workingPackageId,
+                        ),
+                        const SizedBox(height: 14),
+                        _previewCard(),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  _itineraryEditorCard(data),
+                  const SizedBox(height: 14),
+                  _PackageReviewCard(
+                    title: _titleCtrl.text.trim(),
+                    subtitle: _subtitleCtrl.text.trim(),
+                    city: _cityCtrl.text.trim(),
+                    priceText: _priceCtrl.text.trim(),
+                    durationText: _durationCtrl.text.trim(),
+                    status: _status,
+                    visibility: _visibility,
+                    selectedSpotCount: _selectedSpots.length,
+                    itineraryDayCount: _itineraryDays.length,
+                    itineraryStopCount: _itineraryDays.fold<int>(
+                      0,
+                      (sum, day) => sum + day.items.length,
+                    ),
+                    packageId: _workingPackageId,
+                  ),
+                  const SizedBox(height: 14),
+                  _previewCard(),
+                ],
+              );
+    }
+  }
+
+  Widget _buildNavigationBar(_BuilderData data) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: SubTenantColors.line),
+        boxShadow: const [
+          BoxShadow(
+            color: SubTenantColors.shadow,
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          if (_currentStep > 0)
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _wizardBusy ? null : _handleBack,
+                icon: const Icon(Icons.arrow_back_rounded),
+                label: const Text('Back'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                  foregroundColor: SubTenantColors.blue,
+                  side: const BorderSide(color: SubTenantColors.blue),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+              ),
+            ),
+          if (_currentStep > 0) const SizedBox(width: 12),
+          Expanded(
+            child: _isFinalStep
+                ? SubTenantGradientButton(
+                    label: widget.package == null
+                        ? 'Save Package'
+                        : 'Update Package',
+                    icon: Icons.save_rounded,
+                    loading: _saving,
+                    onPressed: () => _saveAndClose(data.profile),
+                  )
+                : SubTenantGradientButton(
+                    label: _currentStep == 2
+                        ? 'Continue to Itinerary'
+                        : 'Next Step',
+                    icon: Icons.arrow_forward_rounded,
+                    loading: _saving || _itineraryLoading,
+                    onPressed: () => _handleNext(data),
+                  ),
+          ),
+        ],
+      ),
     );
   }
-
-  Widget _buildNarrow(_BuilderData data) {
-    return Column(children: [..._leftChildren(data), ..._rightChildren(data)]);
-  }
-
-  List<Widget> _leftChildren(_BuilderData data) => [
-    _basicInfoCard(data),
-    const SizedBox(height: 14),
-    _detailsCard(data),
-    const SizedBox(height: 14),
-    _imagesCard(data),
-    const SizedBox(height: 14),
-    _publishingCard(),
-    const SizedBox(height: 18),
-    _saveButtons(data.profile),
-    const SizedBox(height: 14),
-  ];
-
-  List<Widget> _rightChildren(_BuilderData data) => [
-    _smartRecsCard(data),
-    const SizedBox(height: 14),
-    _suggestedSpotsCard(data),
-    const SizedBox(height: 14),
-    _selectedSpotsCard(),
-    const SizedBox(height: 14),
-    _previewCard(),
-    const SizedBox(height: 14),
-  ];
-
-  // ─── Left column sections ─────────────────────────────────────────────────
 
   Widget _basicInfoCard(_BuilderData data) {
     return SubTenantDashboardCard(
@@ -751,15 +1229,16 @@ class _SubTenantPackageFormScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SubTenantSectionHeader(
-            title: 'Package Basic Info',
-            subtitle: 'Name, description, and category',
+            title: 'Step 1: Package Basic Info',
+            subtitle: 'Name, description, city, and category.',
           ),
           const SizedBox(height: 14),
           SubTenantTextField(
             controller: _titleCtrl,
             label: 'Title',
             hint: 'e.g. Heritage Walking Tour',
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
+            validator: (value) =>
+                (value ?? '').trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 12),
           SubTenantTextField(
@@ -773,7 +1252,8 @@ class _SubTenantPackageFormScreenState
             label: 'Description',
             hint: 'What tourists can expect...',
             maxLines: 4,
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
+            validator: (value) =>
+                (value ?? '').trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 12),
           SubTenantTextField(
@@ -805,15 +1285,18 @@ class _SubTenantPackageFormScreenState
         const SizedBox(height: 8),
         DropdownButtonFormField<dynamic>(
           initialValue: _packageCategoryId,
-          decoration: _dd(),
+          decoration: _dropdownDecoration(),
           isExpanded: true,
           items: [
-            const DropdownMenuItem(value: null, child: Text('None')),
+            const DropdownMenuItem<dynamic>(value: null, child: Text('None')),
             ...categories.map(
-              (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+              (category) => DropdownMenuItem<dynamic>(
+                value: category.id,
+                child: Text(category.name),
+              ),
             ),
           ],
-          onChanged: (v) => setState(() => _packageCategoryId = v),
+          onChanged: (value) => setState(() => _packageCategoryId = value),
         ),
       ],
     );
@@ -826,22 +1309,24 @@ class _SubTenantPackageFormScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SubTenantSectionHeader(
-            title: 'Package Details',
-            subtitle: 'Pricing, duration, and logistics',
+            title: 'Step 2: Package Details',
+            subtitle: 'Pricing, route details, and suggested fare.',
           ),
           const SizedBox(height: 14),
           SubTenantTextField(
             controller: _priceCtrl,
             label: 'Price Text',
             hint: 'From PHP 1,200',
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
+            validator: (value) =>
+                (value ?? '').trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 12),
           SubTenantTextField(
             controller: _durationCtrl,
             label: 'Duration Text',
             hint: '1 day',
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
+            validator: (value) =>
+                (value ?? '').trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 12),
           Row(
@@ -849,7 +1334,7 @@ class _SubTenantPackageFormScreenState
               Expanded(
                 child: SubTenantTextField(
                   controller: _budgetCtrl,
-                  label: 'Est. Budget (PHP)',
+                  label: 'Estimated Budget (PHP)',
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -869,7 +1354,7 @@ class _SubTenantPackageFormScreenState
           SubTenantTextField(
             controller: _distanceCtrl,
             label: 'Route Distance (km)',
-            hint: 'Auto-filled when spots have coordinates',
+            hint: 'Auto-filled when selected spots have coordinates',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 12),
@@ -889,7 +1374,7 @@ class _SubTenantPackageFormScreenState
         children: [
           const SubTenantSectionHeader(
             title: 'Images',
-            subtitle: 'Package photo and cover banner',
+            subtitle: 'Package photo and cover banner.',
           ),
           const SizedBox(height: 14),
           SubTenantTextField(
@@ -902,10 +1387,10 @@ class _SubTenantPackageFormScreenState
             onPressed: _uploadingImage
                 ? null
                 : () => _pickAndUploadImage(
-                      profile: data.profile,
-                      target: _imageCtrl,
-                      cover: false,
-                    ),
+                    profile: data.profile,
+                    target: _imageCtrl,
+                    cover: false,
+                  ),
             icon: _uploadingImage
                 ? const SizedBox(
                     width: 16,
@@ -919,7 +1404,7 @@ class _SubTenantPackageFormScreenState
           SubTenantTextField(
             controller: _coverCtrl,
             label: 'Cover Image URL',
-            hint: 'Defaults to Image URL if empty',
+            hint: 'Defaults to the package image if left empty',
             keyboardType: TextInputType.url,
           ),
           const SizedBox(height: 8),
@@ -927,10 +1412,10 @@ class _SubTenantPackageFormScreenState
             onPressed: _uploadingCover
                 ? null
                 : () => _pickAndUploadImage(
-                      profile: data.profile,
-                      target: _coverCtrl,
-                      cover: true,
-                    ),
+                    profile: data.profile,
+                    target: _coverCtrl,
+                    cover: true,
+                  ),
             icon: _uploadingCover
                 ? const SizedBox(
                     width: 16,
@@ -943,40 +1428,44 @@ class _SubTenantPackageFormScreenState
           const SizedBox(height: 12),
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: _coverCtrl,
-            builder: (_, cv, _) => ValueListenableBuilder<TextEditingValue>(
-              valueListenable: _imageCtrl,
-              builder: (_, iv, _) {
-                final url = cv.text.trim().isNotEmpty
-                    ? cv.text.trim()
-                    : iv.text.trim();
-                if (url.isEmpty) return const SizedBox.shrink();
-                return ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Image.network(
-                    url,
-                    height: 140,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: SubTenantColors.line,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          'Invalid image URL',
-                          style: TextStyle(
-                            color: SubTenantColors.muted,
-                            fontSize: 12,
+            builder: (_, coverValue, _) =>
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _imageCtrl,
+                  builder: (_, imageValue, _) {
+                    final url = coverValue.text.trim().isNotEmpty
+                        ? coverValue.text.trim()
+                        : imageValue.text.trim();
+                    if (url.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.network(
+                        url,
+                        height: 150,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: SubTenantColors.line,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Center(
+                            child: Text(
+                              'Invalid image URL',
+                              style: TextStyle(
+                                color: SubTenantColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                );
-              },
-            ),
+                    );
+                  },
+                ),
           ),
         ],
       ),
@@ -990,14 +1479,14 @@ class _SubTenantPackageFormScreenState
         children: [
           const SubTenantSectionHeader(
             title: 'Publishing',
-            subtitle: 'Status and visibility settings',
+            subtitle: 'Status and visibility settings.',
           ),
           const SizedBox(height: 14),
-          _ddLabel('Status'),
+          _dropdownLabel('Status'),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _status,
-            decoration: _dd(),
+            decoration: _dropdownDecoration(),
             isExpanded: true,
             items: const [
               DropdownMenuItem(value: 'draft', child: Text('Draft')),
@@ -1006,23 +1495,27 @@ class _SubTenantPackageFormScreenState
               DropdownMenuItem(value: 'returned', child: Text('Returned')),
               DropdownMenuItem(value: 'sold_out', child: Text('Sold Out')),
             ],
-            onChanged: (v) {
-              if (v != null) setState(() => _status = v);
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _status = value);
+              }
             },
           ),
           const SizedBox(height: 12),
-          _ddLabel('Visibility'),
+          _dropdownLabel('Visibility'),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _visibility,
-            decoration: _dd(),
+            decoration: _dropdownDecoration(),
             isExpanded: true,
             items: const [
               DropdownMenuItem(value: 'visible', child: Text('Visible')),
               DropdownMenuItem(value: 'hidden', child: Text('Hidden')),
             ],
-            onChanged: (v) {
-              if (v != null) setState(() => _visibility = v);
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _visibility = value);
+              }
             },
           ),
         ],
@@ -1030,137 +1523,59 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  Widget _saveButtons(SubTenantProfile profile) {
-    return Column(
-      children: [
-        SubTenantGradientButton(
-          label: 'Save Package',
-          icon: Icons.save_rounded,
-          loading: _saving,
-          onPressed: () => _save(profile),
-        ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: _saving ? null : () => _save(profile, openItinerary: true),
-          icon: const Icon(Icons.map_rounded),
-          label: const Text('Save & Manage Itinerary'),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(52),
-            foregroundColor: SubTenantColors.blue,
-            side: const BorderSide(color: SubTenantColors.blue),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ─── Right column sections ─────────────────────────────────────────────────
-
-  Widget _suggestedSpotsCard(_BuilderData data) {
-    final filtered = _filteredSpots(data.spots);
-
+  Widget _fareBreakdownCard(_BuilderData data) {
+    final calculation = _fareCalculation(data.fareSettings);
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SubTenantSectionHeader(
-            title: 'Suggested Tourist Spots',
-            subtitle:
-                '${data.spots.length} active spot${data.spots.length == 1 ? '' : 's'} in ${data.profile.assignedCity}',
+          const SubTenantSectionHeader(
+            title: 'Fare Snapshot',
+            subtitle: 'Live estimate based on the current inputs.',
           ),
           const SizedBox(height: 12),
-          SubTenantSearchBar(
-            controller: _spotSearchCtrl,
-            hintText: 'Search by name, barangay...',
+          _ReviewMetric(
+            icon: Icons.payments_rounded,
+            label: 'Suggested Price',
+            value: 'PHP ${calculation.total.toStringAsFixed(0)}',
           ),
-          if (data.categories.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _categoryFilterRow(data.categories),
-          ],
-          const SizedBox(height: 12),
-          if (filtered.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Center(
-                child: Text(
-                  _spotSearchCtrl.text.isNotEmpty
-                      ? 'No spots match your search.'
-                      : data.spots.isEmpty
-                      ? 'No active tourist spots found in ${data.profile.assignedCity} yet.'
-                      : 'All spots have been added to your package.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            )
-          else ...[
-            ...filtered
-                .take(12)
-                .map(
-                  (spot) => _SpotCard(spot: spot, onAdd: () => _addSpot(spot)),
-                ),
-            if (filtered.length > 12)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '${filtered.length - 12} more — use search to narrow down.',
-                  style: const TextStyle(
-                    color: SubTenantColors.lightMuted,
-                    fontSize: 11.5,
-                  ),
-                ),
-              ),
-          ],
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.route_rounded,
+            label: 'Route Distance',
+            value: _distanceCtrl.text.trim().isEmpty
+                ? '0 km'
+                : '${_distanceCtrl.text.trim()} km',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.group_rounded,
+            label: 'Group Size',
+            value: _groupSizeCtrl.text.trim().isEmpty
+                ? '1'
+                : _groupSizeCtrl.text.trim(),
+          ),
         ],
       ),
     );
   }
 
-  Widget _categoryFilterRow(List<SubTenantCategory> categories) {
-    final filters = ['all', ...categories.map((c) => stId(c.id))];
-    final labels = <String, String>{
-      'all': 'All',
-      for (final c in categories) stId(c.id): c.name,
-    };
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: filters
-            .map(
-              (f) => Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: _FilterChip(
-                  label: labels[f] ?? f,
-                  selected: _spotCategoryFilter == f,
-                  onTap: () => setState(() => _spotCategoryFilter = f),
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
   Widget _smartRecsCard(_BuilderData data) {
-    // Filter out already-selected spots (match by title)
     final selectedTitles = _selectedSpots
-        .map((s) => s.spot.title.toLowerCase())
+        .map((item) => item.spot.title.toLowerCase())
         .toSet();
     final filtered = <String, List<_GPlaceSuggestion>>{};
+
     for (final entry in data.googleSuggestions.entries) {
       final spots = entry.value
-          .where((s) => !selectedTitles.contains(s.title.toLowerCase()))
-          .toList();
-      if (spots.isNotEmpty) filtered[entry.key] = spots;
+          .where((suggestion) {
+            return !selectedTitles.contains(suggestion.title.toLowerCase());
+          })
+          .toList(growable: false);
+      if (spots.isNotEmpty) {
+        filtered[entry.key] = spots;
+      }
     }
-    final hasData = filtered.isNotEmpty;
 
     return SubTenantDashboardCard(
       child: Column(
@@ -1170,8 +1585,8 @@ class _SubTenantPackageFormScreenState
             children: [
               const Expanded(
                 child: SubTenantSectionHeader(
-                  title: 'Smart Suggestions',
-                  subtitle: 'Google Places picks by category',
+                  title: 'Step 3: Smart Suggestions',
+                  subtitle: 'Google Places recommendations by category.',
                 ),
               ),
               Container(
@@ -1250,10 +1665,10 @@ class _SubTenantPackageFormScreenState
                 ),
             ],
           ),
-          if (!hasData) ...[
+          if (filtered.isEmpty) ...[
             const SizedBox(height: 14),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: SubTenantColors.backgroundAlt,
                 borderRadius: BorderRadius.circular(12),
@@ -1269,7 +1684,7 @@ class _SubTenantPackageFormScreenState
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'No Google Places results found for this city. Check your internet connection.',
+                      'No Google Places results found for this city right now.',
                       style: TextStyle(
                         color: SubTenantColors.muted,
                         fontSize: 12,
@@ -1284,56 +1699,147 @@ class _SubTenantPackageFormScreenState
             const SizedBox(height: 14),
             for (final tag in _tagOrder)
               if (filtered.containsKey(tag))
-                _tagSection(tag, filtered[tag]!, data.profile),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _tagColor(tag).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _tagIcon(tag),
+                              color: _tagColor(tag),
+                              size: 13,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              tag,
+                              style: TextStyle(
+                                color: _tagColor(tag),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...filtered[tag]!.map(
+                        (suggestion) => _GSpotCard(
+                          suggestion: suggestion,
+                          adding: _addingPlaceIds.contains(suggestion.placeId),
+                          onAdd: () => _addGoogleSpot(data.profile, suggestion),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
           ],
         ],
       ),
     );
   }
 
-  Widget _tagSection(
-    String tag,
-    List<_GPlaceSuggestion> spots,
-    SubTenantProfile profile,
-  ) {
-    final color = _tagColor(tag);
-    final icon = _tagIcon(tag);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+  Widget _suggestedSpotsCard(_BuilderData data) {
+    final filtered = _filteredSpots(data.spots, data.popularIds);
+
+    return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: color, size: 13),
-                const SizedBox(width: 5),
-                Text(
-                  tag,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+          SubTenantSectionHeader(
+            title: 'Suggested Tourist Spots',
+            subtitle:
+                '${data.spots.length} active spot${data.spots.length == 1 ? '' : 's'} in ${data.profile.assignedCity}',
+          ),
+          const SizedBox(height: 12),
+          SubTenantSearchBar(
+            controller: _spotSearchCtrl,
+            hintText: 'Search by name, barangay, or description...',
+          ),
+          if (data.categories.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _categoryFilterRow(data.categories),
+          ],
+          const SizedBox(height: 12),
+          if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: Text(
+                  _spotSearchCtrl.text.isNotEmpty
+                      ? 'No spots match your search.'
+                      : data.spots.isEmpty
+                      ? 'No active tourist spots found in ${data.profile.assignedCity} yet.'
+                      : 'All suggested spots have already been added.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontSize: 13,
+                    height: 1.4,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          ...spots.map(
-            (s) => _GSpotCard(
-              suggestion: s,
-              adding: _addingPlaceIds.contains(s.placeId),
-              onAdd: () => _addGoogleSpot(profile, s),
-            ),
-          ),
+              ),
+            )
+          else ...[
+            ...filtered
+                .take(12)
+                .map(
+                  (spot) => _SpotCard(
+                    spot: spot,
+                    onAdd: () => _addSpot(spot),
+                    popular: data.popularIds.contains(spot.id),
+                  ),
+                ),
+            if (filtered.length > 12)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  '${filtered.length - 12} more available. Use search to narrow down.',
+                  style: const TextStyle(
+                    color: SubTenantColors.lightMuted,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _categoryFilterRow(List<SubTenantCategory> categories) {
+    final filters = ['all', ...categories.map((item) => stId(item.id))];
+    final labels = <String, String>{
+      'all': 'All',
+      for (final category in categories) stId(category.id): category.name,
+    };
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: filters
+            .map((value) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: _FilterChip(
+                  label: labels[value] ?? value,
+                  selected: _spotCategoryFilter == value,
+                  onTap: () => setState(() => _spotCategoryFilter = value),
+                ),
+              );
+            })
+            .toList(growable: false),
       ),
     );
   }
@@ -1346,7 +1852,7 @@ class _SubTenantPackageFormScreenState
           SubTenantSectionHeader(
             title: 'Selected Spots',
             subtitle:
-                '${_selectedSpots.length} spot${_selectedSpots.length == 1 ? '' : 's'} in this package',
+                '${_selectedSpots.length} spot${_selectedSpots.length == 1 ? '' : 's'} included in this package',
           ),
           const SizedBox(height: 12),
           if (_selectedSpots.isEmpty)
@@ -1361,10 +1867,7 @@ class _SubTenantPackageFormScreenState
                 decoration: BoxDecoration(
                   color: SubTenantColors.backgroundAlt,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: SubTenantColors.line,
-                    strokeAlign: BorderSide.strokeAlignInside,
-                  ),
+                  border: Border.all(color: SubTenantColors.line),
                 ),
                 child: const Column(
                   children: [
@@ -1384,7 +1887,7 @@ class _SubTenantPackageFormScreenState
                     ),
                     SizedBox(height: 3),
                     Text(
-                      'Tap Add on spots from the lists above.',
+                      'Add spots from the smart suggestions or city list, then arrange them in order.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: SubTenantColors.muted,
@@ -1412,10 +1915,77 @@ class _SubTenantPackageFormScreenState
               ),
             const SizedBox(height: 6),
             const Text(
-              'Use arrows to reorder. Use the edit button to set opening, closing, arrival, and stay times.',
+              'Use the arrows to reorder package stops. Edit each stop to set arrival and visit timing.',
               style: TextStyle(color: SubTenantColors.lightMuted, fontSize: 11),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _itineraryEditorCard(_BuilderData data) {
+    return SubTenantDashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SubTenantSectionHeader(
+                  title: 'Step 4: Itinerary Builder',
+                  subtitle: _workingPackageId == null
+                      ? 'The package will be saved first before itinerary editing becomes available.'
+                      : 'Manage days and stops without leaving this form.',
+                ),
+              ),
+              if (_workingPackageId != null)
+                OutlinedButton.icon(
+                  onPressed: _itineraryLoading
+                      ? null
+                      : () => _addDay(data.profile),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Add Package Day'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_workingPackageId == null)
+            const SubTenantEmptyState(
+              icon: Icons.route_outlined,
+              title: 'Itinerary not ready yet',
+              message:
+                  'Continue from the previous step so the package can be saved in the background and assigned an ID.',
+            )
+          else if (_itineraryLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 30),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_itineraryDays.isEmpty)
+            SubTenantEmptyState(
+              icon: Icons.map_outlined,
+              title: 'No itinerary yet',
+              message:
+                  'Add package days and create itinerary stops using the selected tourist spots.',
+              actionLabel: 'Add Day',
+              onAction: () => _addDay(data.profile),
+            )
+          else
+            ..._itineraryDays.map(
+              (day) => Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _WizardDayCard(
+                  day: day,
+                  onRename: () => _renameDay(data.profile, day),
+                  onAddItem: () => _openItemForm(data, day),
+                  onEditItem: (item) => _openItemForm(data, day, item: item),
+                  onDeleteItem: (item) => _deleteItem(data.profile, item),
+                  onMoveItem: (oldIndex, newIndex) =>
+                      _moveItem(data.profile, day, oldIndex, newIndex),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1436,9 +2006,7 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
-
-  Widget _ddLabel(String label) => Text(
+  Widget _dropdownLabel(String label) => Text(
     label,
     style: const TextStyle(
       color: SubTenantColors.text,
@@ -1447,7 +2015,7 @@ class _SubTenantPackageFormScreenState
     ),
   );
 
-  InputDecoration _dd({String? hint}) => InputDecoration(
+  InputDecoration _dropdownDecoration({String? hint}) => InputDecoration(
     hintText: hint,
     hintStyle: const TextStyle(
       color: SubTenantColors.lightMuted,
@@ -1472,7 +2040,97 @@ class _SubTenantPackageFormScreenState
   );
 }
 
-// ─── Spot card ────────────────────────────────────────────────────────────────
+class _WizardProgressCard extends StatelessWidget {
+  const _WizardProgressCard({
+    required this.currentStep,
+    required this.subtitle,
+  });
+
+  final int currentStep;
+  final String subtitle;
+
+  static const _steps = ['Basic Info', 'Details', 'Spots', 'Itinerary'];
+
+  @override
+  Widget build(BuildContext context) {
+    return SubTenantDashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Step ${currentStep + 1} of ${_steps.length}',
+            style: const TextStyle(
+              color: SubTenantColors.blue,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _steps[currentStep],
+            style: const TextStyle(
+              color: SubTenantColors.text,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: SubTenantColors.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: List.generate(_steps.length, (index) {
+              final isDone = index < currentStep;
+              final isActive = index == currentStep;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    right: index == _steps.length - 1 ? 0 : 8,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: isDone || isActive
+                              ? SubTenantColors.blue
+                              : SubTenantColors.line,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _steps[index],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDone || isActive
+                              ? SubTenantColors.text
+                              : SubTenantColors.lightMuted,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _PackageFareSuggestion extends StatelessWidget {
   const _PackageFareSuggestion({
@@ -1501,9 +2159,9 @@ class _PackageFareSuggestion extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: SubTenantColors.blue.withValues(alpha: .07),
+        color: SubTenantColors.blue.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: SubTenantColors.blue.withValues(alpha: .14)),
+        border: Border.all(color: SubTenantColors.blue.withValues(alpha: 0.14)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1573,10 +2231,15 @@ class _PackageFareSuggestion extends StatelessWidget {
 }
 
 class _SpotCard extends StatelessWidget {
-  const _SpotCard({required this.spot, required this.onAdd});
+  const _SpotCard({
+    required this.spot,
+    required this.onAdd,
+    required this.popular,
+  });
 
   final SubTenantSpot spot;
   final VoidCallback onAdd;
+  final bool popular;
 
   @override
   Widget build(BuildContext context) {
@@ -1626,6 +2289,29 @@ class _SpotCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (popular) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFFF59E0B,
+                              ).withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Popular',
+                              style: TextStyle(
+                                color: Color(0xFFF59E0B),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 3),
@@ -1722,8 +2408,6 @@ class _SpotCard extends StatelessWidget {
     ),
   );
 }
-
-// ─── Selected spot tile ───────────────────────────────────────────────────────
 
 class _SelectedSpotTile extends StatelessWidget {
   const _SelectedSpotTile({
@@ -1827,8 +2511,8 @@ class _SelectedSpotTile extends StatelessWidget {
               ),
             ),
           ),
-          _arrowBtn(Icons.keyboard_arrow_up_rounded, onMoveUp),
-          _arrowBtn(Icons.keyboard_arrow_down_rounded, onMoveDown),
+          _arrowButton(Icons.keyboard_arrow_up_rounded, onMoveUp),
+          _arrowButton(Icons.keyboard_arrow_down_rounded, onMoveDown),
           const SizedBox(width: 2),
           InkWell(
             onTap: onRemove,
@@ -1847,20 +2531,22 @@ class _SelectedSpotTile extends StatelessWidget {
     );
   }
 
-  Widget _arrowBtn(IconData icon, VoidCallback? onTap) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(6),
-    child: Padding(
-      padding: const EdgeInsets.all(3),
-      child: Icon(
-        icon,
-        size: 18,
-        color: onTap == null
-            ? SubTenantColors.line
-            : SubTenantColors.lightMuted,
+  Widget _arrowButton(IconData icon, VoidCallback? onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Icon(
+          icon,
+          size: 18,
+          color: onTap == null
+              ? SubTenantColors.line
+              : SubTenantColors.lightMuted,
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   String get _scheduleSummary {
     final parts = <String>[];
@@ -1879,11 +2565,9 @@ class _SelectedSpotTile extends StatelessWidget {
         '${selectedSpot.closingTime.isEmpty ? '--' : selectedSpot.closingTime}',
       );
     }
-    return parts.join(' • ');
+    return parts.join(' / ');
   }
 }
-
-// ─── Package preview card ─────────────────────────────────────────────────────
 
 class _SpotScheduleSheet extends StatefulWidget {
   const _SpotScheduleSheet({required this.spot});
@@ -1906,7 +2590,9 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
     super.initState();
     _openingCtrl = TextEditingController(text: widget.spot.openingTime);
     _closingCtrl = TextEditingController(text: widget.spot.closingTime);
-    _arrivalCtrl = TextEditingController(text: widget.spot.estimatedArrivalTime);
+    _arrivalCtrl = TextEditingController(
+      text: widget.spot.estimatedArrivalTime,
+    );
     _durationCtrl = TextEditingController(
       text: widget.spot.estimatedDurationMinutes <= 0
           ? ''
@@ -1967,7 +2653,7 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Set manual visit hours and itinerary timing for this package stop.',
+                'Set visit hours and package-specific schedule timing for this tourist spot.',
                 style: TextStyle(
                   color: SubTenantColors.muted,
                   fontWeight: FontWeight.w700,
@@ -2050,6 +2736,533 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
   }
 }
 
+class _WizardDayCard extends StatelessWidget {
+  const _WizardDayCard({
+    required this.day,
+    required this.onRename,
+    required this.onAddItem,
+    required this.onEditItem,
+    required this.onDeleteItem,
+    required this.onMoveItem,
+  });
+
+  final PackageItineraryDay day;
+  final VoidCallback onRename;
+  final VoidCallback onAddItem;
+  final ValueChanged<PackageItineraryItem> onEditItem;
+  final ValueChanged<PackageItineraryItem> onDeleteItem;
+  final void Function(int oldIndex, int newIndex) onMoveItem;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: SubTenantColors.backgroundAlt,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SubTenantSectionHeader(
+                  title: 'Day ${day.dayNumber}',
+                  subtitle: day.title,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Rename day',
+                onPressed: onRename,
+                icon: const Icon(Icons.edit_rounded),
+                color: SubTenantColors.blue,
+              ),
+              IconButton(
+                tooltip: 'Add stop',
+                onPressed: onAddItem,
+                icon: const Icon(Icons.add_location_alt_rounded),
+                color: SubTenantColors.blue,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (day.items.isEmpty)
+            const SubTenantEmptyState(
+              icon: Icons.route_outlined,
+              title: 'No stops for this day',
+              message: 'Add itinerary items from the selected tourist spots.',
+            )
+          else
+            ...day.items.asMap().entries.map(
+              (entry) => _WizardItineraryTile(
+                item: entry.value,
+                index: entry.key,
+                total: day.items.length,
+                onEdit: () => onEditItem(entry.value),
+                onDelete: () => onDeleteItem(entry.value),
+                onMoveUp: () => onMoveItem(entry.key, entry.key - 1),
+                onMoveDown: () => onMoveItem(entry.key, entry.key + 1),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WizardItineraryTile extends StatelessWidget {
+  const _WizardItineraryTile({
+    required this.item,
+    required this.index,
+    required this.total,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onMoveUp,
+    required this.onMoveDown,
+  });
+
+  final PackageItineraryItem item;
+  final int index;
+  final int total;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = [
+      if (item.timeLabel.isNotEmpty) item.timeLabel,
+      if (item.note.isNotEmpty) item.note,
+    ].join(' / ');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8EEF7),
+              borderRadius: BorderRadius.circular(15),
+              image: item.spotImageUrl.isEmpty
+                  ? null
+                  : DecorationImage(
+                      image: NetworkImage(item.spotImageUrl),
+                      fit: BoxFit.cover,
+                    ),
+            ),
+            child: item.spotImageUrl.isEmpty
+                ? const Icon(
+                    Icons.place_rounded,
+                    color: SubTenantColors.lightMuted,
+                  )
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.spotTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: SubTenantColors.text,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13.5,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle.isEmpty ? 'No schedule note yet' : subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Move up',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: index == 0 ? null : onMoveUp,
+                    icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Move down',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: index == total - 1 ? null : onMoveDown,
+                    icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Edit',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_rounded),
+                    color: SubTenantColors.blue,
+                  ),
+                  IconButton(
+                    tooltip: 'Delete',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    color: const Color(0xFFDC2626),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ItineraryItemSheet extends StatefulWidget {
+  const _ItineraryItemSheet({
+    required this.service,
+    required this.profile,
+    required this.packageId,
+    required this.day,
+    required this.spots,
+    required this.item,
+  });
+
+  final SubTenantService service;
+  final SubTenantProfile profile;
+  final dynamic packageId;
+  final PackageItineraryDay day;
+  final List<SubTenantSpot> spots;
+  final PackageItineraryItem? item;
+
+  @override
+  State<_ItineraryItemSheet> createState() => _ItineraryItemSheetState();
+}
+
+class _ItineraryItemSheetState extends State<_ItineraryItemSheet> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _timeCtrl;
+  late final TextEditingController _noteCtrl;
+  dynamic _spotId;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timeCtrl = TextEditingController(text: widget.item?.timeLabel ?? '');
+    _noteCtrl = TextEditingController(text: widget.item?.note ?? '');
+    _spotId = widget.item?.spotId ?? widget.spots.first.id;
+  }
+
+  @override
+  void dispose() {
+    _timeCtrl.dispose();
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+
+    try {
+      await widget.service.saveItineraryItem(
+        profile: widget.profile,
+        packageId: widget.packageId,
+        dayId: widget.day.id,
+        itemId: widget.item?.id,
+        spotId: _spotId,
+        timeLabel: _timeCtrl.text.trim(),
+        note: _noteCtrl.text.trim(),
+        sortOrder: widget.item?.sortOrder ?? widget.day.items.length,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Failed to save itinerary item: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottomInset),
+      decoration: const BoxDecoration(
+        color: SubTenantColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Form(
+        key: _formKey,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 48,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                widget.item == null ? 'Add Itinerary Stop' : 'Edit Stop',
+                style: const TextStyle(
+                  color: SubTenantColors.text,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<dynamic>(
+                initialValue: _spotId,
+                decoration: InputDecoration(
+                  labelText: 'Tourist Spot',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: SubTenantColors.line),
+                  ),
+                ),
+                items: widget.spots
+                    .map(
+                      (spot) => DropdownMenuItem<dynamic>(
+                        value: spot.id,
+                        child: Text(
+                          spot.title,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (value) => setState(() => _spotId = value),
+              ),
+              const SizedBox(height: 14),
+              SubTenantTextField(
+                controller: _timeCtrl,
+                label: 'Time Label',
+                hint: '09:00 AM',
+              ),
+              const SizedBox(height: 14),
+              SubTenantTextField(
+                controller: _noteCtrl,
+                label: 'Note',
+                maxLines: 3,
+              ),
+              const SizedBox(height: 18),
+              SubTenantGradientButton(
+                label: 'Save Stop',
+                icon: Icons.save_rounded,
+                loading: _saving,
+                onPressed: _save,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PackageReviewCard extends StatelessWidget {
+  const _PackageReviewCard({
+    required this.title,
+    required this.subtitle,
+    required this.city,
+    required this.priceText,
+    required this.durationText,
+    required this.status,
+    required this.visibility,
+    required this.selectedSpotCount,
+    required this.itineraryDayCount,
+    required this.itineraryStopCount,
+    required this.packageId,
+  });
+
+  final String title;
+  final String subtitle;
+  final String city;
+  final String priceText;
+  final String durationText;
+  final String status;
+  final String visibility;
+  final int selectedSpotCount;
+  final int itineraryDayCount;
+  final int itineraryStopCount;
+  final dynamic packageId;
+
+  @override
+  Widget build(BuildContext context) {
+    return SubTenantDashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SubTenantSectionHeader(
+            title: 'Review Summary',
+            subtitle: 'Check the package details before saving.',
+          ),
+          const SizedBox(height: 12),
+          _ReviewMetric(
+            icon: Icons.inventory_2_rounded,
+            label: 'Package',
+            value: title.isEmpty ? 'Untitled package' : title,
+          ),
+          if (subtitle.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _ReviewMetric(
+              icon: Icons.short_text_rounded,
+              label: 'Subtitle',
+              value: subtitle,
+            ),
+          ],
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.location_on_rounded,
+            label: 'City',
+            value: city.isEmpty ? 'Not set' : city,
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.payments_rounded,
+            label: 'Price',
+            value: priceText.isEmpty ? 'Not set' : priceText,
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.schedule_rounded,
+            label: 'Duration',
+            value: durationText.isEmpty ? 'Not set' : durationText,
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.place_rounded,
+            label: 'Selected Spots',
+            value: '$selectedSpotCount',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.calendar_view_day_rounded,
+            label: 'Itinerary Days',
+            value: '$itineraryDayCount',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.route_rounded,
+            label: 'Itinerary Stops',
+            value: '$itineraryStopCount',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.circle_rounded,
+            label: 'Status / Visibility',
+            value: '${stTitleCase(status)} / ${stTitleCase(visibility)}',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.tag_rounded,
+            label: 'Package ID',
+            value: packageId == null
+                ? 'Will be created on save'
+                : stId(packageId),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewMetric extends StatelessWidget {
+  const _ReviewMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: SubTenantColors.blue.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: SubTenantColors.blue, size: 18),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: SubTenantColors.lightMuted,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: SubTenantColors.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _PackagePreviewCard extends StatelessWidget {
   const _PackagePreviewCard({
     required this.titleCtrl,
@@ -2083,7 +3296,7 @@ class _PackagePreviewCard extends StatelessWidget {
         children: [
           const SubTenantSectionHeader(
             title: 'Tourist-Facing Preview',
-            subtitle: 'Updates live as you type',
+            subtitle: 'Updates live as you edit the package',
           ),
           const SizedBox(height: 12),
           ListenableBuilder(
@@ -2116,7 +3329,6 @@ class _PackagePreviewCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Cover
                     coverUrl.isNotEmpty
                         ? Image.network(
                             coverUrl,
@@ -2261,8 +3473,6 @@ class _Chip extends StatelessWidget {
     );
   }
 }
-
-// ─── Google suggestion card ───────────────────────────────────────────────────
 
 class _GSpotCard extends StatelessWidget {
   const _GSpotCard({
@@ -2434,8 +3644,6 @@ class _GSpotCard extends StatelessWidget {
     ),
   );
 }
-
-// ─── Filter chip ─────────────────────────────────────────────────────────────
 
 class _FilterChip extends StatelessWidget {
   const _FilterChip({

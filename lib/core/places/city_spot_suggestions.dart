@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
@@ -75,13 +77,29 @@ class CityMunicipalityArea {
 }
 
 class CitySpotSuggestionService {
-  const CitySpotSuggestionService({this.apiKey = defaultGoogleMapsApiKey});
+  CitySpotSuggestionService({String? apiKey})
+    : apiKey = apiKey ?? resolveApiKey();
 
   static const String defaultGoogleMapsApiKey =
       'AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k';
   static const LatLng defaultBulacanCenter = LatLng(14.9597, 120.9206);
 
   final String apiKey;
+
+  /// Prefer `GOOGLE_MAPS_API_KEY` or `GOOGLE_PLACES_API_KEY` from `.env`
+  /// (Places API + billing enabled). Falls back to [defaultGoogleMapsApiKey].
+  static String resolveApiKey() {
+    try {
+      final fromEnv = (dotenv.env['GOOGLE_MAPS_API_KEY'] ??
+              dotenv.env['GOOGLE_PLACES_API_KEY'] ??
+              '')
+          .trim();
+      if (fromEnv.isNotEmpty) return fromEnv;
+    } catch (_) {
+      // dotenv may not be loaded in tests.
+    }
+    return defaultGoogleMapsApiKey;
+  }
 
   Future<List<CitySpotSuggestion>> fetchSuggestions({
     required String city,
@@ -238,6 +256,7 @@ class CitySpotSuggestionService {
       final status = body['status']?.toString() ?? '';
 
       if (status != 'OK' && status != 'ZERO_RESULTS') {
+        _logPlacesApiIssue('textsearch', spec.tag, status, body);
         return const [];
       }
 
@@ -252,7 +271,12 @@ class CitySpotSuggestionService {
 
       suggestions.sort(_compareSpotQuality);
       return suggestions.take(6).toList(growable: false);
-    } catch (_) {
+    } catch (error, stack) {
+      developer.log(
+        'Google Places text search failed (${spec.tag}): $error',
+        name: 'CitySpotSuggestionService',
+        stackTrace: stack,
+      );
       return const [];
     }
   }
@@ -279,7 +303,10 @@ class CitySpotSuggestionService {
 
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       final status = body['status']?.toString() ?? '';
-      if (status != 'OK' && status != 'ZERO_RESULTS') return const [];
+      if (status != 'OK' && status != 'ZERO_RESULTS') {
+        _logPlacesApiIssue('nearbysearch', spec.tag, status, body);
+        return const [];
+      }
 
       final results = (body['results'] as List?) ?? const [];
       final suggestions = _parsePlacesResults(
@@ -292,9 +319,28 @@ class CitySpotSuggestionService {
 
       suggestions.sort(_compareSpotQuality);
       return suggestions.take(6).toList(growable: false);
-    } catch (_) {
+    } catch (error, stack) {
+      developer.log(
+        'Google Places nearby search failed (${spec.tag}): $error',
+        name: 'CitySpotSuggestionService',
+        stackTrace: stack,
+      );
       return const [];
     }
+  }
+
+  void _logPlacesApiIssue(
+    String endpoint,
+    String tag,
+    String status,
+    Map<String, dynamic> body,
+  ) {
+    final message = body['error_message']?.toString() ?? '';
+    developer.log(
+      'Google Places $endpoint [$tag] returned $status'
+      '${message.isEmpty ? '' : ': $message'}',
+      name: 'CitySpotSuggestionService',
+    );
   }
 
   List<CitySpotSuggestion> _parsePlacesResults({
@@ -561,21 +607,29 @@ class CitySpotSuggestionService {
 
     if (aliases.isEmpty) return false;
 
-    // Keep province check if available
-    if (selectedProvince.isNotEmpty &&
-        !normalizedAddress.contains(selectedProvince)) {
-      return false;
-    }
+    final distanceKm = _haversineKm(
+      center.latitude,
+      center.longitude,
+      latitude,
+      longitude,
+    );
 
-    // Accept the place if address contains city alias
-    if (aliases.any(normalizedAddress.contains)) {
+    // Prefer geographic proximity to the selected municipality center.
+    // Google addresses often omit "Bulacan", so do not require it in text.
+    if (distanceKm <= 25) return true;
+
+    if (normalizedAddress.isNotEmpty &&
+        aliases.any(normalizedAddress.contains)) {
       return true;
     }
 
-    // If address does not contain city alias, accept it if coordinates
-    // are within 15km of the selected city center
-    final distanceKm = _haversineKm(center.latitude, center.longitude, latitude, longitude);
-    return distanceKm <= 15;
+    if (selectedProvince.isNotEmpty &&
+        normalizedAddress.contains(selectedProvince) &&
+        distanceKm <= 40) {
+      return true;
+    }
+
+    return false;
   }
 
   String _buildDescription({
@@ -714,6 +768,15 @@ const Set<String> _acceptedGooglePlaceTypes = {
   'cafe',
   'bakery',
   'natural_feature',
+  'art_gallery',
+  'amusement_park',
+  'aquarium',
+  'zoo',
+  'shopping_mall',
+  'lodging',
+  'spa',
+  'bar',
+  'night_club',
 };
 
 class _NearbySearchSpec {

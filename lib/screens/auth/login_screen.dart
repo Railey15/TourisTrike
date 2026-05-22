@@ -1,7 +1,9 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/screens/driver/profile/driver_profile_completion_screen.dart';
+import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
 
 import 'signup_screen.dart';
 import 'complete_profile_screen.dart';
@@ -49,8 +51,9 @@ class _LoginScreenState extends State<LoginScreen> {
         SnackBar(
           content: Text(msg),
           behavior: SnackBarBehavior.floating,
-          backgroundColor:
-              isError ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -88,11 +91,11 @@ class _LoginScreenState extends State<LoginScreen> {
       final authRes = await supabase.auth
           .signInWithPassword(email: email, password: password)
           .timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          throw TimeoutException('Login request timed out.');
-        },
-      );
+            const Duration(seconds: 15),
+            onTimeout: () {
+              throw TimeoutException('Login request timed out.');
+            },
+          );
 
       final user = authRes.user;
 
@@ -107,11 +110,11 @@ class _LoginScreenState extends State<LoginScreen> {
           .eq('id', user.id)
           .maybeSingle()
           .timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          throw TimeoutException('Profile lookup timed out.');
-        },
-      );
+            const Duration(seconds: 15),
+            onTimeout: () {
+              throw TimeoutException('Profile lookup timed out.');
+            },
+          );
 
       if (profile == null) {
         _showSnack('Profile not found. Please complete your profile.');
@@ -141,9 +144,17 @@ class _LoginScreenState extends State<LoginScreen> {
           );
           break;
         case UserRole.driver:
+          final bundle = await DriverProfileService().fetchProfileBundle(
+            user.id,
+          );
+          if (!mounted) return;
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const DriverHomeScreen()),
+            MaterialPageRoute(
+              builder: (_) => bundle.isFullyComplete
+                  ? const DriverHomeScreen()
+                  : const DriverProfileCompletionScreen(finishToHome: true),
+            ),
           );
           break;
         case UserRole.admin:
@@ -246,8 +257,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                     setState(() => _obscure = !_obscure);
                                   },
                                   onLogin: _loading ? null : _login,
-                                  onResetPassword:
-                                      _loading ? null : _resetPassword,
+                                  onResetPassword: _loading
+                                      ? null
+                                      : _resetPassword,
                                   onSignUp: () {
                                     Navigator.push(
                                       context,
@@ -376,8 +388,6 @@ class _LoginCard extends StatelessWidget {
           children: [
             _AuthTabs(onSignUp: onSignUp),
             const SizedBox(height: 20),
-            const _InfoBanner(),
-            const SizedBox(height: 20),
             const _Label(text: 'Email Address'),
             const SizedBox(height: 9),
             _FancyInputField(
@@ -431,9 +441,9 @@ class _LoginCard extends StatelessWidget {
                 ),
                 child: Text(
                   'Forgot Password?',
-                  style: AppTextStyles.link(context).copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: AppTextStyles.link(
+                    context,
+                  ).copyWith(fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -502,54 +512,6 @@ class _AuthTabs extends StatelessWidget {
                     style: AppTextStyles.tab(context, selected: false),
                   ),
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoBanner extends StatelessWidget {
-  const _InfoBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFEFF6FF), Color(0xFFF0FDF4)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFD6E8FF)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.auto_awesome_rounded,
-              color: Color(0xFF2A86FF),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Your account opens automatically based on your saved role.',
-              style: AppTextStyles.helper(context).copyWith(
-                fontSize: 13.2,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF1E3A5F),
-                height: 1.35,
               ),
             ),
           ),
@@ -635,10 +597,9 @@ class _Label extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: Text(
         text,
-        style: AppTextStyles.fieldLabel(context).copyWith(
-          fontWeight: FontWeight.w900,
-          color: const Color(0xFF0F172A),
-        ),
+        style: AppTextStyles.fieldLabel(
+          context,
+        ).copyWith(fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
       ),
     );
   }
@@ -771,16 +732,16 @@ class _TermsText extends StatelessWidget {
           const TextSpan(text: 'By logging in, you agree to TourisTrike\'s '),
           TextSpan(
             text: 'Terms of Service',
-            style: AppTextStyles.link(context).copyWith(
-              fontWeight: FontWeight.w900,
-            ),
+            style: AppTextStyles.link(
+              context,
+            ).copyWith(fontWeight: FontWeight.w900),
           ),
           const TextSpan(text: ' and '),
           TextSpan(
             text: 'Privacy Policy',
-            style: AppTextStyles.link(context).copyWith(
-              fontWeight: FontWeight.w900,
-            ),
+            style: AppTextStyles.link(
+              context,
+            ).copyWith(fontWeight: FontWeight.w900),
           ),
           const TextSpan(text: '.'),
         ],
@@ -801,11 +762,7 @@ class _LoginBackdrop extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFF7FBFF),
-                Color(0xFFEAF5FF),
-                Color(0xFFF8FAFC),
-              ],
+              colors: [Color(0xFFF7FBFF), Color(0xFFEAF5FF), Color(0xFFF8FAFC)],
             ),
           ),
           child: SizedBox.expand(),
@@ -992,3 +949,5 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     );
   }
 }
+
+

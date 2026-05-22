@@ -1,15 +1,20 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
+import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
 
 class DriverLicenseExpiryScreen extends StatefulWidget {
   const DriverLicenseExpiryScreen({
     super.key,
-    required this.details,
+    required this.bundle,
+    this.flowStep,
   });
 
-  final DriverDetails details;
+  final DriverProfileBundle bundle;
+  final DriverProfileStep? flowStep;
 
   @override
   State<DriverLicenseExpiryScreen> createState() =>
@@ -17,143 +22,152 @@ class DriverLicenseExpiryScreen extends StatefulWidget {
 }
 
 class _DriverLicenseExpiryScreenState extends State<DriverLicenseExpiryScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final DriverProfileService _service = DriverProfileService();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  late final TextEditingController _licenseController;
+
   DateTime? _selectedExpiry;
-  bool _isSaving = false;
+  bool _saving = false;
+
+  String get _userId => widget.bundle.profile.id;
 
   @override
   void initState() {
     super.initState();
-    _selectedExpiry = widget.details.licenseExpiry;
+    _licenseController = TextEditingController(
+      text: widget.bundle.details.licenseNumber,
+    );
+    _selectedExpiry = widget.bundle.details.licenseExpiry;
+  }
+
+  @override
+  void dispose() {
+    _licenseController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickExpiry() async {
+    final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      initialDate: _selectedExpiry ?? DateTime.now(),
+      firstDate: DateTime(now.year - 1, 1, 1),
+      lastDate: DateTime(now.year + 20, 12, 31),
+      initialDate:
+          _selectedExpiry ?? DateTime(now.year + 1, now.month, now.day),
     );
 
-    if (picked != null) {
-      setState(() => _selectedExpiry = picked);
-    }
+    if (picked == null || !mounted) return;
+    setState(() => _selectedExpiry = picked);
   }
 
   Future<void> _save() async {
-    try {
-      setState(() => _isSaving = true);
-
-      await _supabase.from('driver_details').upsert({
-        'driver_id': widget.details.driverId,
-        'license_expiry': _selectedExpiry?.toIso8601String().split('T').first,
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('License expiry updated'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Color(0xFF16A34A),
-        ),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update license expiry: $e'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFFDC2626),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_selectedExpiry == null) {
+      _showError('Please select your license expiry date.');
+      return;
     }
+
+    if (mounted) {
+      setState(() => _saving = true);
+    }
+
+    try {
+      await _service.saveDriverDetails(
+        userId: _userId,
+        licenseNumber: _licenseController.text,
+        licenseExpiry: _selectedExpiry,
+      );
+
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showSuccess('License information saved.');
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('Failed to save license information: $error');
+    }
+  }
+
+  void _showSuccess(String message) => _showSnack(message, isError: false);
+
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    final value = _selectedExpiry == null
+    final expiryLabel = _selectedExpiry == null
         ? 'Select expiry date'
         : DateFormat('MMMM dd, yyyy').format(_selectedExpiry!);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        title: const Text('License Expiry'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+    return DriverProfilePageScaffold(
+      title: 'License Information',
+      subtitle: widget.flowStep == null
+          ? 'Update your driver license number and expiry date.'
+          : 'Step 2 of 7: add your license information.',
+      bottomBar: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: DriverPrimaryButton(
+          label: widget.flowStep == null ? 'Save Changes' : 'Save and Continue',
+          onPressed: _save,
+          loading: _saving,
+          icon: Icons.badge_rounded,
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          InkWell(
-            onTap: _pickExpiry,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: 'License Expiry',
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
+      child: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+          children: [
+            DriverProfileCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const DriverSectionTitle('License Details'),
+                  const SizedBox(height: 14),
+                  DriverTextField(
+                    controller: _licenseController,
+                    label: 'License Number',
+                    hintText: 'Enter your driver license number',
+                    validator: _requiredValidator,
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
+                  const SizedBox(height: 12),
+                  DriverReadOnlyField(
+                    label: 'License Expiry',
+                    value: expiryLabel,
+                    onTap: _pickExpiry,
+                    trailingIcon: Icons.calendar_month_rounded,
                   ),
-                ),
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    color: Color(0xFF172033),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 54,
-            child: ElevatedButton(
-              onPressed: _isSaving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2F6FFF),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Text(
-                      'Save Changes',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+
+  String? _requiredValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required.';
+    }
+    return null;
+  }
 }
+
+

@@ -1,14 +1,19 @@
-import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:flutter/material.dart';
+
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
+import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
 
 class DriverTodaAssignmentScreen extends StatefulWidget {
   const DriverTodaAssignmentScreen({
     super.key,
-    required this.details,
+    required this.bundle,
+    this.flowStep,
   });
 
-  final DriverDetails details;
+  final DriverProfileBundle bundle;
+  final DriverProfileStep? flowStep;
 
   @override
   State<DriverTodaAssignmentScreen> createState() =>
@@ -17,18 +22,24 @@ class DriverTodaAssignmentScreen extends StatefulWidget {
 
 class _DriverTodaAssignmentScreenState
     extends State<DriverTodaAssignmentScreen> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final DriverProfileService _service = DriverProfileService();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _todaController;
   late final TextEditingController _operatorController;
-  bool _isSaving = false;
+  bool _saving = false;
+
+  String get _userId => widget.bundle.profile.id;
 
   @override
   void initState() {
     super.initState();
-    _todaController = TextEditingController(text: widget.details.todaName);
-    _operatorController =
-        TextEditingController(text: widget.details.operatorCode);
+    _todaController = TextEditingController(
+      text: widget.bundle.details.todaName,
+    );
+    _operatorController = TextEditingController(
+      text: widget.bundle.details.operatorCode,
+    );
   }
 
   @override
@@ -39,134 +50,103 @@ class _DriverTodaAssignmentScreenState
   }
 
   Future<void> _save() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+
+    if (mounted) {
+      setState(() => _saving = true);
+    }
+
     try {
-      setState(() => _isSaving = true);
-
-      await _supabase.from('driver_details').upsert({
-        'driver_id': widget.details.driverId,
-        'toda_name':
-            _todaController.text.trim().isEmpty ? null : _todaController.text.trim(),
-        'operator_code': _operatorController.text.trim().isEmpty
-            ? null
-            : _operatorController.text.trim(),
-      });
+      await _service.saveTodaAssignment(
+        userId: _userId,
+        todaName: _todaController.text,
+        operatorCode: _operatorController.text,
+      );
 
       if (!mounted) return;
-      _showSnack('TODA assignment updated', error: false);
-      Navigator.pop(context, true);
-    } catch (e) {
+      setState(() => _saving = false);
+      _showSuccess('TODA assignment saved.');
+      Navigator.of(context).pop(true);
+    } catch (error) {
       if (!mounted) return;
-      _showSnack('Failed to update TODA assignment: $e');
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+      setState(() => _saving = false);
+      _showError('Failed to save TODA assignment: $error');
     }
   }
 
-  void _showSnack(String message, {bool error = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor:
-            error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
-      ),
-    );
-  }
+  void _showSuccess(String message) => _showSnack(message, isError: false);
 
-  Widget _field(String label, TextEditingController controller) {
-    return TextField(
-      controller: controller,
-      decoration: InputDecoration(
-        labelText: label,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFFE5EAF1)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFF2F6FFF), width: 1.3),
-        ),
-      ),
-    );
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        title: const Text('TODA Assignment'),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+    return DriverProfilePageScaffold(
+      title: 'TODA Assignment',
+      subtitle: widget.flowStep == null
+          ? 'Update your TODA name and operator code.'
+          : 'Step 3 of 7: add your TODA assignment details.',
+      bottomBar: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: DriverPrimaryButton(
+          label: widget.flowStep == null ? 'Save Changes' : 'Save and Continue',
+          onPressed: _save,
+          loading: _saving,
+          icon: Icons.groups_2_rounded,
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _Card(
-            child: Column(
-              children: [
-                _field('TODA Name', _todaController),
-                const SizedBox(height: 12),
-                _field('Operator Code', _operatorController),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 54,
-            child: ElevatedButton(
-              onPressed: _isSaving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2F6FFF),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
+      child: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+          children: [
+            DriverProfileCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const DriverSectionTitle('TODA Details'),
+                  const SizedBox(height: 14),
+                  DriverTextField(
+                    controller: _todaController,
+                    label: 'TODA Assignment',
+                    hintText: 'Example: San Miguel TODA',
+                    validator: _requiredValidator,
+                  ),
+                  const SizedBox(height: 12),
+                  DriverTextField(
+                    controller: _operatorController,
+                    label: 'Operator Code',
+                    validator: _requiredValidator,
+                  ),
+                ],
               ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Text(
-                      'Save Changes',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
-}
 
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: child,
-    );
+  String? _requiredValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required.';
+    }
+    return null;
   }
 }
+
+

@@ -8,8 +8,6 @@ import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
-enum _PackageViewMode { list, grid }
-
 class SubTenantPackagesScreen extends StatefulWidget {
   const SubTenantPackagesScreen({super.key});
 
@@ -25,7 +23,6 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   late Future<_PackageListLoad> _future;
   String _status = 'all';
   String _visibility = 'all';
-  _PackageViewMode _viewMode = _PackageViewMode.list;
 
   @override
   void initState() {
@@ -224,9 +221,7 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
               searchCtrl: _searchCtrl,
               status: _status,
               visibility: _visibility,
-              viewMode: _viewMode,
               onOpenFilters: () => _openFilters(load.packages),
-              onViewModeChanged: (mode) => setState(() => _viewMode = mode),
               onCreate: () => _openForm(),
               onEdit: _openForm,
               onItinerary: _openItinerary,
@@ -253,9 +248,7 @@ class _PackagesBody extends StatelessWidget {
     required this.searchCtrl,
     required this.status,
     required this.visibility,
-    required this.viewMode,
     required this.onOpenFilters,
-    required this.onViewModeChanged,
     required this.onCreate,
     required this.onEdit,
     required this.onItinerary,
@@ -269,15 +262,12 @@ class _PackagesBody extends StatelessWidget {
   final TextEditingController searchCtrl;
   final String status;
   final String visibility;
-  final _PackageViewMode viewMode;
   final VoidCallback onOpenFilters;
-  final ValueChanged<_PackageViewMode> onViewModeChanged;
   final VoidCallback onCreate;
   final ValueChanged<SubTenantPackage> onEdit;
   final ValueChanged<SubTenantPackage> onItinerary;
   final void Function(SubTenantPackage package, String status) onStatus;
-  final void Function(SubTenantPackage package, bool visible)
-      onVisibilityChanged;
+  final void Function(SubTenantPackage package, bool visible) onVisibilityChanged;
 
   String get _filterLabel {
     final hasStatus = status != 'all';
@@ -318,11 +308,9 @@ class _PackagesBody extends StatelessWidget {
             _PackageToolbar(
               controller: searchCtrl,
               filterLabel: _filterLabel,
-              viewMode: viewMode,
               resultCount: packages.length,
               totalCount: allPackages.length,
               onOpenFilters: onOpenFilters,
-              onViewModeChanged: onViewModeChanged,
             ),
             const SizedBox(height: 12),
             if (packages.isEmpty)
@@ -334,16 +322,8 @@ class _PackagesBody extends StatelessWidget {
                 actionLabel: 'Create Package',
                 onAction: onCreate,
               )
-            else if (viewMode == _PackageViewMode.grid)
-              _PackageGrid(
-                packages: packages,
-                onEdit: onEdit,
-                onItinerary: onItinerary,
-                onStatus: onStatus,
-                onVisibilityChanged: onVisibilityChanged,
-              )
             else
-              _MobilePackageList(
+              _PackageGrid(
                 packages: packages,
                 onEdit: onEdit,
                 onItinerary: onItinerary,
@@ -362,11 +342,9 @@ class _PackagesBody extends StatelessWidget {
           _PackageToolbar(
             controller: searchCtrl,
             filterLabel: _filterLabel,
-            viewMode: viewMode,
             resultCount: packages.length,
             totalCount: allPackages.length,
             onOpenFilters: onOpenFilters,
-            onViewModeChanged: onViewModeChanged,
           ),
           const SizedBox(height: 12),
           Expanded(
@@ -379,29 +357,21 @@ class _PackagesBody extends StatelessWidget {
                     actionLabel: 'Create Package',
                     onAction: onCreate,
                   )
-                : viewMode == _PackageViewMode.grid
-                    ? _PanelCard(
-                        padding: const EdgeInsets.all(12),
-                        child: Scrollbar(
-                          thumbVisibility: true,
-                          child: SingleChildScrollView(
-                            child: _PackageGrid(
-                              packages: packages,
-                              onEdit: onEdit,
-                              onItinerary: onItinerary,
-                              onStatus: onStatus,
-                              onVisibilityChanged: onVisibilityChanged,
-                            ),
-                          ),
+                : _PanelCard(
+                    padding: const EdgeInsets.all(12),
+                    child: Scrollbar(
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        child: _PackageGrid(
+                          packages: packages,
+                          onEdit: onEdit,
+                          onItinerary: onItinerary,
+                          onStatus: onStatus,
+                          onVisibilityChanged: onVisibilityChanged,
                         ),
-                      )
-                    : _PackageTable(
-                        packages: packages,
-                        onEdit: onEdit,
-                        onItinerary: onItinerary,
-                        onStatus: onStatus,
-                        onVisibilityChanged: onVisibilityChanged,
                       ),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -413,20 +383,16 @@ class _PackageToolbar extends StatelessWidget {
   const _PackageToolbar({
     required this.controller,
     required this.filterLabel,
-    required this.viewMode,
     required this.resultCount,
     required this.totalCount,
     required this.onOpenFilters,
-    required this.onViewModeChanged,
   });
 
   final TextEditingController controller;
   final String filterLabel;
-  final _PackageViewMode viewMode;
   final int resultCount;
   final int totalCount;
   final VoidCallback onOpenFilters;
-  final ValueChanged<_PackageViewMode> onViewModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -453,11 +419,6 @@ class _PackageToolbar extends StatelessWidget {
                   onTap: onOpenFilters,
                 ),
                 const SizedBox(width: 10),
-                _ViewModeToggle(
-                  value: viewMode,
-                  onChanged: onViewModeChanged,
-                ),
-                const SizedBox(width: 10),
                 _ResultPill(label: countLabel),
               ],
             )
@@ -478,11 +439,6 @@ class _PackageToolbar extends StatelessWidget {
                         label: filterLabel,
                         onTap: onOpenFilters,
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    _ViewModeToggle(
-                      value: viewMode,
-                      onChanged: onViewModeChanged,
                     ),
                   ],
                 ),
@@ -551,85 +507,6 @@ class _ToolbarButton extends StatelessWidget {
   }
 }
 
-class _ViewModeToggle extends StatelessWidget {
-  const _ViewModeToggle({
-    required this.value,
-    required this.onChanged,
-  });
-
-  final _PackageViewMode value;
-  final ValueChanged<_PackageViewMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: SubTenantColors.line),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _ToggleIconButton(
-            selected: value == _PackageViewMode.list,
-            icon: Icons.view_list_rounded,
-            tooltip: 'List view',
-            onTap: () => onChanged(_PackageViewMode.list),
-          ),
-          _ToggleIconButton(
-            selected: value == _PackageViewMode.grid,
-            icon: Icons.grid_view_rounded,
-            tooltip: 'Grid view',
-            onTap: () => onChanged(_PackageViewMode.grid),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ToggleIconButton extends StatelessWidget {
-  const _ToggleIconButton({
-    required this.selected,
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final bool selected;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: selected ? SubTenantColors.blue : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: selected ? Colors.white : SubTenantColors.muted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ResultPill extends StatelessWidget {
   const _ResultPill({required this.label});
 
@@ -663,117 +540,6 @@ class _ResultPill extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PackageTable extends StatelessWidget {
-  const _PackageTable({
-    required this.packages,
-    required this.onEdit,
-    required this.onItinerary,
-    required this.onStatus,
-    required this.onVisibilityChanged,
-  });
-
-  final List<SubTenantPackage> packages;
-  final ValueChanged<SubTenantPackage> onEdit;
-  final ValueChanged<SubTenantPackage> onItinerary;
-  final void Function(SubTenantPackage package, String status) onStatus;
-  final void Function(SubTenantPackage package, bool visible)
-      onVisibilityChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PanelCard(
-      padding: EdgeInsets.zero,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
-        child: ResponsiveTableWrapper(
-          minWidth: 1120,
-          child: DataTable(
-            showCheckboxColumn: false,
-            headingRowHeight: 46,
-            dataRowMinHeight: 64,
-            dataRowMaxHeight: 70,
-            horizontalMargin: 18,
-            columnSpacing: 24,
-            headingTextStyle: const TextStyle(
-              color: SubTenantColors.muted,
-              fontWeight: FontWeight.w900,
-              fontSize: 11.5,
-            ),
-            dataTextStyle: const TextStyle(
-              color: SubTenantColors.text,
-              fontWeight: FontWeight.w700,
-              fontSize: 12.2,
-            ),
-            columns: const [
-              DataColumn(label: Text('Package')),
-              DataColumn(label: Text('Price')),
-              DataColumn(label: Text('Duration')),
-              DataColumn(label: Text('Status')),
-              DataColumn(label: Text('Visibility')),
-              DataColumn(label: Text('Actions')),
-            ],
-            rows: packages.map((package) {
-              final isVisible = package.visibilityStatus != 'hidden';
-
-              return DataRow(
-                onSelectChanged: (_) => onEdit(package),
-                cells: [
-                  DataCell(_PackageIdentity(package: package)),
-                  DataCell(Text(package.priceText.isEmpty ? 'N/A' : package.priceText)),
-                  DataCell(Text(package.durationText.isEmpty ? 'N/A' : package.durationText)),
-                  DataCell(SubTenantStatusPill(status: package.status)),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SubTenantStatusPill(
-                          status: package.visibilityStatus,
-                          icon: isVisible
-                              ? Icons.visibility_rounded
-                              : Icons.visibility_off_rounded,
-                        ),
-                        const SizedBox(width: 8),
-                        Switch(
-                          value: isVisible,
-                          activeThumbColor: Colors.white,
-                          activeTrackColor: SubTenantColors.blue,
-                          inactiveThumbColor: Colors.white,
-                          inactiveTrackColor: const Color(0xFFD7E2F0),
-                          onChanged: (visible) =>
-                              onVisibilityChanged(package, visible),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DataCell(
-                    _PackageActionsButton(
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'edit':
-                            onEdit(package);
-                            break;
-                          case 'itinerary':
-                            onItinerary(package);
-                            break;
-                          case 'publish':
-                          case 'draft':
-                          case 'sold_out':
-                            onStatus(package, value);
-                            break;
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              );
-            }).toList(growable: false),
-          ),
-        ),
       ),
     );
   }
@@ -829,94 +595,6 @@ class _PackageGrid extends StatelessWidget {
           }).toList(growable: false),
         );
       },
-    );
-  }
-}
-
-class _MobilePackageList extends StatelessWidget {
-  const _MobilePackageList({
-    required this.packages,
-    required this.onEdit,
-    required this.onItinerary,
-    required this.onStatus,
-    required this.onVisibilityChanged,
-  });
-
-  final List<SubTenantPackage> packages;
-  final ValueChanged<SubTenantPackage> onEdit;
-  final ValueChanged<SubTenantPackage> onItinerary;
-  final void Function(SubTenantPackage package, String status) onStatus;
-  final void Function(SubTenantPackage package, bool visible)
-      onVisibilityChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: packages.map((package) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _PackageListCard(
-            package: package,
-            onEdit: () => onEdit(package),
-            onItinerary: () => onItinerary(package),
-            onPublish: () => onStatus(package, 'published'),
-            onDraft: () => onStatus(package, 'draft'),
-            onSoldOut: () => onStatus(package, 'sold_out'),
-            onVisibilityChanged: (visible) =>
-                onVisibilityChanged(package, visible),
-          ),
-        );
-      }).toList(growable: false),
-    );
-  }
-}
-
-class _PackageIdentity extends StatelessWidget {
-  const _PackageIdentity({required this.package});
-
-  final SubTenantPackage package;
-
-  @override
-  Widget build(BuildContext context) {
-    final imageUrl = package.coverImageUrl.isNotEmpty
-        ? package.coverImageUrl
-        : package.imageUrl;
-
-    return Row(
-      children: [
-        _PackageThumb(imageUrl: imageUrl, size: 46),
-        const SizedBox(width: 11),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 310),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                package.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: SubTenantColors.text,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                package.subtitle.isEmpty ? 'No subtitle' : package.subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: SubTenantColors.muted,
-                  fontSize: 11.2,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
@@ -1088,114 +766,6 @@ class _PackageGridCard extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PackageListCard extends StatelessWidget {
-  const _PackageListCard({
-    required this.package,
-    required this.onEdit,
-    required this.onItinerary,
-    required this.onPublish,
-    required this.onDraft,
-    required this.onSoldOut,
-    required this.onVisibilityChanged,
-  });
-
-  final SubTenantPackage package;
-  final VoidCallback onEdit;
-  final VoidCallback onItinerary;
-  final VoidCallback onPublish;
-  final VoidCallback onDraft;
-  final VoidCallback onSoldOut;
-  final ValueChanged<bool> onVisibilityChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final isVisible = package.visibilityStatus != 'hidden';
-    final imageUrl = package.coverImageUrl.isNotEmpty
-        ? package.coverImageUrl
-        : package.imageUrl;
-
-    return _PanelCard(
-      child: Row(
-        children: [
-          _PackageThumb(imageUrl: imageUrl, size: 72),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${package.title}\n',
-                    style: const TextStyle(
-                      color: SubTenantColors.text,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                    ),
-                  ),
-                  TextSpan(
-                    text:
-                        '${package.subtitle.isEmpty ? 'No subtitle' : package.subtitle}\n',
-                    style: const TextStyle(
-                      color: SubTenantColors.muted,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
-                  ),
-                  TextSpan(
-                    text:
-                        '${package.priceText.isEmpty ? 'N/A' : package.priceText} • ${package.durationText.isEmpty ? 'N/A' : package.durationText}',
-                    style: const TextStyle(
-                      color: SubTenantColors.text,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _PackageActionsButton(
-                onSelected: (value) {
-                  switch (value) {
-                    case 'edit':
-                      onEdit();
-                      break;
-                    case 'itinerary':
-                      onItinerary();
-                      break;
-                    case 'publish':
-                      onPublish();
-                      break;
-                    case 'draft':
-                      onDraft();
-                      break;
-                    case 'sold_out':
-                      onSoldOut();
-                      break;
-                  }
-                },
-              ),
-              Switch(
-                value: isVisible,
-                activeThumbColor: Colors.white,
-                activeTrackColor: SubTenantColors.blue,
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: const Color(0xFFD7E2F0),
-                onChanged: onVisibilityChanged,
-              ),
-            ],
           ),
         ],
       ),
@@ -1426,7 +996,6 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
                       label: const Text('Cancel'),
                     ),
                   ),
@@ -1442,7 +1011,6 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.check_rounded),
                       label: const Text('Apply Filters'),
                       style: FilledButton.styleFrom(
                         backgroundColor: SubTenantColors.blue,

@@ -34,6 +34,26 @@ DateTime? stDate(dynamic value) {
 
 String stId(dynamic value) => value?.toString() ?? '';
 
+String stProfileDisplayName(
+  Map<String, dynamic> map, {
+  String fallback = 'Tourist',
+}) {
+  final fullName = stString(map, const ['full_name']);
+  if (fullName.isNotEmpty) return fullName;
+
+  final parts = [
+    stString(map, const ['first_name']),
+    stString(map, const ['last_name']),
+  ].where((part) => part.isNotEmpty);
+  final joined = parts.join(' ').trim();
+  if (joined.isNotEmpty) return joined;
+
+  final mobile = stString(map, const ['mobile']);
+  if (mobile.isNotEmpty) return mobile;
+
+  return fallback;
+}
+
 String stTitleCase(String value) {
   final normalized = value.replaceAll('_', ' ').trim();
   if (normalized.isEmpty) return 'N/A';
@@ -885,6 +905,8 @@ class SubTenantDriver {
   int get requiredDocumentCount => 11;
   String get documentCompleteness =>
       '$uploadedDocumentCount/$requiredDocumentCount';
+  double get averageRating => stDouble(profile['average_rating']);
+  int get totalReviews => stInt(profile['total_reviews']);
 
   List<SubTenantDocumentLink> get documentLinks {
     final docs = documents;
@@ -920,6 +942,28 @@ class SubTenantDocumentLink {
 
   final String label;
   final String url;
+}
+
+class SubTenantDriverReview {
+  const SubTenantDriverReview({
+    required this.id,
+    required this.bookingId,
+    required this.driverId,
+    required this.touristId,
+    required this.touristName,
+    required this.rating,
+    required this.reviewText,
+    this.createdAt,
+  });
+
+  final String id;
+  final String bookingId;
+  final String driverId;
+  final String touristId;
+  final String touristName;
+  final int rating;
+  final String reviewText;
+  final DateTime? createdAt;
 }
 
 class SubTenantDashboardData {
@@ -1026,6 +1070,11 @@ class SubTenantReportData {
     required this.topSpots,
     required this.averageRating,
     required this.feedbackCount,
+    this.bookings = const [],
+    this.feedback = const [],
+    this.allPackages = const [],
+    this.allSpots = const [],
+    this.allDrivers = const [],
   });
 
   final String rangeLabel;
@@ -1040,6 +1089,12 @@ class SubTenantReportData {
   final List<SubTenantReportRow> topSpots;
   final double averageRating;
   final int feedbackCount;
+
+  final List<SubTenantBooking> bookings;
+  final List<SubTenantFeedback> feedback;
+  final List<SubTenantPackage> allPackages;
+  final List<SubTenantSpot> allSpots;
+  final List<SubTenantDriver> allDrivers;
 }
 
 class SubTenantReportRange {

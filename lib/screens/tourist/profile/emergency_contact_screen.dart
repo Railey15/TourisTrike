@@ -1,101 +1,159 @@
 import 'package:flutter/material.dart';
-import 'package:touristrike/core/supabase/touristrike_models.dart';
-import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class EmergencyContactsScreen extends StatefulWidget {
   const EmergencyContactsScreen({super.key});
 
   @override
-  State<EmergencyContactsScreen> createState() => _EmergencyContactsScreenState();
+  State<EmergencyContactsScreen> createState() =>
+      _EmergencyContactsScreenState();
 }
 
 class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
-  final TourisTrikeRepository _repo = TourisTrikeRepository();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   bool _loading = true;
   bool _saving = false;
-  List<EmergencyContactRecord> _contacts = const [];
+  List<_EmergencyContact> _contacts = const [];
+  RealtimeChannel? _realtimeChannel;
 
-  EmergencyContactRecord? get _primary =>
-      _contacts.isEmpty ? null : _contacts.first;
+  User? get _user => _supabase.auth.currentUser;
 
   @override
   void initState() {
     super.initState();
-    _loadContacts();
+    _loadData();
+    _subscribeToRealtime();
   }
 
-  Future<void> _loadContacts() async {
-    setState(() => _loading = true);
+  @override
+  void dispose() {
+    _realtimeChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    final userId = _user?.id;
+    if (userId == null) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _contacts = const [];
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _loading = true);
+    }
+
     try {
-      final contacts = await _repo.fetchEmergencyContacts();
+      final rows = await _supabase
+          .from('emergency_contacts')
+          .select()
+          .eq('tourist_id', userId)
+          .order('updated_at', ascending: false);
+
       if (!mounted) return;
-      setState(() => _contacts = contacts);
-    } catch (e) {
-      _showSnack('Unable to load emergency contacts.', error: true);
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      setState(() {
+        _contacts = (rows as List<dynamic>)
+            .map(
+              (row) => _EmergencyContact.fromMap(
+                Map<String, dynamic>.from(row as Map),
+              ),
+            )
+            .toList();
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('EmergencyContactsScreen _loadData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError('Unable to load emergency contacts.');
     }
   }
 
-  void _showSnack(String message, {bool error = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor:
-              error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
-        ),
-      );
+  void _subscribeToRealtime() {
+    final userId = _user?.id;
+    if (userId == null) return;
+
+    _realtimeChannel?.unsubscribe();
+    _realtimeChannel = _supabase
+        .channel('emergency_contacts_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'emergency_contacts',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'tourist_id',
+            value: userId,
+          ),
+          callback: (_) => _loadData(),
+        )
+        .subscribe();
   }
 
-  Future<void> _launchPhone(String phone) async {
-    final uri = Uri.parse('tel:${phone.trim()}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+  Future<void> _saveData({
+    String? contactId,
+    required _EmergencyContactDraft draft,
+  }) async {
+    final userId = _user?.id;
+    if (userId == null || _saving) {
+      if (userId == null) {
+        _showError('No active session found. Please log in again.');
+      }
+      return;
     }
-  }
 
-  Future<void> _launchSms(String phone) async {
-    final uri = Uri.parse('sms:${phone.trim()}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+    if (mounted) {
+      setState(() => _saving = true);
     }
-  }
 
-  Future<void> _openEditor({EmergencyContactRecord? contact}) async {
-    final draft = await showModalBottomSheet<_EmergencyContactDraft>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _EmergencyContactSheet(contact: contact),
-    );
-    if (draft == null) return;
-
-    setState(() => _saving = true);
     try {
-      await _repo.saveEmergencyContact(
-        contactId: contact?.id,
-        name: draft.name,
-        phoneNumber: draft.phoneNumber,
-        relationship: draft.relationship,
-      );
-      await _loadContacts();
-      _showSnack(
-        contact == null ? 'Emergency contact added.' : 'Emergency contact updated.',
-      );
-    } catch (e) {
-      _showSnack('Unable to save emergency contact.', error: true);
+      final payload = <String, dynamic>{
+        'tourist_id': userId,
+        'name': draft.name.trim(),
+        'phone_number': draft.phoneNumber.trim(),
+        'relationship': draft.relationship.trim(),
+        'email': draft.email.trim().isEmpty ? null : draft.email.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      if (contactId == null) {
+        await _supabase.from('emergency_contacts').insert(payload);
+        _showSuccess('Emergency contact added.');
+      } else {
+        await _supabase
+            .from('emergency_contacts')
+            .update(payload)
+            .eq('id', contactId)
+            .eq('tourist_id', userId);
+        _showSuccess('Emergency contact updated.');
+      }
+
+      await _loadData();
+    } catch (error, stackTrace) {
+      debugPrint('EmergencyContactsScreen _saveData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _showError('Unable to save this emergency contact.');
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
-  Future<void> _deleteContact(EmergencyContactRecord contact) async {
+  Future<void> _deleteData(_EmergencyContact contact) async {
+    final userId = _user?.id;
+    if (userId == null) {
+      _showError('No active session found. Please log in again.');
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -116,28 +174,81 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
         ],
       ),
     );
+
     if (confirmed != true) return;
 
-    setState(() => _saving = true);
+    if (mounted) {
+      setState(() => _saving = true);
+    }
+
     try {
-      await _repo.deleteEmergencyContact(contact.id);
-      await _loadContacts();
-      _showSnack('Emergency contact removed.');
-    } catch (e) {
-      _showSnack('Unable to remove emergency contact.', error: true);
+      await _supabase
+          .from('emergency_contacts')
+          .delete()
+          .eq('id', contact.id)
+          .eq('tourist_id', userId);
+      _showSuccess('Emergency contact removed.');
+      await _loadData();
+    } catch (error, stackTrace) {
+      debugPrint('EmergencyContactsScreen _deleteData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _showError('Unable to remove this emergency contact.');
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  void _showSuccess(String message) => _showSnack(message, isError: false);
+
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
+        ),
+      );
+  }
+
+  Future<void> _openEditor({_EmergencyContact? contact}) async {
+    final draft = await showModalBottomSheet<_EmergencyContactDraft>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EmergencyContactSheet(contact: contact),
+    );
+
+    if (draft == null) return;
+    await _saveData(contactId: contact?.id, draft: draft);
+  }
+
+  Future<void> _launch(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     const bg = Color(0xFFF5F7FB);
+    const blue = Color(0xFF2A86FF);
+    const textDark = Color(0xFF0F172A);
+
     return Scaffold(
       backgroundColor: bg,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _saving ? null : () => _openEditor(),
-        backgroundColor: const Color(0xFF2A86FF),
+        backgroundColor: blue,
         foregroundColor: Colors.white,
         icon: _saving
             ? const SizedBox(
@@ -156,8 +267,8 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          color: const Color(0xFF2A86FF),
-          onRefresh: _loadContacts,
+          color: blue,
+          onRefresh: _loadData,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
@@ -173,7 +284,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                     child: Text(
                       'Emergency Contacts',
                       style: TextStyle(
-                        color: Color(0xFF0F172A),
+                        color: textDark,
                         fontWeight: FontWeight.w900,
                         fontSize: 20,
                       ),
@@ -182,12 +293,12 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              _HeroCard(primary: _primary),
+              const _HeroCard(),
               const SizedBox(height: 14),
               const Text(
                 'Your Contacts',
                 style: TextStyle(
-                  color: Color(0xFF0F172A),
+                  color: textDark,
                   fontWeight: FontWeight.w900,
                   fontSize: 17,
                 ),
@@ -197,24 +308,26 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                 const Center(
                   child: Padding(
                     padding: EdgeInsets.all(28),
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF2A86FF),
-                    ),
+                    child: CircularProgressIndicator(color: blue),
                   ),
                 )
               else if (_contacts.isEmpty)
                 const _EmptyState()
               else
-                ..._contacts.asMap().entries.map(
-                  (entry) => Padding(
+                ..._contacts.map(
+                  (contact) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _ContactCard(
-                      contact: entry.value,
-                      primary: entry.key == 0,
-                      onCall: () => _launchPhone(entry.value.phoneNumber),
-                      onText: () => _launchSms(entry.value.phoneNumber),
-                      onEdit: () => _openEditor(contact: entry.value),
-                      onDelete: () => _deleteContact(entry.value),
+                      contact: contact,
+                      onCall: () =>
+                          _launch('tel:${contact.phoneNumber.trim()}'),
+                      onText: () =>
+                          _launch('sms:${contact.phoneNumber.trim()}'),
+                      onEmail: contact.email.trim().isEmpty
+                          ? null
+                          : () => _launch('mailto:${contact.email.trim()}'),
+                      onEdit: () => _openEditor(contact: contact),
+                      onDelete: () => _deleteData(contact),
                     ),
                   ),
                 ),
@@ -226,10 +339,48 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   }
 }
 
-class _HeroCard extends StatelessWidget {
-  const _HeroCard({required this.primary});
+class _EmergencyContact {
+  const _EmergencyContact({
+    required this.id,
+    required this.name,
+    required this.phoneNumber,
+    required this.relationship,
+    required this.email,
+  });
 
-  final EmergencyContactRecord? primary;
+  factory _EmergencyContact.fromMap(Map<String, dynamic> map) {
+    return _EmergencyContact(
+      id: (map['id'] ?? '').toString(),
+      name: (map['name'] ?? '').toString(),
+      phoneNumber: (map['phone_number'] ?? '').toString(),
+      relationship: (map['relationship'] ?? '').toString(),
+      email: (map['email'] ?? '').toString(),
+    );
+  }
+
+  final String id;
+  final String name;
+  final String phoneNumber;
+  final String relationship;
+  final String email;
+}
+
+class _EmergencyContactDraft {
+  const _EmergencyContactDraft({
+    required this.name,
+    required this.phoneNumber,
+    required this.relationship,
+    required this.email,
+  });
+
+  final String name;
+  final String phoneNumber;
+  final String relationship;
+  final String email;
+}
+
+class _HeroCard extends StatelessWidget {
+  const _HeroCard();
 
   @override
   Widget build(BuildContext context) {
@@ -242,10 +393,10 @@ class _HeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFD6E8FF)),
       ),
-      child: Column(
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Safety First',
             style: TextStyle(
               color: Color(0xFF0F172A),
@@ -253,15 +404,13 @@ class _HeroCard extends StatelessWidget {
               fontSize: 18,
             ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: 6),
           Text(
-            primary == null
-                ? 'Add at least one emergency contact so Activity Tracking can call, text, or share your live location instantly.'
-                : 'Your primary emergency shortcut will use ${primary!.name} first during an active tour.',
-            style: const TextStyle(
+            'These contacts are loaded from your account in realtime so your latest safety information is always available.',
+            style: TextStyle(
               color: Color(0xFF475569),
-              fontWeight: FontWeight.w700,
-              height: 1.45,
+              fontWeight: FontWeight.w800,
+              height: 1.4,
             ),
           ),
         ],
@@ -273,128 +422,114 @@ class _HeroCard extends StatelessWidget {
 class _ContactCard extends StatelessWidget {
   const _ContactCard({
     required this.contact,
-    required this.primary,
     required this.onCall,
     required this.onText,
+    required this.onEmail,
     required this.onEdit,
     required this.onDelete,
   });
 
-  final EmergencyContactRecord contact;
-  final bool primary;
+  final _EmergencyContact contact;
   final VoidCallback onCall;
   final VoidCallback onText;
+  final VoidCallback? onEmail;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
+    const blue = Color(0xFF2A86FF);
+    const textDark = Color(0xFF0F172A);
+    const textMid = Color(0xFF64748B);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFE7EEF7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 12),
-          ),
-        ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.emergency_rounded,
-              color: Color(0xFF2A86FF),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.emergency_share_rounded, color: blue),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        contact.name,
-                        style: const TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15.5,
-                        ),
+                    Text(
+                      contact.name,
+                      style: const TextStyle(
+                        color: textDark,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
                       ),
                     ),
-                    if (primary)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEAF2FF),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: const Text(
-                          'PRIMARY',
-                          style: TextStyle(
-                            color: Color(0xFF2A86FF),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                          ),
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      contact.relationship.trim().isEmpty
+                          ? 'No relationship specified'
+                          : contact.relationship,
+                      style: const TextStyle(
+                        color: textMid,
+                        fontWeight: FontWeight.w800,
                       ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  contact.phoneNumber,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (contact.relationship.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    contact.relationship,
-                    style: const TextStyle(
-                      color: Color(0xFF94A3B8),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          _ActionIcon(icon: Icons.call_rounded, onTap: onCall),
-          _ActionIcon(icon: Icons.sms_rounded, onTap: onText),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'edit') onEdit();
-              if (value == 'delete') onDelete();
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'edit', child: Text('Edit')),
-              const PopupMenuItem(value: 'delete', child: Text('Delete')),
-            ],
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: Icon(
-                Icons.more_horiz_rounded,
-                color: Color(0xFF64748B),
               ),
-            ),
+              IconButton(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined, color: blue),
+              ),
+              IconButton(
+                onPressed: onDelete,
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Color(0xFFDC2626),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _InfoRow(icon: Icons.phone_rounded, label: contact.phoneNumber),
+          if (contact.email.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _InfoRow(icon: Icons.email_outlined, label: contact.email),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ActionChip(
+                icon: Icons.call_rounded,
+                label: 'Call',
+                onTap: onCall,
+              ),
+              _ActionChip(
+                icon: Icons.sms_rounded,
+                label: 'Text',
+                onTap: onText,
+              ),
+              if (onEmail != null)
+                _ActionChip(
+                  icon: Icons.email_rounded,
+                  label: 'Email',
+                  onTap: onEmail!,
+                ),
+            ],
           ),
         ],
       ),
@@ -402,10 +537,41 @@ class _ContactCard extends StatelessWidget {
   }
 }
 
-class _ActionIcon extends StatelessWidget {
-  const _ActionIcon({required this.icon, required this.onTap});
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.icon, required this.label});
 
   final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF64748B)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  const _ActionChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
   final VoidCallback onTap;
 
   @override
@@ -414,57 +580,25 @@ class _ActionIcon extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        width: 40,
-        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
+          color: const Color(0xFFEAF2FF),
           borderRadius: BorderRadius.circular(999),
         ),
-        child: Icon(icon, color: const Color(0xFF2A86FF), size: 20),
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE7EEF7)),
-      ),
-      child: const Column(
-        children: [
-          Icon(
-            Icons.shield_outlined,
-            color: Color(0xFF94A3B8),
-            size: 34,
-          ),
-          SizedBox(height: 10),
-          Text(
-            'No emergency contacts yet.',
-            style: TextStyle(
-              color: Color(0xFF0F172A),
-              fontWeight: FontWeight.w900,
-              fontSize: 16,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: const Color(0xFF2A86FF)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF2A86FF),
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'Add a contact so your active tour screen can quickly call, text, or share your live location.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w700,
-              height: 1.4,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -484,9 +618,16 @@ class _CircleButton extends StatelessWidget {
       child: Container(
         width: 44,
         height: 44,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.white,
           shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
         ),
         child: Icon(icon, color: const Color(0xFF0F172A)),
       ),
@@ -494,31 +635,41 @@ class _CircleButton extends StatelessWidget {
   }
 }
 
-class _EmergencyContactDraft {
-  const _EmergencyContactDraft({
-    required this.name,
-    required this.phoneNumber,
-    required this.relationship,
-  });
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
 
-  final String name;
-  final String phoneNumber;
-  final String relationship;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
+      ),
+      child: const Text(
+        'No emergency contacts yet. Add at least one trusted contact for safety sharing.',
+        style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w900),
+      ),
+    );
+  }
 }
 
 class _EmergencyContactSheet extends StatefulWidget {
   const _EmergencyContactSheet({this.contact});
 
-  final EmergencyContactRecord? contact;
+  final _EmergencyContact? contact;
 
   @override
   State<_EmergencyContactSheet> createState() => _EmergencyContactSheetState();
 }
 
 class _EmergencyContactSheetState extends State<_EmergencyContactSheet> {
+  final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _relationshipCtrl;
+  late final TextEditingController _emailCtrl;
 
   @override
   void initState() {
@@ -528,6 +679,7 @@ class _EmergencyContactSheetState extends State<_EmergencyContactSheet> {
     _relationshipCtrl = TextEditingController(
       text: widget.contact?.relationship ?? '',
     );
+    _emailCtrl = TextEditingController(text: widget.contact?.email ?? '');
   }
 
   @override
@@ -535,88 +687,101 @@ class _EmergencyContactSheetState extends State<_EmergencyContactSheet> {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _relationshipCtrl.dispose();
+    _emailCtrl.dispose();
     super.dispose();
   }
 
-  bool get _canSave =>
-      _nameCtrl.text.trim().isNotEmpty &&
-      _phoneCtrl.text.trim().isNotEmpty &&
-      _relationshipCtrl.text.trim().isNotEmpty;
-
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        child: SafeArea(
-          top: false,
+        child: Form(
+          key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 48,
+                width: 44,
                 height: 5,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD1D5DB),
+                  color: const Color(0xFFE2E8F0),
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                widget.contact == null ? 'Add Contact' : 'Edit Contact',
-                style: const TextStyle(
-                  color: Color(0xFF0F172A),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 18,
-                ),
-              ),
               const SizedBox(height: 14),
-              _SheetField(
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.contact == null
+                          ? 'Add Emergency Contact'
+                          : 'Edit Emergency Contact',
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _SheetTextField(
                 controller: _nameCtrl,
-                label: 'Full Name',
-                hint: 'Maria Dela Cruz',
-                onChanged: (_) => setState(() {}),
+                label: 'Name',
+                validator: _requiredValidator,
               ),
               const SizedBox(height: 10),
-              _SheetField(
+              _SheetTextField(
                 controller: _phoneCtrl,
                 label: 'Phone Number',
-                hint: '09xx xxx xxxx',
                 keyboardType: TextInputType.phone,
-                onChanged: (_) => setState(() {}),
+                validator: _requiredValidator,
               ),
               const SizedBox(height: 10),
-              _SheetField(
+              _SheetTextField(
                 controller: _relationshipCtrl,
                 label: 'Relationship',
-                hint: 'Parent, sibling, partner, friend',
-                onChanged: (_) => setState(() {}),
+                validator: _requiredValidator,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
+              _SheetTextField(
+                controller: _emailCtrl,
+                label: 'Email',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _canSave
-                      ? () => Navigator.pop(
-                            context,
-                            _EmergencyContactDraft(
-                              name: _nameCtrl.text.trim(),
-                              phoneNumber: _phoneCtrl.text.trim(),
-                              relationship: _relationshipCtrl.text.trim(),
-                            ),
-                          )
-                      : null,
+                  onPressed: () {
+                    if (!_formKey.currentState!.validate()) return;
+                    Navigator.pop(
+                      context,
+                      _EmergencyContactDraft(
+                        name: _nameCtrl.text,
+                        phoneNumber: _phoneCtrl.text,
+                        relationship: _relationshipCtrl.text,
+                        email: _emailCtrl.text,
+                      ),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2A86FF),
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFFBBD7FF),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
                     ),
@@ -633,32 +798,36 @@ class _EmergencyContactSheetState extends State<_EmergencyContactSheet> {
       ),
     );
   }
+
+  String? _requiredValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required.';
+    }
+    return null;
+  }
 }
 
-class _SheetField extends StatelessWidget {
-  const _SheetField({
+class _SheetTextField extends StatelessWidget {
+  const _SheetTextField({
     required this.controller,
     required this.label,
-    required this.hint,
-    required this.onChanged,
     this.keyboardType,
+    this.validator,
   });
 
   final TextEditingController controller;
   final String label;
-  final String hint;
-  final ValueChanged<String> onChanged;
   final TextInputType? keyboardType;
+  final String? Function(String?)? validator;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    return TextFormField(
       controller: controller,
-      onChanged: onChanged,
       keyboardType: keyboardType,
+      validator: validator,
       decoration: InputDecoration(
         labelText: label,
-        hintText: hint,
         filled: true,
         fillColor: const Color(0xFFF8FAFC),
         border: OutlineInputBorder(

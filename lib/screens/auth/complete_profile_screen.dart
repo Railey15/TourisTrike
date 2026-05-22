@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -49,8 +49,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         ),
       );
   }
-
-  bool _isValidMobile(String s) => s.trim().length >= 10;
+  bool _isValidMobile(String s) => RegExp(r'^09\d{9}$').hasMatch(s.trim());
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -153,22 +152,25 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     try {
       final ext = _imageFile!.path.split('.').last.toLowerCase();
       final path = 'avatars/$userId.$ext';
-      final bytes = await _imageFile!.readAsBytes();
-
-      await supabase.storage.from('profiles').uploadBinary(
+      // prefer the multi-part upload which works with client-side File
+      await supabase.storage.from('public-assets').upload(
             path,
-            bytes,
+            _imageFile!,
             fileOptions: FileOptions(
               contentType: 'image/$ext',
               upsert: true,
             ),
           );
 
-      final publicUrl =
-          supabase.storage.from('profiles').getPublicUrl(path);
+      final publicUrl = supabase.storage.from('public-assets').getPublicUrl(path);
       return publicUrl;
     } catch (e) {
-      _showSnack('Image upload failed: $e');
+      final msg = e.toString();
+      if (msg.contains('row-level security') || msg.contains('statusCode: 403') || msg.contains('Unauthorized')) {
+        _showSnack('Image upload failed: Unauthorized. Check your Supabase storage bucket permissions and RLS policy.');
+      } else {
+        _showSnack('Image upload failed: $e');
+      }
       return null;
     } finally {
       if (mounted) setState(() => _uploadingImage = false);
@@ -191,7 +193,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
       return;
     }
     if (mobile.isEmpty || !_isValidMobile(mobile)) {
-      _showSnack('Please enter a valid mobile number (at least 10 digits).');
+      _showSnack('Please enter a valid mobile number starting with 09 and 11 digits long.');
       return;
     }
     if (_imageFile == null) {
@@ -396,7 +398,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   }
 }
 
-// ── Avatar header ──────────────────────────────────────────────────────────
+// â”€â”€ Avatar header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _AvatarHeader extends StatelessWidget {
   const _AvatarHeader({
@@ -501,7 +503,7 @@ class _AvatarHeader extends StatelessWidget {
   }
 }
 
-// ── Photo required banner ──────────────────────────────────────────────────
+// â”€â”€ Photo required banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _PhotoRequiredBanner extends StatelessWidget {
   const _PhotoRequiredBanner({required this.onTap});
@@ -558,7 +560,7 @@ class _PhotoRequiredBanner extends StatelessWidget {
   }
 }
 
-// ── Glass card ─────────────────────────────────────────────────────────────
+// â”€â”€ Glass card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _GlassCard extends StatelessWidget {
   const _GlassCard({required this.child});
@@ -587,7 +589,7 @@ class _GlassCard extends StatelessWidget {
   }
 }
 
-// ── Gradient button ────────────────────────────────────────────────────────
+// â”€â”€ Gradient button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _GradientButton extends StatelessWidget {
   const _GradientButton({required this.text, required this.onPressed});
@@ -636,7 +638,7 @@ class _GradientButton extends StatelessWidget {
   }
 }
 
-// ── Label ──────────────────────────────────────────────────────────────────
+// â”€â”€ Label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _Label extends StatelessWidget {
   const _Label({required this.text});
@@ -659,7 +661,7 @@ class _Label extends StatelessWidget {
   }
 }
 
-// ── Fancy input field ──────────────────────────────────────────────────────
+// â”€â”€ Fancy input field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _FancyInputField extends StatefulWidget {
   const _FancyInputField({
@@ -767,3 +769,90 @@ class _FancyInputFieldState extends State<_FancyInputField> {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

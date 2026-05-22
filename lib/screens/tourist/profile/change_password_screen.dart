@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/screens/auth/login_screen.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -17,27 +18,41 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final TextEditingController _currentCtrl = TextEditingController();
   final TextEditingController _newCtrl = TextEditingController();
   final TextEditingController _confirmCtrl = TextEditingController();
-  final TextEditingController _otpCtrl = TextEditingController();
 
-  bool _sendingOtp = false;
-  bool _verifying = false;
-  bool _otpSent = false;
+  bool _saving = false;
   bool _obscureCurrent = true;
   bool _obscureNew = true;
   bool _obscureConfirm = true;
 
-  String get _email => _supabase.auth.currentUser?.email?.trim() ?? '';
+  User? get _user => _supabase.auth.currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_user == null && mounted) {
+        _showError('Your session has expired. Please log in again.');
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    });
+  }
 
   @override
   void dispose() {
     _currentCtrl.dispose();
     _newCtrl.dispose();
     _confirmCtrl.dispose();
-    _otpCtrl.dispose();
     super.dispose();
   }
 
-  void _showSnack(String message, {bool error = false}) {
+  void _showSuccess(String message) => _showSnack(message, isError: false);
+
+  void _showError(String message) => _showSnack(message, isError: true);
+
+  void _showSnack(String message, {required bool isError}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -45,8 +60,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         SnackBar(
           content: Text(message),
           behavior: SnackBarBehavior.floating,
-          backgroundColor:
-              error ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
         ),
       );
   }
@@ -67,80 +83,67 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     return errors;
   }
 
-  Future<void> _sendOtp() async {
-    final current = _currentCtrl.text;
-    final next = _newCtrl.text;
-    final confirm = _confirmCtrl.text;
-
-    if (_email.isEmpty) {
-      _showSnack('No email address found for this account.', error: true);
-      return;
-    }
-    if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
-      _showSnack('Please fill in all password fields.', error: true);
-      return;
-    }
-    if (next != confirm) {
-      _showSnack('New password and confirmation do not match.', error: true);
-      return;
-    }
-    if (next == current) {
-      _showSnack('Choose a new password different from the current one.', error: true);
-      return;
-    }
-    final errors = _passwordErrors(next);
-    if (errors.isNotEmpty) {
-      _showSnack('Password is too weak: ${errors.first}', error: true);
-      return;
-    }
-
-    setState(() => _sendingOtp = true);
-    try {
-      await _supabase.auth.signInWithPassword(email: _email, password: current);
-      await _supabase.auth.signInWithOtp(
-        email: _email,
-        shouldCreateUser: false,
-      );
+  Future<void> _saveData() async {
+    final user = _user;
+    if (user == null) {
+      _showError('Your session has expired. Please log in again.');
       if (!mounted) return;
-      setState(() => _otpSent = true);
-      _showSnack(
-        'OTP sent to $_email. The code expires based on your Supabase email OTP settings.',
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
       );
-    } on AuthException catch (e) {
-      _showSnack(e.message, error: true);
-    } catch (e) {
-      _showSnack('Unable to send OTP right now.', error: true);
-    } finally {
-      if (mounted) setState(() => _sendingOtp = false);
-    }
-  }
-
-  Future<void> _verifyAndUpdate() async {
-    final otp = _otpCtrl.text.trim();
-    if (otp.isEmpty) {
-      _showSnack('Enter the OTP code from your email.', error: true);
       return;
     }
 
-    setState(() => _verifying = true);
+    final currentPassword = _currentCtrl.text;
+    final newPassword = _newCtrl.text;
+    final confirmPassword = _confirmCtrl.text;
+
+    if (currentPassword.trim().isEmpty) {
+      _showError('Please enter your current password for confirmation.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      _showError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword != confirmPassword) {
+      _showError('New password and confirmation do not match.');
+      return;
+    }
+    if (newPassword == currentPassword) {
+      _showError('Please choose a different new password.');
+      return;
+    }
+
+    final passwordErrors = _passwordErrors(newPassword);
+    if (passwordErrors.isNotEmpty) {
+      _showError('Password is too weak: ${passwordErrors.first}');
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _saving = true);
+    }
+
     try {
-      await _supabase.auth.verifyOTP(
-        type: OtpType.email,
-        email: _email,
-        token: otp,
-      );
-      await _supabase.auth.updateUser(
-        UserAttributes(password: _newCtrl.text),
-      );
+      await _supabase.auth.updateUser(UserAttributes(password: newPassword));
       if (!mounted) return;
-      _showSnack('Password updated successfully.');
-      Navigator.pop(context);
-    } on AuthException catch (e) {
-      _showSnack(e.message, error: true);
-    } catch (e) {
-      _showSnack('Unable to update password right now.', error: true);
-    } finally {
-      if (mounted) setState(() => _verifying = false);
+      setState(() => _saving = false);
+      _showSuccess('Password updated successfully.');
+      Navigator.of(context).pop();
+    } on AuthException catch (error, stackTrace) {
+      debugPrint('ChangePasswordScreen auth error: ${error.message}');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError(error.message);
+    } catch (error, stackTrace) {
+      debugPrint('ChangePasswordScreen _saveData error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('Unable to update your password right now.');
     }
   }
 
@@ -182,11 +185,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  _email.isEmpty
-                      ? 'We could not find an email address for this account.'
-                      : 'We will verify the change by sending an OTP code to $_email.',
-                  style: const TextStyle(
+                const Text(
+                  'Your current password is used as a confirmation field. Supabase Auth will update your password directly for this account.',
+                  style: TextStyle(
                     color: Color(0xFF64748B),
                     fontWeight: FontWeight.w700,
                     height: 1.45,
@@ -197,7 +198,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   controller: _currentCtrl,
                   label: 'Current Password',
                   obscureText: _obscureCurrent,
-                  onToggle: () => setState(() => _obscureCurrent = !_obscureCurrent),
+                  onToggle: () => setState(() {
+                    _obscureCurrent = !_obscureCurrent;
+                  }),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 12),
@@ -205,7 +208,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   controller: _newCtrl,
                   label: 'New Password',
                   obscureText: _obscureNew,
-                  onToggle: () => setState(() => _obscureNew = !_obscureNew),
+                  onToggle: () => setState(() {
+                    _obscureNew = !_obscureNew;
+                  }),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 12),
@@ -213,7 +218,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   controller: _confirmCtrl,
                   label: 'Confirm New Password',
                   obscureText: _obscureConfirm,
-                  onToggle: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                  onToggle: () => setState(() {
+                    _obscureConfirm = !_obscureConfirm;
+                  }),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 12),
@@ -223,7 +230,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _sendingOtp ? null : _sendOtp,
+                    onPressed: _saving ? null : _saveData,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2A86FF),
                       foregroundColor: Colors.white,
@@ -231,7 +238,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         borderRadius: BorderRadius.circular(18),
                       ),
                     ),
-                    child: _sendingOtp
+                    child: _saving
                         ? const SizedBox(
                             width: 18,
                             height: 18,
@@ -241,7 +248,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                             ),
                           )
                         : const Text(
-                            'Send OTP',
+                            'Update Password',
                             style: TextStyle(fontWeight: FontWeight.w900),
                           ),
                   ),
@@ -249,90 +256,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               ],
             ),
           ),
-          if (_otpSent) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: const Color(0xFFE7EEF7)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Verify OTP',
-                    style: TextStyle(
-                      color: Color(0xFF0F172A),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Enter the numeric OTP code from your email to finish updating your password.',
-                    style: TextStyle(
-                      color: Color(0xFF64748B),
-                      fontWeight: FontWeight.w700,
-                      height: 1.45,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _otpCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'OTP Code',
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: Color(0xFFE7EEF7)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: Color(0xFFE7EEF7)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: _verifying ? null : _verifyAndUpdate,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF16A34A),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                      ),
-                      child: _verifying
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Verify OTP and Update',
-                              style: TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextButton(
-                    onPressed: _sendingOtp ? null : _sendOtp,
-                    child: const Text('Resend OTP'),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
