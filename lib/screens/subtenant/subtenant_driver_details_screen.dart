@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SubTenantDriverDetailsScreen extends StatefulWidget {
   const SubTenantDriverDetailsScreen({super.key, required this.driverId});
@@ -48,33 +49,103 @@ class _SubTenantDriverDetailsScreenState
   }
 
   void _reload() {
-  final nextFuture = _load();
-
-  setState(() {
-    _future = nextFuture;
-  });
-}
+    final nextFuture = _load();
+    setState(() {
+      _future = nextFuture;
+    });
+  }
 
   Future<void> _setStatus(
     SubTenantProfile profile,
     SubTenantDriver driver,
-    String status,
-  ) async {
+    String status, {
+    String suspensionReason = '',
+  }) async {
     try {
-      await _service.updateDriverStatus(profile, driver, status);
+      await _service.updateDriverStatus(
+        profile,
+        driver,
+        status,
+        suspensionReason: suspensionReason,
+      );
       if (!mounted) return;
       showSubTenantSnack(context, 'Driver status updated.', error: false);
-      _reload();
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       showSubTenantSnack(context, 'Failed to update driver status: $e');
     }
   }
 
-  void _contact(SubTenantDriver driver) {
-    final mobile =
-        driver.mobile.isEmpty ? 'No mobile number saved' : driver.mobile;
-    showSubTenantSnack(context, mobile, error: false);
+  Future<void> _contact(SubTenantDriver driver) async {
+    if (driver.mobile.trim().isEmpty) {
+      showSubTenantSnack(context, 'No phone number available.');
+      return;
+    }
+
+    final uri = Uri.parse('tel:${driver.mobile.trim()}');
+    if (!await launchUrl(uri)) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'No phone number available.');
+    }
+  }
+
+  Future<void> _confirmSuspend(
+    SubTenantProfile profile,
+    SubTenantDriver driver,
+  ) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Suspend Driver'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Suspend ${driver.fullName} and block bookings, online mode, and new assignments until reactivated.',
+                style: const TextStyle(height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Suspension Reason',
+                  hintText: 'Enter the reason for suspension',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final reason = reasonCtrl.text.trim();
+                if (reason.isEmpty) return;
+                Navigator.pop(context, reason);
+              },
+              child: const Text('Suspend'),
+            ),
+          ],
+        );
+      },
+    );
+    reasonCtrl.dispose();
+
+    if (confirmed == null || confirmed.trim().isEmpty || !mounted) return;
+    await _setStatus(
+      profile,
+      driver,
+      'suspended',
+      suspensionReason: confirmed.trim(),
+    );
   }
 
   @override
@@ -123,7 +194,7 @@ class _SubTenantDriverDetailsScreenState
                       : () => _setStatus(load.profile, driver, 'approved'),
                   onSuspend: driver.status == 'suspended'
                       ? null
-                      : () => _setStatus(load.profile, driver, 'suspended'),
+                      : () => _confirmSuspend(load.profile, driver),
                 ),
                 const SizedBox(height: 14),
                 LayoutBuilder(

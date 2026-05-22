@@ -4,6 +4,7 @@ import 'dart:math' show atan2, cos, sin, sqrt;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
@@ -50,6 +51,7 @@ class _GPlaceSuggestion {
 
 const _kGoogleApiKey = 'AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k';
 
+// ignore: unused_element
 Future<Map<String, List<_GPlaceSuggestion>>> _fetchGoogleSuggestions(
   String city,
   String province,
@@ -182,6 +184,22 @@ String _normalizeText(String value) {
       .replaceAll('.', '');
 }
 
+_GPlaceSuggestion _toGoogleSuggestion(
+  CitySpotSuggestion suggestion, {
+  String? fallbackTag,
+}) {
+  return _GPlaceSuggestion(
+    placeId: suggestion.id,
+    title: suggestion.title,
+    address: suggestion.address,
+    tag: fallbackTag ?? suggestion.category,
+    rating: suggestion.rating,
+    imageUrl: suggestion.imageForCard,
+    latitude: suggestion.latitude,
+    longitude: suggestion.longitude,
+  );
+}
+
 class SubTenantPackageFormScreen extends StatefulWidget {
   const SubTenantPackageFormScreen({super.key, this.package});
 
@@ -204,7 +222,6 @@ class _SubTenantPackageFormScreenState
   final _priceCtrl = TextEditingController();
   final _durationCtrl = TextEditingController();
   final _budgetCtrl = TextEditingController();
-  final _groupSizeCtrl = TextEditingController();
   final _distanceCtrl = TextEditingController();
   final _imageCtrl = TextEditingController();
   final _coverCtrl = TextEditingController();
@@ -225,6 +242,9 @@ class _SubTenantPackageFormScreenState
   final Set<String> _addingPlaceIds = {};
   List<PackageItineraryDay> _itineraryDays = const [];
   dynamic _workingPackageId;
+  bool _routeMetricsLoading = false;
+  String _distanceHint = 'Select at least 2 destinations';
+  String _durationHint = 'Generated from itinerary schedule';
 
   late Future<_BuilderData> _dataFuture;
 
@@ -240,7 +260,6 @@ class _SubTenantPackageFormScreenState
     _prefillFromPackage();
     _dataFuture = _loadData();
     _spotSearchCtrl.addListener(() => setState(() {}));
-    _groupSizeCtrl.addListener(() => setState(() {}));
     _distanceCtrl.addListener(() => setState(() {}));
   }
 
@@ -253,7 +272,6 @@ class _SubTenantPackageFormScreenState
     _priceCtrl.dispose();
     _durationCtrl.dispose();
     _budgetCtrl.dispose();
-    _groupSizeCtrl.dispose();
     _distanceCtrl.dispose();
     _imageCtrl.dispose();
     _coverCtrl.dispose();
@@ -273,7 +291,6 @@ class _SubTenantPackageFormScreenState
     _budgetCtrl.text = pkg.estimatedBudget == 0
         ? ''
         : pkg.estimatedBudget.toStringAsFixed(0);
-    _groupSizeCtrl.text = pkg.groupSize == 0 ? '' : pkg.groupSize.toString();
     _distanceCtrl.text = pkg.routeDistanceKm == 0
         ? ''
         : pkg.routeDistanceKm.toStringAsFixed(1);
@@ -296,9 +313,10 @@ class _SubTenantPackageFormScreenState
     final popularIdsFuture = _service.loadPopularSpotIdsByCity(
       profile.assignedCity,
     );
-    final googleFuture = _fetchGoogleSuggestions(
-      profile.assignedCity,
-      profile.province,
+    final googleFuture = _service.loadPackageSmartSuggestions(
+      profile: profile,
+      keyword: _titleCtrl.text.trim(),
+      selectedSpots: _selectedSpots,
     );
     final fareFuture = _service.loadFareSettings(profile);
 
@@ -320,7 +338,15 @@ class _SubTenantPackageFormScreenState
             ..addAll(existing);
           _spotsInitialized = true;
         });
+        await _recalcDistance();
       }
+    }
+
+    final normalizedSuggestions = <String, List<_GPlaceSuggestion>>{};
+    for (final entry in googleSuggestions.entries) {
+      normalizedSuggestions[entry.key] = entry.value
+          .map((suggestion) => _toGoogleSuggestion(suggestion, fallbackTag: entry.key))
+          .toList(growable: false);
     }
 
     return _BuilderData(
@@ -328,7 +354,7 @@ class _SubTenantPackageFormScreenState
       spots: spots,
       categories: categories,
       popularIds: popularIds,
-      googleSuggestions: googleSuggestions,
+      googleSuggestions: normalizedSuggestions,
       fareSettings: fareSettings,
     );
   }
@@ -345,16 +371,16 @@ class _SubTenantPackageFormScreenState
       _selectedSpots.add(
         SelectedPackageSpot(spot: spot, sortOrder: _selectedSpots.length),
       );
-      _recalcDistance();
     });
+    _recalcDistance();
   }
 
   void _removeSpot(int index) {
     setState(() {
       _selectedSpots.removeAt(index);
       _normalizeSelectedSpots();
-      _recalcDistance();
     });
+    _recalcDistance();
   }
 
   void _moveSpotUp(int index) {
@@ -363,8 +389,8 @@ class _SubTenantPackageFormScreenState
       final item = _selectedSpots.removeAt(index);
       _selectedSpots.insert(index - 1, item);
       _normalizeSelectedSpots();
-      _recalcDistance();
     });
+    _recalcDistance();
   }
 
   void _moveSpotDown(int index) {
@@ -373,8 +399,8 @@ class _SubTenantPackageFormScreenState
       final item = _selectedSpots.removeAt(index);
       _selectedSpots.insert(index + 1, item);
       _normalizeSelectedSpots();
-      _recalcDistance();
     });
+    _recalcDistance();
   }
 
   void _normalizeSelectedSpots() {
@@ -393,25 +419,59 @@ class _SubTenantPackageFormScreenState
     );
     if (updated == null || !mounted) return;
     setState(() => _selectedSpots[index] = updated);
+    _recalcDistance();
   }
 
-  void _recalcDistance() {
-    if (_selectedSpots.length < 2) return;
-
-    double total = 0;
-    for (var i = 0; i < _selectedSpots.length - 1; i++) {
-      final a = _selectedSpots[i].spot;
-      final b = _selectedSpots[i + 1].spot;
-      if (a.latitude != 0 &&
-          a.longitude != 0 &&
-          b.latitude != 0 &&
-          b.longitude != 0) {
-        total += _haversine(a.latitude, a.longitude, b.latitude, b.longitude);
-      }
+  Future<void> _recalcDistance() async {
+    if (!mounted) return;
+    if (_selectedSpots.isEmpty) {
+      setState(() {
+        _distanceCtrl.clear();
+        _durationCtrl.clear();
+        _distanceHint = 'Select at least 2 destinations';
+        _durationHint = 'Generated from itinerary schedule';
+        _routeMetricsLoading = false;
+      });
+      return;
     }
 
-    if (total > 0) {
-      _distanceCtrl.text = total.toStringAsFixed(1);
+    setState(() {
+      _routeMetricsLoading = true;
+      _distanceHint = 'Calculating...';
+      _durationHint = 'Calculating...';
+    });
+
+    try {
+      final metrics = await _service.computePackageRouteMetrics(_selectedSpots);
+      if (!mounted) return;
+      setState(() {
+        _distanceCtrl.text = metrics.available
+            ? metrics.distanceKm.toStringAsFixed(1)
+            : '';
+        _distanceHint = metrics.available
+            ? (metrics.usedDirectionsApi
+                ? 'Calculated from Google Maps route'
+                : 'Calculated with route fallback')
+            : 'Not available';
+        _durationCtrl.text = _buildDurationText(
+          metrics.travelDurationMinutes,
+        );
+        _durationHint = _durationCtrl.text.isEmpty
+            ? 'Not available'
+            : 'Auto-generated for a day tour';
+        _routeMetricsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _distanceCtrl.clear();
+        _distanceHint = 'Not available';
+        _durationCtrl.text = _buildDurationText(0);
+        _durationHint = _durationCtrl.text.isEmpty
+            ? 'Not available'
+            : 'Auto-generated for a day tour';
+        _routeMetricsLoading = false;
+      });
     }
   }
 
@@ -427,11 +487,118 @@ class _SubTenantPackageFormScreenState
 
   double _toRad(double deg) => deg * (3.141592653589793 / 180);
 
+  String _buildDurationText(int travelDurationMinutes) {
+    final totalMinutes = _estimateTourDurationMinutes(
+      travelDurationMinutes: travelDurationMinutes,
+    );
+    if (totalMinutes <= 0) return '';
+    if (totalMinutes >= 8 * 60) return 'Whole Day Tour';
+
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours <= 0) return '$minutes Minutes';
+    if (minutes == 0) return '$hours Hours';
+    return '$hours Hours $minutes Minutes';
+  }
+
+  int _estimateTourDurationMinutes({required int travelDurationMinutes}) {
+    if (_selectedSpots.isEmpty) return 0;
+
+    final explicitSchedule = _buildExplicitDaySchedule();
+    if (explicitSchedule != null) {
+      return explicitSchedule;
+    }
+
+    final stayMinutes = _selectedSpots.fold<int>(
+      0,
+      (sum, selectedSpot) =>
+          sum +
+          _preferredStayMinutes(selectedSpot),
+    );
+    final computedTravel = travelDurationMinutes > 0
+        ? travelDurationMinutes
+        : _fallbackTravelMinutes();
+    return stayMinutes + computedTravel;
+  }
+
+  int? _buildExplicitDaySchedule() {
+    var earliest = 24 * 60;
+    var latest = 0;
+    var sawExplicit = false;
+
+    for (final selectedSpot in _selectedSpots) {
+      final arrival = _parseClockMinutes(selectedSpot.estimatedArrivalTime);
+      if (arrival == null) continue;
+      sawExplicit = true;
+      final departure = arrival + _preferredStayMinutes(selectedSpot);
+      if (arrival < earliest) earliest = arrival;
+      if (departure > latest) latest = departure;
+    }
+
+    if (!sawExplicit || latest <= earliest) return null;
+    return latest - earliest;
+  }
+
+  int _preferredStayMinutes(SelectedPackageSpot selectedSpot) {
+    if (selectedSpot.estimatedDurationMinutes > 0) {
+      return selectedSpot.estimatedDurationMinutes;
+    }
+    if (selectedSpot.recommendedVisitDurationMinutes > 0) {
+      return selectedSpot.recommendedVisitDurationMinutes;
+    }
+    return 60;
+  }
+
+  int _fallbackTravelMinutes() {
+    if (_selectedSpots.length < 2) return 0;
+    var totalKm = 0.0;
+    for (var i = 0; i < _selectedSpots.length - 1; i++) {
+      final a = _selectedSpots[i].spot;
+      final b = _selectedSpots[i + 1].spot;
+      if (a.latitude == 0 ||
+          a.longitude == 0 ||
+          b.latitude == 0 ||
+          b.longitude == 0) {
+        continue;
+      }
+      totalKm += _haversine(a.latitude, a.longitude, b.latitude, b.longitude);
+    }
+    return ((totalKm / 28) * 60).round();
+  }
+
+  int? _parseClockMinutes(String raw) {
+    final value = raw.trim().toUpperCase();
+    if (value.isEmpty) return null;
+
+    final twelveHour = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$').firstMatch(value);
+    if (twelveHour != null) {
+      var hour = int.tryParse(twelveHour.group(1)!) ?? -1;
+      final minute = int.tryParse(twelveHour.group(2)!) ?? -1;
+      final meridiem = twelveHour.group(3)!;
+      if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+      if (meridiem == 'AM') {
+        if (hour == 12) hour = 0;
+      } else if (hour != 12) {
+        hour += 12;
+      }
+      return (hour * 60) + minute;
+    }
+
+    final twentyFourHour = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value);
+    if (twentyFourHour != null) {
+      final hour = int.tryParse(twentyFourHour.group(1)!) ?? -1;
+      final minute = int.tryParse(twentyFourHour.group(2)!) ?? -1;
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+      return (hour * 60) + minute;
+    }
+
+    return null;
+  }
+
   FareCalculation _fareCalculation(SubTenantFareSettings settings) {
     final distance =
         double.tryParse(_distanceCtrl.text.trim().replaceAll(',', '')) ?? 0;
-    final groupSize = int.tryParse(_groupSizeCtrl.text.trim()) ?? 1;
-    return settings.calculate(routeDistanceKm: distance, groupSize: groupSize);
+    return settings.calculate(routeDistanceKm: distance, groupSize: 1);
   }
 
   void _useSuggestedPrice(SubTenantFareSettings settings) {
@@ -613,15 +780,89 @@ class _SubTenantPackageFormScreenState
     }
   }
 
+  bool _isValidPackageName(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    if (RegExp(r'^\d+$').hasMatch(trimmed)) return false;
+    if (!RegExp(r"[A-Za-zÀ-ÖØ-öø-ÿÑñ]").hasMatch(trimmed)) return false;
+    return RegExp(r"^[A-Za-zÀ-ÖØ-öø-ÿÑñ' -]+$").hasMatch(trimmed);
+  }
+
   String? _validateWizard() {
-    if (_titleCtrl.text.trim().isEmpty) return 'Package title is required.';
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) return 'Package title is required.';
+    if (!_isValidPackageName(title)) {
+      return 'Package name must contain valid words only.';
+    }
     if (_descriptionCtrl.text.trim().isEmpty) {
       return 'Package description is required.';
     }
     if (_priceCtrl.text.trim().isEmpty) return 'Price text is required.';
-    if (_durationCtrl.text.trim().isEmpty) {
-      return 'Duration text is required.';
+    if (_selectedSpots.isEmpty) {
+      return 'Add at least one destination to this package.';
     }
+    return null;
+  }
+
+  String? _validateDayTourRules() {
+    const earliestMinutes = 7 * 60;
+    const latestMinutes = 17 * 60;
+
+    var cursor = earliestMinutes;
+    for (final selectedSpot in _selectedSpots) {
+      final explicitArrival = _parseClockMinutes(selectedSpot.estimatedArrivalTime);
+      final arrival = explicitArrival ?? cursor;
+      final stayMinutes = _preferredStayMinutes(selectedSpot);
+      final departure = arrival + stayMinutes;
+
+      if (arrival < earliestMinutes) {
+        return '${selectedSpot.spot.title} cannot arrive before 7:00 AM.';
+      }
+      if (departure <= arrival) {
+        return '${selectedSpot.spot.title} must depart after it arrives.';
+      }
+      if (departure > latestMinutes) {
+        return 'The itinerary exceeds 5:00 PM. Adjust the destination timing.';
+      }
+
+      cursor = departure + 20;
+    }
+
+    if (_itineraryDays.length > 1) {
+      return 'Tour packages are limited to a single day itinerary only.';
+    }
+
+    for (final day in _itineraryDays) {
+      for (final item in day.items) {
+        final time = _parseClockMinutes(item.timeLabel);
+        if (time == null) {
+          return 'Use a clear time like 9:00 AM for itinerary stops.';
+        }
+        if (time < earliestMinutes || time > latestMinutes) {
+          return 'Itinerary stops must stay within 7:00 AM to 5:00 PM.';
+        }
+      }
+    }
+
+    return null;
+  }
+
+  Future<String?> _validateBeforeSave(SubTenantProfile profile) async {
+    final basicMessage = _validateWizard();
+    if (basicMessage != null) return basicMessage;
+
+    final dayTourMessage = _validateDayTourRules();
+    if (dayTourMessage != null) return dayTourMessage;
+
+    final duplicate = await _service.checkDuplicatePackageComposition(
+      profile: profile,
+      selectedSpots: _selectedSpots,
+      excludePackageId: _workingPackageId,
+    );
+    if (duplicate.isDuplicate) {
+      return 'This package is too similar to an existing package.';
+    }
+
     return null;
   }
 
@@ -630,10 +871,12 @@ class _SubTenantPackageFormScreenState
     bool showSuccess = false,
   }) async {
     final budget = double.tryParse(_budgetCtrl.text.trim().replaceAll(',', ''));
-    final groupSize = int.tryParse(_groupSizeCtrl.text.trim());
     final distance = double.tryParse(
       _distanceCtrl.text.trim().replaceAll(',', ''),
     );
+
+    final published =
+        _status == 'published' && _visibility == 'visible';
 
     final id = await _service.savePackage(
       profile: profile,
@@ -645,14 +888,13 @@ class _SubTenantPackageFormScreenState
         'price_text': _priceCtrl.text.trim(),
         'duration_text': _durationCtrl.text.trim(),
         'estimated_budget': budget ?? 0,
-        'group_size': groupSize ?? 0,
         'route_distance_km': distance ?? 0,
         'image_url': _imageCtrl.text.trim(),
         'cover_image_url': _coverCtrl.text.trim().isEmpty
             ? _imageCtrl.text.trim()
             : _coverCtrl.text.trim(),
-        'status': _status,
-        'visibility_status': _visibility,
+        'status': published ? 'published' : 'draft',
+        'visibility_status': published ? 'visible' : 'hidden',
         if (_packageCategoryId != null) 'category_id': _packageCategoryId,
       },
     );
@@ -678,7 +920,8 @@ class _SubTenantPackageFormScreenState
   Future<void> _ensurePackageAndLoadItinerary(SubTenantProfile profile) async {
     if (_wizardBusy) return;
 
-    final validationMessage = _validateWizard();
+    final validationMessage = await _validateBeforeSave(profile);
+    if (!mounted) return;
     if (validationMessage != null) {
       showSubTenantSnack(context, validationMessage);
       return;
@@ -691,7 +934,11 @@ class _SubTenantPackageFormScreenState
 
     try {
       await _savePackageDraft(profile);
-      final days = await _service.fetchItinerary(profile, _workingPackageId);
+      var days = await _service.fetchItinerary(profile, _workingPackageId);
+      if (days.isEmpty) {
+        await _service.addPackageDay(profile, _workingPackageId, 1);
+        days = await _service.fetchItinerary(profile, _workingPackageId);
+      }
       if (!mounted) return;
       setState(() {
         _itineraryDays = days;
@@ -713,7 +960,8 @@ class _SubTenantPackageFormScreenState
   Future<void> _saveAndClose(SubTenantProfile profile) async {
     if (_wizardBusy) return;
 
-    final validationMessage = _validateWizard();
+    final validationMessage = await _validateBeforeSave(profile);
+    if (!mounted) return;
     if (validationMessage != null) {
       showSubTenantSnack(context, validationMessage);
       return;
@@ -785,6 +1033,13 @@ class _SubTenantPackageFormScreenState
 
   Future<void> _addDay(SubTenantProfile profile) async {
     if (_workingPackageId == null || _itineraryLoading) return;
+    if (_itineraryDays.isNotEmpty) {
+      showSubTenantSnack(
+        context,
+        'Tour packages support one day itinerary only.',
+      );
+      return;
+    }
     setState(() => _itineraryLoading = true);
     try {
       await _service.addPackageDay(
@@ -1237,8 +1492,14 @@ class _SubTenantPackageFormScreenState
             controller: _titleCtrl,
             label: 'Title',
             hint: 'e.g. Heritage Walking Tour',
-            validator: (value) =>
-                (value ?? '').trim().isEmpty ? 'Required' : null,
+            validator: (value) {
+              final trimmed = (value ?? '').trim();
+              if (trimmed.isEmpty) return 'Required';
+              if (!_isValidPackageName(trimmed)) {
+                return 'Package name must contain valid words only.';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 12),
           SubTenantTextField(
@@ -1323,39 +1584,36 @@ class _SubTenantPackageFormScreenState
           const SizedBox(height: 12),
           SubTenantTextField(
             controller: _durationCtrl,
-            label: 'Duration Text',
-            hint: '1 day',
-            validator: (value) =>
-                (value ?? '').trim().isEmpty ? 'Required' : null,
+            label: 'Estimated Tour Duration',
+            hint: 'Auto-generated from stops and travel time',
+            readOnly: true,
+            helperText: _durationHint,
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SubTenantTextField(
-                  controller: _budgetCtrl,
-                  label: 'Estimated Budget (PHP)',
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: SubTenantTextField(
-                  controller: _groupSizeCtrl,
-                  label: 'Group Size',
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-            ],
+          SubTenantTextField(
+            controller: _budgetCtrl,
+            label: 'Estimated Budget (PHP)',
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+            ),
           ),
           const SizedBox(height: 12),
           SubTenantTextField(
             controller: _distanceCtrl,
             label: 'Route Distance (km)',
-            hint: 'Auto-filled when selected spots have coordinates',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            hint: _routeMetricsLoading ? 'Calculating...' : 'Auto-calculated',
+            readOnly: true,
+            helperText: _distanceHint,
+            suffix: _routeMetricsLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(height: 12),
           _PackageFareSuggestion(
@@ -1479,42 +1737,28 @@ class _SubTenantPackageFormScreenState
         children: [
           const SubTenantSectionHeader(
             title: 'Publishing',
-            subtitle: 'Status and visibility settings.',
+            subtitle: 'Control whether this package is visible to tourists.',
           ),
           const SizedBox(height: 14),
-          _dropdownLabel('Status'),
+          _dropdownLabel('Availability'),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _status,
+            initialValue:
+                _status == 'published' && _visibility == 'visible'
+                ? 'published'
+                : 'draft',
             decoration: _dropdownDecoration(),
             isExpanded: true,
             items: const [
-              DropdownMenuItem(value: 'draft', child: Text('Draft')),
-              DropdownMenuItem(value: 'pending', child: Text('Pending Review')),
               DropdownMenuItem(value: 'published', child: Text('Published')),
-              DropdownMenuItem(value: 'returned', child: Text('Returned')),
-              DropdownMenuItem(value: 'sold_out', child: Text('Sold Out')),
+              DropdownMenuItem(value: 'draft', child: Text('Unpublished')),
             ],
             onChanged: (value) {
               if (value != null) {
-                setState(() => _status = value);
-              }
-            },
-          ),
-          const SizedBox(height: 12),
-          _dropdownLabel('Visibility'),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            initialValue: _visibility,
-            decoration: _dropdownDecoration(),
-            isExpanded: true,
-            items: const [
-              DropdownMenuItem(value: 'visible', child: Text('Visible')),
-              DropdownMenuItem(value: 'hidden', child: Text('Hidden')),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _visibility = value);
+                setState(() {
+                  _status = value;
+                  _visibility = value == 'published' ? 'visible' : 'hidden';
+                });
               }
             },
           ),
@@ -1546,14 +1790,6 @@ class _SubTenantPackageFormScreenState
             value: _distanceCtrl.text.trim().isEmpty
                 ? '0 km'
                 : '${_distanceCtrl.text.trim()} km',
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.group_rounded,
-            label: 'Group Size',
-            value: _groupSizeCtrl.text.trim().isEmpty
-                ? '1'
-                : _groupSizeCtrl.text.trim(),
           ),
         ],
       ),
@@ -1684,7 +1920,7 @@ class _SubTenantPackageFormScreenState
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'No Google Places results found for this city right now.',
+                      'No suggestions found. Try another keyword or check Google Places API.',
                       style: TextStyle(
                         color: SubTenantColors.muted,
                         fontSize: 12,
@@ -1933,20 +2169,12 @@ class _SubTenantPackageFormScreenState
             children: [
               Expanded(
                 child: SubTenantSectionHeader(
-                  title: 'Step 4: Itinerary Builder',
+                  title: 'Step 4: Day Tour Itinerary',
                   subtitle: _workingPackageId == null
                       ? 'The package will be saved first before itinerary editing becomes available.'
-                      : 'Manage days and stops without leaving this form.',
+                      : 'Manage the single-day itinerary without leaving this form.',
                 ),
               ),
-              if (_workingPackageId != null)
-                OutlinedButton.icon(
-                  onPressed: _itineraryLoading
-                      ? null
-                      : () => _addDay(data.profile),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add Package Day'),
-                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1965,10 +2193,10 @@ class _SubTenantPackageFormScreenState
           else if (_itineraryDays.isEmpty)
             SubTenantEmptyState(
               icon: Icons.map_outlined,
-              title: 'No itinerary yet',
+              title: 'No day tour itinerary yet',
               message:
-                  'Add package days and create itinerary stops using the selected tourist spots.',
-              actionLabel: 'Add Day',
+                  'Create the single-day itinerary using the selected tourist spots.',
+              actionLabel: 'Start Itinerary',
               onAction: () => _addDay(data.profile),
             )
           else

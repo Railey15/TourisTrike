@@ -172,6 +172,7 @@ class SubTenantCityProfileData {
     required this.province,
     required this.description,
     required this.tourismOfficeName,
+    required this.contactPerson,
     required this.contactNumber,
     required this.email,
     required this.officeAddress,
@@ -184,6 +185,7 @@ class SubTenantCityProfileData {
   final String province;
   final String description;
   final String tourismOfficeName;
+  final String contactPerson;
   final String contactNumber;
   final String email;
   final String officeAddress;
@@ -197,6 +199,7 @@ class SubTenantCityProfileData {
       province: profile.province.isEmpty ? 'Bulacan' : profile.province,
       description: '',
       tourismOfficeName: profile.displayName,
+      contactPerson: profile.displayName,
       contactNumber: profile.mobile,
       email: profile.email,
       officeAddress: profile.address,
@@ -217,6 +220,10 @@ class SubTenantCityProfileData {
       tourismOfficeName: stString(map, const [
         'office_name',
         'name',
+      ], fallback: profile.displayName),
+      contactPerson: stString(map, const [
+        'contact_person',
+        'full_name',
       ], fallback: profile.displayName),
       contactNumber: stString(map, const [
         'contact_number',
@@ -241,6 +248,7 @@ class SubTenantCityProfileData {
     String? province,
     String? description,
     String? tourismOfficeName,
+    String? contactPerson,
     String? contactNumber,
     String? email,
     String? officeAddress,
@@ -253,6 +261,7 @@ class SubTenantCityProfileData {
       province: province ?? this.province,
       description: description ?? this.description,
       tourismOfficeName: tourismOfficeName ?? this.tourismOfficeName,
+      contactPerson: contactPerson ?? this.contactPerson,
       contactNumber: contactNumber ?? this.contactNumber,
       email: email ?? this.email,
       officeAddress: officeAddress ?? this.officeAddress,

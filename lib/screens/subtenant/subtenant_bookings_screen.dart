@@ -5,6 +5,7 @@ import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart
 import 'package:touristrike/screens/subtenant/subtenant_booking_details_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
+import 'package:touristrike/screens/subtenant/subtenant_workspace_search.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
@@ -19,6 +20,7 @@ class SubTenantBookingsScreen extends StatefulWidget {
 class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
   final SubTenantService _service = SubTenantService();
   final TextEditingController _searchCtrl = TextEditingController();
+  final _workspaceSearch = SubTenantWorkspaceSearchController.instance;
 
   late Future<_BookingListLoad> _future;
   String _status = 'all';
@@ -28,12 +30,19 @@ class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
     super.initState();
     _future = _load();
     _searchCtrl.addListener(() => setState(() {}));
+    _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
   }
 
   @override
   void dispose() {
+    _workspaceSearch.removeListener(_handleWorkspaceSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleWorkspaceSearchChanged() {
+    if (!mounted || _workspaceSearch.activeScope != 3) return;
+    setState(() {});
   }
 
   Future<_BookingListLoad> _load() async {
@@ -47,7 +56,10 @@ class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
   }
 
   List<SubTenantBooking> _filteredBookings(List<SubTenantBooking> bookings) {
-    final query = _searchCtrl.text.trim().toLowerCase();
+    final query = [
+      _searchCtrl.text.trim(),
+      _workspaceSearch.queryFor(3),
+    ].where((value) => value.isNotEmpty).join(' ').toLowerCase();
 
     if (query.isEmpty) return bookings;
 

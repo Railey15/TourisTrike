@@ -25,6 +25,7 @@ class _SubTenantCityProfileScreenState
   final _provinceCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
   final _officeNameCtrl = TextEditingController();
+  final _contactPersonCtrl = TextEditingController();
   final _contactCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
@@ -44,7 +45,6 @@ class _SubTenantCityProfileScreenState
   final _weekendSurchargeCtrl = TextEditingController();
 
   SubTenantProfile? _profile;
-  SubTenantCityProfileData? _details;
 
   bool _saving = false;
   bool _dirty = false;
@@ -53,8 +53,6 @@ class _SubTenantCityProfileScreenState
 
   String _defaultVisibility = 'visible';
   String _defaultSpotStatus = 'active';
-  String _language = 'English';
-
   bool _notificationsEnabled = true;
   bool _packageAlerts = true;
   bool _touristSpotAlerts = true;
@@ -119,6 +117,7 @@ class _SubTenantCityProfileScreenState
     for (final controller in [
       _descriptionCtrl,
       _officeNameCtrl,
+      _contactPersonCtrl,
       _contactCtrl,
       _emailCtrl,
       _addressCtrl,
@@ -158,13 +157,12 @@ class _SubTenantCityProfileScreenState
     final fare = results[2] as SubTenantFareSettings;
 
     _profile = profile;
-    _details = details;
-
     _hydrating = true;
     _cityCtrl.text = profile.assignedCity;
     _provinceCtrl.text = profile.province.isEmpty ? 'Bulacan' : profile.province;
     _descriptionCtrl.text = details.description;
     _officeNameCtrl.text = details.tourismOfficeName;
+    _contactPersonCtrl.text = details.contactPerson;
     _contactCtrl.text = details.contactNumber;
     _emailCtrl.text = details.email;
     _addressCtrl.text = details.officeAddress;
@@ -172,9 +170,6 @@ class _SubTenantCityProfileScreenState
     _logoCtrl.text = details.logoImageUrl;
     _defaultVisibility = settings.defaultPackageVisibility;
     _defaultSpotStatus = settings.defaultSpotStatus;
-    _language = const {'English', 'Filipino'}.contains(settings.language)
-        ? settings.language
-        : 'English';
     _notificationsEnabled = settings.notificationsEnabled;
     _packageAlerts = settings.packageAlerts;
     _touristSpotAlerts = settings.touristSpotAlerts;
@@ -235,6 +230,7 @@ class _SubTenantCityProfileScreenState
     _provinceCtrl.dispose();
     _descriptionCtrl.dispose();
     _officeNameCtrl.dispose();
+    _contactPersonCtrl.dispose();
     _contactCtrl.dispose();
     _emailCtrl.dispose();
     _addressCtrl.dispose();
@@ -271,7 +267,6 @@ class _SubTenantCityProfileScreenState
       touristSpotAlerts: _touristSpotAlerts,
       performanceReports: _performanceReports,
       systemNotices: _systemNotices,
-      language: _language,
       showTotalViews: _showTotalViews,
       showBookings: _showBookings,
       showPopularDestinations: _showPopularDestinations,
@@ -337,6 +332,7 @@ class _SubTenantCityProfileScreenState
           province: profile.province.isEmpty ? 'Bulacan' : profile.province,
           description: _descriptionCtrl.text.trim(),
           tourismOfficeName: _officeNameCtrl.text.trim(),
+          contactPerson: _contactPersonCtrl.text.trim(),
           contactNumber: _contactCtrl.text.trim(),
           email: _emailCtrl.text.trim(),
           officeAddress: _addressCtrl.text.trim(),
@@ -562,22 +558,16 @@ class _SubTenantCityProfileScreenState
         const SizedBox(height: 14),
         SubTenantTextField(
           controller: _officeNameCtrl,
-          label: 'Tourism Office Staff',
+          label: 'Office Name',
           validator: (value) =>
               (value ?? '').trim().isEmpty ? 'Required' : null,
         ),
         const SizedBox(height: 14),
-        _DropdownTile(
-          title: 'Language',
-          value: _language,
-          items: const {
-            'English': 'English',
-            'Filipino': 'Filipino',
-          },
-          onChanged: (value) {
-            setState(() => _language = value);
-            _markDirty();
-          },
+        SubTenantTextField(
+          controller: _contactPersonCtrl,
+          label: 'Contact Person',
+          validator: (value) =>
+              (value ?? '').trim().isEmpty ? 'Required' : null,
         ),
         const SizedBox(height: 14),
         SubTenantTextField(
@@ -594,17 +584,10 @@ class _SubTenantCityProfileScreenState
       title: 'Tourism Office',
       subtitle: 'Contact details used in tourist-facing pages and support.',
       children: [
-        _TwoColumn(
-          left: SubTenantTextField(
-            controller: _contactCtrl,
-            label: 'Contact Number',
-            keyboardType: TextInputType.phone,
-          ),
-          right: SubTenantTextField(
-            controller: _hotlineCtrl,
-            label: 'Tourism Hotline',
-            keyboardType: TextInputType.phone,
-          ),
+        SubTenantTextField(
+          controller: _contactCtrl,
+          label: 'Contact Number',
+          keyboardType: TextInputType.phone,
         ),
         const SizedBox(height: 14),
         SubTenantTextField(
@@ -617,19 +600,6 @@ class _SubTenantCityProfileScreenState
           controller: _addressCtrl,
           label: 'Office Address',
           maxLines: 3,
-        ),
-        const SizedBox(height: 14),
-        _TwoColumn(
-          left: SubTenantTextField(
-            controller: _websiteCtrl,
-            label: 'Website URL',
-            keyboardType: TextInputType.url,
-          ),
-          right: SubTenantTextField(
-            controller: _facebookCtrl,
-            label: 'Facebook Page',
-            keyboardType: TextInputType.url,
-          ),
         ),
       ],
     );
@@ -651,18 +621,6 @@ class _SubTenantCityProfileScreenState
             label: 'City Logo / Image URL',
             keyboardType: TextInputType.url,
           ),
-        ),
-        const SizedBox(height: 14),
-        SubTenantTextField(
-          controller: _sloganCtrl,
-          label: 'Tourism Slogan',
-          hint: 'e.g. Discover the heart of Bulacan',
-        ),
-        const SizedBox(height: 14),
-        SubTenantTextField(
-          controller: _welcomeCtrl,
-          label: 'Welcome Message',
-          maxLines: 3,
         ),
         const SizedBox(height: 16),
         _ImagePreviewRow(coverCtrl: _coverCtrl, logoCtrl: _logoCtrl),
@@ -732,7 +690,7 @@ class _SubTenantCityProfileScreenState
   Widget _packageSettings() {
     return _SettingsContent(
       title: 'Package Settings',
-      subtitle: 'Default rules for packages created by this city.',
+      subtitle: 'Default visibility rules for day-tour packages created by this city.',
       children: [
         _DropdownTile(
           title: 'Default Package Visibility',
@@ -747,21 +705,6 @@ class _SubTenantCityProfileScreenState
               _dirty = true;
             });
           },
-        ),
-        const SizedBox(height: 12),
-        _SwitchTile(
-          icon: Icons.fact_check_rounded,
-          title: 'Require Review Before Publish',
-          subtitle: 'Packages remain pending until reviewed.',
-          value: true,
-          onChanged: (_) {},
-        ),
-        _SwitchTile(
-          icon: Icons.calendar_month_rounded,
-          title: 'Allow Multi-day Packages',
-          subtitle: 'Enable packages with several itinerary days.',
-          value: true,
-          onChanged: (_) {},
         ),
       ],
     );

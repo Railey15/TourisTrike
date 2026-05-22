@@ -7,6 +7,7 @@ import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
+import 'package:touristrike/screens/subtenant/subtenant_workspace_search.dart';
 import 'package:touristrike/screens/subtenant/subtenant_spot_form_screen.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
@@ -23,6 +24,7 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   final CitySpotSuggestionService _suggestionService =
       CitySpotSuggestionService();
   final TextEditingController _searchCtrl = TextEditingController();
+  final _workspaceSearch = SubTenantWorkspaceSearchController.instance;
 
   late Future<_SpotListLoad> _future;
   Future<List<CitySpotSuggestion>>? _suggestionsFuture;
@@ -38,12 +40,19 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
     super.initState();
     _future = _load();
     _searchCtrl.addListener(() => setState(() {}));
+    _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
   }
 
   @override
   void dispose() {
+    _workspaceSearch.removeListener(_handleWorkspaceSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleWorkspaceSearchChanged() {
+    if (!mounted || _workspaceSearch.activeScope != 1) return;
+    setState(() {});
   }
 
   Future<_SpotListLoad> _load() async {
@@ -438,7 +447,10 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   }
 
   List<SubTenantSpot> _filtered(List<SubTenantSpot> spots) {
-    final query = _searchCtrl.text.trim().toLowerCase();
+    final query = [
+      _searchCtrl.text.trim(),
+      _workspaceSearch.queryFor(1),
+    ].where((value) => value.isNotEmpty).join(' ').toLowerCase();
 
     return spots.where((spot) {
       final matchesStatus = _status == 'all' || spot.status == _status;

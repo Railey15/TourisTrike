@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_workspace_search.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_sidebar.dart';
@@ -45,6 +46,8 @@ class SubTenantAdminShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    SubTenantWorkspaceSearchController.instance.setActiveScope(currentIndex);
+
     if (Responsive.isMobile(context)) {
       return _MobileShell(
         currentIndex: currentIndex,
@@ -113,6 +116,7 @@ class SubTenantAdminShell extends StatelessWidget {
                       child: Column(
                         children: [
                           _DesktopHeader(
+                            currentIndex: currentIndex,
                             title: title,
                             subtitle: subtitle,
                             actions: actions,
@@ -261,11 +265,13 @@ class _MobileShell extends StatelessWidget {
 
 class _DesktopHeader extends StatelessWidget {
   const _DesktopHeader({
+    required this.currentIndex,
     required this.title,
     required this.actions,
     this.subtitle,
   });
 
+  final int currentIndex;
   final String title;
   final String? subtitle;
   final List<Widget> actions;
@@ -302,7 +308,7 @@ class _DesktopHeader extends StatelessWidget {
           ),
           const SizedBox(width: 14),
           if (desktop) ...[
-            _HeaderSearch(),
+            _HeaderSearch(scope: currentIndex),
             const SizedBox(width: 12),
           ],
           const _NotificationButton(),
@@ -330,45 +336,108 @@ class _DesktopHeader extends StatelessWidget {
   }
 }
 
-class _HeaderSearch extends StatelessWidget {
+class _HeaderSearch extends StatefulWidget {
+  const _HeaderSearch({required this.scope});
+
+  final int scope;
+
+  @override
+  State<_HeaderSearch> createState() => _HeaderSearchState();
+}
+
+class _HeaderSearchState extends State<_HeaderSearch> {
+  final _controller = TextEditingController();
+  final _debouncer = SubTenantSearchDebouncer();
+
+  SubTenantWorkspaceSearchController get _search =>
+      SubTenantWorkspaceSearchController.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.text = _search.queryFor(widget.scope);
+  }
+
+  @override
+  void didUpdateWidget(covariant _HeaderSearch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scope != widget.scope) {
+      _controller.text = _search.queryFor(widget.scope);
+    }
+  }
+
+  @override
+  void dispose() {
+    _debouncer.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 340, minWidth: 230),
       child: Container(
         height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: const Color(0xFFF8FBFF),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: SubTenantColors.line),
         ),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(
+            const Icon(
               Icons.search_rounded,
               color: SubTenantColors.lightMuted,
               size: 21,
             ),
-            SizedBox(width: 9),
+            const SizedBox(width: 9),
             Expanded(
-              child: Text(
-                'Search workspace...',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: SubTenantColors.lightMuted,
-                  fontSize: 12.5,
+              child: TextField(
+                controller: _controller,
+                onChanged: (value) {
+                  setState(() {});
+                  _debouncer.run(() => _search.setQuery(widget.scope, value));
+                },
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: 'Search this page...',
+                  border: InputBorder.none,
+                  isCollapsed: true,
+                  hintStyle: TextStyle(
+                    color: SubTenantColors.lightMuted,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                style: const TextStyle(
+                  color: SubTenantColors.text,
+                  fontSize: 12.8,
                   fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-            SizedBox(width: 8),
-            Icon(
-              Icons.tune_rounded,
-              color: SubTenantColors.lightMuted,
-              size: 18,
-            ),
+            if (_controller.text.trim().isNotEmpty)
+              IconButton(
+                tooltip: 'Clear search',
+                onPressed: () {
+                  _controller.clear();
+                  _search.clear(widget.scope);
+                  setState(() {});
+                },
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: SubTenantColors.lightMuted,
+                  size: 18,
+                ),
+              )
+            else
+              const Icon(
+                Icons.tune_rounded,
+                color: SubTenantColors.lightMuted,
+                size: 18,
+              ),
           ],
         ),
       ),

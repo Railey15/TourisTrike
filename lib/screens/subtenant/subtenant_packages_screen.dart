@@ -5,6 +5,7 @@ import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_package_form_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_package_itinerary_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
+import 'package:touristrike/screens/subtenant/subtenant_workspace_search.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
@@ -19,22 +20,29 @@ class SubTenantPackagesScreen extends StatefulWidget {
 class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   final SubTenantService _service = SubTenantService();
   final TextEditingController _searchCtrl = TextEditingController();
+  final _workspaceSearch = SubTenantWorkspaceSearchController.instance;
 
   late Future<_PackageListLoad> _future;
   String _status = 'all';
-  String _visibility = 'all';
 
   @override
   void initState() {
     super.initState();
     _future = _load();
     _searchCtrl.addListener(() => setState(() {}));
+    _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
   }
 
   @override
   void dispose() {
+    _workspaceSearch.removeListener(_handleWorkspaceSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleWorkspaceSearchChanged() {
+    if (!mounted || _workspaceSearch.activeScope != 2) return;
+    setState(() {});
   }
 
   Future<_PackageListLoad> _load() async {
@@ -72,15 +80,19 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
     if (changed == true) _reload();
   }
 
-  Future<void> _setStatus(
+  Future<void> _setPublished(
     SubTenantProfile profile,
     SubTenantPackage package,
-    String status,
+    bool published,
   ) async {
     try {
-      await _service.updatePackageStatus(profile, package, status);
+      await _service.setPackagePublicationState(profile, package, published);
       if (!mounted) return;
-      showSubTenantSnack(context, 'Package status updated.', error: false);
+      showSubTenantSnack(
+        context,
+        published ? 'Package published.' : 'Package unpublished.',
+        error: false,
+      );
       _reload();
     } catch (e) {
       if (!mounted) return;
@@ -88,49 +100,33 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
     }
   }
 
-  Future<void> _setVisibility(
-    SubTenantProfile profile,
-    SubTenantPackage package,
-    String visibility,
-  ) async {
-    try {
-      await _service.updatePackageVisibility(profile, package, visibility);
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Package visibility updated.', error: false);
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Failed to update visibility: $e');
-    }
-  }
-
   List<SubTenantPackage> _filtered(List<SubTenantPackage> packages) {
-    final query = _searchCtrl.text.trim().toLowerCase();
+    final query = [
+      _searchCtrl.text.trim(),
+      _workspaceSearch.queryFor(2),
+    ].where((value) => value.isNotEmpty).join(' ').toLowerCase();
 
     return packages.where((item) {
+      final publication = _publicationState(item);
       final matchesSearch =
           query.isEmpty ||
           item.title.toLowerCase().contains(query) ||
           item.subtitle.toLowerCase().contains(query) ||
-          item.status.toLowerCase().contains(query) ||
-          item.visibilityStatus.toLowerCase().contains(query) ||
+          item.city.toLowerCase().contains(query) ||
+          publication.contains(query) ||
           item.priceText.toLowerCase().contains(query) ||
           item.durationText.toLowerCase().contains(query);
 
-      final matchesStatus = _status == 'all' || item.status == _status;
-      final matchesVisibility =
-          _visibility == 'all' || item.visibilityStatus == _visibility;
+      final matchesStatus = _status == 'all' || publication == _status;
 
-      return matchesSearch && matchesStatus && matchesVisibility;
+      return matchesSearch && matchesStatus;
     }).toList(growable: false);
   }
 
-  int _countStatus(List<SubTenantPackage> packages, String status) {
-    return packages.where((item) => item.status == status).length;
-  }
-
-  int _countVisibility(List<SubTenantPackage> packages, String visibility) {
-    return packages.where((item) => item.visibilityStatus == visibility).length;
+  String _publicationState(SubTenantPackage package) {
+    return package.status == 'published' && package.visibilityStatus == 'visible'
+        ? 'published'
+        : 'unpublished';
   }
 
   Future<void> _openFilters(List<SubTenantPackage> allPackages) async {
@@ -141,15 +137,13 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
       builder: (_) {
         return _PackageFilterSheet(
           status: _status,
-          visibility: _visibility,
           total: allPackages.length,
-          draft: _countStatus(allPackages, 'draft'),
-          pending: _countStatus(allPackages, 'pending'),
-          published: _countStatus(allPackages, 'published'),
-          returned: _countStatus(allPackages, 'returned'),
-          soldOut: _countStatus(allPackages, 'sold_out'),
-          visible: _countVisibility(allPackages, 'visible'),
-          hidden: _countVisibility(allPackages, 'hidden'),
+          published: allPackages
+              .where((item) => _publicationState(item) == 'published')
+              .length,
+          unpublished: allPackages
+              .where((item) => _publicationState(item) == 'unpublished')
+              .length,
         );
       },
     );
@@ -158,7 +152,6 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
 
     setState(() {
       _status = result.status;
-      _visibility = result.visibility;
     });
   }
 
@@ -220,18 +213,12 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
               packages: packages,
               searchCtrl: _searchCtrl,
               status: _status,
-              visibility: _visibility,
               onOpenFilters: () => _openFilters(load.packages),
               onCreate: () => _openForm(),
               onEdit: _openForm,
               onItinerary: _openItinerary,
-              onStatus: (package, status) =>
-                  _setStatus(load.profile, package, status),
-              onVisibilityChanged: (package, visible) => _setVisibility(
-                load.profile,
-                package,
-                visible ? 'visible' : 'hidden',
-              ),
+              onPublishedChanged: (package, published) =>
+                  _setPublished(load.profile, package, published),
             ),
           );
         },
@@ -247,13 +234,11 @@ class _PackagesBody extends StatelessWidget {
     required this.packages,
     required this.searchCtrl,
     required this.status,
-    required this.visibility,
     required this.onOpenFilters,
     required this.onCreate,
     required this.onEdit,
     required this.onItinerary,
-    required this.onStatus,
-    required this.onVisibilityChanged,
+    required this.onPublishedChanged,
   });
 
   final SubTenantProfile profile;
@@ -261,31 +246,21 @@ class _PackagesBody extends StatelessWidget {
   final List<SubTenantPackage> packages;
   final TextEditingController searchCtrl;
   final String status;
-  final String visibility;
+  final String visibility = 'all';
   final VoidCallback onOpenFilters;
   final VoidCallback onCreate;
   final ValueChanged<SubTenantPackage> onEdit;
   final ValueChanged<SubTenantPackage> onItinerary;
-  final void Function(SubTenantPackage package, String status) onStatus;
-  final void Function(SubTenantPackage package, bool visible) onVisibilityChanged;
+  final void Function(SubTenantPackage package, bool published)
+      onPublishedChanged;
 
   String get _filterLabel {
-    final hasStatus = status != 'all';
-    final hasVisibility = visibility != 'all';
-
-    if (!hasStatus && !hasVisibility) return 'Filters';
-
-    final parts = <String>[
-      if (hasStatus) _pretty(status),
-      if (hasVisibility) _pretty(visibility),
-    ];
-
-    return parts.join(' • ');
+    if (status == 'all') return 'Filters';
+    return _pretty(status);
   }
 
   String _pretty(String value) {
     if (value == 'all') return 'All';
-    if (value == 'sold_out') return 'Sold Out';
     return value
         .split('_')
         .map((word) =>
@@ -327,8 +302,7 @@ class _PackagesBody extends StatelessWidget {
                 packages: packages,
                 onEdit: onEdit,
                 onItinerary: onItinerary,
-                onStatus: onStatus,
-                onVisibilityChanged: onVisibilityChanged,
+                onPublishedChanged: onPublishedChanged,
               ),
           ],
         ),
@@ -366,8 +340,7 @@ class _PackagesBody extends StatelessWidget {
                           packages: packages,
                           onEdit: onEdit,
                           onItinerary: onItinerary,
-                          onStatus: onStatus,
-                          onVisibilityChanged: onVisibilityChanged,
+                          onPublishedChanged: onPublishedChanged,
                         ),
                       ),
                     ),
@@ -550,16 +523,14 @@ class _PackageGrid extends StatelessWidget {
     required this.packages,
     required this.onEdit,
     required this.onItinerary,
-    required this.onStatus,
-    required this.onVisibilityChanged,
+    required this.onPublishedChanged,
   });
 
   final List<SubTenantPackage> packages;
   final ValueChanged<SubTenantPackage> onEdit;
   final ValueChanged<SubTenantPackage> onItinerary;
-  final void Function(SubTenantPackage package, String status) onStatus;
-  final void Function(SubTenantPackage package, bool visible)
-      onVisibilityChanged;
+  final void Function(SubTenantPackage package, bool published)
+      onPublishedChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -585,11 +556,10 @@ class _PackageGrid extends StatelessWidget {
                 package: package,
                 onEdit: () => onEdit(package),
                 onItinerary: () => onItinerary(package),
-                onPublish: () => onStatus(package, 'published'),
-                onDraft: () => onStatus(package, 'draft'),
-                onSoldOut: () => onStatus(package, 'sold_out'),
+                onPublish: () => onPublishedChanged(package, true),
+                onUnpublish: () => onPublishedChanged(package, false),
                 onVisibilityChanged: (visible) =>
-                    onVisibilityChanged(package, visible),
+                    onPublishedChanged(package, visible),
               ),
             );
           }).toList(growable: false),
@@ -640,8 +610,7 @@ class _PackageGridCard extends StatelessWidget {
     required this.onEdit,
     required this.onItinerary,
     required this.onPublish,
-    required this.onDraft,
-    required this.onSoldOut,
+    required this.onUnpublish,
     required this.onVisibilityChanged,
   });
 
@@ -649,13 +618,13 @@ class _PackageGridCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onItinerary;
   final VoidCallback onPublish;
-  final VoidCallback onDraft;
-  final VoidCallback onSoldOut;
+  final VoidCallback onUnpublish;
   final ValueChanged<bool> onVisibilityChanged;
 
   @override
   Widget build(BuildContext context) {
-    final isVisible = package.visibilityStatus != 'hidden';
+    final isVisible =
+        package.status == 'published' && package.visibilityStatus != 'hidden';
     final imageUrl = package.coverImageUrl.isNotEmpty
         ? package.coverImageUrl
         : package.imageUrl;
@@ -710,14 +679,12 @@ class _PackageGridCard extends StatelessWidget {
                     case 'publish':
                       onPublish();
                       break;
-                    case 'draft':
-                      onDraft();
-                      break;
-                    case 'sold_out':
-                      onSoldOut();
+                    case 'unpublish':
+                      onUnpublish();
                       break;
                   }
                 },
+                published: isVisible,
               ),
             ],
           ),
@@ -726,7 +693,9 @@ class _PackageGridCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              SubTenantStatusPill(status: package.status),
+              SubTenantStatusPill(
+                status: isVisible ? 'published' : 'unpublished',
+              ),
               SubTenantStatusPill(
                 status: package.visibilityStatus,
                 icon:
@@ -774,9 +743,13 @@ class _PackageGridCard extends StatelessWidget {
 }
 
 class _PackageActionsButton extends StatelessWidget {
-  const _PackageActionsButton({required this.onSelected});
+  const _PackageActionsButton({
+    required this.onSelected,
+    required this.published,
+  });
 
   final ValueChanged<String> onSelected;
+  final bool published;
 
   @override
   Widget build(BuildContext context) {
@@ -784,13 +757,14 @@ class _PackageActionsButton extends StatelessWidget {
       tooltip: 'Package actions',
       onSelected: onSelected,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      itemBuilder: (context) => const [
-        PopupMenuItem(value: 'edit', child: Text('Edit Package')),
-        PopupMenuItem(value: 'itinerary', child: Text('Manage Itinerary')),
-        PopupMenuDivider(),
-        PopupMenuItem(value: 'publish', child: Text('Publish')),
-        PopupMenuItem(value: 'draft', child: Text('Move to Draft')),
-        PopupMenuItem(value: 'sold_out', child: Text('Mark Sold Out')),
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: 'edit', child: Text('Edit Package')),
+        const PopupMenuItem(value: 'itinerary', child: Text('Manage Itinerary')),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: published ? 'unpublish' : 'publish',
+          child: Text(published ? 'Unpublish' : 'Publish'),
+        ),
       ],
       child: Container(
         width: 38,
@@ -813,27 +787,15 @@ class _PackageActionsButton extends StatelessWidget {
 class _PackageFilterSheet extends StatefulWidget {
   const _PackageFilterSheet({
     required this.status,
-    required this.visibility,
     required this.total,
-    required this.draft,
-    required this.pending,
     required this.published,
-    required this.returned,
-    required this.soldOut,
-    required this.visible,
-    required this.hidden,
+    required this.unpublished,
   });
 
   final String status;
-  final String visibility;
   final int total;
-  final int draft;
-  final int pending;
   final int published;
-  final int returned;
-  final int soldOut;
-  final int visible;
-  final int hidden;
+  final int unpublished;
 
   @override
   State<_PackageFilterSheet> createState() => _PackageFilterSheetState();
@@ -841,7 +803,6 @@ class _PackageFilterSheet extends StatefulWidget {
 
 class _PackageFilterSheetState extends State<_PackageFilterSheet> {
   late String _status = widget.status;
-  late String _visibility = widget.visibility;
 
   @override
   Widget build(BuildContext context) {
@@ -902,7 +863,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                             ),
                           ),
                           TextSpan(
-                            text: 'Choose status and visibility filters',
+                            text: 'Choose which package state to show',
                             style: TextStyle(
                               color: SubTenantColors.muted,
                               fontWeight: FontWeight.w700,
@@ -917,7 +878,6 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                     onPressed: () {
                       setState(() {
                         _status = 'all';
-                        _visibility = 'all';
                       });
                     },
                     child: const Text('Reset'),
@@ -926,7 +886,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
               ),
               const SizedBox(height: 14),
               _FilterGroup(
-                title: 'Package Status',
+                title: 'Publication State',
                 children: [
                   _FilterChipButton(
                     label: 'All',
@@ -935,58 +895,16 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                     onTap: () => setState(() => _status = 'all'),
                   ),
                   _FilterChipButton(
-                    label: 'Draft',
-                    count: widget.draft,
-                    selected: _status == 'draft',
-                    onTap: () => setState(() => _status = 'draft'),
-                  ),
-                  _FilterChipButton(
-                    label: 'Pending',
-                    count: widget.pending,
-                    selected: _status == 'pending',
-                    onTap: () => setState(() => _status = 'pending'),
-                  ),
-                  _FilterChipButton(
                     label: 'Published',
                     count: widget.published,
                     selected: _status == 'published',
                     onTap: () => setState(() => _status = 'published'),
                   ),
                   _FilterChipButton(
-                    label: 'Returned',
-                    count: widget.returned,
-                    selected: _status == 'returned',
-                    onTap: () => setState(() => _status = 'returned'),
-                  ),
-                  _FilterChipButton(
-                    label: 'Sold Out',
-                    count: widget.soldOut,
-                    selected: _status == 'sold_out',
-                    onTap: () => setState(() => _status = 'sold_out'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _FilterGroup(
-                title: 'Visibility',
-                children: [
-                  _FilterChipButton(
-                    label: 'All Visibility',
-                    count: widget.total,
-                    selected: _visibility == 'all',
-                    onTap: () => setState(() => _visibility = 'all'),
-                  ),
-                  _FilterChipButton(
-                    label: 'Visible',
-                    count: widget.visible,
-                    selected: _visibility == 'visible',
-                    onTap: () => setState(() => _visibility = 'visible'),
-                  ),
-                  _FilterChipButton(
-                    label: 'Hidden',
-                    count: widget.hidden,
-                    selected: _visibility == 'hidden',
-                    onTap: () => setState(() => _visibility = 'hidden'),
+                    label: 'Unpublished',
+                    count: widget.unpublished,
+                    selected: _status == 'unpublished',
+                    onTap: () => setState(() => _status = 'unpublished'),
                   ),
                 ],
               ),
@@ -1005,10 +923,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                       onPressed: () {
                         Navigator.pop(
                           context,
-                          _PackageFilterResult(
-                            status: _status,
-                            visibility: _visibility,
-                          ),
+                          _PackageFilterResult(status: _status),
                         );
                       },
                       label: const Text('Apply Filters'),
@@ -1138,13 +1053,9 @@ class _FilterChipButton extends StatelessWidget {
 }
 
 class _PackageFilterResult {
-  const _PackageFilterResult({
-    required this.status,
-    required this.visibility,
-  });
+  const _PackageFilterResult({required this.status});
 
   final String status;
-  final String visibility;
 }
 
 class _PanelCard extends StatelessWidget {
@@ -1184,3 +1095,4 @@ class _PackageListLoad {
   final SubTenantProfile profile;
   final List<SubTenantPackage> packages;
 }
+

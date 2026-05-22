@@ -597,6 +597,9 @@ class SubTenantTextField extends StatelessWidget {
     this.maxLines = 1,
     this.keyboardType,
     this.enabled = true,
+    this.readOnly = false,
+    this.helperText,
+    this.suffix,
     this.validator,
   });
 
@@ -606,6 +609,9 @@ class SubTenantTextField extends StatelessWidget {
   final int maxLines;
   final TextInputType? keyboardType;
   final bool enabled;
+  final bool readOnly;
+  final String? helperText;
+  final Widget? suffix;
   final FormFieldValidator<String>? validator;
 
   @override
@@ -627,13 +633,16 @@ class SubTenantTextField extends StatelessWidget {
           maxLines: maxLines,
           keyboardType: keyboardType,
           enabled: enabled,
+          readOnly: readOnly,
           validator: validator,
           decoration: InputDecoration(
             hintText: hint,
+            helperText: helperText,
             hintStyle: const TextStyle(
               color: SubTenantColors.lightMuted,
               fontWeight: FontWeight.w600,
             ),
+            suffixIcon: suffix,
             filled: true,
             fillColor: enabled ? Colors.white : const Color(0xFFEFF5FC),
             contentPadding: const EdgeInsets.symmetric(

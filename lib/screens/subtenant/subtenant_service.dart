@@ -1,8 +1,40 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
+import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
+
+class SubTenantRouteMetrics {
+  const SubTenantRouteMetrics({
+    required this.distanceKm,
+    required this.travelDurationMinutes,
+    required this.usedDirectionsApi,
+    required this.available,
+  });
+
+  final double distanceKm;
+  final int travelDurationMinutes;
+  final bool usedDirectionsApi;
+  final bool available;
+
+  String get distanceLabel => available ? '${distanceKm.toStringAsFixed(1)} KM' : '';
+}
+
+class DuplicatePackageCheckResult {
+  const DuplicatePackageCheckResult({
+    required this.isDuplicate,
+    this.conflictingPackageId,
+    this.conflictingPackageTitle = '',
+  });
+
+  final bool isDuplicate;
+  final dynamic conflictingPackageId;
+  final String conflictingPackageTitle;
+}
 
 class SubTenantService {
   SubTenantService({SupabaseClient? client})
@@ -99,13 +131,25 @@ class SubTenantService {
         'province': province,
         'description': data.description,
         'office_name': data.tourismOfficeName,
-        'contact_person': profile.displayName,
+        'contact_person': data.contactPerson,
         'contact_number': data.contactNumber,
         'email': data.email,
         'office_address': data.officeAddress,
         'cover_image_url': data.coverImageUrl,
         'logo_url': data.logoImageUrl,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      await _supabase
+          .from('profiles')
+          .update({
+            'full_name': data.contactPerson,
+            'mobile': data.contactNumber,
+            'address': data.officeAddress,
+            'city': lockedCity,
+            'province': province,
+            'profile_image_url': data.logoImageUrl,
+          })
+          .eq('id', profile.id);
       await _logAudit(
         actorId: profile.id,
         action: 'update_city_profile',
@@ -121,6 +165,7 @@ class SubTenantService {
     await _supabase
         .from('profiles')
         .update({
+          'full_name': data.contactPerson,
           'city': lockedCity,
           'province': province,
           'mobile': data.contactNumber,
@@ -475,6 +520,326 @@ class SubTenantService {
         .toList(growable: false);
   }
 
+  Future<Map<String, List<CitySpotSuggestion>>> loadPackageSmartSuggestions({
+    required SubTenantProfile profile,
+    String? categoryLabel,
+    String keyword = '',
+    List<SelectedPackageSpot> selectedSpots = const [],
+  }) async {
+    final city = profile.assignedCity.trim();
+    final province = profile.province.trim().isEmpty
+        ? 'Bulacan'
+        : profile.province.trim();
+
+    developer.log(
+      '[SmartSuggestions] Loading for city=$city category=${categoryLabel ?? ''} keyword=${keyword.trim()}',
+      name: 'SubTenantService',
+    );
+
+    final suggestionService = CitySpotSuggestionService();
+    final center =
+        suggestionService.centerForCity(city) ??
+        CitySpotSuggestionService.defaultBulacanCenter;
+
+    final suggestions = <CitySpotSuggestion>[];
+    final seenIds = <String>{};
+    final searchTerms = <String>{
+      if (categoryLabel != null && categoryLabel.trim().isNotEmpty)
+        categoryLabel.trim(),
+      if (keyword.trim().isNotEmpty) keyword.trim(),
+      for (final spot in selectedSpots)
+        if (spot.spot.title.trim().isNotEmpty) spot.spot.title.trim(),
+    }.toList(growable: false);
+
+    try {
+      final baseResults = await suggestionService.fetchSuggestions(
+        city: city,
+        province: province,
+        center: center,
+        limit: 12,
+        excludeTitles: selectedSpots.map((item) => item.spot.title).toSet(),
+      );
+      developer.log(
+        '[GooglePlaces] Base suggestions fetched: ${baseResults.length}',
+        name: 'SubTenantService',
+      );
+      for (final suggestion in baseResults) {
+        if (seenIds.add(suggestion.id)) suggestions.add(suggestion);
+      }
+
+      for (final term in searchTerms) {
+        final scopedQuery = '$term in $city, $province';
+        final results = await suggestionService.searchPlaces(
+          query: scopedQuery,
+          city: city,
+          province: province,
+          center: center,
+          limit: 6,
+        );
+        developer.log(
+          '[PlacesAPI] Query "$scopedQuery" returned ${results.length}',
+          name: 'SubTenantService',
+        );
+        for (final suggestion in results) {
+          if (seenIds.add(suggestion.id)) suggestions.add(suggestion);
+        }
+      }
+    } catch (error, stack) {
+      developer.log(
+        '[GooglePlaces] Smart suggestion fetch failed: $error',
+        name: 'SubTenantService',
+        stackTrace: stack,
+      );
+    }
+
+    if (suggestions.isEmpty) {
+      developer.log(
+        '[SmartSuggestions] Google Places returned no results. Falling back to tourist_spots.',
+        name: 'SubTenantService',
+      );
+      final fallbackSpots = await loadCityTouristSpots(profile);
+      for (final spot in fallbackSpots) {
+        final id = spot.googlePlaceId.isNotEmpty
+            ? spot.googlePlaceId
+            : '${spot.title}|${spot.address}';
+        if (!seenIds.add(id)) continue;
+        suggestions.add(
+          CitySpotSuggestion(
+            id: id,
+            title: spot.title,
+            city: spot.city.isEmpty ? city : spot.city,
+            province: spot.province.isEmpty ? province : spot.province,
+            address: spot.address,
+            description: spot.description.isEmpty
+                ? 'Saved tourist spot in $city.'
+                : spot.description,
+            reason: 'Fallback suggestion from your saved tourist spots.',
+            latitude: spot.latitude,
+            longitude: spot.longitude,
+            rating: spot.rating,
+            imageUrl: spot.imageUrl,
+            category: _fallbackSuggestionCategory(spot),
+            distanceKm: 0,
+          ),
+        );
+      }
+    }
+
+    final grouped = <String, List<CitySpotSuggestion>>{};
+    for (final suggestion in suggestions) {
+      grouped.putIfAbsent(suggestion.category, () => <CitySpotSuggestion>[]);
+      grouped[suggestion.category]!.add(suggestion);
+    }
+
+    for (final entry in grouped.entries) {
+      entry.value.sort((a, b) => b.rating.compareTo(a.rating));
+      if (entry.value.length > 4) {
+        grouped[entry.key] = entry.value.take(4).toList(growable: false);
+      }
+    }
+
+    developer.log(
+      '[SmartSuggestions] Ready groups=${grouped.length} total=${grouped.values.fold<int>(0, (sum, items) => sum + items.length)}',
+      name: 'SubTenantService',
+    );
+    return grouped;
+  }
+
+  Future<SubTenantRouteMetrics> computePackageRouteMetrics(
+    List<SelectedPackageSpot> selectedSpots,
+  ) async {
+    final coordinates = selectedSpots
+        .map((item) => item.spot)
+        .where((spot) => spot.latitude != 0 && spot.longitude != 0)
+        .toList(growable: false);
+
+    if (coordinates.length < 2) {
+      return const SubTenantRouteMetrics(
+        distanceKm: 0,
+        travelDurationMinutes: 0,
+        usedDirectionsApi: false,
+        available: false,
+      );
+    }
+
+    try {
+      final apiKey = CitySpotSuggestionService.resolveApiKey().trim();
+      if (apiKey.isNotEmpty) {
+        final origin = '${coordinates.first.latitude},${coordinates.first.longitude}';
+        final destination =
+            '${coordinates.last.latitude},${coordinates.last.longitude}';
+        final waypoints = coordinates
+            .skip(1)
+            .take(coordinates.length - 2)
+            .map((spot) => '${spot.latitude},${spot.longitude}')
+            .join('|');
+        final uri = Uri.parse(
+          'https://maps.googleapis.com/maps/api/directions/json'
+          '?origin=${Uri.encodeQueryComponent(origin)}'
+          '&destination=${Uri.encodeQueryComponent(destination)}'
+          '${waypoints.isEmpty ? '' : '&waypoints=${Uri.encodeQueryComponent(waypoints)}'}'
+          '&mode=driving'
+          '&region=ph'
+          '&key=$apiKey',
+        );
+
+        final res = await http.get(uri).timeout(const Duration(seconds: 12));
+        if (res.statusCode == 200) {
+          final body = jsonDecode(res.body) as Map<String, dynamic>;
+          final status = body['status']?.toString() ?? '';
+          developer.log(
+            '[PlacesAPI] Directions status=$status for ${coordinates.length} stops',
+            name: 'SubTenantService',
+          );
+          if (status == 'OK') {
+            final routes = (body['routes'] as List?) ?? const [];
+            if (routes.isNotEmpty) {
+              final route = routes.first as Map<String, dynamic>;
+              final legs = (route['legs'] as List?) ?? const [];
+              var totalMeters = 0.0;
+              var totalSeconds = 0;
+              for (final legRaw in legs) {
+                final leg = legRaw as Map<String, dynamic>;
+                totalMeters +=
+                    ((leg['distance'] as Map?)?['value'] as num?)?.toDouble() ??
+                    0;
+                totalSeconds +=
+                    ((leg['duration'] as Map?)?['value'] as num?)?.toInt() ?? 0;
+              }
+              if (totalMeters > 0) {
+                return SubTenantRouteMetrics(
+                  distanceKm: totalMeters / 1000,
+                  travelDurationMinutes: (totalSeconds / 60).round(),
+                  usedDirectionsApi: true,
+                  available: true,
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch (error, stack) {
+      developer.log(
+        '[PlacesAPI] Directions lookup failed: $error',
+        name: 'SubTenantService',
+        stackTrace: stack,
+      );
+    }
+
+    var totalKm = 0.0;
+    for (var i = 0; i < coordinates.length - 1; i++) {
+      totalKm += _haversineKm(
+        coordinates[i].latitude,
+        coordinates[i].longitude,
+        coordinates[i + 1].latitude,
+        coordinates[i + 1].longitude,
+      );
+    }
+
+    if (totalKm <= 0) {
+      return const SubTenantRouteMetrics(
+        distanceKm: 0,
+        travelDurationMinutes: 0,
+        usedDirectionsApi: false,
+        available: false,
+      );
+    }
+
+    developer.log(
+      '[PlacesAPI] Using Haversine fallback for ${coordinates.length} stops',
+      name: 'SubTenantService',
+    );
+    return SubTenantRouteMetrics(
+      distanceKm: totalKm,
+      travelDurationMinutes: ((totalKm / 28) * 60).round(),
+      usedDirectionsApi: false,
+      available: true,
+    );
+  }
+
+  Future<DuplicatePackageCheckResult> checkDuplicatePackageComposition({
+    required SubTenantProfile profile,
+    required List<SelectedPackageSpot> selectedSpots,
+    dynamic excludePackageId,
+  }) async {
+    final candidateKeys = selectedSpots
+        .map(_packageSpotIdentity)
+        .where((key) => key.isNotEmpty)
+        .toSet();
+
+    if (candidateKeys.length < 2) {
+      return const DuplicatePackageCheckResult(isDuplicate: false);
+    }
+
+    final packageRows = await _supabase
+        .from('tour_packages')
+        .select('id, title')
+        .eq('city', profile.assignedCity);
+
+    final packageMaps = (packageRows as List)
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .where((row) => stId(row['id']) != stId(excludePackageId))
+        .toList(growable: false);
+
+    if (packageMaps.isEmpty) {
+      return const DuplicatePackageCheckResult(isDuplicate: false);
+    }
+
+    final packageIds = packageMaps.map((row) => row['id']).toList(growable: false);
+    final linkRows = await _supabase
+        .from('tour_package_spots')
+        .select('package_id, spot_id')
+        .inFilter('package_id', packageIds);
+
+    final spotIds = (linkRows as List)
+        .map((row) => (row as Map)['spot_id'])
+        .where((id) => id != null)
+        .toSet()
+        .toList(growable: false);
+
+    final spotById = <String, SubTenantSpot>{};
+    if (spotIds.isNotEmpty) {
+      final spotRows = await _supabase
+          .from('tourist_spots')
+          .select('*')
+          .inFilter('id', spotIds)
+          .eq('city', profile.assignedCity);
+      for (final row in spotRows as List) {
+        final spot = SubTenantSpot.fromMap(Map<String, dynamic>.from(row as Map));
+        spotById[stId(spot.id)] = spot;
+      }
+    }
+
+    final packageKeyMap = <String, Set<String>>{};
+    for (final raw in linkRows) {
+      final row = Map<String, dynamic>.from(raw as Map);
+      final packageId = stId(row['package_id']);
+      final spot = spotById[stId(row['spot_id'])];
+      if (spot == null) continue;
+      packageKeyMap.putIfAbsent(packageId, () => <String>{});
+      packageKeyMap[packageId]!.add(_packageSpotIdentityFromSpot(spot));
+    }
+
+    for (final packageMap in packageMaps) {
+      final packageId = stId(packageMap['id']);
+      final existingKeys = packageKeyMap[packageId] ?? const <String>{};
+      if (existingKeys.isEmpty) continue;
+      final intersectionCount = existingKeys
+          .where(candidateKeys.contains)
+          .length;
+      final newSpotCount = candidateKeys.length - intersectionCount;
+      if (intersectionCount == existingKeys.length && newSpotCount < 2) {
+        return DuplicatePackageCheckResult(
+          isDuplicate: true,
+          conflictingPackageId: packageMap['id'],
+          conflictingPackageTitle: stString(packageMap, const ['title']),
+        );
+      }
+    }
+
+    return const DuplicatePackageCheckResult(isDuplicate: false);
+  }
+
   Future<SubTenantPackage?> fetchPackageById(
     SubTenantProfile profile,
     dynamic packageId,
@@ -569,6 +934,31 @@ class SubTenantService {
       recordId: stId(package.id),
       description:
           'Updated package ${package.title} visibility to $visibility.',
+    );
+  }
+
+  Future<void> setPackagePublicationState(
+    SubTenantProfile profile,
+    SubTenantPackage package,
+    bool published,
+  ) async {
+    final status = published ? 'published' : 'draft';
+    final visibility = published ? 'visible' : 'hidden';
+    await _supabase
+        .from('tour_packages')
+        .update({
+          'status': status,
+          'visibility_status': visibility,
+        })
+        .eq('id', package.id)
+        .eq('city', profile.assignedCity);
+    await _logAudit(
+      actorId: profile.id,
+      action: 'update_package_publication',
+      tableName: 'tour_packages',
+      recordId: stId(package.id),
+      description:
+          'Updated package ${package.title} publication to ${published ? 'published' : 'unpublished'}.',
     );
   }
 
@@ -904,38 +1294,60 @@ class SubTenantService {
   Future<void> updateDriverStatus(
     SubTenantProfile profile,
     SubTenantDriver driver,
-    String status,
-  ) async {
+    String status, {
+    String suspensionReason = '',
+  }) async {
     if (driver.city != profile.assignedCity) {
       throw StateError('Driver is outside the assigned city.');
     }
 
+    final normalizedStatus = status.toLowerCase().trim();
+    final now = DateTime.now().toUtc().toIso8601String();
     final payload = <String, dynamic>{
-      'status': status,
-      if (status == 'approved') ...{
+      'status': normalizedStatus,
+      if (normalizedStatus == 'approved') ...{
         'approved_by': profile.id,
-        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'approved_at': now,
         'suspended_reason': null,
       },
-      if (status == 'suspended') 'suspended_reason': 'Suspended by city admin',
+      if (normalizedStatus == 'suspended')
+        'suspended_reason': suspensionReason.trim().isEmpty
+            ? 'Suspended by city admin'
+            : suspensionReason.trim(),
     };
     await _supabase
         .from('driver_details')
         .update(payload)
         .eq('driver_id', driver.id);
+    final profilePayload = <String, dynamic>{
+      'is_available': normalizedStatus == 'approved',
+      'is_online': normalizedStatus == 'approved'
+          ? (driver.profile['is_online'] == true)
+          : false,
+    };
+    try {
+      profilePayload['driver_status'] = normalizedStatus;
+      await _supabase.from('profiles').update(profilePayload).eq('id', driver.id);
+    } on PostgrestException {
+      final fallbackPayload = Map<String, dynamic>.from(profilePayload)
+        ..remove('driver_status');
+      await _supabase.from('profiles').update(fallbackPayload).eq('id', driver.id);
+    }
     await _supabase
         .from('driver_applications')
         .update({
-          'status': status,
+          'status': normalizedStatus,
           'reviewed_by': profile.id,
-          'reviewed_at': DateTime.now().toUtc().toIso8601String(),
+          'reviewed_at': now,
         })
         .eq('driver_id', driver.id)
         .eq('city', profile.assignedCity);
     await _notifyUser(
       userId: driver.id,
       title: 'Driver application update',
-      body: 'Your driver status is now $status.',
+      body: normalizedStatus == 'suspended'
+          ? 'Your driver account was suspended. Reason: ${payload['suspended_reason']}.'
+          : 'Your driver status is now $normalizedStatus.',
       type: 'driver_status',
     );
     await _logAudit(
@@ -943,7 +1355,8 @@ class SubTenantService {
       action: 'update_driver_status',
       tableName: 'driver_details',
       recordId: driver.id,
-      description: 'Updated driver ${driver.fullName} status to $status.',
+      description:
+          'Updated driver ${driver.fullName} status to $normalizedStatus.',
     );
   }
 
@@ -1660,4 +2073,54 @@ class SubTenantService {
       throw StateError('Tourist spot is outside the assigned city.');
     }
   }
+
+  String _fallbackSuggestionCategory(SubTenantSpot spot) {
+    final source = spot.sourceType.toLowerCase();
+    if (source.contains('food')) return 'Food';
+    if (source.contains('histor')) return 'Historical';
+    if (source.contains('nature')) return 'Nature';
+    if (source.contains('museum')) return 'Cultural';
+    if (source.contains('church') || source.contains('relig')) {
+      return 'Religious';
+    }
+    return 'Popular';
+  }
+
+  String _packageSpotIdentity(SelectedPackageSpot selectedSpot) {
+    return _packageSpotIdentityFromSpot(selectedSpot.spot);
+  }
+
+  String _packageSpotIdentityFromSpot(SubTenantSpot spot) {
+    if (spot.id != null && stId(spot.id).isNotEmpty) {
+      return 'spot:${stId(spot.id)}';
+    }
+    if (spot.googlePlaceId.trim().isNotEmpty) {
+      return 'google:${spot.googlePlaceId.trim().toLowerCase()}';
+    }
+    final normalizedTitle = _normalizeComparisonValue(spot.title);
+    final normalizedAddress = _normalizeComparisonValue(spot.address);
+    return 'text:$normalizedTitle|$normalizedAddress';
+  }
+
+  String _normalizeComparisonValue(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
+  }
+
+  double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
+    const radius = 6371.0;
+    final dLat = _degToRad(lat2 - lat1);
+    final dLon = _degToRad(lon2 - lon1);
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degToRad(lat1)) *
+            math.cos(_degToRad(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  double _degToRad(double value) => value * (math.pi / 180);
 }

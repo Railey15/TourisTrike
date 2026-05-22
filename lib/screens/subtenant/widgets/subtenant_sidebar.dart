@@ -30,7 +30,6 @@ class SubTenantSidebar extends StatefulWidget {
 }
 
 class _SubTenantSidebarState extends State<SubTenantSidebar> {
-  bool _hovered = false;
   bool _expanded = true;
 
   static const List<_SidebarDestination> _destinations = [
@@ -65,8 +64,8 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
 
   bool get _effectiveExpanded {
     if (widget.asDrawer) return true;
-    if (widget.compact) return _hovered;
-    return _expanded || _hovered;
+    if (widget.compact) return false;
+    return _expanded;
   }
 
   @override
@@ -74,70 +73,66 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
     final expanded = _effectiveExpanded;
     final width = widget.asDrawer ? 292.0 : (expanded ? 258.0 : 86.0);
 
-    final sidebar = MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-        width: width,
-        margin: widget.asDrawer ? EdgeInsets.zero : const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(10, 14, 10, 14),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF536DFE), Color(0xFF2A86FF), Color(0xFF1E63E9)],
+    final sidebar = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: width,
+      margin: widget.asDrawer ? EdgeInsets.zero : const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(10, 14, 10, 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF536DFE), Color(0xFF2A86FF), Color(0xFF1E63E9)],
+        ),
+        borderRadius: BorderRadius.circular(widget.asDrawer ? 0 : 28),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+        boxShadow: widget.asDrawer
+            ? null
+            : [
+                BoxShadow(
+                  color: SubTenantColors.blue.withValues(alpha: 0.30),
+                  blurRadius: 30,
+                  offset: const Offset(0, 18),
+                ),
+              ],
+      ),
+      child: Column(
+        children: [
+          _SidebarBrand(
+            expanded: expanded,
+            showToggle: !widget.asDrawer && !widget.compact,
+            isPinnedOpen: _expanded,
+            onToggle: () => setState(() => _expanded = !_expanded),
           ),
-          borderRadius: BorderRadius.circular(widget.asDrawer ? 0 : 28),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
-          boxShadow: widget.asDrawer
-              ? null
-              : [
-                  BoxShadow(
-                    color: SubTenantColors.blue.withValues(alpha: 0.30),
-                    blurRadius: 30,
-                    offset: const Offset(0, 18),
-                  ),
-                ],
-        ),
-        child: Column(
-          children: [
-            _SidebarBrand(
-              expanded: expanded,
-              showToggle: !widget.asDrawer && !widget.compact,
-              isPinnedOpen: _expanded,
-              onToggle: () => setState(() => _expanded = !_expanded),
+          const SizedBox(height: 22),
+          Expanded(
+            child: ListView.separated(
+              padding: EdgeInsets.zero,
+              itemBuilder: (context, index) {
+                final item = _destinations[index];
+                return SidebarNavItem(
+                  label: item.label,
+                  icon: item.icon,
+                  expanded: expanded,
+                  active: widget.currentIndex == item.index,
+                  onTap: () => widget.onDestinationSelected(item.index),
+                );
+              },
+              separatorBuilder: (_, _) => const SizedBox(height: 9),
+              itemCount: _destinations.length,
             ),
-            const SizedBox(height: 22),
-            Expanded(
-              child: ListView.separated(
-                padding: EdgeInsets.zero,
-                itemBuilder: (context, index) {
-                  final item = _destinations[index];
-                  return SidebarNavItem(
-                    label: item.label,
-                    icon: item.icon,
-                    expanded: expanded,
-                    active: widget.currentIndex == item.index,
-                    onTap: () => widget.onDestinationSelected(item.index),
-                  );
-                },
-                separatorBuilder: (_, _) => const SizedBox(height: 9),
-                itemCount: _destinations.length,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SidebarNavItem(
-              label: 'Logout',
-              icon: Icons.logout_rounded,
-              expanded: expanded,
-              active: false,
-              danger: true,
-              onTap: widget.onLogout,
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          SidebarNavItem(
+            label: 'Logout',
+            icon: Icons.logout_rounded,
+            expanded: expanded,
+            active: false,
+            danger: true,
+            onTap: widget.onLogout,
+          ),
+        ],
       ),
     );
 
