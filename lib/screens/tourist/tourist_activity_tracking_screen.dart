@@ -522,13 +522,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
           polylineId: const PolylineId('route'),
           points: result.points,
           color: const Color(0xFF2A86FF),
-          width: 6,
+          width: 5,
+          geodesic: true,
           jointType: JointType.round,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
-          patterns: result.isFallback
-              ? [PatternItem.dash(12), PatternItem.gap(6)]
-              : [],
         ),
       };
       _eta = result.durationText;

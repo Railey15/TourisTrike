@@ -547,12 +547,10 @@ class _DriverPackageTrackingScreenState
           points: result.points,
           color: const Color(0xFF2F6FFF),
           width: 5,
+          geodesic: true,
           jointType: JointType.round,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
-          patterns: result.isFallback
-              ? [PatternItem.dash(12), PatternItem.gap(6)]
-              : [],
         ),
       };
       _eta = result.durationText;
