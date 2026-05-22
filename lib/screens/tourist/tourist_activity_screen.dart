@@ -78,13 +78,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
     if (_filter == _StatusFilter.all) return list;
     return list
         .where((a) {
+          final status = a.lifecycleStatus;
           return switch (_filter) {
             _StatusFilter.all => true,
-            _StatusFilter.pending => a.status == 'pending',
-            _StatusFilter.active =>
-              a.status == 'accepted' || a.status == 'ongoing',
-            _StatusFilter.completed => a.status == 'completed',
-            _StatusFilter.cancelled => a.status == 'cancelled',
+            _StatusFilter.pending => status == 'pending',
+            _StatusFilter.active => status == 'accepted' || status == 'ongoing',
+            _StatusFilter.completed => status == 'completed',
+            _StatusFilter.cancelled => status == 'cancelled',
           };
         })
         .toList(growable: false);
@@ -122,7 +122,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
               // Summary stats
               final totalSpent = all
                   .where(
-                    (a) => a.status != 'cancelled' && a.paymentStatus == 'paid',
+                    (a) =>
+                        a.lifecycleStatus != 'cancelled' &&
+                        a.paymentStatus == 'paid',
                   )
                   .fold<double>(
                     0,
@@ -133,9 +135,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           fallback: a.price,
                         ),
                   );
-              final activeCount = all
-                  .where((a) => a.status == 'accepted' || a.status == 'ongoing')
-                  .length;
+              final activeCount = all.where((a) => a.isActiveLifecycle).length;
 
               return RefreshIndicator(
                 onRefresh: () async => _reload(),
@@ -354,7 +354,7 @@ class _ActivityCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          _BookingStatusChip(status: activity.status),
+                          _BookingStatusChip(status: activity.lifecycleStatus),
                         ],
                       ),
                       if (areaLabel.isNotEmpty) ...[
@@ -407,8 +407,8 @@ class _ActivityCard extends StatelessWidget {
                     (booking?['accepted_drivers_count'] as num?)?.toInt() ?? 0;
                 if (required <= 1) return const SizedBox.shrink();
                 final isWaiting =
-                    activity.status == 'pending' ||
-                    activity.status == 'accepted';
+                    activity.lifecycleStatus == 'pending' ||
+                    activity.lifecycleStatus == 'accepted';
                 if (!isWaiting) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(top: 10),

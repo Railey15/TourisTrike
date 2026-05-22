@@ -51,9 +51,15 @@ class _DriverPackageBookingDetailsScreenState
       final booking = bookingId.isEmpty
           ? null
           : await _repo.fetchPackageBookingDetails(bookingId);
-      final spots = bookingId.isEmpty
+      var spots = bookingId.isEmpty
           ? const <BookingItineraryItem>[]
           : await _repo.fetchBookingItinerary(bookingId);
+      if (bookingId.isNotEmpty && spots.isEmpty) {
+        try {
+          await _repo.ensureBookingItinerary(bookingId);
+          spots = await _repo.fetchBookingItinerary(bookingId);
+        } catch (_) {}
+      }
       if (!mounted) return;
       setState(() {
         _job = PackageActivity({
@@ -604,6 +610,9 @@ class _ItineraryRow extends StatelessWidget {
       item.formattedArrivalTime,
       item.formattedDepartureTime,
     ].where((part) => part.isNotEmpty).join(' - ');
+    final stopOrder = item.orderNumber > 0
+        ? item.orderNumber
+        : item.destinationOrder;
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
       child: Row(
@@ -647,6 +656,21 @@ class _ItineraryRow extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _MetaChip(
+                      label: 'Stop ${stopOrder > 0 ? stopOrder : index}',
+                      color: const Color(0xFF2F6FFF),
+                    ),
+                    _MetaChip(
+                      label: item.sourceType.replaceAll('_', ' '),
+                      color: const Color(0xFF16A34A),
+                    ),
+                  ],
+                ),
                 if (item.destinationAddress.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
@@ -673,6 +697,32 @@ class _ItineraryRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+          fontSize: 10.5,
+        ),
       ),
     );
   }

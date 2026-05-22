@@ -119,18 +119,36 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
           )
           .toList();
       final bookingIds = jobs.map((job) => job.bookingId).toSet().toList();
-      final itineraryCounts = await _repo.fetchBookingItineraryCounts(
-        bookingIds,
-      );
+      var itineraryCounts = await _repo.fetchBookingItineraryCounts(bookingIds);
+      final missingItineraryIds = itineraryCounts.entries
+          .where((entry) => entry.value == 0)
+          .map((entry) => entry.key)
+          .toList(growable: false);
+      if (missingItineraryIds.isNotEmpty) {
+        await Future.wait(
+          missingItineraryIds.map((bookingId) async {
+            try {
+              await _repo.ensureBookingItinerary(bookingId);
+            } catch (_) {}
+          }),
+        );
+        itineraryCounts = await _repo.fetchBookingItineraryCounts(bookingIds);
+      }
 
-      // Fetch full itinerary items for preview (from booking_itinerary_items only)
+      // Fetch full itinerary items for preview after itinerary generation settles.
       Map<String, List<BookingItineraryItem>> itineraryItemsMap = {};
       if (bookingIds.isNotEmpty) {
         try {
           final rows = await _supabase
               .from('booking_itinerary_items')
-              .select('booking_id, destination_name, destination_order, destination_address')
+              .select(
+                'id, booking_id, destination_name, destination_address, '
+                'arrival_time, departure_time, actual_arrival_time, '
+                'actual_departure_time, source_type, spot_status, '
+                'order_number, destination_order',
+              )
               .inFilter('booking_id', bookingIds)
+              .order('order_number', ascending: true)
               .order('destination_order', ascending: true);
           for (final row in (rows as List<dynamic>)) {
             final m = Map<String, dynamic>.from(row as Map);
@@ -178,6 +196,30 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'package_activities',
+          callback: (_) => _load(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'package_bookings',
+          callback: (_) => _load(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'booking_itinerary_items',
+          callback: (_) => _load(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'booking_itinerary_items',
+          callback: (_) => _load(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'booking_itinerary_items',
           callback: (_) => _load(),
         );
     _channel!.subscribe();
@@ -473,7 +515,11 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      const Icon(Icons.star_rounded, color: Color(0xFFFBBF24), size: 14),
+                      const Icon(
+                        Icons.star_rounded,
+                        color: Color(0xFFFBBF24),
+                        size: 14,
+                      ),
                       const SizedBox(width: 3),
                       Text(
                         '${rating.toStringAsFixed(1)}  ($reviews review${reviews == 1 ? '' : 's'})',
@@ -761,9 +807,9 @@ class _JobCard extends StatelessWidget {
                       icon: Icons.map_rounded,
                       label: 'Itinerary',
                       value: itineraryItems.isNotEmpty
-                          ? '${itineraryItems.length} stop${itineraryItems.length == 1 ? '' : 's'}'
+                          ? '${itineraryItems.length} itinerary stop${itineraryItems.length == 1 ? '' : 's'}'
                           : itineraryCount > 0
-                          ? '$itineraryCount spot${itineraryCount == 1 ? '' : 's'}'
+                          ? '$itineraryCount itinerary stop${itineraryCount == 1 ? '' : 's'}'
                           : 'No itinerary yet',
                     ),
                     if (itineraryItems.isNotEmpty) ...[
@@ -954,15 +1000,33 @@ class _ItineraryPreview extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      item.destinationName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.destinationName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        if (item.destinationAddress.isNotEmpty) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            item.destinationAddress,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],

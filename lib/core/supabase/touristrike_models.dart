@@ -387,8 +387,7 @@ class PackageBooking extends TourisTrikeRow {
   Json? get packageRow => row['tour_packages'] is Map
       ? Json.from(row['tour_packages'] as Map)
       : null;
-  Json? get touristRow =>
-      row['profiles'] is Map
+  Json? get touristRow => row['profiles'] is Map
       ? Json.from(row['profiles'] as Map)
       : row['tourist'] is Map
       ? Json.from(row['tourist'] as Map)
@@ -756,6 +755,58 @@ class PackageActivity extends TourisTrikeRow {
   DateTime? get droppedOffAt => dbDate(row['dropped_off_at']);
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
+  String get bookingStatus => dbString(
+    bookingRow?['booking_status'],
+    fallback: dbString(bookingRow?['status']),
+  );
+
+  String get lifecycleStatus {
+    final activityStatus = status.trim().toLowerCase();
+    final currentTourStatus = tourStatus.trim().toLowerCase();
+    final currentBookingStatus = bookingStatus.trim().toLowerCase();
+
+    if (activityStatus == 'cancelled' || currentBookingStatus == 'cancelled') {
+      return 'cancelled';
+    }
+    if (activityStatus == 'completed' ||
+        currentTourStatus == 'completed' ||
+        currentTourStatus == 'dropped_off' ||
+        currentBookingStatus == 'completed') {
+      return 'completed';
+    }
+    if (activityStatus == 'ongoing' ||
+        currentBookingStatus == 'on_tour' ||
+        currentTourStatus == 'picked_up' ||
+        currentTourStatus == 'on_tour' ||
+        currentTourStatus == 'en_route_to_spot' ||
+        currentTourStatus == 'at_spot' ||
+        currentTourStatus == 'en_route_to_dropoff' ||
+        currentTourStatus == 'ready_to_complete') {
+      return 'ongoing';
+    }
+    if (activityStatus == 'accepted' ||
+        currentBookingStatus == 'accepted' ||
+        currentBookingStatus == 'driver_on_the_way' ||
+        currentTourStatus == 'driver_accepted' ||
+        currentTourStatus == 'driver_en_route' ||
+        currentTourStatus == 'driver_arrived') {
+      return 'accepted';
+    }
+    if (activityStatus == 'pending' ||
+        currentBookingStatus == 'pending' ||
+        currentBookingStatus == 'waiting_for_drivers') {
+      return 'pending';
+    }
+
+    return activityStatus.isNotEmpty
+        ? activityStatus
+        : currentBookingStatus.isNotEmpty
+        ? currentBookingStatus
+        : currentTourStatus;
+  }
+
+  bool get isActiveLifecycle =>
+      lifecycleStatus == 'accepted' || lifecycleStatus == 'ongoing';
 
   Json? get packageRow => row['tour_packages'] is Map
       ? Json.from(row['tour_packages'] as Map)
@@ -896,7 +947,8 @@ class SharedTripAccessLog extends TourisTrikeRow {
   String? get deviceInfo => row['device_info']?.toString();
   String? get ipAddress => row['ip_address']?.toString();
   String? get userAgent => row['user_agent']?.toString();
-  String get accessStatus => dbString(row['access_status'], fallback: 'pending');
+  String get accessStatus =>
+      dbString(row['access_status'], fallback: 'pending');
   DateTime? get accessedAt => dbDate(row['accessed_at']);
 }
 
@@ -948,7 +1000,8 @@ class GuestTripDetails {
       bookingStatus: json['booking_status']?.toString() ?? '',
       tourStatus: json['tour_status']?.toString() ?? '',
       bookingStatusDetail: json['booking_status_detail']?.toString() ?? '',
-      itineraryItems: (json['itinerary_items'] as List?)
+      itineraryItems:
+          (json['itinerary_items'] as List?)
               ?.whereType<Map>()
               .map((e) => Map<String, dynamic>.from(e))
               .toList() ??
@@ -969,25 +1022,25 @@ class GuestTripDetails {
   }
 
   GuestTripDetails withLocation(double? lat, double? lng) => GuestTripDetails(
-        bookingId: bookingId,
-        driverId: driverId,
-        bookingStatus: bookingStatus,
-        tourStatus: tourStatus,
-        bookingStatusDetail: bookingStatusDetail,
-        itineraryItems: itineraryItems,
-        driverCode: driverCode,
-        tricycleNumber: tricycleNumber,
-        driverPhoneMasked: driverPhoneMasked,
-        driverName: driverName,
-        pickupLandmark: pickupLandmark,
-        dropoffLandmark: dropoffLandmark,
-        pickupLatitude: pickupLatitude,
-        pickupLongitude: pickupLongitude,
-        dropoffLatitude: dropoffLatitude,
-        dropoffLongitude: dropoffLongitude,
-        driverLatitude: lat,
-        driverLongitude: lng,
-      );
+    bookingId: bookingId,
+    driverId: driverId,
+    bookingStatus: bookingStatus,
+    tourStatus: tourStatus,
+    bookingStatusDetail: bookingStatusDetail,
+    itineraryItems: itineraryItems,
+    driverCode: driverCode,
+    tricycleNumber: tricycleNumber,
+    driverPhoneMasked: driverPhoneMasked,
+    driverName: driverName,
+    pickupLandmark: pickupLandmark,
+    dropoffLandmark: dropoffLandmark,
+    pickupLatitude: pickupLatitude,
+    pickupLongitude: pickupLongitude,
+    dropoffLatitude: dropoffLatitude,
+    dropoffLongitude: dropoffLongitude,
+    driverLatitude: lat,
+    driverLongitude: lng,
+  );
 
   bool get isLiveTrackingAvailable {
     return tourStatus == 'driver_en_route' ||

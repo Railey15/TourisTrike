@@ -8,8 +8,8 @@
 CREATE TABLE IF NOT EXISTS public.package_reviews (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id    uuid NOT NULL REFERENCES public.package_bookings(id) ON DELETE CASCADE,
-  package_id    uuid REFERENCES public.tour_packages(id) ON DELETE SET NULL,
-  tourist_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  package_id    bigint REFERENCES public.tour_packages(id) ON DELETE SET NULL,
+  tourist_id    uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   rating        smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
   review_text   text,
   created_at    timestamptz NOT NULL DEFAULT now(),
@@ -24,16 +24,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS package_reviews_booking_tourist_idx
 ALTER TABLE public.package_reviews ENABLE ROW LEVEL SECURITY;
 
 -- Tourist can insert their own review
+DROP POLICY IF EXISTS "tourist_insert_own_package_review" ON public.package_reviews;
 CREATE POLICY "tourist_insert_own_package_review"
   ON public.package_reviews FOR INSERT
   WITH CHECK (tourist_id = auth.uid());
 
 -- Tourist can read their own reviews
+DROP POLICY IF EXISTS "tourist_read_own_package_review" ON public.package_reviews;
 CREATE POLICY "tourist_read_own_package_review"
   ON public.package_reviews FOR SELECT
   USING (tourist_id = auth.uid());
 
+-- Tourist can update their own review (used by idempotent upserts)
+DROP POLICY IF EXISTS "tourist_update_own_package_review" ON public.package_reviews;
+CREATE POLICY "tourist_update_own_package_review"
+  ON public.package_reviews FOR UPDATE
+  USING (tourist_id = auth.uid())
+  WITH CHECK (tourist_id = auth.uid());
+
 -- Admins can read all (for reporting)
+DROP POLICY IF EXISTS "admin_read_all_package_reviews" ON public.package_reviews;
 CREATE POLICY "admin_read_all_package_reviews"
   ON public.package_reviews FOR SELECT
   USING (
@@ -94,7 +104,7 @@ LANGUAGE sql STABLE SECURITY DEFINER AS $$
     SELECT 1 FROM public.driver_reviews
     WHERE booking_id = p_booking_id AND tourist_id = auth.uid()
   )
-  OR
+  AND
   EXISTS (
     SELECT 1 FROM public.package_reviews
     WHERE booking_id = p_booking_id AND tourist_id = auth.uid()

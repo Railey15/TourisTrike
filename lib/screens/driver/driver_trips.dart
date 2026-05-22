@@ -75,13 +75,11 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
         return items;
       case _DriverActivityFilter.active:
         return items
-            .where(
-              (item) => item.status == 'accepted' || item.status == 'ongoing',
-            )
+            .where((item) => item.isActiveLifecycle)
             .toList(growable: false);
       case _DriverActivityFilter.done:
         return items
-            .where((item) => item.status == 'completed')
+            .where((item) => item.lifecycleStatus == 'completed')
             .toList(growable: false);
     }
   }
@@ -109,10 +107,10 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
             final activities = snapshot.data ?? const [];
             final visible = _filtered(activities);
             final activeCount = activities
-                .where((item) => item.status == 'accepted' || item.status == 'ongoing')
+                .where((item) => item.isActiveLifecycle)
                 .length;
             final doneCount = activities
-                .where((item) => item.status == 'completed')
+                .where((item) => item.lifecycleStatus == 'completed')
                 .length;
 
             return RefreshIndicator(
@@ -210,7 +208,7 @@ class _DriverActivityCard extends StatelessWidget {
 
   final PackageActivity activity;
 
-  bool get _isActive => activity.status == 'accepted' || activity.status == 'ongoing';
+  bool get _isActive => activity.isActiveLifecycle;
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +281,7 @@ class _DriverActivityCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                _DriverStatusChip(status: activity.status),
+                _DriverStatusChip(status: activity.lifecycleStatus),
               ],
             ),
             if (city.isNotEmpty) ...[
@@ -421,32 +419,39 @@ class _DriverActivityFilterRow extends StatelessWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: items.map((item) {
-          final selected = item.$1 == value;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => onChanged(item.$1),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                decoration: BoxDecoration(
-                  color: selected ? const Color(0xFF2F6FFF) : Colors.white,
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(color: const Color(0xFFE7EEF7)),
-                ),
-                child: Text(
-                  item.$2,
-                  style: TextStyle(
-                    color: selected ? Colors.white : const Color(0xFF0F172A),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13,
+        children: items
+            .map((item) {
+              final selected = item.$1 == value;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GestureDetector(
+                  onTap: () => onChanged(item.$1),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected ? const Color(0xFF2F6FFF) : Colors.white,
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(color: const Color(0xFFE7EEF7)),
+                    ),
+                    child: Text(
+                      item.$2,
+                      style: TextStyle(
+                        color: selected
+                            ? Colors.white
+                            : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          );
-        }).toList(growable: false),
+              );
+            })
+            .toList(growable: false),
       ),
     );
   }
@@ -543,11 +548,7 @@ class _DriverActivityEmpty extends StatelessWidget {
       ),
       child: const Column(
         children: [
-          Icon(
-            Icons.route_rounded,
-            size: 54,
-            color: Color(0xFFCBD5E1),
-          ),
+          Icon(Icons.route_rounded, size: 54, color: Color(0xFFCBD5E1)),
           SizedBox(height: 14),
           Text(
             'No package activity yet',
@@ -573,10 +574,7 @@ class _DriverActivityEmpty extends StatelessWidget {
 }
 
 class _DriverActivityError extends StatelessWidget {
-  const _DriverActivityError({
-    required this.message,
-    required this.onRetry,
-  });
+  const _DriverActivityError({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -604,10 +602,7 @@ class _DriverActivityError extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: onRetry,
-              child: const Text('Retry'),
-            ),
+            ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),

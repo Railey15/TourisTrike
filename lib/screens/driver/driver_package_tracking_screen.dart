@@ -410,7 +410,9 @@ class _DriverPackageTrackingScreenState
         Marker(
           markerId: const MarkerId('pickup'),
           position: pickup,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
           infoWindow: InfoWindow(
             title: 'Pickup Point',
             snippet: _booking?.pickupAddress ?? '',
@@ -465,7 +467,8 @@ class _DriverPackageTrackingScreenState
         Marker(
           markerId: const MarkerId('driver'),
           position: driverPos,
-          icon: _tricycleMarker ??
+          icon:
+              _tricycleMarker ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
           rotation: _currentPosition?.heading ?? 0.0,
           anchor: const Offset(0.5, 0.5),
@@ -728,8 +731,14 @@ class _DriverPackageTrackingScreenState
     BookingItineraryItem? currentItem = _currentItineraryItem;
     if (currentItem == null) {
       if (kDriverActionTestMode && _spots.isNotEmpty) {
-        final atSpot = _spots.where((s) => s.spotStatus.trim().toLowerCase() == 'at_spot').firstOrNull;
-        currentItem = atSpot ?? _spots.where((s) => s.spotStatus.trim().toLowerCase() != 'completed').firstOrNull;
+        final atSpot = _spots
+            .where((s) => s.spotStatus.trim().toLowerCase() == 'at_spot')
+            .firstOrNull;
+        currentItem =
+            atSpot ??
+            _spots
+                .where((s) => s.spotStatus.trim().toLowerCase() != 'completed')
+                .firstOrNull;
       }
       if (currentItem == null) {
         await _refreshTrackingState(logTag: 'spot-complete-null');
@@ -740,7 +749,9 @@ class _DriverPackageTrackingScreenState
 
     final spotName = currentItem.destinationName;
     final totalItems = _spots.length;
-    final completedBefore = _spots.where((s) => s.spotStatus.trim().toLowerCase() == 'completed').length;
+    final completedBefore = _spots
+        .where((s) => s.spotStatus.trim().toLowerCase() == 'completed')
+        .length;
     final itemId = currentItem.id?.toString() ?? '';
 
     debugPrint(
@@ -791,9 +802,9 @@ class _DriverPackageTrackingScreenState
     _debugTourState('spot-complete-rpc', rpcResult: rpcResult);
 
     final completedNow =
-        (rpcResult['completed_items'] as num?)?.toInt() ?? (completedBefore + 1);
-    final rpcTotal =
-        (rpcResult['total_items'] as num?)?.toInt() ?? totalItems;
+        (rpcResult['completed_items'] as num?)?.toInt() ??
+        (completedBefore + 1);
+    final rpcTotal = (rpcResult['total_items'] as num?)?.toInt() ?? totalItems;
     final allSpotsCompletedNow = completedNow >= rpcTotal && rpcTotal > 0;
 
     // Sync local _spots state from the authoritative server list returned by
@@ -837,7 +848,9 @@ class _DriverPackageTrackingScreenState
     } else {
       await _refreshTrackingState(logTag: 'spot-complete');
       _logStatus('on_tour');
-      final nextItem = _spots.where((s) => s.spotStatus.trim().toLowerCase() != 'completed').firstOrNull;
+      final nextItem = _spots
+          .where((s) => s.spotStatus.trim().toLowerCase() != 'completed')
+          .firstOrNull;
       _showSnack(
         '$spotName completed. $completedNow of $rpcTotal spots done.'
         '${nextItem != null ? ' Next: ${nextItem.destinationName}' : ''}',
@@ -858,8 +871,9 @@ class _DriverPackageTrackingScreenState
       activityId: widget.activityId,
       tourStatus: 'ready_to_complete',
       bookingStatus: 'on_tour',
+      extra: {'dropped_off_at': DateTime.now().toIso8601String()},
     );
-    _logStatus('ready_to_complete');
+    _logStatus('dropped_off');
     await _refreshTrackingState(logTag: 'arrived-dropoff');
     _showSnack('Arrived at drop-off. Tap "Complete Trip" when ready.');
   });
@@ -989,12 +1003,13 @@ class _DriverPackageTrackingScreenState
       final touristName = rawName.isNotEmpty
           ? rawName
           : [tourist?['first_name'], tourist?['last_name']]
-              .whereType<String>()
-              .map((s) => s.trim())
-              .where((s) => s.isNotEmpty)
-              .join(' ');
+                .whereType<String>()
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty)
+                .join(' ');
       final touristPhone = (tourist?['mobile'] as String? ?? '').trim();
-      final touristAvatar = (tourist?['profile_image_url'] as String? ?? '').trim();
+      final touristAvatar = (tourist?['profile_image_url'] as String? ?? '')
+          .trim();
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -1686,11 +1701,7 @@ class _ActionBtn extends StatelessWidget {
 // ── Tourist Info Card ─────────────────────────────────────────
 
 class _TouristCard extends StatelessWidget {
-  const _TouristCard({
-    required this.activity,
-    this.onMessage,
-    this.onCall,
-  });
+  const _TouristCard({required this.activity, this.onMessage, this.onCall});
   final PackageActivity activity;
   final VoidCallback? onMessage;
   final VoidCallback? onCall;
@@ -2342,7 +2353,6 @@ class _SpotRow extends StatelessWidget {
     if (d.isNotEmpty) return 'Dep. $d';
     return '';
   }
-
 }
 
 class _DriverTimestampBadge extends StatelessWidget {

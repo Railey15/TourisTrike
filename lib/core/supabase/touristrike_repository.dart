@@ -781,20 +781,42 @@ class TourisTrikeRepository {
     if (ids.isEmpty) return const {};
 
     try {
-      final rows = await _client
-          .from(TourisTrikeTables.bookingItineraryItems)
-          .select('booking_id')
-          .inFilter('booking_id', ids);
-      final counts = <String, int>{for (final id in ids) id: 0};
-      for (final row in _rows(rows)) {
-        final bookingId = dbString(row['booking_id']);
-        if (bookingId.isEmpty) continue;
-        counts[bookingId] = (counts[bookingId] ?? 0) + 1;
+      final counts = await _fetchBookingItineraryCountsFromRows(ids);
+      final missingIds = counts.entries
+          .where((entry) => entry.value == 0)
+          .map((entry) => entry.key)
+          .toList(growable: false);
+      if (missingIds.isEmpty) return counts;
+
+      for (final bookingId in missingIds) {
+        try {
+          await ensureBookingItinerary(bookingId);
+        } catch (_) {
+          // Fall through and keep the current zero count if itinerary generation
+          // is unavailable for this booking in the current environment.
+        }
       }
-      return counts;
+
+      return _fetchBookingItineraryCountsFromRows(ids);
     } on PostgrestException {
       return const {};
     }
+  }
+
+  Future<Map<String, int>> _fetchBookingItineraryCountsFromRows(
+    List<String> ids,
+  ) async {
+    final rows = await _client
+        .from(TourisTrikeTables.bookingItineraryItems)
+        .select('booking_id')
+        .inFilter('booking_id', ids);
+    final counts = <String, int>{for (final id in ids) id: 0};
+    for (final row in _rows(rows)) {
+      final bookingId = dbString(row['booking_id']);
+      if (bookingId.isEmpty) continue;
+      counts[bookingId] = (counts[bookingId] ?? 0) + 1;
+    }
+    return counts;
   }
 
   Future<PaymentRecord> createPayment({
@@ -1614,6 +1636,8 @@ class TourisTrikeRepository {
     double? driverLng,
     Map<String, dynamic> extra = const {},
   }) async {
+    final bookingExtra = Map<String, dynamic>.from(extra)
+      ..remove('dropped_off_at');
     final update = <String, dynamic>{
       'tour_status': tourStatus,
       'updated_at': DateTime.now().toIso8601String(),
@@ -1644,7 +1668,7 @@ class TourisTrikeRepository {
           _bookingStatusFromTourStatus(tourStatus),
       'current_spot_index': currentSpotIndex ?? activity?.currentSpotIndex ?? 0,
       'updated_at': DateTime.now().toIso8601String(),
-      ...extra,
+      ...bookingExtra,
     };
     if (driverLat != null) {
       bookingUpdate['driver_latitude'] = driverLat;
@@ -1973,13 +1997,13 @@ class TourisTrikeRepository {
     String reviewText = '',
   }) async {
     final userId = requireUserId();
-    await _client.from(TourisTrikeTables.driverReviews).insert({
+    await _client.from(TourisTrikeTables.driverReviews).upsert({
       'booking_id': bookingId,
       'driver_id': driverId,
       'tourist_id': userId,
       'rating': rating,
       'review_text': reviewText.trim().isEmpty ? null : reviewText.trim(),
-    });
+    }, onConflict: 'booking_id,tourist_id');
   }
 
   Future<void> submitPackageReview({
@@ -1989,13 +2013,18 @@ class TourisTrikeRepository {
     dynamic packageId,
   }) async {
     final userId = requireUserId();
-    await _client.from('package_reviews').insert({
+    final payload = <String, dynamic>{
       'booking_id': bookingId,
       'tourist_id': userId,
       'rating': rating,
       'review_text': reviewText.trim().isEmpty ? null : reviewText.trim(),
-      ?'package_id': packageId,
-    });
+    };
+    if (packageId != null) {
+      payload['package_id'] = packageId;
+    }
+    await _client
+        .from('package_reviews')
+        .upsert(payload, onConflict: 'booking_id,tourist_id');
   }
 
   Future<bool> hasReviewedPackage(String bookingId) async {
@@ -2173,13 +2202,16 @@ class TourisTrikeRepository {
     bool silent = false,
   }) async {
     try {
-      final result = await _client.rpc('get_shared_trip_details', params: {
-        'p_public_token': publicToken,
-        'p_access_code': accessCode,
-        'p_device_info': deviceInfo,
-        'p_user_agent': userAgent,
-        'p_silent': silent,
-      });
+      final result = await _client.rpc(
+        'get_shared_trip_details',
+        params: {
+          'p_public_token': publicToken,
+          'p_access_code': accessCode,
+          'p_device_info': deviceInfo,
+          'p_user_agent': userAgent,
+          'p_silent': silent,
+        },
+      );
       if (result == null) return null;
       final map = Map<String, dynamic>.from(result as Map);
       if (map['error'] != null) throw Exception(map['message']);

@@ -213,7 +213,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
               final lat = newRow['latitude'] as num?;
               final lng = newRow['longitude'] as num?;
               final speed = (newRow['speed'] as num?)?.toDouble() ?? 0.0;
-              final heading = (newRow['heading'] as num?)?.toDouble() ?? _driverHeading;
+              final heading =
+                  (newRow['heading'] as num?)?.toDouble() ?? _driverHeading;
               if (lat == null || lng == null) return;
               if (_activity != null) {
                 setState(() {
@@ -293,13 +294,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
     if (bookingId.isEmpty || driverId.isEmpty) return;
 
-    final packageId = _booking?.row['package_id'];
-    final packageName = _booking?.row['package_name']?.toString() ?? '';
+    final packageId = _booking?.packageId ?? _activity?.packageId;
+    final packageName = dbString(
+      _activity?.packageRow?['title'],
+      fallback: dbString(_booking?.packageRow?['title']),
+    );
 
     final hasDriver = await _repo.hasReviewedDriver(bookingId);
-    final hasPackage = packageId == null
-        ? true
-        : await _repo.hasReviewedPackage(bookingId);
+    final hasPackage =
+        packageId == null || await _repo.hasReviewedPackage(bookingId);
 
     if (hasDriver && hasPackage) {
       _reviewShown = true;
@@ -309,7 +312,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     if (!mounted) return;
     setState(() => _reviewShown = true);
 
-    await DriverReviewModal.show(
+    final submitted = await DriverReviewModal.show(
       context,
       bookingId: bookingId,
       driverId: driverId,
@@ -319,8 +322,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
           : _driverInfo?.profile?.profileImageUrl ?? '',
       packageId: packageId,
       packageName: packageName.isNotEmpty ? packageName : null,
-      initialStep: hasDriver ? 2 : 1,
+      includeDriverReview: !hasDriver,
+      includePackageReview: !hasPackage,
     );
+    if (!mounted || !submitted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Thank you for your feedback!'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    await _refreshSpots(logTag: 'review-submitted');
   }
 
   // ── Refresh ───────────────────────────────────────────────────
@@ -380,18 +394,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) return;
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
       await _touristGpsSub?.cancel();
-      _touristGpsSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10,
-        ),
-      ).listen((pos) {
-        if (!mounted) return;
-        setState(() => _touristPosition = pos);
-        _buildMarkers();
-      });
+      _touristGpsSub =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 10,
+            ),
+          ).listen((pos) {
+            if (!mounted) return;
+            setState(() => _touristPosition = pos);
+            _buildMarkers();
+          });
     } catch (_) {}
   }
 
@@ -427,11 +444,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
             _touristPosition!.latitude,
             _touristPosition!.longitude,
           ),
-          icon: _passengerMarker ??
+          icon:
+              _passengerMarker ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
           anchor: const Offset(0.5, 0.5),
           infoWindow: const InfoWindow(title: 'You'),
-          zIndex: 2,
+          zIndexInt: 2,
         ),
       );
     }
@@ -444,7 +462,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         Marker(
           markerId: const MarkerId('pickup'),
           position: LatLng(booking.pickupLatitude!, booking.pickupLongitude!),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
           infoWindow: InfoWindow(
             title: 'Pickup Point',
             snippet: booking.pickupAddress,
@@ -484,8 +504,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
             isDone
                 ? BitmapDescriptor.hueGreen
                 : isCurrent
-                    ? BitmapDescriptor.hueOrange
-                    : BitmapDescriptor.hueAzure,
+                ? BitmapDescriptor.hueOrange
+                : BitmapDescriptor.hueAzure,
           ),
           infoWindow: InfoWindow(
             title: 'Stop ${i + 1}: ${spot.destinationName}',
@@ -504,13 +524,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         Marker(
           markerId: const MarkerId('driver'),
           position: LatLng(activity.driverLatitude!, activity.driverLongitude!),
-          icon: _tricycleMarker ??
+          icon:
+              _tricycleMarker ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
           rotation: _driverHeading,
           anchor: const Offset(0.5, 0.5),
           flat: true,
           infoWindow: const InfoWindow(title: 'Your Driver'),
-          zIndex: 1,
+          zIndexInt: 1,
         ),
       );
     }
@@ -1192,7 +1213,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                         _DetailRow(
                           label: 'Date',
                           value: travelDate != null
-                              ? DateFormat('EEE, MMM d, yyyy').format(travelDate)
+                              ? DateFormat(
+                                  'EEE, MMM d, yyyy',
+                                ).format(travelDate)
                               : '—',
                         ),
                         const SizedBox(height: 8),
@@ -1300,12 +1323,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
             ),
           ],
         ),
-
       ],
     );
   }
 }
-
 
 // ── Widgets ───────────────────────────────────────────────────
 
@@ -1415,7 +1436,9 @@ class _FindingDriversCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const amber = Color(0xFFF59E0B);
-    final progress = requiredDrivers > 0 ? acceptedDrivers / requiredDrivers : 0.0;
+    final progress = requiredDrivers > 0
+        ? acceptedDrivers / requiredDrivers
+        : 0.0;
 
     return Container(
       width: double.infinity,
@@ -1847,7 +1870,6 @@ class _SpotRow extends StatelessWidget {
     if (d.isNotEmpty) return 'Dep. $d';
     return '';
   }
-
 }
 
 class _TimestampBadge extends StatelessWidget {
@@ -2014,9 +2036,10 @@ class _EmergencyPanelState extends State<_EmergencyPanel>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
-    _scale = Tween<double>(begin: 1.0, end: 1.04).animate(
-      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
-    );
+    _scale = Tween<double>(
+      begin: 1.0,
+      end: 1.04,
+    ).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
   }
 
   @override
@@ -2337,10 +2360,7 @@ class _EmergencyConfirmDialog extends StatelessWidget {
               Icons.electric_rickshaw_rounded,
               'Your assigned driver',
             ),
-            _NotifyItem(
-              Icons.business_rounded,
-              'TourisTrike tourism office',
-            ),
+            _NotifyItem(Icons.business_rounded, 'TourisTrike tourism office'),
             const SizedBox(height: 12),
             TextField(
               controller: noteController,
@@ -2475,8 +2495,10 @@ class _ContactShortcut extends StatelessWidget {
                 if (await canLaunchUrl(uri)) await launchUrl(uri);
               },
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFDC2626),
                   borderRadius: BorderRadius.circular(8),
