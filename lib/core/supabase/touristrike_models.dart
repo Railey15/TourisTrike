@@ -910,7 +910,13 @@ class GuestTripDetails {
     required this.driverCode,
     required this.tricycleNumber,
     this.driverPhoneMasked,
+    required this.driverName,
     required this.pickupLandmark,
+    required this.dropoffLandmark,
+    this.pickupLatitude,
+    this.pickupLongitude,
+    this.dropoffLatitude,
+    this.dropoffLongitude,
     this.driverLatitude,
     this.driverLongitude,
   });
@@ -924,7 +930,13 @@ class GuestTripDetails {
   final String driverCode;
   final String tricycleNumber;
   final String? driverPhoneMasked;
+  final String driverName;
   final String pickupLandmark;
+  final String dropoffLandmark;
+  final double? pickupLatitude;
+  final double? pickupLongitude;
+  final double? dropoffLatitude;
+  final double? dropoffLongitude;
   final double? driverLatitude;
   final double? driverLongitude;
 
@@ -943,7 +955,13 @@ class GuestTripDetails {
       driverCode: json['driver_code']?.toString() ?? '',
       tricycleNumber: json['tricycle_number']?.toString() ?? '',
       driverPhoneMasked: json['driver_phone_masked']?.toString(),
+      driverName: json['driver_name']?.toString() ?? '',
       pickupLandmark: json['pickup_landmark']?.toString() ?? '',
+      dropoffLandmark: json['dropoff_landmark']?.toString() ?? '',
+      pickupLatitude: (json['pickup_latitude'] as num?)?.toDouble(),
+      pickupLongitude: (json['pickup_longitude'] as num?)?.toDouble(),
+      dropoffLatitude: (json['dropoff_latitude'] as num?)?.toDouble(),
+      dropoffLongitude: (json['dropoff_longitude'] as num?)?.toDouble(),
       driverLatitude: (json['driver_latitude'] as num?)?.toDouble(),
       driverLongitude: (json['driver_longitude'] as num?)?.toDouble(),
     );
@@ -959,13 +977,21 @@ class GuestTripDetails {
         driverCode: driverCode,
         tricycleNumber: tricycleNumber,
         driverPhoneMasked: driverPhoneMasked,
+        driverName: driverName,
         pickupLandmark: pickupLandmark,
+        dropoffLandmark: dropoffLandmark,
+        pickupLatitude: pickupLatitude,
+        pickupLongitude: pickupLongitude,
+        dropoffLatitude: dropoffLatitude,
+        dropoffLongitude: dropoffLongitude,
         driverLatitude: lat,
         driverLongitude: lng,
       );
 
   bool get isLiveTrackingAvailable {
-    return tourStatus == 'picked_up' ||
+    return tourStatus == 'driver_en_route' ||
+        tourStatus == 'driver_arrived' ||
+        tourStatus == 'picked_up' ||
         tourStatus == 'on_tour' ||
         tourStatus == 'en_route_to_spot' ||
         tourStatus == 'at_spot' ||

@@ -14,6 +14,8 @@ import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
 import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -45,6 +47,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
   // Navigation state
   bool _isFollowingDriver = false;
+  bool _isProgrammaticMove = false;
   double _driverSpeed = 0.0; // m/s from live location
   double _driverHeading = 0.0; // degrees clockwise from North
 
@@ -627,6 +630,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   void _animateCameraToDriver() {
     final activity = _activity;
     if (_mapCtrl == null || activity?.driverLatitude == null) return;
+    _isProgrammaticMove = true;
     _mapCtrl!.animateCamera(
       CameraUpdate.newLatLngZoom(
         LatLng(activity!.driverLatitude!, activity.driverLongitude!),
@@ -640,6 +644,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final activity = _activity;
     final booking = _booking;
     if (activity?.driverLatitude != null) {
+      _isProgrammaticMove = true;
       _mapCtrl!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(activity!.driverLatitude!, activity.driverLongitude!),
@@ -647,6 +652,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         ),
       );
     } else if (booking?.pickupLatitude != null) {
+      _isProgrammaticMove = true;
       _mapCtrl!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(booking!.pickupLatitude!, booking.pickupLongitude!),
@@ -654,6 +660,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         ),
       );
     }
+  }
+
+  void _animateCameraToPickup() {
+    final booking = _booking;
+    if (_mapCtrl == null || booking?.pickupLatitude == null) return;
+    _isProgrammaticMove = true;
+    _mapCtrl!.animateCamera(
+      CameraUpdate.newLatLngZoom(
+        LatLng(booking!.pickupLatitude!, booking.pickupLongitude!),
+        17,
+      ),
+    );
   }
 
   LatLng get _initialCenter {
@@ -1009,11 +1027,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                           _mapCtrl = ctrl;
                           _animateCameraToRelevant();
                         },
-                        // Detect user pan/zoom to disable auto-follow
-                        onCameraMove: (_) {
-                          if (_isFollowingDriver) {
+                        onCameraMoveStarted: () {
+                          if (!_isProgrammaticMove && _isFollowingDriver) {
                             setState(() => _isFollowingDriver = false);
                           }
+                        },
+                        onCameraIdle: () => _isProgrammaticMove = false,
+                        gestureRecognizers: {
+                          Factory<OneSequenceGestureRecognizer>(
+                            () => EagerGestureRecognizer(),
+                          ),
                         },
                         zoomControlsEnabled: false,
                         myLocationButtonEnabled: false,
@@ -1025,23 +1048,44 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                         tiltGesturesEnabled: true,
                       ),
                     ),
-                    // Recenter FAB
+                    // Recenter FABs
                     Positioned(
                       right: 12,
                       bottom: 16,
-                      child: FloatingActionButton.small(
-                        heroTag: 'tourist_recenter',
-                        backgroundColor: Colors.white,
-                        foregroundColor: const Color(0xFF2A86FF),
-                        elevation: 4,
-                        onPressed: () {
-                          setState(() => _isFollowingDriver = true);
-                          _animateCameraToRelevant();
-                        },
-                        child: const Icon(
-                          Icons.my_location_rounded,
-                          size: 20,
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_booking?.pickupLatitude != null) ...[
+                            FloatingActionButton.small(
+                              heroTag: 'tourist_recenter_pickup',
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xFF16A34A),
+                              elevation: 4,
+                              tooltip: 'Recenter on Pickup',
+                              onPressed: () {
+                                setState(() => _isFollowingDriver = false);
+                                _animateCameraToPickup();
+                              },
+                              child: const Icon(Icons.hail_rounded, size: 20),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          FloatingActionButton.small(
+                            heroTag: 'tourist_recenter',
+                            backgroundColor: Colors.white,
+                            foregroundColor: const Color(0xFF2A86FF),
+                            elevation: 4,
+                            tooltip: 'Recenter on Driver',
+                            onPressed: () {
+                              setState(() => _isFollowingDriver = true);
+                              _animateCameraToRelevant();
+                            },
+                            child: const Icon(
+                              Icons.my_location_rounded,
+                              size: 20,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],

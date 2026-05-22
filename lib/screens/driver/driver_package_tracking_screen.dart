@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -51,6 +53,7 @@ class _DriverPackageTrackingScreenState
 
   // Navigation state
   bool _isFollowingDriver = false;
+  bool _isProgrammaticMove = false;
 
   // Custom bitmap markers (loaded from assets)
   BitmapDescriptor? _tricycleMarker;
@@ -633,6 +636,7 @@ class _DriverPackageTrackingScreenState
   /// Animate to driver position with speed-based zoom (Google Maps style).
   void _animateCameraFollowing(LatLng pos, double speedMs) {
     if (!_isFollowingDriver) return;
+    _isProgrammaticMove = true;
     _mapCtrl?.animateCamera(
       CameraUpdate.newLatLngZoom(pos, _speedToZoom(speedMs)),
     );
@@ -1203,41 +1207,74 @@ class _DriverPackageTrackingScreenState
                     zoomGesturesEnabled: true,
                     tiltGesturesEnabled: true,
                     onMapCreated: (ctrl) => _mapCtrl = ctrl,
-                    // Detect user drag to disable auto-follow
-                    onCameraMove: (_) {
-                      if (_isFollowingDriver) {
+                    onCameraMoveStarted: () {
+                      if (!_isProgrammaticMove && _isFollowingDriver) {
                         setState(() => _isFollowingDriver = false);
                       }
                     },
+                    onCameraIdle: () => _isProgrammaticMove = false,
+                    gestureRecognizers: {
+                      Factory<OneSequenceGestureRecognizer>(
+                        () => EagerGestureRecognizer(),
+                      ),
+                    },
                   ),
                 ),
-                // Recenter FAB
+                // Recenter FABs
                 Positioned(
                   right: 12,
                   bottom: 16,
-                  child: FloatingActionButton.small(
-                    heroTag: 'driver_recenter',
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF2F6FFF),
-                    elevation: 4,
-                    onPressed: () {
-                      setState(() => _isFollowingDriver = true);
-                      final pos = _currentPosition;
-                      if (pos != null) {
-                        _animateCameraFollowing(
-                          LatLng(pos.latitude, pos.longitude),
-                          pos.speed,
-                        );
-                      } else {
-                        final driverPos = _driverLatLng();
-                        if (driverPos != null) {
-                          _mapCtrl?.animateCamera(
-                            CameraUpdate.newLatLngZoom(driverPos, 15),
-                          );
-                        }
-                      }
-                    },
-                    child: const Icon(Icons.my_location_rounded, size: 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_pickupLatLng() != null) ...[
+                        FloatingActionButton.small(
+                          heroTag: 'driver_recenter_pickup',
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF16A34A),
+                          elevation: 4,
+                          tooltip: 'Recenter on Pickup',
+                          onPressed: () {
+                            setState(() => _isFollowingDriver = false);
+                            final pickup = _pickupLatLng();
+                            if (pickup != null) {
+                              _isProgrammaticMove = true;
+                              _mapCtrl?.animateCamera(
+                                CameraUpdate.newLatLngZoom(pickup, 17),
+                              );
+                            }
+                          },
+                          child: const Icon(Icons.hail_rounded, size: 20),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      FloatingActionButton.small(
+                        heroTag: 'driver_recenter',
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF2F6FFF),
+                        elevation: 4,
+                        tooltip: 'Recenter on Driver',
+                        onPressed: () {
+                          setState(() => _isFollowingDriver = true);
+                          final pos = _currentPosition;
+                          if (pos != null) {
+                            _animateCameraFollowing(
+                              LatLng(pos.latitude, pos.longitude),
+                              pos.speed,
+                            );
+                          } else {
+                            final driverPos = _driverLatLng();
+                            if (driverPos != null) {
+                              _isProgrammaticMove = true;
+                              _mapCtrl?.animateCamera(
+                                CameraUpdate.newLatLngZoom(driverPos, 15),
+                              );
+                            }
+                          }
+                        },
+                        child: const Icon(Icons.my_location_rounded, size: 20),
+                      ),
+                    ],
                   ),
                 ),
               ],

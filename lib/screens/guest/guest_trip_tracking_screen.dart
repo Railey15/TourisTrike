@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Limited trip view for guests who verified via a shared trip link.
-/// Shows only safe, non-sensitive trip info.
 class GuestTripTrackingScreen extends StatefulWidget {
   const GuestTripTrackingScreen({
     super.key,
@@ -28,24 +33,37 @@ class GuestTripTrackingScreen extends StatefulWidget {
 }
 
 class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
+  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+
   final _repo = TourisTrikeRepository();
   final _supabase = Supabase.instance.client;
 
   late GuestTripDetails _details;
   GoogleMapController? _mapCtrl;
 
+  BitmapDescriptor? _tricycleMarker;
+  BitmapDescriptor? _passengerMarker;
+
+  Set<Marker> _markers = {};
+  Set<Polyline> _polylines = {};
+  String? _eta;
+  double _driverHeading = 0.0;
+  double _driverSpeed = 0.0;
+  bool _isFollowingDriver = false;
+  bool _isProgrammaticMove = false;
+
   RealtimeChannel? _bookingChannel;
   RealtimeChannel? _itineraryChannel;
   RealtimeChannel? _locationChannel;
   Timer? _refreshTimer;
 
-  Set<Marker> _markers = {};
-
   @override
   void initState() {
     super.initState();
     _details = widget.initialDetails;
+    _initCustomMarkers();
     _buildMarkers();
+    _fetchCurrentRoute();
     _subscribeRealtime();
     _startPeriodicRefresh();
   }
@@ -60,15 +78,62 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
     super.dispose();
   }
 
-  // ── Realtime ────────────────────────────────────────────────────────────────
+  // ── Custom markers ────────────────────────────────────────────────────────
+
+  Future<BitmapDescriptor> _bitmapFromAsset(String path, int width) async {
+    final data = await rootBundle.load(path);
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(),
+      targetWidth: width,
+    );
+    final frame = await codec.getNextFrame();
+    final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
+  }
+
+  Future<void> _initCustomMarkers() async {
+    try {
+      final results = await Future.wait([
+        _bitmapFromAsset('assets/icons/tricycle_marker.png', 42),
+        _bitmapFromAsset('assets/icons/passenger_marker.png', 38),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _tricycleMarker = results[0];
+        _passengerMarker = results[1];
+      });
+      _buildMarkers();
+    } catch (e) {
+      debugPrint('[GuestMarkers] Failed to load custom markers: $e');
+    }
+  }
+
+  // ── Itinerary helpers ─────────────────────────────────────────────────────
+
+  Map<String, dynamic>? get _currentSpotItem {
+    for (final item in _details.itineraryItems) {
+      final status = item['status']?.toString() ?? '';
+      if (status != 'completed') return item;
+    }
+    return null;
+  }
+
+  LatLng? get _currentSpotLatLng {
+    final item = _currentSpotItem;
+    if (item == null) return null;
+    final lat = (item['latitude'] as num?)?.toDouble();
+    final lng = (item['longitude'] as num?)?.toDouble();
+    if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) return null;
+    return LatLng(lat, lng);
+  }
+
+  // ── Realtime subscriptions ────────────────────────────────────────────────
 
   void _subscribeRealtime() {
     final bookingId = _details.bookingId;
-    final driverId  = _details.driverId;
-
+    final driverId = _details.driverId;
     if (bookingId.isEmpty) return;
 
-    // Booking status changes
     _bookingChannel = _supabase
         .channel('guest-booking:$bookingId')
         .onPostgresChanges(
@@ -87,7 +152,6 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         )
         .subscribe();
 
-    // Itinerary spot arrivals / departures
     _itineraryChannel = _supabase
         .channel('guest-itinerary:$bookingId')
         .onPostgresChanges(
@@ -106,35 +170,47 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         )
         .subscribe();
 
-    // Live driver location (driver_live_locations has USING(true) for all roles)
     if (driverId.isNotEmpty) {
-      _locationChannel = _supabase
-          .channel('guest-loc:$driverId')
-          .onPostgresChanges(
-            event: PostgresChangeEvent.update,
-            schema: 'public',
-            table: 'driver_live_locations',
-            filter: PostgresChangeFilter(
-              column: 'driver_id',
-              type: PostgresChangeFilterType.eq,
-              value: driverId,
-            ),
-            callback: (payload) {
-              if (!mounted) return;
-              final row = payload.newRecord;
-              final lat = (row['latitude'] as num?)?.toDouble();
-              final lng = (row['longitude'] as num?)?.toDouble();
-              if (lat != null && lng != null) {
-                setState(() => _details = _details.withLocation(lat, lng));
-                _buildMarkers();
-              }
-            },
-          )
-          .subscribe();
+      _subscribeToDriverLocation(driverId);
     }
   }
 
-  // ── Periodic fallback refresh ────────────────────────────────────────────────
+  void _subscribeToDriverLocation(String driverId) {
+    _locationChannel?.unsubscribe();
+    _locationChannel = _supabase
+        .channel('guest-loc:$driverId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'driver_live_locations',
+          filter: PostgresChangeFilter(
+            column: 'driver_id',
+            type: PostgresChangeFilterType.eq,
+            value: driverId,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+            final row = payload.newRecord;
+            final lat = (row['latitude'] as num?)?.toDouble();
+            final lng = (row['longitude'] as num?)?.toDouble();
+            final heading =
+                (row['heading'] as num?)?.toDouble() ?? _driverHeading;
+            final speed = (row['speed'] as num?)?.toDouble() ?? 0.0;
+            if (lat == null || lng == null) return;
+            setState(() {
+              _driverHeading = heading;
+              _driverSpeed = speed;
+              _details = _details.withLocation(lat, lng);
+            });
+            _buildMarkers();
+            if (_isFollowingDriver) _animateCameraToDriver();
+            _updateRouteForDriverPosition();
+          },
+        )
+        .subscribe();
+  }
+
+  // ── Periodic refresh ──────────────────────────────────────────────────────
 
   void _startPeriodicRefresh() {
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -151,67 +227,264 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       );
       if (!mounted || updated == null) return;
 
-      // Re-subscribe to location channel if driver changed
       final newDriverId = updated.driverId;
       if (newDriverId != _details.driverId && newDriverId.isNotEmpty) {
-        _locationChannel?.unsubscribe();
-        _locationChannel = _supabase
-            .channel('guest-loc:$newDriverId')
-            .onPostgresChanges(
-              event: PostgresChangeEvent.update,
-              schema: 'public',
-              table: 'driver_live_locations',
-              filter: PostgresChangeFilter(
-                column: 'driver_id',
-                type: PostgresChangeFilterType.eq,
-                value: newDriverId,
-              ),
-              callback: (payload) {
-                if (!mounted) return;
-                final row = payload.newRecord;
-                final lat = (row['latitude'] as num?)?.toDouble();
-                final lng = (row['longitude'] as num?)?.toDouble();
-                if (lat != null && lng != null) {
-                  setState(() => _details = _details.withLocation(lat, lng));
-                  _buildMarkers();
-                }
-              },
-            )
-            .subscribe();
+        _subscribeToDriverLocation(newDriverId);
       }
 
       setState(() => _details = updated);
       _buildMarkers();
-    } catch (_) {
-      // Silently ignore refresh errors
-    }
+      _fetchCurrentRoute();
+    } catch (_) {}
   }
 
-  // ── Map ─────────────────────────────────────────────────────────────────────
+  // ── Markers ───────────────────────────────────────────────────────────────
 
   void _buildMarkers() {
+    final markers = <Marker>{};
+    final ts = _details.tourStatus;
+
+    // Pre-pickup phases: show passenger icon at pickup point
+    final isPrePickup = ts == 'driver_accepted' ||
+        ts == 'driver_en_route' ||
+        ts == 'driver_arrived';
+    if (isPrePickup) {
+      final pLat = _details.pickupLatitude;
+      final pLng = _details.pickupLongitude;
+      if (pLat != null && pLng != null) {
+        markers.add(
+          Marker(
+            markerId: const MarkerId('pickup'),
+            position: LatLng(pLat, pLng),
+            icon: _passengerMarker ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueGreen),
+            infoWindow: InfoWindow(
+              title: _details.pickupLandmark.isNotEmpty
+                  ? _details.pickupLandmark
+                  : 'Pickup Point',
+            ),
+          ),
+        );
+      }
+    }
+
+    // Active tour phases: show current itinerary spot marker
+    final spotPos = _currentSpotLatLng;
+    final spotItem = _currentSpotItem;
+    if (!isPrePickup && spotPos != null && spotItem != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('current_spot'),
+          position: spotPos,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueOrange,
+          ),
+          infoWindow: InfoWindow(
+            title: spotItem['name']?.toString() ?? 'Current Stop',
+          ),
+        ),
+      );
+    }
+
     final lat = _details.driverLatitude;
     final lng = _details.driverLongitude;
-    if (lat == null || lng == null) {
-      if (_markers.isNotEmpty) setState(() => _markers = {});
-      return;
-    }
-    setState(() {
-      _markers = {
+    if (lat != null && lng != null) {
+      markers.add(
         Marker(
           markerId: const MarkerId('driver'),
           position: LatLng(lat, lng),
+          icon: _tricycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+          rotation: _driverHeading,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
           infoWindow: InfoWindow(
-            title: 'Tricycle ${_details.tricycleNumber}',
+            title: _details.driverName.isNotEmpty
+                ? _details.driverName
+                : 'Tricycle ${_details.tricycleNumber}',
             snippet: _details.driverPhoneMasked ?? '',
           ),
         ),
-      };
-    });
-    _mapCtrl?.animateCamera(CameraUpdate.newLatLng(LatLng(lat, lng)));
+      );
+    }
+
+    if (mounted) setState(() => _markers = markers);
   }
 
-  // ── Emergency ────────────────────────────────────────────────────────────────
+  // ── Route / polyline ──────────────────────────────────────────────────────
+
+  Future<void> _fetchCurrentRoute() async {
+    final driverLat = _details.driverLatitude;
+    final driverLng = _details.driverLongitude;
+    if (driverLat == null || driverLng == null) {
+      if (mounted) setState(() { _polylines = {}; _eta = null; });
+      return;
+    }
+
+    final origin = LatLng(driverLat, driverLng);
+    LatLng? destination;
+    final ts = _details.tourStatus;
+
+    if (ts == 'driver_accepted' ||
+        ts == 'driver_en_route' ||
+        ts == 'driver_arrived') {
+      final lat = _details.pickupLatitude;
+      final lng = _details.pickupLongitude;
+      if (lat != null && lng != null) destination = LatLng(lat, lng);
+    } else if (ts == 'picked_up' ||
+        ts == 'on_tour' ||
+        ts == 'en_route_to_spot' ||
+        ts == 'at_spot') {
+      destination = _currentSpotLatLng;
+    } else if (ts == 'en_route_to_dropoff' || ts == 'ready_to_complete') {
+      final lat = _details.dropoffLatitude;
+      final lng = _details.dropoffLongitude;
+      if (lat != null && lng != null) destination = LatLng(lat, lng);
+    }
+
+    if (destination == null) {
+      if (mounted) setState(() { _polylines = {}; _eta = null; });
+      return;
+    }
+
+    final result = await _fetchRoute(origin, destination);
+    if (!mounted) return;
+    setState(() {
+      _polylines = {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: result.points,
+          color: const Color(0xFF2A86FF),
+          width: 6,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      };
+      _eta = result.durationText;
+    });
+  }
+
+  Future<void> _updateRouteForDriverPosition() async {
+    final ts = _details.tourStatus;
+    if (ts == 'at_spot' || ts == 'dropped_off' || ts == 'completed') return;
+    await _fetchCurrentRoute();
+  }
+
+  Future<_RouteResult> _fetchRoute(LatLng origin, LatLng dest) async {
+    try {
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/directions/json'
+        '?origin=${origin.latitude},${origin.longitude}'
+        '&destination=${dest.latitude},${dest.longitude}'
+        '&mode=driving'
+        '&key=$_apiKey',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final routes = (body['routes'] as List?) ?? const [];
+        if (routes.isNotEmpty) {
+          final route = routes.first as Map;
+          final legs = (route['legs'] as List?) ?? const [];
+          String? durationText;
+          final points = <LatLng>[];
+          if (legs.isNotEmpty) {
+            final leg = legs.first as Map;
+            durationText = leg['duration']?['text'] as String?;
+            final steps = (leg['steps'] as List?) ?? const [];
+            for (final step in steps) {
+              final encoded =
+                  (step as Map)['polyline']?['points'] as String?;
+              if (encoded != null) points.addAll(_decodePolyline(encoded));
+            }
+          }
+          if (points.isNotEmpty) {
+            return _RouteResult(points: points, durationText: durationText);
+          }
+          final encoded = route['overview_polyline']?['points'] as String?;
+          if (encoded != null) {
+            return _RouteResult(
+              points: _decodePolyline(encoded),
+              durationText: durationText,
+            );
+          }
+        }
+      }
+    } catch (_) {}
+    return _RouteResult(points: [origin, dest]);
+  }
+
+  List<LatLng> _decodePolyline(String encoded) {
+    final points = <LatLng>[];
+    int index = 0;
+    final len = encoded.length;
+    int lat = 0, lng = 0;
+    while (index < len) {
+      int b, shift = 0, result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lat += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lng += ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      points.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+    return points;
+  }
+
+  // ── Camera ────────────────────────────────────────────────────────────────
+
+  double _speedToZoom(double speedMs) {
+    final kmh = speedMs * 3.6;
+    if (kmh < 10) return 17.0;
+    if (kmh < 30) return 15.5;
+    if (kmh < 60) return 13.5;
+    return 12.0;
+  }
+
+  void _animateCameraToDriver() {
+    final lat = _details.driverLatitude;
+    final lng = _details.driverLongitude;
+    if (_mapCtrl == null || lat == null || lng == null) return;
+    _isProgrammaticMove = true;
+    _mapCtrl!.animateCamera(
+      CameraUpdate.newLatLngZoom(
+        LatLng(lat, lng),
+        _speedToZoom(_driverSpeed),
+      ),
+    );
+  }
+
+  void _animateCameraToRelevant() {
+    if (_mapCtrl == null) return;
+    final lat = _details.driverLatitude;
+    final lng = _details.driverLongitude;
+    if (lat != null && lng != null) {
+      _isProgrammaticMove = true;
+      _mapCtrl!.animateCamera(
+        CameraUpdate.newLatLngZoom(LatLng(lat, lng), 15),
+      );
+    }
+  }
+
+  void _animateCameraToCurrentSpot() {
+    final spot = _currentSpotLatLng;
+    if (_mapCtrl == null || spot == null) return;
+    _isProgrammaticMove = true;
+    _mapCtrl!.animateCamera(CameraUpdate.newLatLngZoom(spot, 17));
+  }
+
+  // ── Emergency ─────────────────────────────────────────────────────────────
 
   Future<void> _callEmergency() async {
     final uri = Uri.parse('tel:911');
@@ -226,11 +499,41 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
     );
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────────
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).padding.bottom;
+    final size = MediaQuery.sizeOf(context);
+    final mapHeight = (size.height * 0.40).clamp(240.0, 380.0);
+
+    if (_details.isTripEnded) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              _buildHeader(),
+              const Expanded(
+                child: _FullScreenMessage(
+                  icon: Icons.check_circle_outline_rounded,
+                  iconColor: Color(0xFF16A34A),
+                  title: 'This trip has ended.',
+                  subtitle:
+                      'The tour has been completed. Thank you for using TourisTrike!',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final isActive = _details.isLiveTrackingAvailable;
+    final hasLocation =
+        _details.driverLatitude != null && _details.driverLongitude != null;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       body: SafeArea(
@@ -238,7 +541,99 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         child: Column(
           children: [
             _buildHeader(),
-            Expanded(child: _buildBody(bottom)),
+            if (isActive && hasLocation) _buildMapSection(mapHeight),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + bottom),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!isActive) ...[
+                      _InfoBanner(
+                        icon: Icons.access_time_rounded,
+                        color: const Color(0xFF0EA5E9),
+                        message:
+                            'Trip tracking will be available once the tour starts.',
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    _GuestStatusCard(
+                      tourStatus: _details.tourStatus,
+                      eta: _eta,
+                    ),
+                    const SizedBox(height: 12),
+                    if (_details.tricycleNumber.isNotEmpty ||
+                        _details.driverPhoneMasked != null ||
+                        _details.driverName.isNotEmpty) ...[
+                      const _SectionLabel('Driver Info'),
+                      const SizedBox(height: 8),
+                      _DriverCard(
+                        driverName: _details.driverName,
+                        tricycleNumber: _details.tricycleNumber,
+                        phoneMasked: _details.driverPhoneMasked,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_details.itineraryItems.isNotEmpty) ...[
+                      _SectionLabel(
+                        'Tour Itinerary (${_details.itineraryItems.length} stops)',
+                      ),
+                      const SizedBox(height: 8),
+                      _GuestItineraryCard(items: _details.itineraryItems),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_details.pickupLandmark.isNotEmpty) ...[
+                      const _SectionLabel('Pickup Area'),
+                      const SizedBox(height: 8),
+                      _SimpleInfoCard(
+                        icon: Icons.hail_rounded,
+                        value: _details.pickupLandmark,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_details.dropoffLandmark.isNotEmpty) ...[
+                      const _SectionLabel('Drop-off Area'),
+                      const SizedBox(height: 8),
+                      _SimpleInfoCard(
+                        icon: Icons.flag_rounded,
+                        value: _details.dropoffLandmark,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    const SizedBox(height: 4),
+                    OutlinedButton.icon(
+                      onPressed: _showEmergencySheet,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.emergency_rounded, size: 18),
+                      label: const Text(
+                        'Emergency',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Personal details, full addresses, and payment information are not shown in guest view.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF94A3B8),
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -251,7 +646,11 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Row(
         children: [
-          const Icon(Icons.share_location_rounded, color: Colors.white, size: 22),
+          const Icon(
+            Icons.share_location_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
           const SizedBox(width: 10),
           const Expanded(
             child: Column(
@@ -272,6 +671,35 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
               ],
             ),
           ),
+          if (_eta != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.schedule_rounded,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _eta!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           IconButton(
             onPressed: _refreshDetails,
             icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
@@ -284,121 +712,79 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
     );
   }
 
-  Widget _buildBody(double bottomPadding) {
-    if (_details.isTripEnded) {
-      return const _FullScreenMessage(
-        icon: Icons.check_circle_outline_rounded,
-        iconColor: Color(0xFF16A34A),
-        title: 'This trip has ended.',
-        subtitle: 'The tour has been completed. Thank you for using TourisTrike!',
-      );
-    }
-
-    final isActive   = _details.isLiveTrackingAvailable;
-    final hasLocation = _details.driverLatitude != null &&
-        _details.driverLongitude != null;
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + bottomPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _buildMapSection(double height) {
+    return SizedBox(
+      height: height,
+      child: Stack(
         children: [
-          // Status
-          _StatusCard(tourStatus: _details.tourStatus),
-          const SizedBox(height: 12),
-
-          // Live map
-          if (isActive && hasLocation) ...[
-            const _SectionLabel(label: 'Live Location'),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox(
-                height: 220,
-                child: GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: LatLng(
-                      _details.driverLatitude!,
-                      _details.driverLongitude!,
-                    ),
-                    zoom: 15,
-                  ),
-                  markers: _markers,
-                  onMapCreated: (ctrl) => _mapCtrl = ctrl,
-                  zoomControlsEnabled: false,
-                  myLocationButtonEnabled: false,
-                  mapToolbarEnabled: false,
-                ),
+          GoogleMap(
+            initialCameraPosition: CameraPosition(
+              target: LatLng(
+                _details.driverLatitude!,
+                _details.driverLongitude!,
               ),
+              zoom: 15,
             ),
-            const SizedBox(height: 12),
-          ] else if (!isActive) ...[
-            _InfoBanner(
-              icon: Icons.access_time_rounded,
-              color: const Color(0xFF0EA5E9),
-              message: 'Trip tracking will be available once the tour starts.',
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Driver info
-          if (_details.tricycleNumber.isNotEmpty ||
-              _details.driverPhoneMasked != null) ...[
-            const _SectionLabel(label: 'Driver Info'),
-            const SizedBox(height: 8),
-            _DriverCard(
-              tricycleNumber: _details.tricycleNumber,
-              phoneMasked: _details.driverPhoneMasked,
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Itinerary
-          if (_details.itineraryItems.isNotEmpty) ...[
-            const _SectionLabel(label: 'Itinerary'),
-            const SizedBox(height: 8),
-            _ItineraryCard(items: _details.itineraryItems),
-            const SizedBox(height: 12),
-          ],
-
-          // Pickup landmark
-          if (_details.pickupLandmark.isNotEmpty) ...[
-            const _SectionLabel(label: 'Pickup Area'),
-            const SizedBox(height: 8),
-            _SimpleInfoCard(
-              icon: Icons.place_rounded,
-              value: _details.pickupLandmark,
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Emergency button
-          const SizedBox(height: 4),
-          OutlinedButton.icon(
-            onPressed: _showEmergencySheet,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+            markers: _markers,
+            polylines: _polylines,
+            onMapCreated: (ctrl) {
+              _mapCtrl = ctrl;
+              _animateCameraToRelevant();
+            },
+            onCameraMoveStarted: () {
+              if (!_isProgrammaticMove && _isFollowingDriver) {
+                setState(() => _isFollowingDriver = false);
+              }
+            },
+            onCameraIdle: () => _isProgrammaticMove = false,
+            gestureRecognizers: {
+              Factory<OneSequenceGestureRecognizer>(
+                () => EagerGestureRecognizer(),
               ),
-            ),
-            icon: const Icon(Icons.emergency_rounded, size: 18),
-            label: const Text(
-              'Emergency',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-            ),
+            },
+            zoomControlsEnabled: false,
+            myLocationButtonEnabled: false,
+            compassEnabled: true,
+            mapToolbarEnabled: false,
+            rotateGesturesEnabled: true,
+            scrollGesturesEnabled: true,
+            zoomGesturesEnabled: true,
+            tiltGesturesEnabled: true,
           ),
-          const SizedBox(height: 12),
-
-          const Text(
-            'Personal details, full addresses, and payment information are not shown in guest view.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFF94A3B8),
-              height: 1.5,
+          Positioned(
+            right: 12,
+            bottom: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_currentSpotLatLng != null) ...[
+                  FloatingActionButton.small(
+                    heroTag: 'guest_recenter_spot',
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFFF59E0B),
+                    elevation: 4,
+                    tooltip: 'Recenter on Destination',
+                    onPressed: () {
+                      setState(() => _isFollowingDriver = false);
+                      _animateCameraToCurrentSpot();
+                    },
+                    child: const Icon(Icons.place_rounded, size: 20),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                FloatingActionButton.small(
+                  heroTag: 'guest_recenter',
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF2A86FF),
+                  elevation: 4,
+                  tooltip: 'Recenter on Driver',
+                  onPressed: () {
+                    setState(() => _isFollowingDriver = true);
+                    _animateCameraToRelevant();
+                  },
+                  child: const Icon(Icons.my_location_rounded, size: 20),
+                ),
+              ],
             ),
           ),
         ],
@@ -407,12 +793,21 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   }
 }
 
-// ── Sub-widgets ───────────────────────────────────────────────────────────────
+// ── Route result data class ───────────────────────────────────────────────────
 
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.tourStatus});
+class _RouteResult {
+  const _RouteResult({required this.points, this.durationText});
+  final List<LatLng> points;
+  final String? durationText;
+}
+
+// ── Status card ───────────────────────────────────────────────────────────────
+
+class _GuestStatusCard extends StatelessWidget {
+  const _GuestStatusCard({required this.tourStatus, this.eta});
 
   final String tourStatus;
+  final String? eta;
 
   static const _statusInfo = <String, (String, String, Color, IconData)>{
     'not_started': (
@@ -507,15 +902,24 @@ class _StatusCard extends StatelessWidget {
     final (label, desc, color, icon) = data;
 
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 28),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -524,64 +928,400 @@ class _StatusCard extends StatelessWidget {
                 Text(
                   label,
                   style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
                     color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15.5,
                   ),
                 ),
                 if (desc.isNotEmpty) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     desc,
                     style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w700,
                       fontSize: 12.5,
-                      color: Color(0xFF475569),
+                      height: 1.4,
                     ),
                   ),
                 ],
               ],
             ),
           ),
+          if (eta != null) ...[
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  eta!,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                  ),
+                ),
+                const Text(
+                  'ETA',
+                  style: TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _DriverCard extends StatelessWidget {
-  const _DriverCard({required this.tricycleNumber, required this.phoneMasked});
+// ── Itinerary card ────────────────────────────────────────────────────────────
 
+class _GuestItineraryCard extends StatelessWidget {
+  const _GuestItineraryCard({required this.items});
+
+  final List<Map<String, dynamic>> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: items.asMap().entries.map((entry) {
+          final idx = entry.key;
+          return _GuestItineraryRow(
+            index: idx + 1,
+            item: entry.value,
+            isLast: idx == items.length - 1,
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _GuestItineraryRow extends StatelessWidget {
+  const _GuestItineraryRow({
+    required this.index,
+    required this.item,
+    required this.isLast,
+  });
+
+  final int index;
+  final Map<String, dynamic> item;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = item['name']?.toString() ?? 'Stop $index';
+    final status = item['status']?.toString() ?? '';
+    final arrivedAt = item['arrived_at'] != null
+        ? DateTime.tryParse(item['arrived_at'].toString())?.toLocal()
+        : null;
+    final departedAt = item['departed_at'] != null
+        ? DateTime.tryParse(item['departed_at'].toString())?.toLocal()
+        : null;
+    final scheduledArrival = item['arrival_time']?.toString() ?? '';
+    final scheduledDeparture = item['departure_time']?.toString() ?? '';
+    final stayMinutes =
+        (item['estimated_stay_duration_minutes'] as num?)?.toInt() ?? 0;
+
+    final isDone = status == 'completed';
+    final isCurrent =
+        status == 'travelling' || status == 'visiting' || status == 'at_spot';
+
+    final color = isDone
+        ? const Color(0xFF16A34A)
+        : isCurrent
+            ? const Color(0xFF2A86FF)
+            : const Color(0xFFCBD5E1);
+
+    final timeFmt = DateFormat('h:mm a');
+
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+                border: Border.all(color: color, width: 1.5),
+              ),
+              child: Center(
+                child: isDone
+                    ? Icon(Icons.check_rounded, size: 14, color: color)
+                    : Text(
+                        '$index',
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: TextStyle(
+                            color: isDone
+                                ? const Color(0xFF94A3B8)
+                                : isCurrent
+                                    ? const Color(0xFF0F172A)
+                                    : const Color(0xFF64748B),
+                            fontWeight: isCurrent
+                                ? FontWeight.w900
+                                : FontWeight.w700,
+                            fontSize: 13.5,
+                            decoration:
+                                isDone ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                      ),
+                      _GuestSpotChip(status: status, isDone: isDone),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  if (scheduledArrival.isNotEmpty ||
+                      scheduledDeparture.isNotEmpty)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.schedule_rounded,
+                          size: 11,
+                          color: Color(0xFFCBD5E1),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _buildTimeLabel(scheduledArrival, scheduledDeparture),
+                          style: const TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  if (arrivedAt != null) ...[
+                    const SizedBox(height: 4),
+                    _TimestampBadge(
+                      icon: Icons.location_on_rounded,
+                      label: 'Arrived',
+                      time: timeFmt.format(arrivedAt),
+                      color: const Color(0xFF2A86FF),
+                    ),
+                  ],
+                  if (departedAt != null) ...[
+                    const SizedBox(height: 3),
+                    _TimestampBadge(
+                      icon: Icons.check_circle_rounded,
+                      label: 'Completed',
+                      time: timeFmt.format(departedAt),
+                      color: const Color(0xFF16A34A),
+                    ),
+                  ],
+                  if (stayMinutes > 0) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Stay: ${stayMinutes}m',
+                      style: const TextStyle(
+                        color: Color(0xFFCBD5E1),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (!isLast)
+          Padding(
+            padding: const EdgeInsets.only(left: 13, top: 2, bottom: 2),
+            child: Container(
+              width: 2,
+              height: 14,
+              color: color.withValues(alpha: 0.3),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _buildTimeLabel(String arrival, String departure) {
+    final a = formatScheduleTimeLabel(arrival);
+    final d = formatScheduleTimeLabel(departure);
+    if (a.isNotEmpty && d.isNotEmpty) return '$a – $d';
+    if (a.isNotEmpty) return 'Arr. $a';
+    if (d.isNotEmpty) return 'Dep. $d';
+    return '';
+  }
+}
+
+class _GuestSpotChip extends StatelessWidget {
+  const _GuestSpotChip({required this.status, required this.isDone});
+
+  final String status;
+  final bool isDone;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isDone) return const SizedBox.shrink();
+    final (label, color) = switch (status) {
+      'travelling' => ('EN ROUTE', const Color(0xFF0EA5E9)),
+      'visiting' || 'at_spot' => ('HERE', const Color(0xFF16A34A)),
+      _ => ('', const Color(0xFF94A3B8)),
+    };
+    if (label.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w900,
+          fontSize: 9.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _TimestampBadge extends StatelessWidget {
+  const _TimestampBadge({
+    required this.icon,
+    required this.label,
+    required this.time,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String time;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(color: color.withValues(alpha: 0.30)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 11, color: color),
+              const SizedBox(width: 4),
+              Text(
+                '$label at $time',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Shared sub-widgets ────────────────────────────────────────────────────────
+
+class _DriverCard extends StatelessWidget {
+  const _DriverCard({
+    required this.driverName,
+    required this.tricycleNumber,
+    required this.phoneMasked,
+  });
+
+  final String driverName;
   final String tricycleNumber;
   final String? phoneMasked;
 
   @override
   Widget build(BuildContext context) {
+    final rows = <Widget>[];
+
+    if (driverName.isNotEmpty) {
+      rows.add(_InfoRow(
+        icon: Icons.person_rounded,
+        label: 'Driver Name',
+        value: driverName,
+      ));
+    }
+    if (tricycleNumber.isNotEmpty) {
+      if (rows.isNotEmpty) rows.add(const Divider(height: 16, color: Color(0xFFE2E8F0)));
+      rows.add(_InfoRow(
+        icon: Icons.electric_rickshaw_rounded,
+        label: 'Tricycle No.',
+        value: tricycleNumber,
+      ));
+    }
+    if (phoneMasked != null && phoneMasked!.isNotEmpty) {
+      if (rows.isNotEmpty) rows.add(const Divider(height: 16, color: Color(0xFFE2E8F0)));
+      rows.add(_InfoRow(
+        icon: Icons.phone_rounded,
+        label: 'Driver Phone',
+        value: phoneMasked!,
+      ));
+    }
+
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Column(
-        children: [
-          if (tricycleNumber.isNotEmpty)
-            _InfoRow(
-              icon: Icons.electric_rickshaw_rounded,
-              label: 'Tricycle No.',
-              value: tricycleNumber,
-            ),
-          if (phoneMasked != null && phoneMasked!.isNotEmpty) ...[
-            if (tricycleNumber.isNotEmpty)
-              const Divider(height: 16, color: Color(0xFFE2E8F0)),
-            _InfoRow(
-              icon: Icons.phone_rounded,
-              label: 'Driver Phone',
-              value: phoneMasked!,
-            ),
-          ],
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
         ],
       ),
+      child: Column(children: rows),
     );
   }
 }
@@ -629,117 +1369,6 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _ItineraryCard extends StatelessWidget {
-  const _ItineraryCard({required this.items});
-
-  final List<Map<String, dynamic>> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: items.length,
-        separatorBuilder: (_, _) =>
-            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-        itemBuilder: (_, i) => _ItineraryRow(item: items[i], index: i),
-      ),
-    );
-  }
-}
-
-class _ItineraryRow extends StatelessWidget {
-  const _ItineraryRow({required this.item, required this.index});
-
-  final Map<String, dynamic> item;
-  final int index;
-
-  @override
-  Widget build(BuildContext context) {
-    final name      = item['name']?.toString() ?? 'Stop ${index + 1}';
-    final status    = item['status']?.toString() ?? '';
-    final arrivedAt = item['arrived_at'] != null
-        ? DateTime.tryParse(item['arrived_at'].toString())?.toLocal()
-        : null;
-    final departedAt = item['departed_at'] != null
-        ? DateTime.tryParse(item['departed_at'].toString())?.toLocal()
-        : null;
-
-    final isDone    = status == 'completed';
-    final isCurrent = status == 'travelling' || status == 'visiting';
-
-    Color dotColor = const Color(0xFFCBD5E1);
-    if (isDone) dotColor    = const Color(0xFF16A34A);
-    if (isCurrent) dotColor = const Color(0xFF2A86FF);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-            child: Icon(
-              isDone
-                  ? Icons.check_rounded
-                  : isCurrent
-                      ? Icons.navigation_rounded
-                      : Icons.circle,
-              size: isDone || isCurrent ? 12 : 6,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: isDone
-                        ? const Color(0xFF94A3B8)
-                        : const Color(0xFF1E293B),
-                    decoration: isDone ? TextDecoration.lineThrough : null,
-                  ),
-                ),
-                if (arrivedAt != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Arrived ${DateFormat.jm().format(arrivedAt)}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF94A3B8),
-                    ),
-                  ),
-                ],
-                if (departedAt != null)
-                  Text(
-                    'Departed ${DateFormat.jm().format(departedAt)}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF94A3B8),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SimpleInfoCard extends StatelessWidget {
   const _SimpleInfoCard({required this.icon, required this.value});
 
@@ -752,8 +1381,15 @@ class _SimpleInfoCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -816,19 +1452,18 @@ class _InfoBanner extends StatelessWidget {
 }
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.label});
+  const _SectionLabel(this.text);
 
-  final String label;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     return Text(
-      label.toUpperCase(),
+      text,
       style: const TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w800,
-        color: Color(0xFF94A3B8),
-        letterSpacing: 0.8,
+        color: Color(0xFF0F172A),
+        fontSize: 17,
+        fontWeight: FontWeight.w900,
       ),
     );
   }
