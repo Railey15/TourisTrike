@@ -5,13 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
 import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/emergency_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
@@ -693,10 +693,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     ),
   };
 
-  // ── Emergency helpers ────────────────────────────────────────
-  EmergencyContactRecord? get _primaryEmergencyContact =>
-      _emergencyContacts.isEmpty ? null : _emergencyContacts.first;
-
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -709,39 +705,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     if (normalized.isEmpty) return;
     final uri = Uri.parse('tel:$normalized');
     if (await canLaunchUrl(uri)) await launchUrl(uri);
-  }
-
-  Future<void> _launchSms(String phone, {String body = ''}) async {
-    final normalized = phone.trim();
-    if (normalized.isEmpty) return;
-    final uri = Uri.parse(
-      body.isEmpty
-          ? 'sms:$normalized'
-          : 'sms:$normalized?body=${Uri.encodeComponent(body)}',
-    );
-    if (await canLaunchUrl(uri)) await launchUrl(uri);
-  }
-
-  Future<void> _shareLiveLocation() async {
-    final contact = _primaryEmergencyContact;
-    if (contact == null) {
-      _showSnack('Add an emergency contact first.');
-      return;
-    }
-    try {
-      final position = await Geolocator.getCurrentPosition();
-      final mapsLink =
-          'https://maps.google.com/?q=${position.latitude},${position.longitude}';
-      await _launchSms(
-        contact.phoneNumber,
-        body:
-            'TourisTrike emergency location: '
-            '${position.latitude.toStringAsFixed(6)}, '
-            '${position.longitude.toStringAsFixed(6)}\n$mapsLink',
-      );
-    } catch (_) {
-      _showSnack('Unable to get your current location right now.');
-    }
   }
 
   Future<void> _openDriverChat() async {
@@ -1047,22 +1010,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                     const SizedBox(height: 12),
                   ],
 
-                  // ── Emergency shortcuts ───────────────────────
-                  _EmergencyShortcutCard(
-                    contact: _primaryEmergencyContact,
-                    onCall: _primaryEmergencyContact == null
-                        ? null
-                        : () => _launchPhone(
-                            _primaryEmergencyContact!.phoneNumber,
-                          ),
-                    onText: _primaryEmergencyContact == null
-                        ? null
-                        : () => _launchSms(
-                            _primaryEmergencyContact!.phoneNumber,
-                          ),
-                    onShareLocation: _primaryEmergencyContact == null
-                        ? null
-                        : _shareLiveLocation,
+                  // ── Emergency ─────────────────────────────────
+                  _EmergencyPanel(
+                    bookingId: widget.bookingId,
+                    activityId: _activity?.row['id']?.toString(),
+                    driverId: _booking?.assignedDriverId ?? _activity?.driverId,
+                    tripStatus: activity?.tourStatus ?? '',
+                    currentSpotName: _currentItineraryItem?.destinationName,
+                    driverName: driverName.isNotEmpty ? driverName : null,
+                    contacts: _emergencyContacts,
                   ),
                   const SizedBox(height: 12),
 
@@ -1461,162 +1417,6 @@ class _GroupBookingCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _EmergencyShortcutCard extends StatelessWidget {
-  const _EmergencyShortcutCard({
-    required this.contact,
-    required this.onCall,
-    required this.onText,
-    required this.onShareLocation,
-  });
-
-  final EmergencyContactRecord? contact;
-  final VoidCallback? onCall;
-  final VoidCallback? onText;
-  final VoidCallback? onShareLocation;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasContact = contact != null;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFF7ED), Color(0xFFFFFBEB)],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFFED7AA)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEDD5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.emergency_share_rounded,
-                  color: Color(0xFFEA580C),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Emergency Shortcuts',
-                      style: TextStyle(
-                        color: Color(0xFF9A3412),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14.5,
-                      ),
-                    ),
-                    Text(
-                      hasContact
-                          ? 'Quick access for ${contact!.name}'
-                          : 'Add an emergency contact in your profile.',
-                      style: const TextStyle(
-                        color: Color(0xFF9A3412),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _EmergencyActionButton(
-                  icon: Icons.call_rounded,
-                  label: 'Call',
-                  onTap: onCall,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _EmergencyActionButton(
-                  icon: Icons.sms_rounded,
-                  label: 'Text',
-                  onTap: onText,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _EmergencyActionButton(
-                  icon: Icons.my_location_rounded,
-                  label: 'Share',
-                  onTap: onShareLocation,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmergencyActionButton extends StatelessWidget {
-  const _EmergencyActionButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 11),
-        decoration: BoxDecoration(
-          color: onTap == null ? const Color(0xFFFDE7D8) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFFED7AA)),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 20,
-              color: onTap == null
-                  ? const Color(0xFFF59E0B)
-                  : const Color(0xFFEA580C),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              style: TextStyle(
-                color: onTap == null
-                    ? const Color(0xFFC2410C)
-                    : const Color(0xFF9A3412),
-                fontWeight: FontWeight.w900,
-                fontSize: 11.5,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2206,6 +2006,542 @@ class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Emergency Panel ───────────────────────────────────────────
+
+class _EmergencyPanel extends StatefulWidget {
+  const _EmergencyPanel({
+    required this.bookingId,
+    this.activityId,
+    this.driverId,
+    required this.tripStatus,
+    this.currentSpotName,
+    this.driverName,
+    required this.contacts,
+  });
+
+  final String bookingId;
+  final String? activityId;
+  final String? driverId;
+  final String tripStatus;
+  final String? currentSpotName;
+  final String? driverName;
+  final List<EmergencyContactRecord> contacts;
+
+  @override
+  State<_EmergencyPanel> createState() => _EmergencyPanelState();
+}
+
+class _EmergencyPanelState extends State<_EmergencyPanel>
+    with SingleTickerProviderStateMixin {
+  static const _cooldownDuration = Duration(minutes: 5);
+
+  late final AnimationController _pulse;
+  late final Animation<double> _scale;
+
+  bool _sending = false;
+  DateTime? _cooldownUntil;
+  int _cooldownSecondsLeft = 0;
+  Timer? _cooldownTimer;
+
+  final _supabase = Supabase.instance.client;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 1.0, end: 1.04).animate(
+      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    _cooldownTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get _inCooldown =>
+      _cooldownUntil != null && DateTime.now().isBefore(_cooldownUntil!);
+
+  void _startCooldown() {
+    _cooldownUntil = DateTime.now().add(_cooldownDuration);
+    _updateCooldownSeconds();
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      _updateCooldownSeconds();
+      if (!_inCooldown) {
+        _cooldownTimer?.cancel();
+        setState(() {});
+      }
+    });
+  }
+
+  void _updateCooldownSeconds() {
+    if (_cooldownUntil == null) return;
+    final remaining = _cooldownUntil!.difference(DateTime.now());
+    setState(() {
+      _cooldownSecondsLeft = remaining.isNegative ? 0 : remaining.inSeconds;
+    });
+  }
+
+  Future<void> _onEmergencyPressed() async {
+    if (_sending || _inCooldown) return;
+
+    final noteController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _EmergencyConfirmDialog(noteController: noteController),
+    );
+    if (confirmed != true || !mounted) {
+      noteController.dispose();
+      return;
+    }
+
+    setState(() => _sending = true);
+
+    try {
+      final touristId = _supabase.auth.currentUser?.id ?? '';
+      String? touristName;
+      try {
+        final profile = await _supabase
+            .from('profiles')
+            .select('full_name, first_name, last_name')
+            .eq('id', touristId)
+            .maybeSingle();
+        if (profile != null) {
+          touristName = (profile['full_name'] as String?)?.trim();
+          if (touristName == null || touristName.isEmpty) {
+            final fn = (profile['first_name'] as String?) ?? '';
+            final ln = (profile['last_name'] as String?) ?? '';
+            touristName = '$fn $ln'.trim();
+          }
+        }
+      } catch (_) {}
+
+      final note = noteController.text.trim();
+      await EmergencyService(_supabase).triggerAlert(
+        touristId: touristId,
+        bookingId: widget.bookingId,
+        activityId: widget.activityId,
+        driverId: widget.driverId?.isEmpty == true ? null : widget.driverId,
+        tripStatus: widget.tripStatus,
+        currentSpotName: widget.currentSpotName,
+        touristName: touristName,
+        driverName: widget.driverName,
+        note: note.isEmpty ? null : note,
+      );
+
+      if (!mounted) return;
+      _startCooldown();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Emergency alert sent. Help is on the way.'),
+          backgroundColor: Color(0xFF16A34A),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send alert: $e'),
+          backgroundColor: const Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      noteController.dispose();
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryContact = widget.contacts.firstOrNull;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFF1F2), Color(0xFFFFF5F5)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFE4E6),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.emergency_rounded,
+                  color: Color(0xFFDC2626),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Emergency Alert',
+                      style: TextStyle(
+                        color: Color(0xFF7F1D1D),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14.5,
+                      ),
+                    ),
+                    Text(
+                      'Instantly notifies your contacts and the tourism office.',
+                      style: TextStyle(
+                        color: Color(0xFF9A3412),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (_inCooldown)
+            _CooldownButton(secondsLeft: _cooldownSecondsLeft)
+          else
+            ScaleTransition(
+              scale: _scale,
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: _sending ? null : _onEmergencyPressed,
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.emergency_rounded, size: 22),
+                  label: Text(
+                    _sending ? 'Sending Alert...' : 'EMERGENCY',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ),
+          if (primaryContact != null) ...[
+            const SizedBox(height: 12),
+            _ContactShortcut(contact: primaryContact),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CooldownButton extends StatelessWidget {
+  const _CooldownButton({required this.secondsLeft});
+  final int secondsLeft;
+
+  @override
+  Widget build(BuildContext context) {
+    final mins = secondsLeft ~/ 60;
+    final secs = secondsLeft % 60;
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        color: const Color(0xFF16A34A).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF16A34A).withValues(alpha: 0.4),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.check_circle_rounded,
+            color: Color(0xFF16A34A),
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Alert Sent',
+                style: TextStyle(
+                  color: Color(0xFF16A34A),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                'Next alert in ${mins}m ${secs.toString().padLeft(2, '0')}s',
+                style: const TextStyle(
+                  color: Color(0xFF16A34A),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyConfirmDialog extends StatelessWidget {
+  const _EmergencyConfirmDialog({required this.noteController});
+  final TextEditingController noteController;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Color(0xFFFFE4E6),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.emergency_rounded,
+                color: Color(0xFFDC2626),
+                size: 30,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Send Emergency Alert?',
+              style: TextStyle(
+                color: Color(0xFF7F1D1D),
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'This will immediately notify:',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _NotifyItem(Icons.person_rounded, 'Your emergency contacts'),
+            _NotifyItem(
+              Icons.electric_rickshaw_rounded,
+              'Your assigned driver',
+            ),
+            _NotifyItem(
+              Icons.business_rounded,
+              'TourisTrike tourism office',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              maxLength: 200,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: 'Add a note (optional)...',
+                hintStyle: const TextStyle(
+                  color: Color(0xFFCBD5E1),
+                  fontSize: 13,
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                contentPadding: const EdgeInsets.all(12),
+                counterStyle: const TextStyle(fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      actions: [
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context, false),
+                style: OutlinedButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Cancel'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'SEND ALERT',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _NotifyItem extends StatelessWidget {
+  const _NotifyItem(this.icon, this.label);
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFFDC2626)),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContactShortcut extends StatelessWidget {
+  const _ContactShortcut({required this.contact});
+  final EmergencyContactRecord contact;
+
+  @override
+  Widget build(BuildContext context) {
+    final phone = contact.phoneNumber.trim();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.person_outline_rounded,
+            size: 16,
+            color: Color(0xFF9A3412),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              contact.name,
+              style: const TextStyle(
+                color: Color(0xFF7F1D1D),
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (phone.isNotEmpty)
+            GestureDetector(
+              onTap: () async {
+                final uri = Uri.parse('tel:$phone');
+                if (await canLaunchUrl(uri)) await launchUrl(uri);
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.call_rounded, size: 13, color: Colors.white),
+                    SizedBox(width: 4),
+                    Text(
+                      'Call',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -858,6 +858,7 @@ class EmergencyContactRecord extends TourisTrikeRow {
   String get name => dbString(row['name']);
   String get phoneNumber => dbString(row['phone_number']);
   String get relationship => dbString(row['relationship']);
+  String get email => dbString(row['email']);
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
 }
