@@ -1,0 +1,149 @@
+// Native (iOS/Android) implementation.
+// Uses the Directions REST API over HTTP — no CORS issues on native.
+
+import 'dart:convert';
+
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
+
+class RouteResult {
+  const RouteResult({required this.points, this.durationText});
+  final List<LatLng> points;
+  final String? durationText;
+}
+
+class RoutePolylineService {
+  const RoutePolylineService({required this.apiKey});
+
+  final String apiKey;
+
+  Future<RouteResult> fetchRoute(
+    LatLng origin,
+    LatLng dest, {
+    List<LatLng> waypoints = const [],
+  }) async {
+    const tag = '[RoutePolyline/Native]';
+
+    final waypointsParam = waypoints.isNotEmpty
+        ? '&waypoints=${waypoints.map((p) => '${p.latitude},${p.longitude}').join('|')}'
+        : '';
+
+    final url = 'https://maps.googleapis.com/maps/api/directions/json'
+        '?origin=${origin.latitude},${origin.longitude}'
+        '&destination=${dest.latitude},${dest.longitude}'
+        '&mode=driving$waypointsParam'
+        '&key=$apiKey';
+
+    // ignore: avoid_print
+    print('$tag ${origin.latitude.toStringAsFixed(5)},'
+        '${origin.longitude.toStringAsFixed(5)} → '
+        '${dest.latitude.toStringAsFixed(5)},'
+        '${dest.longitude.toStringAsFixed(5)}');
+
+    try {
+      final res =
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+
+      // ignore: avoid_print
+      print('$tag HTTP ${res.statusCode}, ${res.body.length} chars');
+
+      if (res.statusCode != 200) {
+        // ignore: avoid_print
+        print('$tag Non-200: ${res.reasonPhrase}. Body: ${_clip(res.body)}');
+        return RouteResult(points: [origin, dest]);
+      }
+
+      late final Map<String, dynamic> body;
+      try {
+        body = jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (e) {
+        // ignore: avoid_print
+        print('$tag JSON parse error: $e. Body: ${_clip(res.body)}');
+        return RouteResult(points: [origin, dest]);
+      }
+
+      final status = body['status'] as String? ?? 'UNKNOWN';
+      final errMsg = body['error_message'] as String? ?? '';
+      // ignore: avoid_print
+      print(
+          '$tag status=$status${errMsg.isNotEmpty ? "  error_message=$errMsg" : ""}');
+
+      if (status != 'OK') return RouteResult(points: [origin, dest]);
+
+      final routes = (body['routes'] as List?) ?? const [];
+      if (routes.isEmpty) {
+        // ignore: avoid_print
+        print('$tag No routes returned');
+        return RouteResult(points: [origin, dest]);
+      }
+
+      final route = routes.first as Map;
+      String? durationText;
+      final pts = <LatLng>[];
+
+      // Step-level polylines (highest detail)
+      final legs = (route['legs'] as List?) ?? const [];
+      if (legs.isNotEmpty) {
+        final leg = legs.first as Map;
+        durationText = leg['duration']?['text'] as String?;
+        for (final step in (leg['steps'] as List?) ?? const []) {
+          final enc = (step as Map)['polyline']?['points'] as String?;
+          if (enc != null && enc.isNotEmpty) pts.addAll(_decode(enc));
+        }
+      }
+
+      if (pts.isNotEmpty) {
+        // ignore: avoid_print
+        print('$tag Step pts=${pts.length}, ETA=$durationText');
+        return RouteResult(points: pts, durationText: durationText);
+      }
+
+      // overview_polyline fallback
+      final overviewEnc =
+          route['overview_polyline']?['points'] as String? ?? '';
+      if (overviewEnc.isNotEmpty) {
+        final ovPts = _decode(overviewEnc);
+        // ignore: avoid_print
+        print('$tag overview_polyline pts=${ovPts.length}, ETA=$durationText');
+        return RouteResult(points: ovPts, durationText: durationText);
+      }
+
+      // ignore: avoid_print
+      print('$tag No polyline data. Straight-line fallback.');
+      return RouteResult(points: [origin, dest], durationText: durationText);
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('$tag Exception: $e\n$st');
+      return RouteResult(points: [origin, dest]);
+    }
+  }
+
+  List<LatLng> _decode(String encoded) {
+    final pts = <LatLng>[];
+    int i = 0;
+    final len = encoded.length;
+    int lat = 0, lng = 0;
+    while (i < len) {
+      int b, shift = 0, r = 0;
+      do {
+        b = encoded.codeUnitAt(i++) - 63;
+        r |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lat += (r & 1) != 0 ? ~(r >> 1) : r >> 1;
+      shift = 0;
+      r = 0;
+      do {
+        b = encoded.codeUnitAt(i++) - 63;
+        r |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lng += (r & 1) != 0 ? ~(r >> 1) : r >> 1;
+      pts.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+    return pts;
+  }
+
+  String _clip(String s, [int max = 400]) =>
+      s.length <= max ? s : '${s.substring(0, max)}…';
+}

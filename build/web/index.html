@@ -34,6 +34,37 @@
 </head>
 <body>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k"></script>
+  <script>
+    // Called from Dart (dart:js_interop_unsafe). Accepts a single JSON params string,
+    // returns a Promise<string> with a JSON result.
+    window._flutterGetRoute = async function(paramsJson) {
+      if (!window.google || !window.google.maps) {
+        return JSON.stringify({ status: 'NO_MAPS' });
+      }
+      try {
+        var p = JSON.parse(paramsJson);
+        var svc = new google.maps.DirectionsService();
+        var req = {
+          origin: { lat: p.originLat, lng: p.originLng },
+          destination: { lat: p.destLat, lng: p.destLng },
+          travelMode: google.maps.TravelMode.DRIVING
+        };
+        if (p.waypoints && p.waypoints.length > 0) {
+          req.waypoints = p.waypoints.map(function(wp) {
+            return { location: { lat: wp.lat, lng: wp.lng }, stopover: false };
+          });
+        }
+        var result = await svc.route(req);
+        var route = result.routes[0];
+        var pts = route.overview_path.map(function(ll) { return [ll.lat(), ll.lng()]; });
+        var eta = (route.legs && route.legs[0] && route.legs[0].duration)
+            ? route.legs[0].duration.text : null;
+        return JSON.stringify({ status: 'OK', points: pts, eta: eta });
+      } catch (e) {
+        return JSON.stringify({ status: 'ERROR', error: e.toString() });
+      }
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
