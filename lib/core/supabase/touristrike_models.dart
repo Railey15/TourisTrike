@@ -861,3 +861,100 @@ class EmergencyContactRecord extends TourisTrikeRow {
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
 }
+
+class SharedTripLink extends TourisTrikeRow {
+  const SharedTripLink(super.row);
+
+  String get bookingId => dbString(row['booking_id']);
+  String get touristId => dbString(row['tourist_id']);
+  String get publicToken => dbString(row['public_token']);
+  String get accessCode => dbString(row['access_code']);
+  bool get isActive => dbBool(row['is_active'], fallback: true);
+  DateTime? get expiresAt => dbDate(row['expires_at']);
+  DateTime? get revokedAt => dbDate(row['revoked_at']);
+  dynamic get regeneratedFrom => row['regenerated_from'];
+  DateTime? get createdAt => dbDate(row['created_at']);
+  DateTime? get updatedAt => dbDate(row['updated_at']);
+
+  String get shareUrl => 'https://touristrike.app/trip/$publicToken';
+
+  bool get isExpired {
+    final expires = expiresAt;
+    if (expires == null) return true;
+    return DateTime.now().isAfter(expires);
+  }
+
+  bool get isValid => isActive && !isExpired && revokedAt == null;
+}
+
+class SharedTripAccessLog extends TourisTrikeRow {
+  const SharedTripAccessLog(super.row);
+
+  dynamic get sharedLinkId => row['shared_link_id'];
+  String get bookingId => dbString(row['booking_id']);
+  String? get deviceInfo => row['device_info']?.toString();
+  String? get ipAddress => row['ip_address']?.toString();
+  String? get userAgent => row['user_agent']?.toString();
+  String get accessStatus => dbString(row['access_status'], fallback: 'pending');
+  DateTime? get accessedAt => dbDate(row['accessed_at']);
+}
+
+class GuestTripDetails {
+  const GuestTripDetails({
+    required this.bookingStatus,
+    required this.tourStatus,
+    required this.bookingStatusDetail,
+    required this.itineraryItems,
+    required this.driverCode,
+    required this.tricycleNumber,
+    this.driverPhoneMasked,
+    required this.pickupLandmark,
+    this.driverLatitude,
+    this.driverLongitude,
+  });
+
+  final String bookingStatus;
+  final String tourStatus;
+  final String bookingStatusDetail;
+  final List<Map<String, dynamic>> itineraryItems;
+  final String driverCode;
+  final String tricycleNumber;
+  final String? driverPhoneMasked;
+  final String pickupLandmark;
+  final double? driverLatitude;
+  final double? driverLongitude;
+
+  factory GuestTripDetails.fromJson(Map<String, dynamic> json) {
+    return GuestTripDetails(
+      bookingStatus: json['booking_status']?.toString() ?? '',
+      tourStatus: json['tour_status']?.toString() ?? '',
+      bookingStatusDetail: json['booking_status_detail']?.toString() ?? '',
+      itineraryItems: (json['itinerary_items'] as List?)
+              ?.whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList() ??
+          [],
+      driverCode: json['driver_code']?.toString() ?? '',
+      tricycleNumber: json['tricycle_number']?.toString() ?? '',
+      driverPhoneMasked: json['driver_phone_masked']?.toString(),
+      pickupLandmark: json['pickup_landmark']?.toString() ?? '',
+      driverLatitude: (json['driver_latitude'] as num?)?.toDouble(),
+      driverLongitude: (json['driver_longitude'] as num?)?.toDouble(),
+    );
+  }
+
+  bool get isLiveTrackingAvailable {
+    return tourStatus == 'picked_up' ||
+        tourStatus == 'on_tour' ||
+        tourStatus == 'en_route_to_spot' ||
+        tourStatus == 'at_spot' ||
+        tourStatus == 'en_route_to_dropoff' ||
+        tourStatus == 'ready_to_complete';
+  }
+
+  bool get isTripEnded {
+    return tourStatus == 'dropped_off' ||
+        tourStatus == 'completed' ||
+        bookingStatus == 'completed';
+  }
+}

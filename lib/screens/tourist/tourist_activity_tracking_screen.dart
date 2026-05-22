@@ -13,6 +13,7 @@ import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
+import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -963,7 +964,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                         ],
                       ),
                     ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () {
+                      ShareTripBottomSheet.show(
+                        context,
+                        bookingId: widget.bookingId,
+                        travelDate: _booking?.travelDate,
+                      );
+                    },
+                    icon: const Icon(Icons.share_location_rounded, size: 20),
+                    color: Colors.white,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    tooltip: 'Share Trip',
+                  ),
                   IconButton(
                     onPressed: _load,
                     icon: const Icon(Icons.refresh_rounded, size: 20),

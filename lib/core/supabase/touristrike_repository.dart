@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -44,6 +46,8 @@ class TourisTrikeTables {
   static const driverLiveLocations = 'driver_live_locations';
   static const tripStatusLogs = 'trip_status_logs';
   static const driverReviews = 'driver_reviews';
+  static const sharedTripLinks = 'shared_trip_links';
+  static const sharedTripAccessLogs = 'shared_trip_access_logs';
 }
 
 class TourisTrikeRepository {
@@ -1996,5 +2000,141 @@ class TourisTrikeRepository {
         .whereType<Map>()
         .map((row) => Json.from(row))
         .toList(growable: false);
+  }
+
+  // ── SHARED TRIP LINKS ────────────────────────────────────────
+
+  String _generateShareToken() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rng = Random.secure();
+    return List.generate(12, (_) => chars[rng.nextInt(chars.length)]).join();
+  }
+
+  String _generateAccessCode() {
+    final rng = Random.secure();
+    return (100000 + rng.nextInt(900000)).toString();
+  }
+
+  Future<SharedTripLink?> getActiveShareTripLink(String bookingId) async {
+    final userId = requireUserId();
+    final row = await _client
+        .from(TourisTrikeTables.sharedTripLinks)
+        .select()
+        .eq('booking_id', bookingId)
+        .eq('tourist_id', userId)
+        .eq('is_active', true)
+        .order('created_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    if (row == null) return null;
+    return SharedTripLink(Json.from(row));
+  }
+
+  Future<SharedTripLink> generateShareTripLink({
+    required String bookingId,
+    DateTime? travelDate,
+  }) async {
+    final userId = requireUserId();
+    final expiresAt = travelDate != null
+        ? DateTime(
+            travelDate.year,
+            travelDate.month,
+            travelDate.day,
+            23,
+            59,
+            59,
+          )
+        : DateTime.now().add(const Duration(hours: 24));
+
+    final row = await _client
+        .from(TourisTrikeTables.sharedTripLinks)
+        .insert({
+          'booking_id': bookingId,
+          'tourist_id': userId,
+          'public_token': _generateShareToken(),
+          'access_code': _generateAccessCode(),
+          'is_active': true,
+          'expires_at': expiresAt.toUtc().toIso8601String(),
+        })
+        .select()
+        .single();
+    return SharedTripLink(Json.from(row));
+  }
+
+  Future<void> disableShareTripLink(dynamic linkId) async {
+    final userId = requireUserId();
+    await _client
+        .from(TourisTrikeTables.sharedTripLinks)
+        .update({
+          'is_active': false,
+          'revoked_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', linkId)
+        .eq('tourist_id', userId);
+  }
+
+  Future<SharedTripLink> regenerateShareTripLink({
+    required dynamic oldLinkId,
+    required String bookingId,
+    DateTime? travelDate,
+  }) async {
+    final userId = requireUserId();
+    await _client
+        .from(TourisTrikeTables.sharedTripLinks)
+        .update({
+          'is_active': false,
+          'revoked_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', oldLinkId)
+        .eq('tourist_id', userId);
+
+    final expiresAt = travelDate != null
+        ? DateTime(
+            travelDate.year,
+            travelDate.month,
+            travelDate.day,
+            23,
+            59,
+            59,
+          )
+        : DateTime.now().add(const Duration(hours: 24));
+
+    final row = await _client
+        .from(TourisTrikeTables.sharedTripLinks)
+        .insert({
+          'booking_id': bookingId,
+          'tourist_id': userId,
+          'public_token': _generateShareToken(),
+          'access_code': _generateAccessCode(),
+          'is_active': true,
+          'expires_at': expiresAt.toUtc().toIso8601String(),
+          'regenerated_from': oldLinkId,
+        })
+        .select()
+        .single();
+    return SharedTripLink(Json.from(row));
+  }
+
+  // Called by guests (unauthenticated) via Supabase anon key.
+  Future<GuestTripDetails?> validateGuestTripLink({
+    required String publicToken,
+    required String accessCode,
+    String? deviceInfo,
+    String? userAgent,
+  }) async {
+    try {
+      final result = await _client.rpc('get_shared_trip_details', params: {
+        'p_public_token': publicToken,
+        'p_access_code': accessCode,
+        'p_device_info': deviceInfo,
+        'p_user_agent': userAgent,
+      });
+      if (result == null) return null;
+      final map = Map<String, dynamic>.from(result as Map);
+      if (map['error'] != null) throw Exception(map['message']);
+      return GuestTripDetails.fromJson(map);
+    } catch (_) {
+      rethrow;
+    }
   }
 }
