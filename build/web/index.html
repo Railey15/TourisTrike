@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="touristrike">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>touristrike</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k"></script>
+  <script>
+    // Called from Dart (dart:js_interop_unsafe). Accepts a single JSON params string,
+    // returns a Promise<string> with a JSON result.
+    window._flutterGetRoute = async function(paramsJson) {
+      if (!window.google || !window.google.maps) {
+        return JSON.stringify({ status: 'NO_MAPS' });
+      }
+      try {
+        var p = JSON.parse(paramsJson);
+        var svc = new google.maps.DirectionsService();
+        var req = {
+          origin: { lat: p.originLat, lng: p.originLng },
+          destination: { lat: p.destLat, lng: p.destLng },
+          travelMode: google.maps.TravelMode.DRIVING
+        };
+        if (p.waypoints && p.waypoints.length > 0) {
+          req.waypoints = p.waypoints.map(function(wp) {
+            return { location: { lat: wp.lat, lng: wp.lng }, stopover: false };
+          });
+        }
+        var result = await svc.route(req);
+        var route = result.routes[0];
+        var pts = route.overview_path.map(function(ll) { return [ll.lat(), ll.lng()]; });
+        var eta = (route.legs && route.legs[0] && route.legs[0].duration)
+            ? route.legs[0].duration.text : null;
+        return JSON.stringify({ status: 'OK', points: pts, eta: eta });
+      } catch (e) {
+        return JSON.stringify({ status: 'ERROR', error: e.toString() });
+      }
+    };
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

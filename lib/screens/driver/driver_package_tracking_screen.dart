@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
@@ -57,7 +55,6 @@ class _DriverPackageTrackingScreenState
 
   // Custom bitmap markers (loaded from assets)
   BitmapDescriptor? _tricycleMarker;
-  BitmapDescriptor? _passengerMarker;
 
   // Current driver GPS position
   Position? _currentPosition;
@@ -90,28 +87,14 @@ class _DriverPackageTrackingScreenState
 
   // ── Custom marker loading ─────────────────────────────────────
 
-  Future<BitmapDescriptor> _bitmapFromAsset(String path, int width) async {
-    final data = await rootBundle.load(path);
-    final codec = await ui.instantiateImageCodec(
-      data.buffer.asUint8List(),
-      targetWidth: width,
-    );
-    final frame = await codec.getNextFrame();
-    final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
-  }
-
   Future<void> _initCustomMarkers() async {
     try {
-      final results = await Future.wait([
-        _bitmapFromAsset('assets/icons/tricycle_marker.png', 42),
-        _bitmapFromAsset('assets/icons/passenger_marker.png', 38),
-      ]);
+      _tricycleMarker = await BitmapDescriptor.asset(
+        const ImageConfiguration(size: Size(35, 35)),
+        'assets/icons/tricycle_marker.png',
+      );
       if (!mounted) return;
-      setState(() {
-        _tricycleMarker = results[0];
-        _passengerMarker = results[1];
-      });
+      setState(() {});
       _buildMarkers();
     } catch (e) {
       debugPrint('[Markers] Failed to load custom markers: $e');
@@ -421,16 +404,15 @@ class _DriverPackageTrackingScreenState
     final dropoff = _dropoffLatLng();
     final driverPos = _driverLatLng();
 
-    // Pickup — passenger icon (tourist waits here)
+    // Pickup — green pin (tourist's pickup location)
     if (pickup != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('pickup'),
           position: pickup,
-          icon: _passengerMarker ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
           infoWindow: InfoWindow(
-            title: 'Pickup (Tourist)',
+            title: 'Pickup Point',
             snippet: _booking?.pickupAddress ?? '',
           ),
         ),

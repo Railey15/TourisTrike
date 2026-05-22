@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -55,6 +54,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   BitmapDescriptor? _tricycleMarker;
   BitmapDescriptor? _passengerMarker;
 
+  // Tourist's own live GPS position (for passenger marker on map)
+  Position? _touristPosition;
+  StreamSubscription<Position>? _touristGpsSub;
+
   RealtimeChannel? _activityChannel;
   RealtimeChannel? _locationChannel;
   RealtimeChannel? _bookingChannel;
@@ -82,27 +85,23 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     _locationChannel?.unsubscribe();
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
+    _touristGpsSub?.cancel();
     _mapCtrl?.dispose();
     super.dispose();
   }
 
   // ── Custom marker loading ─────────────────────────────────────
-  Future<BitmapDescriptor> _bitmapFromAsset(String path, int width) async {
-    final data = await rootBundle.load(path);
-    final codec = await ui.instantiateImageCodec(
-      data.buffer.asUint8List(),
-      targetWidth: width,
-    );
-    final frame = await codec.getNextFrame();
-    final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
-  }
-
   Future<void> _initCustomMarkers() async {
     try {
       final results = await Future.wait([
-        _bitmapFromAsset('assets/icons/tricycle_marker.png', 42),
-        _bitmapFromAsset('assets/icons/passenger_marker.png', 38),
+        BitmapDescriptor.asset(
+          const ImageConfiguration(size: Size(35, 35)),
+          'assets/icons/tricycle_marker.png',
+        ),
+        BitmapDescriptor.asset(
+          const ImageConfiguration(size: Size(30, 30)),
+          'assets/icons/passenger_marker.png',
+        ),
       ]);
       if (!mounted) return;
       setState(() {
@@ -150,6 +149,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       _subscribeToActivity(driverId);
       _subscribeToBooking(widget.bookingId);
       _checkAndShowReviewModal();
+      _startTouristGpsStreaming();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -293,8 +293,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
     if (bookingId.isEmpty || driverId.isEmpty) return;
 
-    final alreadyReviewed = await _repo.hasReviewedBooking(bookingId);
-    if (alreadyReviewed) {
+    final packageId = _booking?.row['package_id'];
+    final packageName = _booking?.row['package_name']?.toString() ?? '';
+
+    final hasDriver = await _repo.hasReviewedDriver(bookingId);
+    final hasPackage = packageId == null
+        ? true
+        : await _repo.hasReviewedPackage(bookingId);
+
+    if (hasDriver && hasPackage) {
       _reviewShown = true;
       return;
     }
@@ -310,6 +317,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       driverAvatarUrl: _driverInfo?.profile?.avatarUrl.isNotEmpty == true
           ? _driverInfo!.profile!.avatarUrl
           : _driverInfo?.profile?.profileImageUrl ?? '',
+      packageId: packageId,
+      packageName: packageName.isNotEmpty ? packageName : null,
+      initialStep: hasDriver ? 2 : 1,
     );
   }
 
@@ -363,6 +373,28 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     );
   }
 
+  Future<void> _startTouristGpsStreaming() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) return;
+      await _touristGpsSub?.cancel();
+      _touristGpsSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((pos) {
+        if (!mounted) return;
+        setState(() => _touristPosition = pos);
+        _buildMarkers();
+      });
+    } catch (_) {}
+  }
+
   void _subscribeToBooking(String bookingId) {
     _bookingChannel?.unsubscribe();
     _bookingChannel = _supabase
@@ -386,7 +418,25 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final markers = <Marker>{};
     final booking = _booking;
 
-    // Pickup point — passenger icon (tourist waits here)
+    // Tourist's live location — passenger icon
+    if (_touristPosition != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('tourist_live'),
+          position: LatLng(
+            _touristPosition!.latitude,
+            _touristPosition!.longitude,
+          ),
+          icon: _passengerMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          anchor: const Offset(0.5, 0.5),
+          infoWindow: const InfoWindow(title: 'You'),
+          zIndex: 2,
+        ),
+      );
+    }
+
+    // Pickup point — green circular pin
     if (booking != null &&
         booking.pickupLatitude != null &&
         booking.pickupLongitude != null) {
@@ -394,8 +444,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         Marker(
           markerId: const MarkerId('pickup'),
           position: LatLng(booking.pickupLatitude!, booking.pickupLongitude!),
-          icon: _passengerMarker ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
           infoWindow: InfoWindow(
             title: 'Pickup Point',
             snippet: booking.pickupAddress,
@@ -404,7 +453,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       );
     }
 
-    // Drop-off point — keep standard red pin
+    // Drop-off point — red/orange destination pin
     if (booking != null &&
         booking.dropoffLatitude != null &&
         booking.dropoffLongitude != null) {
@@ -421,18 +470,26 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       );
     }
 
-    // Current itinerary spot — standard orange pin
-    final currentItem = _currentItineraryItem;
-    if (currentItem != null &&
-        !(currentItem.latitude == 0 && currentItem.longitude == 0)) {
+    // Itinerary spots — completed=green, active=orange, upcoming=azure
+    for (var i = 0; i < _spots.length; i++) {
+      final spot = _spots[i];
+      if (spot.latitude == 0 && spot.longitude == 0) continue;
+      final isDone = spot.spotStatus == 'completed';
+      final isCurrent = !isDone && spot.id == _currentItineraryItem?.id;
       markers.add(
         Marker(
-          markerId: const MarkerId('current_spot'),
-          position: LatLng(currentItem.latitude, currentItem.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          markerId: MarkerId('spot_$i'),
+          position: LatLng(spot.latitude, spot.longitude),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            isDone
+                ? BitmapDescriptor.hueGreen
+                : isCurrent
+                    ? BitmapDescriptor.hueOrange
+                    : BitmapDescriptor.hueAzure,
+          ),
           infoWindow: InfoWindow(
-            title: currentItem.destinationName,
-            snippet: currentItem.destinationAddress,
+            title: 'Stop ${i + 1}: ${spot.destinationName}',
+            snippet: spot.destinationAddress,
           ),
         ),
       );
@@ -453,6 +510,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
           anchor: const Offset(0.5, 0.5),
           flat: true,
           infoWindow: const InfoWindow(title: 'Your Driver'),
+          zIndex: 1,
         ),
       );
     }
@@ -1001,11 +1059,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // ── Group Booking Counter ─────────────────────
-                  if (requiredDrivers > 1) ...[
-                    _GroupBookingCard(
-                      requiredDrivers: requiredDrivers,
+                  // ── Finding Drivers Card ──────────────────────
+                  if (isWaitingForDrivers) ...[
+                    _FindingDriversCard(
                       acceptedDrivers: acceptedDrivers,
+                      requiredDrivers: requiredDrivers,
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -1243,12 +1301,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
           ],
         ),
 
-        // ── Finding Drivers overlay ───────────────────────────────
-        if (isWaitingForDrivers)
-          _FindingDriversOverlay(
-            accepted: acceptedDrivers,
-            required: requiredDrivers,
-          ),
       ],
     );
   }
@@ -1351,71 +1403,133 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
-class _GroupBookingCard extends StatelessWidget {
-  const _GroupBookingCard({
-    required this.requiredDrivers,
+class _FindingDriversCard extends StatelessWidget {
+  const _FindingDriversCard({
     required this.acceptedDrivers,
+    required this.requiredDrivers,
   });
 
-  final int requiredDrivers;
   final int acceptedDrivers;
+  final int requiredDrivers;
 
   @override
   Widget build(BuildContext context) {
-    final allAccepted = acceptedDrivers >= requiredDrivers;
-    final color = allAccepted
-        ? const Color(0xFF16A34A)
-        : const Color(0xFFF59E0B);
+    const amber = Color(0xFFF59E0B);
+    final progress = requiredDrivers > 0 ? acceptedDrivers / requiredDrivers : 0.0;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        color: amber.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: amber.withValues(alpha: 0.3)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              allAccepted ? Icons.groups_rounded : Icons.hourglass_top_rounded,
-              color: color,
-              size: 22,
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.electric_rickshaw_rounded,
+                  color: amber,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Finding Drivers',
+                      style: TextStyle(
+                        color: Color(0xFF92400E),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Waiting for driver/s to accept.',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Waiting for Drivers',
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+              Text(
+                '$acceptedDrivers / $requiredDrivers',
+                style: const TextStyle(
+                  color: amber,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: amber.withValues(alpha: 0.15),
+              valueColor: const AlwaysStoppedAnimation(amber),
+              minHeight: 7,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  allAccepted
-                      ? 'All Drivers Confirmed'
-                      : 'Waiting for Drivers ($acceptedDrivers / $requiredDrivers)',
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 14,
+          if (requiredDrivers > 1) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: List.generate(requiredDrivers, (i) {
+                final filled = i < acceptedDrivers;
+                return Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: filled
+                        ? amber.withValues(alpha: 0.18)
+                        : const Color(0xFFF1F5F9),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: filled ? amber : const Color(0xFFE2E8F0),
+                    ),
                   ),
-                ),
-                Text(
-                  'This tour requires $requiredDrivers tricycle${requiredDrivers > 1 ? 's' : ''} for your group.',
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    height: 1.3,
+                  child: Icon(
+                    Icons.electric_rickshaw_rounded,
+                    color: filled ? amber : const Color(0xFFCBD5E1),
+                    size: 18,
                   ),
-                ),
-              ],
+                );
+              }),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1848,163 +1962,6 @@ class _ErrorView extends StatelessWidget {
             const SizedBox(height: 14),
             ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Finding Drivers overlay ───────────────────────────────────
-class _FindingDriversOverlay extends StatefulWidget {
-  const _FindingDriversOverlay({
-    required this.accepted,
-    required this.required,
-  });
-
-  final int accepted;
-  final int required;
-
-  @override
-  State<_FindingDriversOverlay> createState() => _FindingDriversOverlayState();
-}
-
-class _FindingDriversOverlayState extends State<_FindingDriversOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = widget.required - widget.accepted;
-    return Positioned.fill(
-      child: Container(
-        color: const Color(0xCC0F172A),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedBuilder(
-                  animation: _pulse,
-                  builder: (_, child) => Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: Color.lerp(
-                        const Color(0xFF2A86FF).withValues(alpha: 0.2),
-                        const Color(0xFF2A86FF).withValues(alpha: 0.5),
-                        _pulse.value,
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child:
-                        child ??
-                        const Icon(
-                          Icons.electric_rickshaw_rounded,
-                          color: Colors.white,
-                          size: 44,
-                        ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Finding Drivers...',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 22,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Waiting for Drivers  ${widget.accepted} / ${widget.required}',
-                  style: const TextStyle(
-                    color: Color(0xFFCBD5E1),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: 220,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
-                    child: LinearProgressIndicator(
-                      value: widget.required > 0
-                          ? widget.accepted / widget.required
-                          : 0,
-                      backgroundColor: Colors.white.withValues(alpha: 0.15),
-                      valueColor: const AlwaysStoppedAnimation(
-                        Color(0xFF2A86FF),
-                      ),
-                      minHeight: 8,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                if (widget.required > 1)
-                  Wrap(
-                    spacing: 8,
-                    children: List.generate(widget.required, (i) {
-                      final filled = i < widget.accepted;
-                      return Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: filled
-                              ? const Color(0xFF2A86FF)
-                              : Colors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: filled
-                                ? const Color(0xFF2A86FF)
-                                : Colors.white.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Icon(
-                          filled
-                              ? Icons.person_rounded
-                              : Icons.person_outline_rounded,
-                          color: filled
-                              ? Colors.white
-                              : Colors.white.withValues(alpha: 0.4),
-                          size: 20,
-                        ),
-                      );
-                    }),
-                  ),
-                const SizedBox(height: 20),
-                Text(
-                  remaining > 0
-                      ? 'Waiting for driver/s to accept.'
-                      : 'All drivers confirmed!',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
