@@ -876,7 +876,7 @@ class SharedTripLink extends TourisTrikeRow {
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
 
-  String get shareUrl => 'https://touristrike.app/trip/$publicToken';
+  String get shareUrl => 'https://touris-trike.vercel.app/trip/$publicToken';
 
   bool get isExpired {
     final expires = expiresAt;
@@ -901,6 +901,8 @@ class SharedTripAccessLog extends TourisTrikeRow {
 
 class GuestTripDetails {
   const GuestTripDetails({
+    required this.bookingId,
+    required this.driverId,
     required this.bookingStatus,
     required this.tourStatus,
     required this.bookingStatusDetail,
@@ -913,6 +915,8 @@ class GuestTripDetails {
     this.driverLongitude,
   });
 
+  final String bookingId;
+  final String driverId;
   final String bookingStatus;
   final String tourStatus;
   final String bookingStatusDetail;
@@ -926,6 +930,8 @@ class GuestTripDetails {
 
   factory GuestTripDetails.fromJson(Map<String, dynamic> json) {
     return GuestTripDetails(
+      bookingId: json['booking_id']?.toString() ?? '',
+      driverId: json['driver_id']?.toString() ?? '',
       bookingStatus: json['booking_status']?.toString() ?? '',
       tourStatus: json['tour_status']?.toString() ?? '',
       bookingStatusDetail: json['booking_status_detail']?.toString() ?? '',
@@ -942,6 +948,21 @@ class GuestTripDetails {
       driverLongitude: (json['driver_longitude'] as num?)?.toDouble(),
     );
   }
+
+  GuestTripDetails withLocation(double? lat, double? lng) => GuestTripDetails(
+        bookingId: bookingId,
+        driverId: driverId,
+        bookingStatus: bookingStatus,
+        tourStatus: tourStatus,
+        bookingStatusDetail: bookingStatusDetail,
+        itineraryItems: itineraryItems,
+        driverCode: driverCode,
+        tricycleNumber: tricycleNumber,
+        driverPhoneMasked: driverPhoneMasked,
+        pickupLandmark: pickupLandmark,
+        driverLatitude: lat,
+        driverLongitude: lng,
+      );
 
   bool get isLiveTrackingAvailable {
     return tourStatus == 'picked_up' ||

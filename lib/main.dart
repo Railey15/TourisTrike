@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/screens/guest/guest_trip_access_screen.dart';
 import 'screens/auth/loading_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -23,6 +25,18 @@ class TourisTrikeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On web: intercept /trip/:token before showing the main app
+    if (kIsWeb) {
+      final segments = Uri.base.pathSegments;
+      if (segments.length >= 2 && segments[0] == 'trip') {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          home: GuestTripAccessScreen(publicToken: segments[1]),
+        );
+      }
+    }
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: const TourisTrikeLoadingScreen(),

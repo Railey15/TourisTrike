@@ -2116,11 +2116,13 @@ class TourisTrikeRepository {
   }
 
   // Called by guests (unauthenticated) via Supabase anon key.
+  // Set silent=true for background refresh calls to avoid re-logging/notifying.
   Future<GuestTripDetails?> validateGuestTripLink({
     required String publicToken,
     required String accessCode,
     String? deviceInfo,
     String? userAgent,
+    bool silent = false,
   }) async {
     try {
       final result = await _client.rpc('get_shared_trip_details', params: {
@@ -2128,6 +2130,7 @@ class TourisTrikeRepository {
         'p_access_code': accessCode,
         'p_device_info': deviceInfo,
         'p_user_agent': userAgent,
+        'p_silent': silent,
       });
       if (result == null) return null;
       final map = Map<String, dynamic>.from(result as Map);
