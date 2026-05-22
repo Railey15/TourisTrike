@@ -56,6 +56,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   final _websiteCtrl = TextEditingController();
   final _bestTimeCtrl = TextEditingController();
   final _tipsCtrl = TextEditingController();
+  final _accessibilityCtrl = TextEditingController();
   final _suggestedSpotCtrl = TextEditingController();
 
   String _status = 'active';
@@ -65,14 +66,19 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   bool _saving = false;
   bool _autoFilling = false;
   bool _uploadingImage = false;
+  int _currentStep = 0;
 
   String? _selectedSuggestionId;
   String? _selectedBarangay;
   String? _selectedGooglePlaceId;
   String? _selectedGooglePhotoReference;
   String _sourceType = 'manual';
+  Timer? _placeSearchTimer;
   Timer? _addressSearchTimer;
+  bool _placeSearching = false;
   bool _addressSearching = false;
+  bool _suppressPlaceSearch = false;
+  List<CitySpotSuggestion> _placeSuggestions = const [];
   List<CitySpotSuggestion> _addressSuggestions = const [];
   SubTenantProfile? _addressProfile;
 
@@ -157,10 +163,12 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       _entranceFeeCtrl,
       _bestTimeCtrl,
       _tipsCtrl,
+      _accessibilityCtrl,
       _ratingCtrl,
     ]) {
       ctrl.addListener(_refreshPreview);
     }
+    _titleCtrl.addListener(_schedulePlaceSearch);
     _addressCtrl.addListener(_scheduleAddressSearch);
   }
 
@@ -282,6 +290,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
 
   @override
   void dispose() {
+    _placeSearchTimer?.cancel();
     _addressSearchTimer?.cancel();
     _scrollController.dispose();
     _mapController?.dispose();
@@ -303,6 +312,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       _websiteCtrl,
       _bestTimeCtrl,
       _tipsCtrl,
+      _accessibilityCtrl,
       _suggestedSpotCtrl,
     ]) {
       ctrl.dispose();
@@ -421,6 +431,62 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     });
 
     _animateToLocation(position, zoom: 16);
+  }
+
+  void _schedulePlaceSearch() {
+    if (_suppressPlaceSearch) return;
+    final profile = _addressProfile;
+    final query = _titleCtrl.text.trim();
+    _placeSearchTimer?.cancel();
+    if (profile == null || query.length < 3) {
+      if (_placeSuggestions.isNotEmpty && mounted) {
+        setState(() => _placeSuggestions = const []);
+      }
+      return;
+    }
+
+    _placeSearchTimer = Timer(const Duration(milliseconds: 550), () async {
+      if (!mounted) return;
+      setState(() => _placeSearching = true);
+      try {
+        final suggestions = await const CitySpotSuggestionService()
+            .searchPlaces(
+              query: query,
+              city: profile.assignedCity,
+              province: profile.province,
+              center: _municipalityCenter(profile.assignedCity),
+            );
+        if (!mounted || _titleCtrl.text.trim() != query) return;
+        setState(() => _placeSuggestions = suggestions);
+      } catch (_) {
+        if (mounted) setState(() => _placeSuggestions = const []);
+      } finally {
+        if (mounted) setState(() => _placeSearching = false);
+      }
+    });
+  }
+
+  void _applyPlaceSuggestion(
+    CitySpotSuggestion suggestion,
+    _SpotFormData data,
+  ) {
+    _placeSearchTimer?.cancel();
+    _suppressPlaceSearch = true;
+    _applyRawSuggestionValues(suggestion);
+    final matchedBarangay = _matchBarangay(
+      suggestion.barangayHint,
+      data.barangays,
+    );
+    setState(() {
+      _categoryId = _matchCategoryId(suggestion.category, data.categories);
+      _selectedBarangay = matchedBarangay;
+      if (matchedBarangay != null) _barangayCtrl.text = matchedBarangay;
+      _placeSuggestions = const [];
+      _suppressPlaceSearch = false;
+    });
+    if (_pickedLocation != null) {
+      _animateToLocation(_pickedLocation!, zoom: 16.5);
+    }
   }
 
   void _scheduleAddressSearch() {
@@ -633,7 +699,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
 
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
-      _scrollToTop();
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
       return;
     }
 
@@ -641,7 +707,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     final lng = double.tryParse(_lngCtrl.text.trim());
 
     if (lat == null || lng == null) {
-      _scrollToTop();
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
       showSubTenantSnack(
         context,
         'Please pin the tourist spot location on the map.',
@@ -652,7 +718,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     final barangay = _selectedBarangay?.trim() ?? _barangayCtrl.text.trim();
 
     if (barangays.isNotEmpty && !barangays.contains(barangay)) {
-      _scrollToTop();
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
       showSubTenantSnack(
         context,
         'Please select a valid barangay under ${profile.assignedCity}.',
@@ -726,12 +792,10 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       if (_selectedGooglePhotoReference != null)
         'google_photo_reference': _selectedGooglePhotoReference,
 
-      // Important for Supabase RLS. Most policies allow subtenants to insert
-      // only rows where submitted_by = auth.uid().
+      // Supabase RLS: subtenants can only insert rows where submitted_by = auth.uid()
       if (isCreate) 'submitted_by': authUserId,
 
-      // Keep create requests pending. Do not allow a subtenant create flow to
-      // insert directly as verified because many RLS policies block that.
+      // New spots submit as pending; verification is controlled by the review flow
       'verification_status': isCreate
           ? 'pending'
           : (_verificationStatus.trim().isEmpty
@@ -764,14 +828,6 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     });
 
     return payload;
-  }
-
-  void _scrollToTop() {
-    _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-    );
   }
 
   String _selectedCategoryName() {
@@ -903,6 +959,57 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         .trim();
   }
 
+  // ── Wizard navigation ────────────────────────────────────────────────────
+
+  String? _validateCurrentStep(_SpotFormData data) {
+    switch (_currentStep) {
+      case 0:
+        if (_titleCtrl.text.trim().isEmpty) return 'Spot name is required.';
+        if (_descriptionCtrl.text.trim().isEmpty) {
+          return 'Description is required.';
+        }
+        if (_categoryId == null && data.categories.isNotEmpty) {
+          return 'Please select a category.';
+        }
+        return null;
+      case 1:
+        final barangay =
+            _selectedBarangay?.trim() ?? _barangayCtrl.text.trim();
+        if (barangay.isEmpty) return 'Please select a barangay.';
+        if (_latCtrl.text.trim().isEmpty || _lngCtrl.text.trim().isEmpty) {
+          return 'Please pin the tourist spot location on the map.';
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  void _nextStep(_SpotFormData data) {
+    final error = _validateCurrentStep(data);
+    if (error != null) {
+      showSubTenantSnack(context, error);
+      return;
+    }
+    setState(() => _currentStep = (_currentStep + 1).clamp(0, 4));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    });
+  }
+
+  void _prevStep() {
+    setState(() => _currentStep = (_currentStep - 1).clamp(0, 4));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    });
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -932,67 +1039,43 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
             children: [
               Form(
                 key: _formKey,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 980;
+                child: Column(
+                  children: [
+                    _StepIndicator(currentStep: _currentStep),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isWide = constraints.maxWidth >= 980;
 
-                    return SingleChildScrollView(
-                      controller: _scrollController,
-                      physics: const BouncingScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(
-                        isWide ? 24 : 14,
-                        14,
-                        isWide ? 24 : 14,
-                        30,
-                      ),
-                      child: isWide
-                          ? Row(
+                          if (isWide) {
+                            return Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(
-                                  flex: 55,
-                                  child: Column(
-                                    children: [
-                                      _basicInfoCard(data),
-                                      const SizedBox(height: 14),
-                                      _mapCard(data.profile),
-                                      const SizedBox(height: 14),
-                                      _detailsCard(data),
-                                      const SizedBox(height: 14),
-                                      _mediaCard(data.profile),
-                                      const SizedBox(height: 14),
-                                      _statusCard(),
-                                      const SizedBox(height: 18),
-                                      _saveButton(data),
-                                    ],
+                                  child: _stepContentWithNav(data, isWide),
+                                ),
+                                const SizedBox(width: 0),
+                                SizedBox(
+                                  width: 380,
+                                  child: SingleChildScrollView(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      0,
+                                      14,
+                                      24,
+                                      14,
+                                    ),
+                                    child: _previewCard(),
                                   ),
                                 ),
-                                const SizedBox(width: 20),
-                                Expanded(
-                                  flex: 45,
-                                  child: Column(children: [_previewCard()]),
-                                ),
                               ],
-                            )
-                          : Column(
-                              children: [
-                                _basicInfoCard(data),
-                                const SizedBox(height: 14),
-                                _mapCard(data.profile),
-                                const SizedBox(height: 14),
-                                _detailsCard(data),
-                                const SizedBox(height: 14),
-                                _mediaCard(data.profile),
-                                const SizedBox(height: 14),
-                                _statusCard(),
-                                const SizedBox(height: 14),
-                                _previewCard(),
-                                const SizedBox(height: 18),
-                                _saveButton(data),
-                              ],
-                            ),
-                    );
-                  },
+                            );
+                          }
+
+                          return _stepContentWithNav(data, isWide);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (_autoFilling)
@@ -1011,372 +1094,585 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     );
   }
 
-  Widget _basicInfoCard(_SpotFormData data) {
-    final useAiSelection = !_editing;
-
-    return SubTenantDashboardCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SubTenantSectionHeader(
-            title: 'Spot Information',
-            subtitle: useAiSelection
-                ? 'Google Places suggestions are optional. You can create a tourist spot manually anytime.'
-                : 'Update the tourist spot details without changing its city assignment',
-          ),
-          const SizedBox(height: 14),
-          if (useAiSelection) ...[
-            _smartHelper(
-              icon: Icons.auto_awesome_rounded,
-              text:
-                  'Google Places suggestions use the same municipality-based search logic as the tourist Explore screen for ${data.profile.assignedCity}. You can still edit every field before saving.',
+  Widget _stepContentWithNav(_SpotFormData data, bool isWide) {
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              isWide ? 24 : 14,
+              14,
+              isWide ? 24 : 14,
+              14,
             ),
-            const SizedBox(height: 12),
-            _label('Google Place Suggestion'),
-            const SizedBox(height: 8),
-            if (data.suggestions.isEmpty)
-              _smartHelper(
-                icon: Icons.info_rounded,
-                text: 'No Google Places suggestions found',
-              )
-            else
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  return DropdownMenu<String>(
-                    controller: _suggestedSpotCtrl,
-                    width: constraints.maxWidth,
-                    initialSelection: _selectedSuggestionId,
-                    enableFilter: true,
-                    enableSearch: true,
-                    requestFocusOnTap: true,
-                    hintText: 'Search Google-suggested places',
-                    inputDecorationTheme: _inputDecorationTheme(),
-                    dropdownMenuEntries: data.suggestions
-                        .map(
-                          (suggestion) => DropdownMenuEntry<String>(
-                            value: suggestion.id,
-                            label: suggestion.title,
-                            leadingIcon: const Icon(
-                              Icons.auto_awesome_rounded,
-                              size: 18,
-                              color: SubTenantColors.blue,
-                            ),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onSelected: (value) async {
-                      if (value == null) return;
-
-                      final selected = _findSuggestionById(
-                        data.suggestions,
-                        value,
-                      );
-                      if (selected == null) return;
-
-                      await _applySuggestion(
-                        selected,
-                        data.categories,
-                        data.barangays,
-                      );
-                    },
-                  );
-                },
-              ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => setState(() => _dataFuture = _loadData()),
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
-                    label: const Text('Refresh Suggestions'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      foregroundColor: SubTenantColors.blue,
-                      side: const BorderSide(color: SubTenantColors.line),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+            child: _buildCurrentStep(data, isWide),
+          ),
+        ),
+        Container(
+          padding: EdgeInsets.fromLTRB(
+            isWide ? 24 : 14,
+            12,
+            isWide ? 24 : 14,
+            16,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: BorderSide(color: SubTenantColors.line),
+            ),
+          ),
+          child: Row(
+            children: [
+              if (_currentStep > 0) ...[
+                OutlinedButton.icon(
+                  onPressed: _prevStep,
+                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                  label: const Text('Back'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(100, 48),
+                    foregroundColor: SubTenantColors.text,
+                    side: const BorderSide(color: SubTenantColors.line),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _switchToManualEntry,
-                    icon: const Icon(Icons.edit_note_rounded, size: 18),
-                    label: const Text('Add Manually'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      foregroundColor: SubTenantColors.text,
-                      side: const BorderSide(color: SubTenantColors.line),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+              ],
+              Expanded(
+                child: _currentStep < 4
+                    ? FilledButton.icon(
+                        onPressed: () => _nextStep(data),
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                        label: const Text('Continue'),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          backgroundColor: SubTenantColors.blue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      )
+                    : SubTenantGradientButton(
+                        label: _editing
+                            ? 'Save Tourist Spot'
+                            : 'Create Tourist Spot',
+                        icon: Icons.save_rounded,
+                        loading: _saving,
+                        onPressed: () => _save(data.profile, data.barangays),
                       ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-          ],
-          SubTenantTextField(
-            controller: _titleCtrl,
-            label: 'Spot Name',
-            hint: 'e.g. Heritage Park, Riverside Cafe, City Museum',
-            validator: (value) =>
-                (value ?? '').trim().isEmpty ? 'Spot name is required.' : null,
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          SubTenantTextField(
-            controller: _descriptionCtrl,
-            label: 'Description',
-            hint: 'Describe what tourists can see or do here.',
-            maxLines: 5,
-            validator: (value) => (value ?? '').trim().isEmpty
-                ? 'Description is required.'
-                : null,
-          ),
-          const SizedBox(height: 12),
-          if (data.categories.isNotEmpty) ...[
-            _label('Category'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<dynamic>(
-              initialValue: _categoryId,
-              isExpanded: true,
-              decoration: _inputDecoration(),
-              validator: (value) =>
-                  value == null ? 'Please select a category.' : null,
-              items: [
-                const DropdownMenuItem(
-                  value: null,
-                  child: Text('Select category'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCurrentStep(_SpotFormData data, bool isWide) {
+    switch (_currentStep) {
+      case 0:
+        return _buildStep1(data);
+      case 1:
+        return _buildStep2(data);
+      case 2:
+        return _buildStep3();
+      case 3:
+        return _buildStep4(data.profile);
+      case 4:
+        return _buildStep5(data, isWide);
+      default:
+        return _buildStep1(data);
+    }
+  }
+
+  // ── Step 1: Basic Info ───────────────────────────────────────────────────
+
+  Widget _buildStep1(_SpotFormData data) {
+    final useAiSelection = !_editing;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SubTenantDashboardCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SubTenantSectionHeader(
+                title: 'Spot Information',
+                subtitle: useAiSelection
+                    ? 'Search for your spot by name or pick from Google Places suggestions.'
+                    : 'Update the tourist spot details without changing its city assignment.',
+              ),
+              const SizedBox(height: 14),
+              if (useAiSelection) ...[
+                _smartHelper(
+                  icon: Icons.auto_awesome_rounded,
+                  text:
+                      'Google Places suggestions use the same municipality-based search logic as the tourist Explore screen for ${data.profile.assignedCity}. You can still edit every field before saving.',
                 ),
-                ...data.categories.map(
-                  (category) => DropdownMenuItem(
-                    value: category.id,
-                    child: Text(category.name),
-                  ),
-                ),
-              ],
-              onChanged: (value) => setState(() => _categoryId = value),
-            ),
-            const SizedBox(height: 12),
-          ],
-          _label('Barangay'),
-          const SizedBox(height: 8),
-          if (data.barangays.isNotEmpty)
-            FormField<String>(
-              initialValue: _selectedBarangay,
-              validator: (_) {
-                final selected = _selectedBarangay ?? _barangayCtrl.text.trim();
-
-                if (selected.isEmpty) return 'Please select a barangay.';
-
-                if (!data.barangays.contains(selected)) {
-                  return 'Select a valid barangay under ${data.profile.assignedCity}.';
-                }
-
-                return null;
-              },
-              builder: (field) {
-                return _dropdownWithError(
-                  errorText: field.errorText,
-                  child: LayoutBuilder(
+                const SizedBox(height: 12),
+                _label('Google Place Suggestion'),
+                const SizedBox(height: 8),
+                if (data.suggestions.isEmpty)
+                  _smartHelper(
+                    icon: Icons.info_rounded,
+                    text: 'No Google Places suggestions found.',
+                  )
+                else
+                  LayoutBuilder(
                     builder: (context, constraints) {
                       return DropdownMenu<String>(
-                        key: ValueKey(_selectedBarangay ?? 'barangay'),
-                        controller: _barangayCtrl,
+                        controller: _suggestedSpotCtrl,
                         width: constraints.maxWidth,
-                        initialSelection: _selectedBarangay,
+                        initialSelection: _selectedSuggestionId,
                         enableFilter: true,
                         enableSearch: true,
                         requestFocusOnTap: true,
-                        hintText:
-                            'Search barangay in ${data.profile.assignedCity}',
+                        hintText: 'Search Google-suggested places',
                         inputDecorationTheme: _inputDecorationTheme(),
-                        dropdownMenuEntries: data.barangays
+                        dropdownMenuEntries: data.suggestions
                             .map(
-                              (barangay) => DropdownMenuEntry<String>(
-                                value: barangay,
-                                label: barangay,
+                              (s) => DropdownMenuEntry<String>(
+                                value: s.id,
+                                label: s.title,
                                 leadingIcon: const Icon(
-                                  Icons.location_city_rounded,
+                                  Icons.auto_awesome_rounded,
                                   size: 18,
                                   color: SubTenantColors.blue,
                                 ),
                               ),
                             )
                             .toList(growable: false),
-                        onSelected: (value) {
-                          field.didChange(value);
-                          _onBarangayChanged(value, data.profile);
+                        onSelected: (value) async {
+                          if (value == null) return;
+                          final selected = _findSuggestionById(
+                            data.suggestions,
+                            value,
+                          );
+                          if (selected == null) return;
+                          await _applySuggestion(
+                            selected,
+                            data.categories,
+                            data.barangays,
+                          );
                         },
                       );
                     },
                   ),
-                );
-              },
-            )
-          else
-            SubTenantTextField(
-              controller: _barangayCtrl,
-              label: 'Barangay',
-              validator: (value) =>
-                  (value ?? '').trim().isEmpty ? 'Barangay is required.' : null,
-            ),
-          const SizedBox(height: 8),
-          _smartHelper(
-            icon: Icons.verified_rounded,
-            text: data.barangays.isNotEmpty
-                ? 'Only barangays under ${data.profile.assignedCity} can be selected.'
-                : 'Barangay list is unavailable, so manual entry is temporarily enabled.',
-          ),
-          const SizedBox(height: 12),
-          SubTenantTextField(
-            controller: _addressCtrl,
-            label: 'Complete Address / Landmark',
-            hint: 'Street, landmark, or nearby reference',
-            maxLines: 2,
-          ),
-          if (_addressSearching || _addressSuggestions.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _AddressSuggestionPanel(
-              loading: _addressSearching,
-              suggestions: _addressSuggestions,
-              onSelected: (suggestion) =>
-                  _applyAddressSuggestion(suggestion, data.barangays),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SubTenantTextField(
-                  controller: _cityCtrl,
-                  label: 'City / Municipality',
-                  enabled: false,
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            setState(() => _dataFuture = _loadData()),
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Refresh'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          foregroundColor: SubTenantColors.blue,
+                          side: const BorderSide(color: SubTenantColors.line),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _switchToManualEntry,
+                        icon: const Icon(Icons.edit_note_rounded, size: 18),
+                        label: const Text('Add Manually'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          foregroundColor: SubTenantColors.text,
+                          side: const BorderSide(color: SubTenantColors.line),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 16),
+                const Divider(height: 1, color: SubTenantColors.line),
+                const SizedBox(height: 16),
+              ],
+              SubTenantTextField(
+                controller: _titleCtrl,
+                label: 'Spot Name',
+                hint: 'e.g. Heritage Park, Riverside Cafe, City Museum',
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'Spot name is required.'
+                    : null,
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: SubTenantTextField(
-                  controller: _provinceCtrl,
-                  label: 'Province',
-                  enabled: false,
+              if (_placeSearching || _placeSuggestions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _SuggestionPanel(
+                  loading: _placeSearching,
+                  suggestions: _placeSuggestions,
+                  emptyMessage: 'No matching spots found for your search.',
+                  onSelected: (s) => _applyPlaceSuggestion(s, data),
                 ),
+              ],
+              const SizedBox(height: 12),
+              SubTenantTextField(
+                controller: _descriptionCtrl,
+                label: 'Description',
+                hint: 'Describe what tourists can see or do here.',
+                maxLines: 5,
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'Description is required.'
+                    : null,
               ),
+              const SizedBox(height: 12),
+              if (data.categories.isNotEmpty) ...[
+                _label('Category'),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<dynamic>(
+                  initialValue: _categoryId,
+                  isExpanded: true,
+                  decoration: _inputDecoration(),
+                  validator: (value) =>
+                      value == null ? 'Please select a category.' : null,
+                  items: [
+                    const DropdownMenuItem(
+                      value: null,
+                      child: Text('Select category'),
+                    ),
+                    ...data.categories.map(
+                      (c) => DropdownMenuItem(
+                        value: c.id,
+                        child: Text(c.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _categoryId = value),
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 14),
+        SubTenantDashboardCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SubTenantSectionHeader(
+                title: 'Publishing',
+                subtitle: 'Spot availability and verification state.',
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _status,
+                      isExpanded: true,
+                      decoration: _inputDecoration(hint: 'Status'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'active',
+                          child: Text('Active'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'maintenance',
+                          child: Text('Maintenance'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'archived',
+                          child: Text('Archived'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) setState(() => _status = value);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _editing ? _verificationStatus : 'pending',
+                      isExpanded: true,
+                      decoration: _inputDecoration(hint: 'Verification'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'pending',
+                          child: Text('Pending'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'verified',
+                          child: Text('Verified'),
+                        ),
+                      ],
+                      onChanged: _editing
+                          ? (value) {
+                              if (value != null) {
+                                setState(() => _verificationStatus = value);
+                              }
+                            }
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+              if (!_editing) ...[
+                const SizedBox(height: 10),
+                _smartHelper(
+                  icon: Icons.lock_clock_rounded,
+                  text:
+                      'New spots are submitted as Pending. Verification is controlled by the admin review flow.',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _mapCard(SubTenantProfile profile) {
-    final cityCenter = _municipalityCenter(profile.assignedCity);
+  // ── Step 2: Address & Location ───────────────────────────────────────────
+
+  Widget _buildStep2(_SpotFormData data) {
+    final cityCenter = _municipalityCenter(data.profile.assignedCity);
     final initial = _pickedLocation ?? cityCenter;
     final bounds = _municipalityBounds(cityCenter);
 
-    return SubTenantDashboardCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SubTenantSectionHeader(
-            title: 'Pin Location',
-            subtitle:
-                'Tap within ${profile.assignedCity} to place or adjust the tourist spot pin.',
-          ),
-          const SizedBox(height: 12),
-          Container(
-            height: 310,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: SubTenantColors.line),
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: initial,
-                zoom: _pickedLocation == null ? 13.5 : 16,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SubTenantDashboardCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SubTenantSectionHeader(
+                title: 'Address',
+                subtitle:
+                    'Select the barangay and enter the address for this spot in ${data.profile.assignedCity}.',
               ),
-              mapType: MapType.normal,
-              zoomControlsEnabled: true,
-              myLocationButtonEnabled: false,
-              minMaxZoomPreference: const MinMaxZoomPreference(11, 19),
-              cameraTargetBounds: CameraTargetBounds(bounds),
-              onMapCreated: (controller) {
-                _mapController = controller;
-                if (_pickedLocation != null) {
-                  Future.delayed(const Duration(milliseconds: 350), () {
-                    if (mounted && _pickedLocation != null) {
-                      _animateToLocation(_pickedLocation!, zoom: 16);
+              const SizedBox(height: 14),
+              _label('Barangay'),
+              const SizedBox(height: 8),
+              if (data.barangays.isNotEmpty)
+                FormField<String>(
+                  initialValue: _selectedBarangay,
+                  validator: (_) {
+                    final selected =
+                        _selectedBarangay ?? _barangayCtrl.text.trim();
+                    if (selected.isEmpty) return 'Please select a barangay.';
+                    if (!data.barangays.contains(selected)) {
+                      return 'Select a valid barangay under ${data.profile.assignedCity}.';
                     }
-                  });
-                }
-              },
-              onTap: _setPickedLocation,
-              markers: {
-                if (_pickedLocation != null)
-                  Marker(
-                    markerId: const MarkerId('spot_location'),
-                    position: _pickedLocation!,
-                    draggable: true,
-                    onDragEnd: _setPickedLocation,
-                    infoWindow: InfoWindow(
-                      title: _titleCtrl.text.trim().isEmpty
-                          ? 'Tourist Spot'
-                          : _titleCtrl.text.trim(),
-                      snippet: _selectedBarangay ?? profile.assignedCity,
+                    return null;
+                  },
+                  builder: (field) {
+                    return _dropdownWithError(
+                      errorText: field.errorText,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return DropdownMenu<String>(
+                            key: ValueKey(_selectedBarangay ?? 'barangay'),
+                            controller: _barangayCtrl,
+                            width: constraints.maxWidth,
+                            initialSelection: _selectedBarangay,
+                            enableFilter: true,
+                            enableSearch: true,
+                            requestFocusOnTap: true,
+                            hintText:
+                                'Search barangay in ${data.profile.assignedCity}',
+                            inputDecorationTheme: _inputDecorationTheme(),
+                            dropdownMenuEntries: data.barangays
+                                .map(
+                                  (barangay) => DropdownMenuEntry<String>(
+                                    value: barangay,
+                                    label: barangay,
+                                    leadingIcon: const Icon(
+                                      Icons.location_city_rounded,
+                                      size: 18,
+                                      color: SubTenantColors.blue,
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onSelected: (value) {
+                              field.didChange(value);
+                              _onBarangayChanged(value, data.profile);
+                            },
+                          );
+                        },
+                      ),
+                    );
+                  },
+                )
+              else
+                SubTenantTextField(
+                  controller: _barangayCtrl,
+                  label: 'Barangay',
+                  validator: (value) => (value ?? '').trim().isEmpty
+                      ? 'Barangay is required.'
+                      : null,
+                ),
+              const SizedBox(height: 8),
+              _smartHelper(
+                icon: Icons.verified_rounded,
+                text: data.barangays.isNotEmpty
+                    ? 'Only barangays under ${data.profile.assignedCity} can be selected.'
+                    : 'Barangay list is unavailable, so manual entry is temporarily enabled.',
+              ),
+              const SizedBox(height: 12),
+              SubTenantTextField(
+                controller: _addressCtrl,
+                label: 'Complete Address / Landmark',
+                hint: 'Street, landmark, or nearby reference',
+                maxLines: 2,
+              ),
+              if (_addressSearching || _addressSuggestions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _SuggestionPanel(
+                  loading: _addressSearching,
+                  suggestions: _addressSuggestions,
+                  emptyMessage:
+                      'No matching address suggestions were found.',
+                  onSelected: (s) =>
+                      _applyAddressSuggestion(s, data.barangays),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _cityCtrl,
+                      label: 'City / Municipality',
+                      enabled: false,
                     ),
                   ),
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          _smartHelper(
-            icon: Icons.touch_app_rounded,
-            text: _pickedLocation == null
-                ? 'Tap the map to pin this tourist spot. Coordinates will be filled automatically.'
-                : 'Pinned at ${_latCtrl.text}, ${_lngCtrl.text}',
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SubTenantTextField(
-                  controller: _latCtrl,
-                  label: 'Latitude',
-                  enabled: false,
-                  validator: (value) =>
-                      (value ?? '').trim().isEmpty ? 'Pin required.' : null,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: SubTenantTextField(
-                  controller: _lngCtrl,
-                  label: 'Longitude',
-                  enabled: false,
-                  validator: (value) =>
-                      (value ?? '').trim().isEmpty ? 'Pin required.' : null,
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _provinceCtrl,
+                      label: 'Province',
+                      enabled: false,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 14),
+        SubTenantDashboardCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SubTenantSectionHeader(
+                title: 'Pin Location',
+                subtitle:
+                    'Tap within ${data.profile.assignedCity} to place or adjust the tourist spot pin.',
+              ),
+              const SizedBox(height: 12),
+              Container(
+                height: 310,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: SubTenantColors.line),
+                ),
+                clipBehavior: Clip.hardEdge,
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: initial,
+                    zoom: _pickedLocation == null ? 13.5 : 16,
+                  ),
+                  mapType: MapType.normal,
+                  zoomControlsEnabled: true,
+                  myLocationButtonEnabled: false,
+                  minMaxZoomPreference: const MinMaxZoomPreference(11, 19),
+                  cameraTargetBounds: CameraTargetBounds(bounds),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                    if (_pickedLocation != null) {
+                      Future.delayed(const Duration(milliseconds: 350), () {
+                        if (mounted && _pickedLocation != null) {
+                          _animateToLocation(_pickedLocation!, zoom: 16);
+                        }
+                      });
+                    }
+                  },
+                  onTap: _setPickedLocation,
+                  markers: {
+                    if (_pickedLocation != null)
+                      Marker(
+                        markerId: const MarkerId('spot_location'),
+                        position: _pickedLocation!,
+                        draggable: true,
+                        onDragEnd: _setPickedLocation,
+                        infoWindow: InfoWindow(
+                          title: _titleCtrl.text.trim().isEmpty
+                              ? 'Tourist Spot'
+                              : _titleCtrl.text.trim(),
+                          snippet:
+                              _selectedBarangay ?? data.profile.assignedCity,
+                        ),
+                      ),
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              _smartHelper(
+                icon: Icons.touch_app_rounded,
+                text: _pickedLocation == null
+                    ? 'Tap the map to pin this tourist spot. Coordinates will be filled automatically.'
+                    : 'Pinned at ${_latCtrl.text}, ${_lngCtrl.text}',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _latCtrl,
+                      label: 'Latitude',
+                      enabled: false,
+                      validator: (value) => (value ?? '').trim().isEmpty
+                          ? 'Pin required.'
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SubTenantTextField(
+                      controller: _lngCtrl,
+                      label: 'Longitude',
+                      enabled: false,
+                      validator: (value) => (value ?? '').trim().isEmpty
+                          ? 'Pin required.'
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _detailsCard(_SpotFormData data) {
+  // ── Step 3: Visitor Details ──────────────────────────────────────────────
+
+  Widget _buildStep3() {
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SubTenantSectionHeader(
             title: 'Visitor Details',
-            subtitle: 'Use smart presets to minimize manual typing',
+            subtitle: 'Use smart presets to minimize manual typing.',
           ),
           const SizedBox(height: 14),
           _presetWrap(
@@ -1494,14 +1790,16 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     );
   }
 
-  Widget _mediaCard(SubTenantProfile profile) {
+  // ── Step 4: Media ────────────────────────────────────────────────────────
+
+  Widget _buildStep4(SubTenantProfile profile) {
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SubTenantSectionHeader(
-            title: 'Media',
-            subtitle: 'Main image used in tourist screens',
+            title: 'Spot Image',
+            subtitle: 'Main image shown to tourists browsing this spot.',
           ),
           const SizedBox(height: 14),
           SubTenantTextField(
@@ -1521,84 +1819,107 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.upload_file_rounded),
-            label: Text(_uploadingImage ? 'Uploading...' : 'Upload Image'),
+            label: Text(_uploadingImage ? 'Uploading...' : 'Upload from Device'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              side: const BorderSide(color: SubTenantColors.line),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-          _imagePreview(),
+          const SizedBox(height: 14),
+          _imagePreview(height: 220),
         ],
       ),
     );
   }
 
-  Widget _statusCard() {
-    return SubTenantDashboardCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SubTenantSectionHeader(
-            title: 'Publishing',
-            subtitle: 'Spot availability and verification state',
-          ),
+  // ── Step 5: Review & Save ────────────────────────────────────────────────
+
+  Widget _buildStep5(_SpotFormData data, bool isWide) {
+    final checks = [
+      (label: 'Spot name', ok: _titleCtrl.text.trim().isNotEmpty),
+      (label: 'Description', ok: _descriptionCtrl.text.trim().isNotEmpty),
+      (label: 'Category selected', ok: _categoryId != null),
+      (
+        label: 'Barangay selected',
+        ok: (_selectedBarangay?.trim() ?? _barangayCtrl.text.trim()).isNotEmpty,
+      ),
+      (
+        label: 'Location pinned',
+        ok: _latCtrl.text.trim().isNotEmpty &&
+            _lngCtrl.text.trim().isNotEmpty,
+      ),
+      (label: 'Image added', ok: _imageCtrl.text.trim().isNotEmpty),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!isWide) ...[
+          _previewCard(),
           const SizedBox(height: 14),
-          Row(
+        ],
+        SubTenantDashboardCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _status,
-                  isExpanded: true,
-                  decoration: _inputDecoration(hint: 'Status'),
-                  items: const [
-                    DropdownMenuItem(value: 'active', child: Text('Active')),
-                    DropdownMenuItem(
-                      value: 'maintenance',
-                      child: Text('Maintenance'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'archived',
-                      child: Text('Archived'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _status = value);
-                  },
-                ),
+              const SubTenantSectionHeader(
+                title: 'Review & Confirm',
+                subtitle:
+                    'Make sure all required details are complete before saving.',
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _editing ? _verificationStatus : 'pending',
-                  isExpanded: true,
-                  decoration: _inputDecoration(hint: 'Verification'),
-                  items: const [
-                    DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                    DropdownMenuItem(
-                      value: 'verified',
-                      child: Text('Verified'),
-                    ),
-                  ],
-                  onChanged: _editing
-                      ? (value) {
-                          if (value != null) {
-                            setState(() => _verificationStatus = value);
-                          }
-                        }
-                      : null,
+              const SizedBox(height: 14),
+              ...checks.map(
+                (check) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        check.ok
+                            ? Icons.check_circle_rounded
+                            : Icons.warning_amber_rounded,
+                        color: check.ok
+                            ? const Color(0xFF16A34A)
+                            : const Color(0xFFF59E0B),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          check.label,
+                          style: TextStyle(
+                            color: check.ok
+                                ? SubTenantColors.text
+                                : SubTenantColors.muted,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        check.ok ? 'Ready' : 'Missing',
+                        style: TextStyle(
+                          color: check.ok
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFFF59E0B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
-          if (!_editing) ...[
-            const SizedBox(height: 10),
-            _smartHelper(
-              icon: Icons.lock_clock_rounded,
-              text:
-                  'New tourist spots are submitted as Pending first. This avoids RLS errors and keeps verification controlled by the review flow.',
-            ),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
+
+  // ── Preview card ─────────────────────────────────────────────────────────
 
   Widget _previewCard() {
     return SubTenantDashboardCard(
@@ -1693,6 +2014,8 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       ),
     );
   }
+
+  // ── Shared helpers ───────────────────────────────────────────────────────
 
   Widget _presetWrap({
     required String title,
@@ -1798,7 +2121,8 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         width: double.infinity,
         decoration: BoxDecoration(
           color: const Color(0xFFE4ECF7),
-          borderRadius: compact ? BorderRadius.zero : BorderRadius.circular(16),
+          borderRadius:
+              compact ? BorderRadius.zero : BorderRadius.circular(16),
         ),
         child: const Center(
           child: Icon(
@@ -1811,13 +2135,14 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     }
 
     return ClipRRect(
-      borderRadius: compact ? BorderRadius.zero : BorderRadius.circular(16),
+      borderRadius:
+          compact ? BorderRadius.zero : BorderRadius.circular(16),
       child: Image.network(
         url,
         height: height,
         width: double.infinity,
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => Container(
+        errorBuilder: (context, error, stackTrace) => Container(
           height: height,
           width: double.infinity,
           color: const Color(0xFFE4ECF7),
@@ -1829,15 +2154,6 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _saveButton(_SpotFormData data) {
-    return SubTenantGradientButton(
-      label: _editing ? 'Save Tourist Spot' : 'Create Tourist Spot',
-      icon: Icons.save_rounded,
-      loading: _saving,
-      onPressed: () => _save(data.profile, data.barangays),
     );
   }
 
@@ -1908,6 +2224,8 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   }
 }
 
+// ── Data classes ─────────────────────────────────────────────────────────────
+
 class _SpotFormData {
   const _SpotFormData({
     required this.profile,
@@ -1934,6 +2252,117 @@ class _SpotDefaults {
   final String entranceFee;
   final String bestTime;
   final String travelTips;
+}
+
+// ── Widgets ───────────────────────────────────────────────────────────────────
+
+class _StepIndicator extends StatelessWidget {
+  const _StepIndicator({required this.currentStep});
+
+  final int currentStep;
+
+  static const _labels = [
+    'Basic Info',
+    'Location',
+    'Details',
+    'Media',
+    'Review',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: SubTenantColors.line)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < 5; i++) ...[
+            if (i > 0)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 15),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    height: 2,
+                    color: i <= currentStep
+                        ? SubTenantColors.blue
+                        : const Color(0xFFE2E8F0),
+                  ),
+                ),
+              ),
+            _stepNode(i),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _stepNode(int index) {
+    final isDone = currentStep > index;
+    final isCurrent = currentStep == index;
+
+    return SizedBox(
+      width: 56,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDone
+                  ? SubTenantColors.blue
+                  : isCurrent
+                      ? SubTenantColors.blue.withValues(alpha: .12)
+                      : const Color(0xFFF1F5F9),
+              border: Border.all(
+                color: (isDone || isCurrent)
+                    ? SubTenantColors.blue
+                    : const Color(0xFFCBD5E1),
+                width: 1.5,
+              ),
+            ),
+            child: Center(
+              child: isDone
+                  ? const Icon(
+                      Icons.check_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    )
+                  : Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        color: isCurrent
+                            ? SubTenantColors.blue
+                            : const Color(0xFF94A3B8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _labels[index],
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: (isDone || isCurrent)
+                  ? SubTenantColors.blue
+                  : const Color(0xFF94A3B8),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _AutofillBadge extends StatelessWidget {
@@ -2010,16 +2439,18 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
-class _AddressSuggestionPanel extends StatelessWidget {
-  const _AddressSuggestionPanel({
+class _SuggestionPanel extends StatelessWidget {
+  const _SuggestionPanel({
     required this.loading,
     required this.suggestions,
     required this.onSelected,
+    this.emptyMessage = 'No matching suggestions were found.',
   });
 
   final bool loading;
   final List<CitySpotSuggestion> suggestions;
   final ValueChanged<CitySpotSuggestion> onSelected;
+  final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -2048,11 +2479,11 @@ class _AddressSuggestionPanel extends StatelessWidget {
             ),
           ],
           if (!loading && suggestions.isEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
               child: Text(
-                'No matching address suggestions were found.',
-                style: TextStyle(
+                emptyMessage,
+                style: const TextStyle(
                   color: SubTenantColors.muted,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -2065,7 +2496,7 @@ class _AddressSuggestionPanel extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: suggestions.length,
-              separatorBuilder: (_, __) =>
+              separatorBuilder: (_, i) =>
                   const Divider(height: 1, thickness: 1),
               itemBuilder: (context, index) {
                 final suggestion = suggestions[index];
