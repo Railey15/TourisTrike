@@ -268,20 +268,19 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       _selectedBarangay = _matchBarangay(_barangayCtrl.text, barangays);
       if (_selectedBarangay != null) _barangayCtrl.text = _selectedBarangay!;
     } else if (widget.initialSuggestion != null) {
-      final selected = _findSuggestionById(
-        suggestions,
-        widget.initialSuggestion!.id,
+      // Use enriched suggestion from fetched list if available; otherwise use
+      // widget.initialSuggestion directly so category/barangay matching always
+      // runs after data loads (fixes early-prefill leaving _categoryId null).
+      final initial = widget.initialSuggestion!;
+      final selected =
+          _findSuggestionById(suggestions, initial.id) ?? initial;
+      await _applySuggestion(
+        selected,
+        categories,
+        barangays,
+        animateMap: false,
+        showLoading: false,
       );
-
-      if (selected != null) {
-        await _applySuggestion(
-          selected,
-          categories,
-          barangays,
-          animateMap: false,
-          showLoading: false,
-        );
-      }
     }
 
     return _SpotFormData(

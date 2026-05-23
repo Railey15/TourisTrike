@@ -33,7 +33,6 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   int _tabIndex = 0;
   String? _suggestionCity;
   int _suggestionRefreshKey = 0;
-  bool _usingAiFallbackSuggestions = false;
 
   @override
   void initState() {
@@ -67,7 +66,6 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
       _suggestionsFuture = null;
       _suggestionCity = null;
       _suggestionRefreshKey++;
-      _usingAiFallbackSuggestions = false;
     });
   }
 
@@ -106,7 +104,6 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
     setState(() {
       _suggestionRefreshKey++;
       _suggestionCity = '${profile.assignedCity.trim()}-$_suggestionRefreshKey';
-      _usingAiFallbackSuggestions = false;
       _suggestionsFuture = _loadCitySuggestions(profile, spots);
     });
   }
@@ -139,42 +136,10 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
         center,
       );
 
-      if (filteredGoogle.isNotEmpty) {
-        if (mounted) {
-          setState(() => _usingAiFallbackSuggestions = false);
-        }
-        return filteredGoogle.take(8).toList(growable: false);
-      }
-
-      debugPrint(
-        'SUBTENANT Google Places returned no usable suggestions for $city. Using AI fallback suggestions.',
-      );
-
-      final fallback = _buildAiFallbackSuggestions(
-        profile: profile,
-        existingSpots: existingSpots,
-        center: center,
-      );
-
-      if (mounted) {
-        setState(() => _usingAiFallbackSuggestions = fallback.isNotEmpty);
-      }
-
-      return fallback;
+      return filteredGoogle.take(8).toList(growable: false);
     } catch (e) {
       debugPrint('SUBTENANT Google suggestions unavailable for $city: $e');
-
-      final fallback = _buildAiFallbackSuggestions(
-        profile: profile,
-        existingSpots: existingSpots,
-        center: center,
-      );
-
-      if (mounted) {
-        setState(() => _usingAiFallbackSuggestions = fallback.isNotEmpty);
-      }
-
-      return fallback;
+      return const [];
     }
   }
 
@@ -204,154 +169,33 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
     String city,
     LatLng center,
   ) {
-    final selectedCity = _normalText(city);
-    final suggestionCity = _normalText(suggestion.city);
-    final address = _normalText(suggestion.address);
-
-    final cityMatches = suggestionCity == selectedCity ||
-        suggestionCity.contains(selectedCity) ||
-        selectedCity.contains(suggestionCity) ||
-        address.contains(selectedCity);
-
-    if (cityMatches) return true;
-
-    if (suggestion.latitude == 0 || suggestion.longitude == 0) return false;
-
-    final distance = _distanceKm(
-      center.latitude,
-      center.longitude,
-      suggestion.latitude,
-      suggestion.longitude,
-    );
-
-    return distance <= 15;
-  }
-
-  List<CitySpotSuggestion> _buildAiFallbackSuggestions({
-    required SubTenantProfile profile,
-    required List<SubTenantSpot> existingSpots,
-    required LatLng center,
-  }) {
-    final city = profile.assignedCity.trim();
-    final province = profile.province.trim().isEmpty
-        ? 'Bulacan'
-        : profile.province.trim();
-
-    final barangays = CitySpotSuggestionService.barangaysForCity(city);
-    final safeBarangays = barangays.isEmpty
-        ? <String>['Poblacion', 'San Jose', 'San Pedro', 'Malambig']
-        : barangays;
-
-    final templates = <_AiSpotTemplate>[
-      _AiSpotTemplate(
-        suffix: 'Heritage Walk',
-        category: 'Historical',
-        description:
-            'A suggested cultural and heritage destination where tourists can explore local history, landmarks, and community stories.',
-        reason: 'AI-generated heritage spot idea for $city.',
-        latOffset: -0.010,
-        lngOffset: -0.008,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Nature Park',
-        category: 'Nature',
-        description:
-            'A suggested nature-friendly tourist spot ideal for relaxation, photos, fresh air, and family visits.',
-        reason: 'AI-generated nature spot idea for $city.',
-        latOffset: -0.005,
-        lngOffset: 0.007,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Food Stop',
-        category: 'Food',
-        description:
-            'A suggested food destination where visitors can try local dishes, snacks, and community favorites.',
-        reason: 'AI-generated food tourism idea for $city.',
-        latOffset: 0.004,
-        lngOffset: -0.006,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Resort and Leisure Area',
-        category: 'Resort',
-        description:
-            'A suggested leisure destination for swimming, family bonding, and weekend relaxation.',
-        reason: 'AI-generated resort idea for $city.',
-        latOffset: 0.008,
-        lngOffset: 0.006,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Faith and Cultural Site',
-        category: 'Religious',
-        description:
-            'A suggested religious or cultural stop suitable for quiet visits, reflection, and local sightseeing.',
-        reason: 'AI-generated religious tourism idea for $city.',
-        latOffset: 0.012,
-        lngOffset: -0.003,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Community Museum',
-        category: 'Museum',
-        description:
-            'A suggested museum or cultural learning spot where visitors can learn about the municipality and its people.',
-        reason: 'AI-generated cultural learning idea for $city.',
-        latOffset: -0.013,
-        lngOffset: 0.004,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Photo View Deck',
-        category: 'Scenic',
-        description:
-            'A suggested scenic area where tourists can take photos and enjoy a relaxing local view.',
-        reason: 'AI-generated scenic tourism idea for $city.',
-        latOffset: 0.002,
-        lngOffset: 0.012,
-      ),
-      _AiSpotTemplate(
-        suffix: 'Local Market Experience',
-        category: 'Market',
-        description:
-            'A suggested local market experience where tourists can discover local products, snacks, and community businesses.',
-        reason: 'AI-generated local market idea for $city.',
-        latOffset: -0.002,
-        lngOffset: -0.012,
-      ),
-    ];
-
-    final suggestions = <CitySpotSuggestion>[];
-
-    for (var i = 0; i < templates.length; i++) {
-      final template = templates[i];
-      final barangay = safeBarangays[i % safeBarangays.length];
-      final latitude = center.latitude + template.latOffset;
-      final longitude = center.longitude + template.lngOffset;
-
-      final suggestion = CitySpotSuggestion(
-        id: 'ai-${_normalText(city)}-${_normalText(template.category)}-$i',
-        title: '$city ${template.suffix}',
-        city: city,
-        province: province,
-        barangayHint: barangay,
-        address: 'Brgy. $barangay, $city, $province',
-        description: template.description,
-        category: template.category,
-        latitude: latitude,
-        longitude: longitude,
-        rating: 0,
-        imageUrl: CitySpotSuggestionService.buildStaticMapUrl(
-          latitude: latitude,
-          longitude: longitude,
-        ),
-        reason: template.reason,
-        distanceKm: 0,
+    // Distance check first — most reliable for Philippine addresses that often
+    // omit the specific municipality name in the formatted address.
+    if (suggestion.latitude != 0 && suggestion.longitude != 0) {
+      final distance = _distanceKm(
+        center.latitude,
+        center.longitude,
+        suggestion.latitude,
+        suggestion.longitude,
       );
-
-      if (_hasExactSavedTitle(suggestion, existingSpots)) continue;
-      if (_hasNearbySavedLocation(suggestion, existingSpots)) continue;
-
-      suggestions.add(suggestion);
+      if (distance <= 20) return true;
     }
 
-    return suggestions.take(8).toList(growable: false);
+    // Text check using city aliases (same normalizer as CitySpotSuggestionService)
+    // so "Baliuag" and "Baliwag", or "Sta Maria" and "Santa Maria", all match.
+    final aliases = CitySpotSuggestionService.cityAliases(city);
+    if (aliases.isEmpty) return false;
+
+    final normalizedAddress =
+        CitySpotSuggestionService.normalizeText(suggestion.address);
+    final normalizedSuggestionCity =
+        CitySpotSuggestionService.normalizeText(suggestion.city);
+
+    return aliases.any(
+      (alias) =>
+          normalizedAddress.contains(alias) ||
+          normalizedSuggestionCity == alias,
+    );
   }
 
   bool _hasExactSavedTitle(
@@ -535,10 +379,9 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
                       onArchive: (spot) => _archive(load.profile, spot),
                     ),
                 ] else
-                  _AiSuggestionsSection(
+                  _GoogleSuggestionsSection(
                     city: load.profile.assignedCity,
                     future: _suggestionsFuture!,
-                    usingFallback: _usingAiFallbackSuggestions,
                     onRefresh: () =>
                         _refreshSuggestions(load.profile, load.spots),
                     onAddSuggestion: (suggestion) =>
@@ -567,7 +410,7 @@ class _SpotTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final tabs = const [
       (label: 'Active Spots', icon: Icons.place_rounded),
-      (label: 'AI Suggested Spots', icon: Icons.auto_awesome_rounded),
+      (label: 'Google Places Suggestions', icon: Icons.auto_awesome_rounded),
     ];
 
     return DashboardSectionCard(
@@ -957,11 +800,10 @@ class _SpotCardMenu extends StatelessWidget {
   }
 }
 
-class _AiSuggestionsSection extends StatelessWidget {
-  const _AiSuggestionsSection({
+class _GoogleSuggestionsSection extends StatelessWidget {
+  const _GoogleSuggestionsSection({
     required this.city,
     required this.future,
-    required this.usingFallback,
     required this.onRefresh,
     required this.onAddSuggestion,
     required this.onAddManual,
@@ -969,7 +811,6 @@ class _AiSuggestionsSection extends StatelessWidget {
 
   final String city;
   final Future<List<CitySpotSuggestion>> future;
-  final bool usingFallback;
   final VoidCallback onRefresh;
   final ValueChanged<CitySpotSuggestion> onAddSuggestion;
   final VoidCallback onAddManual;
@@ -990,7 +831,7 @@ class _AiSuggestionsSection extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Icon(
-                  Icons.auto_awesome_rounded,
+                  Icons.travel_explore_rounded,
                   color: Colors.white,
                 ),
               ),
@@ -1000,7 +841,7 @@ class _AiSuggestionsSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'AI Suggestions',
+                      'Google Places Suggestions',
                       style: TextStyle(
                         color: SubTenantColors.text,
                         fontSize: 16,
@@ -1009,9 +850,7 @@ class _AiSuggestionsSection extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      usingFallback
-                          ? 'No Google Places results yet. Showing AI-generated spot ideas for $city.'
-                          : 'Uses Google Places city logic first, then hides saved duplicates in $city.',
+                      'Real places found near $city via Google Places, filtered to hide spots you already saved.',
                       style: const TextStyle(
                         color: SubTenantColors.muted,
                         fontSize: 12.5,
@@ -1024,7 +863,7 @@ class _AiSuggestionsSection extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onRefresh,
-                tooltip: 'Refresh AI suggestions',
+                tooltip: 'Refresh suggestions',
                 icon: const Icon(Icons.refresh_rounded),
               ),
             ],
@@ -1040,10 +879,10 @@ class _AiSuggestionsSection extends StatelessWidget {
               if (snapshot.hasError) {
                 return _SuggestionMessageCard(
                   icon: Icons.cloud_off_rounded,
-                  title: 'Suggestions are unavailable right now',
+                  title: 'Google Places is unavailable right now',
                   message:
-                      'We could not generate suggestions for $city yet. Try again or add a tourist spot manually.',
-                  primaryLabel: 'Regenerate',
+                      'Could not fetch suggestions for $city. Check your connection and try again, or add a tourist spot manually.',
+                  primaryLabel: 'Retry',
                   onPrimary: onRefresh,
                   secondaryLabel: 'Add Manually',
                   onSecondary: onAddManual,
@@ -1054,10 +893,10 @@ class _AiSuggestionsSection extends StatelessWidget {
               if (suggestions.isEmpty) {
                 return _SuggestionMessageCard(
                   icon: Icons.travel_explore_rounded,
-                  title: 'No suggestions available yet',
+                  title: 'No new suggestions for $city',
                   message:
-                      'No Google Places or AI fallback suggestions are available for $city right now. You can still add a tourist spot manually.',
-                  primaryLabel: 'Refresh Suggestions',
+                      'All nearby Google Places spots may already be saved, or none were found. Try refreshing or add a spot manually.',
+                  primaryLabel: 'Refresh',
                   onPrimary: onRefresh,
                   secondaryLabel: 'Add Manually',
                   onSecondary: onAddManual,
@@ -1077,7 +916,7 @@ class _AiSuggestionsSection extends StatelessWidget {
                         .map(
                           (suggestion) => SizedBox(
                             width: cardWidth,
-                            child: _AiSuggestionCard(
+                            child: _GoogleSuggestionCard(
                               suggestion: suggestion,
                               onAdd: () => onAddSuggestion(suggestion),
                             ),
@@ -1095,8 +934,8 @@ class _AiSuggestionsSection extends StatelessWidget {
   }
 }
 
-class _AiSuggestionCard extends StatelessWidget {
-  const _AiSuggestionCard({required this.suggestion, required this.onAdd});
+class _GoogleSuggestionCard extends StatelessWidget {
+  const _GoogleSuggestionCard({required this.suggestion, required this.onAdd});
 
   final CitySpotSuggestion suggestion;
   final VoidCallback onAdd;
@@ -1154,8 +993,8 @@ class _AiSuggestionCard extends StatelessWidget {
                   accent: const Color(0xFFF59E0B),
                 ),
               _SuggestionChip(
-                icon: Icons.auto_awesome_rounded,
-                label: suggestion.id.startsWith('ai-') ? 'AI Idea' : 'Google',
+                icon: Icons.travel_explore_rounded,
+                label: 'Google Places',
               ),
             ],
           ),
@@ -1190,11 +1029,13 @@ class _AiSuggestionCard extends StatelessWidget {
                 ? '${suggestion.city}, ${suggestion.province}'
                 : suggestion.address,
           ),
-          const SizedBox(height: 8),
-          _SuggestionLine(
-            icon: Icons.lightbulb_outline_rounded,
-            text: suggestion.reason,
-          ),
+          if (suggestion.distanceText.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _SuggestionLine(
+              icon: Icons.near_me_rounded,
+              text: suggestion.distanceText,
+            ),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -1305,7 +1146,7 @@ class _SuggestionLoadingState extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Loading AI suggestions for $city...',
+              'Searching Google Places for real spots in $city…',
               style: const TextStyle(
                 color: SubTenantColors.muted,
                 fontWeight: FontWeight.w800,
@@ -1438,20 +1279,3 @@ class _SpotListLoad {
   final List<SubTenantSpot> spots;
 }
 
-class _AiSpotTemplate {
-  const _AiSpotTemplate({
-    required this.suffix,
-    required this.category,
-    required this.description,
-    required this.reason,
-    required this.latOffset,
-    required this.lngOffset,
-  });
-
-  final String suffix;
-  final String category;
-  final String description;
-  final String reason;
-  final double latOffset;
-  final double lngOffset;
-}
