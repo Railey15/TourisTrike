@@ -60,7 +60,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   final _suggestedSpotCtrl = TextEditingController();
 
   String _status = 'active';
-  String _verificationStatus = 'approved';
+  String _verificationStatus = 'pending';
   dynamic _categoryId;
 
   bool _saving = false;
@@ -75,11 +75,16 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   String _sourceType = 'manual';
   Timer? _placeSearchTimer;
   Timer? _addressSearchTimer;
+  Timer? _liveSearchTimer;
   bool _placeSearching = false;
   bool _addressSearching = false;
+  bool _liveSearching = false;
   bool _suppressPlaceSearch = false;
+  bool _suppressAddressSearch = false;
+  bool _suppressLiveSearch = false;
   List<CitySpotSuggestion> _placeSuggestions = const [];
   List<CitySpotSuggestion> _addressSuggestions = const [];
+  List<CitySpotSuggestion> _liveSuggestions = const [];
   SubTenantProfile? _addressProfile;
 
   GoogleMapController? _mapController;
@@ -170,6 +175,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     }
     _titleCtrl.addListener(_schedulePlaceSearch);
     _addressCtrl.addListener(_scheduleAddressSearch);
+    _suggestedSpotCtrl.addListener(_scheduleLiveSearch);
   }
 
   void _refreshPreview() {
@@ -200,9 +206,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _ratingCtrl.text = spot.rating.toStringAsFixed(1);
     _imageCtrl.text = spot.imageUrl;
     _status = spot.status.trim().isEmpty ? 'active' : spot.status;
-    _verificationStatus = spot.verificationStatus.trim().isEmpty
-        ? 'approved'
-        : spot.verificationStatus;
+    _verificationStatus = _safeVerificationStatus(spot.verificationStatus);
     _categoryId = spot.categoryId;
     _sourceType = spot.sourceType.trim().isEmpty ? 'manual' : spot.sourceType;
     _selectedGooglePlaceId = spot.googlePlaceId.trim().isEmpty
@@ -292,6 +296,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   void dispose() {
     _placeSearchTimer?.cancel();
     _addressSearchTimer?.cancel();
+    _liveSearchTimer?.cancel();
     _scrollController.dispose();
     _mapController?.dispose();
 
@@ -341,6 +346,15 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _imageCtrl.text = _safeImageUrl(suggestion.imageForCard);
     _suggestedSpotCtrl.text = suggestion.title.trim();
     _pickedLocation = LatLng(suggestion.latitude, suggestion.longitude);
+    if (suggestion.openingHoursText.trim().isNotEmpty) {
+      _openingHoursCtrl.text = suggestion.openingHoursText.trim();
+    }
+    if (suggestion.contactNumber.trim().isNotEmpty) {
+      _contactCtrl.text = suggestion.contactNumber.trim();
+    }
+    if (suggestion.websiteUrl.trim().isNotEmpty) {
+      _websiteCtrl.text = suggestion.websiteUrl.trim();
+    }
   }
 
   Future<void> _applySuggestion(
@@ -354,6 +368,13 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       setState(() => _autoFilling = true);
       await Future<void>.delayed(const Duration(milliseconds: 180));
     }
+
+    _placeSearchTimer?.cancel();
+    _liveSearchTimer?.cancel();
+    _addressSearchTimer?.cancel();
+    _suppressPlaceSearch = true;
+    _suppressLiveSearch = true;
+    _suppressAddressSearch = true;
 
     final defaults = _defaultsForCategory(suggestion.category);
 
@@ -376,10 +397,19 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _ratingCtrl.text = _safeRatingText(suggestion.rating);
     _imageCtrl.text = _safeImageUrl(suggestion.imageForCard);
 
-    _openingHoursCtrl.text = defaults.openingHours;
+    _openingHoursCtrl.text = suggestion.openingHoursText.trim().isNotEmpty
+        ? suggestion.openingHoursText.trim()
+        : defaults.openingHours;
     _entranceFeeCtrl.text = defaults.entranceFee;
     _bestTimeCtrl.text = defaults.bestTime;
     _tipsCtrl.text = defaults.travelTips;
+
+    if (suggestion.contactNumber.trim().isNotEmpty) {
+      _contactCtrl.text = suggestion.contactNumber.trim();
+    }
+    if (suggestion.websiteUrl.trim().isNotEmpty) {
+      _websiteCtrl.text = suggestion.websiteUrl.trim();
+    }
 
     _categoryId = _matchCategoryId(suggestion.category, categories);
 
@@ -390,7 +420,14 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _pickedLocation = LatLng(suggestion.latitude, suggestion.longitude);
 
     if (mounted) {
-      setState(() => _autoFilling = false);
+      setState(() {
+        _autoFilling = false;
+        _placeSuggestions = const [];
+        _liveSuggestions = const [];
+        _suppressPlaceSearch = false;
+        _suppressLiveSearch = false;
+        _suppressAddressSearch = false;
+      });
     }
 
     if (animateMap) {
@@ -399,6 +436,12 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   }
 
   void _switchToManualEntry() {
+    _placeSearchTimer?.cancel();
+    _liveSearchTimer?.cancel();
+    _addressSearchTimer?.cancel();
+    _suppressPlaceSearch = true;
+    _suppressLiveSearch = true;
+    _suppressAddressSearch = true;
     setState(() {
       _selectedSuggestionId = null;
       _selectedGooglePlaceId = null;
@@ -416,10 +459,17 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       _imageCtrl.clear();
       _openingHoursCtrl.clear();
       _entranceFeeCtrl.clear();
+      _contactCtrl.clear();
+      _websiteCtrl.clear();
       _bestTimeCtrl.clear();
       _tipsCtrl.clear();
       _pickedLocation = null;
       _categoryId = null;
+      _placeSuggestions = const [];
+      _liveSuggestions = const [];
+      _suppressPlaceSearch = false;
+      _suppressLiveSearch = false;
+      _suppressAddressSearch = false;
     });
   }
 
@@ -466,12 +516,47 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     });
   }
 
+  void _scheduleLiveSearch() {
+    if (_suppressLiveSearch) return;
+    final profile = _addressProfile;
+    final query = _suggestedSpotCtrl.text.trim();
+    _liveSearchTimer?.cancel();
+    if (profile == null || query.length < 3) {
+      if (_liveSuggestions.isNotEmpty && mounted) {
+        setState(() => _liveSuggestions = const []);
+      }
+      return;
+    }
+    _liveSearchTimer = Timer(const Duration(milliseconds: 500), () async {
+      if (!mounted) return;
+      setState(() => _liveSearching = true);
+      try {
+        final results = await CitySpotSuggestionService().searchPlaces(
+          query: query,
+          city: profile.assignedCity,
+          province: profile.province,
+          center: _municipalityCenter(profile.assignedCity),
+          limit: 8,
+        );
+        if (!mounted || _suggestedSpotCtrl.text.trim() != query) return;
+        setState(() => _liveSuggestions = results);
+      } catch (_) {
+        if (mounted) setState(() => _liveSuggestions = const []);
+      } finally {
+        if (mounted) setState(() => _liveSearching = false);
+      }
+    });
+  }
+
   void _applyPlaceSuggestion(
     CitySpotSuggestion suggestion,
     _SpotFormData data,
   ) {
     _placeSearchTimer?.cancel();
+    _liveSearchTimer?.cancel();
     _suppressPlaceSearch = true;
+    _suppressLiveSearch = true;
+    _suppressAddressSearch = true;
     _applyRawSuggestionValues(suggestion);
     final matchedBarangay = _matchBarangay(
       suggestion.barangayHint,
@@ -482,7 +567,10 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       _selectedBarangay = matchedBarangay;
       if (matchedBarangay != null) _barangayCtrl.text = matchedBarangay;
       _placeSuggestions = const [];
+      _liveSuggestions = const [];
       _suppressPlaceSearch = false;
+      _suppressLiveSearch = false;
+      _suppressAddressSearch = false;
     });
     if (_pickedLocation != null) {
       _animateToLocation(_pickedLocation!, zoom: 16.5);
@@ -490,6 +578,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   }
 
   void _scheduleAddressSearch() {
+    if (_suppressAddressSearch) return;
     final profile = _addressProfile;
     final query = _addressCtrl.text.trim();
     _addressSearchTimer?.cancel();
@@ -525,6 +614,8 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     CitySpotSuggestion suggestion,
     List<String> barangays,
   ) {
+    _addressSearchTimer?.cancel();
+    _suppressAddressSearch = true;
     final matchedBarangay = _matchBarangay(suggestion.barangayHint, barangays);
     setState(() {
       if (_titleCtrl.text.trim().isEmpty) _titleCtrl.text = suggestion.title;
@@ -546,7 +637,20 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       _sourceType = 'google_places';
       _pickedLocation = LatLng(suggestion.latitude, suggestion.longitude);
       _addressSuggestions = const [];
+      if (suggestion.contactNumber.trim().isNotEmpty &&
+          _contactCtrl.text.trim().isEmpty) {
+        _contactCtrl.text = suggestion.contactNumber.trim();
+      }
+      if (suggestion.websiteUrl.trim().isNotEmpty &&
+          _websiteCtrl.text.trim().isEmpty) {
+        _websiteCtrl.text = suggestion.websiteUrl.trim();
+      }
+      if (suggestion.openingHoursText.trim().isNotEmpty &&
+          _openingHoursCtrl.text.trim().isEmpty) {
+        _openingHoursCtrl.text = suggestion.openingHoursText.trim();
+      }
     });
+    _suppressAddressSearch = false;
     _animateToLocation(_pickedLocation!, zoom: 16);
   }
 
@@ -828,6 +932,17 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     });
 
     return payload;
+  }
+
+  String _safeVerificationStatus(String value) {
+    final normalized = value.trim().toLowerCase();
+
+    // Older rows may still contain `approved`. The dropdown only supports
+    // pending/verified, so map legacy approved rows to verified to prevent
+    // Flutter's DropdownButton assertion.
+    if (normalized == 'approved') return 'verified';
+    if (normalized == 'verified') return 'verified';
+    return 'pending';
   }
 
   String _selectedCategoryName() {
@@ -1210,95 +1325,111 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
               if (useAiSelection) ...[
                 _smartHelper(
                   icon: Icons.auto_awesome_rounded,
-                  text:
-                      'Google Places suggestions use the same municipality-based search logic as the tourist Explore screen for ${data.profile.assignedCity}. You can still edit every field before saving.',
+                  text: _selectedSuggestionId != null
+                      ? 'Google Places spot selected. All available details have been autofilled — review and adjust before saving.'
+                      : 'Type a spot name to search Google Places within ${data.profile.assignedCity}. Select a result to autofill all fields.',
                 ),
                 const SizedBox(height: 12),
-                _label('Google Place Suggestion'),
-                const SizedBox(height: 8),
-                if (data.suggestions.isEmpty)
-                  _smartHelper(
-                    icon: Icons.info_rounded,
-                    text: 'No Google Places suggestions found.',
-                  )
-                else
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      return DropdownMenu<String>(
-                        controller: _suggestedSpotCtrl,
-                        width: constraints.maxWidth,
-                        initialSelection: _selectedSuggestionId,
-                        enableFilter: true,
-                        enableSearch: true,
-                        requestFocusOnTap: true,
-                        hintText: 'Search Google-suggested places',
-                        inputDecorationTheme: _inputDecorationTheme(),
-                        dropdownMenuEntries: data.suggestions
-                            .map(
-                              (s) => DropdownMenuEntry<String>(
-                                value: s.id,
-                                label: s.title,
-                                leadingIcon: const Icon(
-                                  Icons.auto_awesome_rounded,
-                                  size: 18,
-                                  color: SubTenantColors.blue,
-                                ),
+                if (_selectedSuggestionId != null) ...[
+                  _selectedSpotBanner(data),
+                ] else ...[
+                  _label('Search Google Places'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _suggestedSpotCtrl,
+                    decoration: _inputDecoration(
+                      hint: 'Search spots in ${data.profile.assignedCity}…',
+                    ).copyWith(
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        color: SubTenantColors.blue,
+                        size: 20,
+                      ),
+                      suffixIcon: _liveSearching
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               ),
                             )
-                            .toList(growable: false),
-                        onSelected: (value) async {
-                          if (value == null) return;
-                          final selected = _findSuggestionById(
-                            data.suggestions,
-                            value,
-                          );
-                          if (selected == null) return;
-                          await _applySuggestion(
-                            selected,
-                            data.categories,
-                            data.barangays,
-                          );
-                        },
-                      );
-                    },
+                          : _suggestedSpotCtrl.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.clear_rounded,
+                                    size: 18,
+                                    color: SubTenantColors.muted,
+                                  ),
+                                  onPressed: () {
+                                    _suppressLiveSearch = true;
+                                    _suggestedSpotCtrl.clear();
+                                    setState(() {
+                                      _liveSuggestions = const [];
+                                      _suppressLiveSearch = false;
+                                    });
+                                  },
+                                )
+                              : null,
+                    ),
                   ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            setState(() => _dataFuture = _loadData()),
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('Refresh'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          foregroundColor: SubTenantColors.blue,
-                          side: const BorderSide(color: SubTenantColors.line),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                  const SizedBox(height: 8),
+                  () {
+                    final query = _suggestedSpotCtrl.text.trim();
+                    final visible = _liveSuggestions.isNotEmpty
+                        ? _liveSuggestions
+                        : (query.isEmpty ? data.suggestions : const <CitySpotSuggestion>[]);
+                    final showPanel = _liveSearching ||
+                        visible.isNotEmpty ||
+                        (query.length >= 3 && !_liveSearching);
+                    if (!showPanel) return const SizedBox.shrink();
+                    return _SuggestionPanel(
+                      loading: _liveSearching,
+                      suggestions: visible,
+                      emptyMessage: query.length >= 3
+                          ? 'No spots found for "$query" in ${data.profile.assignedCity}.'
+                          : 'Type at least 3 characters to search Google Places.',
+                      onSelected: (s) => _applyPlaceSuggestion(s, data),
+                    );
+                  }(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              setState(() => _dataFuture = _loadData()),
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Refresh'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            foregroundColor: SubTenantColors.blue,
+                            side: const BorderSide(color: SubTenantColors.line),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _switchToManualEntry,
-                        icon: const Icon(Icons.edit_note_rounded, size: 18),
-                        label: const Text('Add Manually'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          foregroundColor: SubTenantColors.text,
-                          side: const BorderSide(color: SubTenantColors.line),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _switchToManualEntry,
+                          icon: const Icon(Icons.edit_note_rounded, size: 18),
+                          label: const Text('Add Manually'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            foregroundColor: SubTenantColors.text,
+                            side: const BorderSide(color: SubTenantColors.line),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 const Divider(height: 1, color: SubTenantColors.line),
                 const SizedBox(height: 16),
@@ -1398,7 +1529,9 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      initialValue: _editing ? _verificationStatus : 'approved',
+                      initialValue: _safeVerificationStatus(
+                        _editing ? _verificationStatus : 'pending',
+                      ),
                       isExpanded: true,
                       decoration: _inputDecoration(hint: 'Verification'),
                       items: const [
@@ -2016,6 +2149,65 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   }
 
   // ── Shared helpers ───────────────────────────────────────────────────────
+
+  Widget _selectedSpotBanner(_SpotFormData data) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDCFCE7),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF16A34A).withValues(alpha: .3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.check_circle_rounded,
+            color: Color(0xFF16A34A),
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _titleCtrl.text.trim().isEmpty
+                      ? 'Google Place Selected'
+                      : _titleCtrl.text.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF14532D),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const Text(
+                  'Autofilled from Google Places',
+                  style: TextStyle(
+                    color: Color(0xFF166534),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: _switchToManualEntry,
+            style: TextButton.styleFrom(
+              foregroundColor: SubTenantColors.blue,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: const Text(
+              'Change',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _presetWrap({
     required String title,
