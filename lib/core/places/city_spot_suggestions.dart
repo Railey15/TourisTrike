@@ -21,6 +21,10 @@ class CitySpotSuggestion {
     required this.rating,
     required this.imageUrl,
     this.photoReference = '',
+    this.contactNumber = '',
+    this.websiteUrl = '',
+    this.openingHoursText = '',
+    this.userRatingsTotal = 0,
     required this.category,
     this.placeTypes = const [],
     required this.distanceKm,
@@ -39,6 +43,10 @@ class CitySpotSuggestion {
   final double rating;
   final String imageUrl;
   final String photoReference;
+  final String contactNumber;
+  final String websiteUrl;
+  final String openingHoursText;
+  final int userRatingsTotal;
   final String category;
   final List<String> placeTypes;
   final double distanceKm;
@@ -167,7 +175,13 @@ class CitySpotSuggestionService {
       }
     }
 
-    return _balancedSpots(suggestionsById.values.toList(), limit);
+    final balanced = _balancedSpots(suggestionsById.values.toList(), limit);
+    return _enrichSuggestionsWithPlaceDetails(
+      balanced,
+      city: trimmedCity,
+      province: effectiveProvince,
+      center: effectiveCenter,
+    );
   }
 
   Future<List<CitySpotSuggestion>> searchPlaces({
@@ -195,7 +209,12 @@ class CitySpotSuggestionService {
       province: effectiveProvince,
       center: effectiveCenter,
     );
-    return results.take(limit).toList(growable: false);
+    return _enrichSuggestionsWithPlaceDetails(
+      results.take(limit).toList(growable: false),
+      city: trimmedCity,
+      province: effectiveProvince,
+      center: effectiveCenter,
+    );
   }
 
   LatLng? centerForCity(String city) {
@@ -329,6 +348,89 @@ class CitySpotSuggestionService {
     }
   }
 
+  Future<List<CitySpotSuggestion>> _enrichSuggestionsWithPlaceDetails(
+    List<CitySpotSuggestion> suggestions, {
+    required String city,
+    required String province,
+    required LatLng center,
+  }) async {
+    if (suggestions.isEmpty) return const [];
+
+    final futures = suggestions.map(
+      (suggestion) => _fetchPlaceDetailsSuggestion(
+        suggestion: suggestion,
+        city: city,
+        province: province,
+        center: center,
+      ),
+    );
+
+    return Future.wait(futures);
+  }
+
+  Future<CitySpotSuggestion> _fetchPlaceDetailsSuggestion({
+    required CitySpotSuggestion suggestion,
+    required String city,
+    required String province,
+    required LatLng center,
+  }) async {
+    if (suggestion.id.trim().isEmpty || suggestion.id.startsWith('ai-')) {
+      return suggestion;
+    }
+
+    try {
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/place/details/json'
+        '?place_id=${Uri.encodeQueryComponent(suggestion.id)}'
+        '&fields='
+        'place_id,'
+        'name,'
+        'formatted_address,'
+        'geometry/location,'
+        'rating,'
+        'user_ratings_total,'
+        'website,'
+        'formatted_phone_number,'
+        'editorial_summary,'
+        'opening_hours/weekday_text,'
+        'address_components,'
+        'photos/photo_reference,'
+        'types,'
+        'business_status'
+        '&region=ph'
+        '&key=$apiKey',
+      );
+
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return suggestion;
+
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final status = body['status']?.toString() ?? '';
+      if (status != 'OK') {
+        _logPlacesApiIssue('details', suggestion.category, status, body);
+        return suggestion;
+      }
+
+      final result = body['result'];
+      if (result is! Map<String, dynamic>) return suggestion;
+
+      return _buildSuggestionFromDetails(
+        suggestion: suggestion,
+        details: result,
+        city: city,
+        province: province,
+        center: center,
+      );
+    } catch (error, stack) {
+      developer.log(
+        'Google Places details failed (${suggestion.title}): $error',
+        name: 'CitySpotSuggestionService',
+        stackTrace: stack,
+      );
+      return suggestion;
+    }
+  }
+
   void _logPlacesApiIssue(
     String endpoint,
     String tag,
@@ -422,6 +524,99 @@ class CitySpotSuggestionService {
     }
 
     return suggestions;
+  }
+
+  CitySpotSuggestion _buildSuggestionFromDetails({
+    required CitySpotSuggestion suggestion,
+    required Map<String, dynamic> details,
+    required String city,
+    required String province,
+    required LatLng center,
+  }) {
+    final geometry = details['geometry'] as Map<String, dynamic>?;
+    final location = geometry?['location'] as Map<String, dynamic>?;
+    final lat = ((location?['lat'] as num?) ?? suggestion.latitude).toDouble();
+    final lng = ((location?['lng'] as num?) ?? suggestion.longitude).toDouble();
+    final address =
+        (details['formatted_address'] as String?)?.trim() ??
+        suggestion.address;
+    final components = (details['address_components'] as List?)
+            ?.whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .toList(growable: false) ??
+        const <Map<String, dynamic>>[];
+    final placeTypes = ((details['types'] as List?) ?? suggestion.placeTypes)
+        .map((entry) => entry.toString())
+        .toList(growable: false);
+
+    if (!_isPlaceInSelectedCity(
+      address: address,
+      city: city,
+      province: province,
+      latitude: lat,
+      longitude: lng,
+      center: center,
+    )) {
+      return suggestion;
+    }
+
+    final rating = ((details['rating'] as num?) ?? suggestion.rating).toDouble();
+    final photoRows = (details['photos'] as List?) ?? const [];
+    final photoRef = photoRows.isEmpty
+        ? suggestion.photoReference
+        : ((photoRows.first as Map)['photo_reference'] as String?) ??
+            suggestion.photoReference;
+    final imageUrl = photoRef.isEmpty
+        ? suggestion.imageUrl
+        : 'https://maps.googleapis.com/maps/api/place/photo'
+              '?maxwidth=900'
+              '&photo_reference=${Uri.encodeComponent(photoRef)}'
+              '&key=$apiKey';
+    final category = _tagFromGoogleTypes(
+      placeTypes,
+      (details['name'] as String?)?.trim() ?? suggestion.title,
+      suggestion.category,
+    );
+    final editorial = ((details['editorial_summary'] as Map?)?['overview']
+            as String?)
+        ?.trim();
+
+    return CitySpotSuggestion(
+      id: (details['place_id'] as String?) ?? suggestion.id,
+      title: (details['name'] as String?)?.trim() ?? suggestion.title,
+      city: city,
+      province: province,
+      barangayHint:
+          _addressComponent(components, const [
+            'sublocality_level_1',
+            'sublocality',
+            'neighborhood',
+          ]) ??
+          suggestion.barangayHint,
+      address: address,
+      description: editorial?.isNotEmpty == true
+          ? editorial!
+          : suggestion.description,
+      reason: _buildReason(city: city, category: category, rating: rating),
+      latitude: lat,
+      longitude: lng,
+      rating: rating,
+      imageUrl: imageUrl,
+      photoReference: photoRef,
+      contactNumber:
+          (details['formatted_phone_number'] as String?)?.trim() ??
+          suggestion.contactNumber,
+      websiteUrl:
+          (details['website'] as String?)?.trim() ?? suggestion.websiteUrl,
+      openingHoursText:
+          _openingHoursSummary(details) ?? suggestion.openingHoursText,
+      userRatingsTotal:
+          ((details['user_ratings_total'] as num?)?.toInt()) ??
+          suggestion.userRatingsTotal,
+      category: category,
+      placeTypes: placeTypes,
+      distanceKm: _haversineKm(center.latitude, center.longitude, lat, lng),
+    );
   }
 
   List<_SpotSearchSpec> _spotSearchSpecs(String city, String province) {
@@ -727,6 +922,33 @@ class CitySpotSuggestionService {
   }
 
   double _deg2rad(double deg) => deg * (math.pi / 180);
+
+  String? _addressComponent(
+    List<Map<String, dynamic>> components,
+    List<String> acceptedTypes,
+  ) {
+    for (final component in components) {
+      final types = ((component['types'] as List?) ?? const [])
+          .map((entry) => entry.toString())
+          .toSet();
+      if (types.any(acceptedTypes.contains)) {
+        final longName = component['long_name']?.toString().trim() ?? '';
+        if (longName.isNotEmpty) return longName;
+      }
+    }
+    return null;
+  }
+
+  String? _openingHoursSummary(Map<String, dynamic> details) {
+    final openingHours = details['opening_hours'];
+    if (openingHours is! Map) return null;
+    final weekdayText = (openingHours['weekday_text'] as List?)
+        ?.map((entry) => entry.toString().trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+    if (weekdayText == null || weekdayText.isEmpty) return null;
+    return weekdayText.first;
+  }
 
   static List<String> barangaysForCity(String city) {
     final normalized = normalizeText(city);

@@ -49,58 +49,21 @@ class _SubTenantPackageItineraryScreenState
   }
 
   Future<void> _addDay(_ItineraryLoad load) async {
-    try {
-      await _service.addPackageDay(
-        load.profile,
-        load.package.id,
-        load.days.length + 1,
+    if (load.days.isNotEmpty) {
+      showSubTenantSnack(
+        context,
+        'Tour packages support one day itinerary only.',
       );
+      return;
+    }
+    try {
+      await _service.addPackageDay(load.profile, load.package.id);
       if (!mounted) return;
-      showSubTenantSnack(context, 'Package day added.', error: false);
+      showSubTenantSnack(context, 'Day tour itinerary started.', error: false);
       _reload();
     } catch (e) {
       if (!mounted) return;
       showSubTenantSnack(context, 'Failed to add day: $e');
-    }
-  }
-
-  Future<void> _renameDay(_ItineraryLoad load, PackageItineraryDay day) async {
-    final controller = TextEditingController(text: day.title);
-    final title = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename day'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Day title'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    controller.dispose();
-    if (title == null) return;
-
-    try {
-      await _service.updatePackageDayTitle(
-        load.profile,
-        load.package.id,
-        day.id,
-        title,
-      );
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Failed to rename day: $e');
     }
   }
 
@@ -222,10 +185,13 @@ class _SubTenantPackageItineraryScreenState
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SubTenantGradientButton(
-                      label: 'Add Package Day',
-                      icon: Icons.add_rounded,
-                      onPressed: () => _addDay(load),
+                    const Text(
+                      'This package itinerary supports one day only, from 7:00 AM to 5:00 PM.',
+                      style: TextStyle(
+                        color: SubTenantColors.muted,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ),
@@ -236,8 +202,8 @@ class _SubTenantPackageItineraryScreenState
                   icon: Icons.map_outlined,
                   title: 'No itinerary yet',
                   message:
-                      'Add days and stops using tourist spots from ${load.profile.assignedCity}.',
-                  actionLabel: 'Add Day',
+                      'Start the 7:00 AM to 5:00 PM day tour using tourist spots from ${load.profile.assignedCity}.',
+                  actionLabel: 'Start Day Tour',
                   onAction: () => _addDay(load),
                 )
               else
@@ -246,7 +212,6 @@ class _SubTenantPackageItineraryScreenState
                     padding: const EdgeInsets.only(bottom: 14),
                     child: _DayCard(
                       day: day,
-                      onRename: () => _renameDay(load, day),
                       onAddItem: () => _openItemForm(load, day),
                       onEditItem: (item) =>
                           _openItemForm(load, day, item: item),
@@ -267,7 +232,6 @@ class _SubTenantPackageItineraryScreenState
 class _DayCard extends StatelessWidget {
   const _DayCard({
     required this.day,
-    required this.onRename,
     required this.onAddItem,
     required this.onEditItem,
     required this.onDeleteItem,
@@ -275,7 +239,6 @@ class _DayCard extends StatelessWidget {
   });
 
   final PackageItineraryDay day;
-  final VoidCallback onRename;
   final VoidCallback onAddItem;
   final ValueChanged<PackageItineraryItem> onEditItem;
   final ValueChanged<PackageItineraryItem> onDeleteItem;
@@ -289,16 +252,10 @@ class _DayCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: SubTenantSectionHeader(
-                  title: 'Day ${day.dayNumber}',
-                  subtitle: day.title,
+                child: const SubTenantSectionHeader(
+                  title: 'Day Tour',
+                  subtitle: '7:00 AM to 5:00 PM',
                 ),
-              ),
-              IconButton(
-                tooltip: 'Rename day',
-                onPressed: onRename,
-                icon: const Icon(Icons.edit_rounded),
-                color: SubTenantColors.blue,
               ),
               IconButton(
                 tooltip: 'Add stop',
@@ -312,8 +269,9 @@ class _DayCard extends StatelessWidget {
           if (day.items.isEmpty)
             const SubTenantEmptyState(
               icon: Icons.route_outlined,
-              title: 'No stops for this day',
-              message: 'Add itinerary items from your local tourist spots.',
+              title: 'No stops for this day tour',
+              message:
+                  'Add itinerary items from your local tourist spots between 7:00 AM and 5:00 PM.',
             )
           else
             ...day.items.asMap().entries.map(
@@ -596,6 +554,7 @@ class _ItineraryItemSheetState extends State<_ItineraryItemSheet> {
                 controller: _timeCtrl,
                 label: 'Time Label',
                 hint: '09:00 AM',
+                helperText: 'Use a stop time between 7:00 AM and 5:00 PM.',
               ),
               const SizedBox(height: 14),
               SubTenantTextField(

@@ -3,7 +3,7 @@ import 'package:touristrike/screens/admin/admin_models.dart';
 
 class ProvincialAdminService {
   ProvincialAdminService({SupabaseClient? client})
-      : _supabase = client ?? Supabase.instance.client;
+    : _supabase = client ?? Supabase.instance.client;
 
   final SupabaseClient _supabase;
 
@@ -96,22 +96,24 @@ class ProvincialAdminService {
       drivers.map((item) => adminString(item, const ['city'])),
     );
 
-    return profiles.map((row) {
-      final id = adminId(row['id']);
-      final merged = _mergeTenantRows(
-        profile: row,
-        details: detailsById[id],
-        registration: latestRegistrationByUserId[id],
-      );
-      final tenant = CityTenant.fromProfile(merged);
+    return profiles
+        .map((row) {
+          final id = adminId(row['id']);
+          final merged = _mergeTenantRows(
+            profile: row,
+            details: detailsById[id],
+            registration: latestRegistrationByUserId[id],
+          );
+          final tenant = CityTenant.fromProfile(merged);
 
-      return tenant.copyWith(
-        spotsCount: spotCounts[tenant.city] ?? 0,
-        packagesCount: packageCounts[tenant.city] ?? 0,
-        bookingsCount: bookingCounts[tenant.city] ?? 0,
-        driversCount: driverCounts[tenant.city] ?? 0,
-      );
-    }).toList(growable: false);
+          return tenant.copyWith(
+            spotsCount: spotCounts[tenant.city] ?? 0,
+            packagesCount: packageCounts[tenant.city] ?? 0,
+            bookingsCount: bookingCounts[tenant.city] ?? 0,
+            driversCount: driverCounts[tenant.city] ?? 0,
+          );
+        })
+        .toList(growable: false);
   }
 
   Map<String, dynamic> _mergeTenantRows({
@@ -204,9 +206,9 @@ class ProvincialAdminService {
         .where((item) => item.city == city)
         .toList(growable: false);
 
-    final bookings = (await fetchBookings(packages))
-        .where((item) => item.city == city)
-        .toList(growable: false);
+    final bookings = (await fetchBookings(
+      packages,
+    )).where((item) => item.city == city).toList(growable: false);
 
     final drivers = await _selectRows(
       'profiles',
@@ -332,9 +334,7 @@ class ProvincialAdminService {
     }
 
     if (normalizedStatus == 'approved' && registration.userId.isEmpty) {
-      throw StateError(
-        'This registration is not linked to a user account.',
-      );
+      throw StateError('This registration is not linked to a user account.');
     }
 
     final admin = await loadCurrentAdminProfile();
@@ -516,8 +516,9 @@ class ProvincialAdminService {
       ascending: false,
     );
 
-    final basePackages =
-        packageRows.map(ProvincePackage.fromMap).toList(growable: false);
+    final basePackages = packageRows
+        .map(ProvincePackage.fromMap)
+        .toList(growable: false);
 
     final bookings = await fetchBookings(basePackages);
     final counts = <String, int>{};
@@ -533,13 +534,39 @@ class ProvincialAdminService {
       );
     }
 
-    return packageRows.map((row) {
-      return ProvincePackage.fromMap(
-        row,
-        bookingsCount: counts[adminId(row['id'])] ?? 0,
-        revenue: revenue[adminId(row['id'])] ?? 0,
-      );
-    }).toList(growable: false);
+    return packageRows
+        .map((row) {
+          return ProvincePackage.fromMap(
+            row,
+            bookingsCount: counts[adminId(row['id'])] ?? 0,
+            revenue: revenue[adminId(row['id'])] ?? 0,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<String>> fetchPackageSpotTitles(dynamic packageId) async {
+    try {
+      final rows = await _supabase
+          .from('tour_package_spots')
+          .select('sort_order, tourist_spots(title)')
+          .eq('package_id', packageId)
+          .order('sort_order');
+
+      return (rows as List)
+          .map((row) {
+            final nested = (row as Map)['tourist_spots'];
+            if (nested is! Map) return '';
+            return adminString(Map<String, dynamic>.from(nested), const [
+              'title',
+              'name',
+            ]);
+          })
+          .where((title) => title.trim().isNotEmpty)
+          .toList(growable: false);
+    } on PostgrestException {
+      return const [];
+    }
   }
 
   Future<void> updatePackageStatus(
@@ -648,12 +675,14 @@ class ProvincialAdminService {
       ascending: false,
     );
 
-    return rows.map((row) {
-      return ProvinceBooking.fromMap(
-        row,
-        package: packageById[adminId(row['package_id'])],
-      );
-    }).toList(growable: false);
+    return rows
+        .map((row) {
+          return ProvinceBooking.fromMap(
+            row,
+            package: packageById[adminId(row['package_id'])],
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<AdminReportData> fetchReports() async {
@@ -1154,8 +1183,8 @@ class ProvincialAdminService {
         'body': approved
             ? 'Your $city tourism office account has been approved. You can sign in to the web portal now.'
             : (reason.trim().isEmpty
-                ? 'Your TourisTrike city admin application was rejected.'
-                : 'Your TourisTrike city admin application was rejected: ${reason.trim()}'),
+                  ? 'Your TourisTrike city admin application was rejected.'
+                  : 'Your TourisTrike city admin application was rejected: ${reason.trim()}'),
         'type': 'city_admin_application',
         'is_read': false,
       });
@@ -1247,11 +1276,11 @@ class CityTenantDetailsData {
   final int driversCount;
 
   double get revenue => bookings.fold<double>(
-        0,
-        (sum, booking) => booking.status.toLowerCase() == 'completed'
-            ? sum + booking.totalAmount
-            : sum,
-      );
+    0,
+    (sum, booking) => booking.status.toLowerCase() == 'completed'
+        ? sum + booking.totalAmount
+        : sum,
+  );
 
   double get averageRating {
     if (feedback.isEmpty) return 0;

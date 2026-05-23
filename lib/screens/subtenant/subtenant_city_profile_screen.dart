@@ -39,9 +39,7 @@ class _SubTenantCityProfileScreenState
   final _baseFareCtrl = TextEditingController();
   final _farePerKmCtrl = TextEditingController();
   final _minimumFareCtrl = TextEditingController();
-  final _additionalPassengerFeeCtrl = TextEditingController();
   final _waitingFeeCtrl = TextEditingController();
-  final _guideFeeCtrl = TextEditingController();
   final _weekendSurchargeCtrl = TextEditingController();
 
   SubTenantProfile? _profile;
@@ -74,10 +72,8 @@ class _SubTenantCityProfileScreenState
   bool _requireSpotVerification = true;
   bool _requireMapPin = true;
   bool _requireCoverImage = true;
-  bool _autoPublishSpots = false;
 
-  bool _allowInstantBooking = false;
-  bool _manualBookingConfirmation = true;
+  // booking flags removed
   bool _allowCancellation = true;
 
   bool _driverAutoApproval = false;
@@ -100,7 +96,7 @@ class _SubTenantCityProfileScreenState
     _SettingsSection('Branding', Icons.palette_rounded),
     _SettingsSection('Fare Matrix', Icons.payments_rounded),
     _SettingsSection('Packages', Icons.inventory_2_rounded),
-    _SettingsSection('Bookings', Icons.confirmation_number_rounded),
+    // Bookings settings removed
     _SettingsSection('Drivers', Icons.directions_bike_rounded),
     _SettingsSection('Tourist Spots', Icons.place_rounded),
     _SettingsSection('AI Suggestions', Icons.auto_awesome_rounded),
@@ -131,9 +127,7 @@ class _SubTenantCityProfileScreenState
       _baseFareCtrl,
       _farePerKmCtrl,
       _minimumFareCtrl,
-      _additionalPassengerFeeCtrl,
       _waitingFeeCtrl,
-      _guideFeeCtrl,
       _weekendSurchargeCtrl,
     ]) {
       controller.addListener(_markDirty);
@@ -179,8 +173,7 @@ class _SubTenantCityProfileScreenState
     _showBookings = settings.showBookings;
     _showPopularDestinations = settings.showPopularDestinations;
     _showTopPackages = settings.showTopPackages;
-    _allowInstantBooking = settings.allowInstantBooking;
-    _manualBookingConfirmation = settings.manualBookingConfirmation;
+    // booking flags removed from settings load
     _allowCancellation = settings.allowCancellation;
     _driverAutoApproval = settings.driverAutoApproval;
     _requireDriverDocuments = settings.requireDriverDocuments;
@@ -188,7 +181,6 @@ class _SubTenantCityProfileScreenState
     _requireSpotVerification = settings.requireSpotVerification;
     _requireMapPin = settings.requireMapPin;
     _requireCoverImage = settings.requireCoverImage;
-    _autoPublishSpots = settings.autoPublishSpots;
     _enableAiSuggestions = settings.enableAiSuggestions;
     _diversePlaceTypes = settings.diversePlaceTypes;
     _prioritizePopular = settings.prioritizePopular;
@@ -207,9 +199,7 @@ class _SubTenantCityProfileScreenState
     _baseFareCtrl.text = _moneyText(fare.baseFare);
     _farePerKmCtrl.text = _moneyText(fare.farePerKm);
     _minimumFareCtrl.text = _moneyText(fare.minimumFare);
-    _additionalPassengerFeeCtrl.text = _moneyText(fare.additionalPassengerFee);
     _waitingFeeCtrl.text = _moneyText(fare.waitingFee);
-    _guideFeeCtrl.text = _moneyText(fare.guideFee);
     _weekendSurchargeCtrl.text = _moneyText(fare.weekendSurcharge);
     _hydrating = false;
     _dirty = false;
@@ -244,9 +234,7 @@ class _SubTenantCityProfileScreenState
     _baseFareCtrl.dispose();
     _farePerKmCtrl.dispose();
     _minimumFareCtrl.dispose();
-    _additionalPassengerFeeCtrl.dispose();
     _waitingFeeCtrl.dispose();
-    _guideFeeCtrl.dispose();
     _weekendSurchargeCtrl.dispose();
     super.dispose();
   }
@@ -273,8 +261,6 @@ class _SubTenantCityProfileScreenState
       showTopPackages: _showTopPackages,
       defaultPackageVisibility: _defaultVisibility,
       defaultSpotStatus: _defaultSpotStatus,
-      allowInstantBooking: _allowInstantBooking,
-      manualBookingConfirmation: _manualBookingConfirmation,
       allowCancellation: _allowCancellation,
       driverAutoApproval: _driverAutoApproval,
       requireDriverDocuments: _requireDriverDocuments,
@@ -282,7 +268,6 @@ class _SubTenantCityProfileScreenState
       requireSpotVerification: _requireSpotVerification,
       requireMapPin: _requireMapPin,
       requireCoverImage: _requireCoverImage,
-      autoPublishSpots: _autoPublishSpots,
       enableAiSuggestions: _enableAiSuggestions,
       diversePlaceTypes: _diversePlaceTypes,
       prioritizePopular: _prioritizePopular,
@@ -308,9 +293,7 @@ class _SubTenantCityProfileScreenState
       baseFare: _moneyValue(_baseFareCtrl),
       farePerKm: _moneyValue(_farePerKmCtrl),
       minimumFare: _moneyValue(_minimumFareCtrl),
-      additionalPassengerFee: _moneyValue(_additionalPassengerFeeCtrl),
       waitingFee: _moneyValue(_waitingFeeCtrl),
-      guideFee: _moneyValue(_guideFeeCtrl),
       weekendSurcharge: _moneyValue(_weekendSurchargeCtrl),
     );
   }
@@ -520,18 +503,16 @@ class _SubTenantCityProfileScreenState
       case 4:
         return _packageSettings();
       case 5:
-        return _bookingSettings();
-      case 6:
         return _driverSettings();
-      case 7:
+      case 6:
         return _touristSpotSettings();
-      case 8:
+      case 7:
         return _aiSettings();
-      case 9:
+      case 8:
         return _notificationSettings();
-      case 10:
+      case 9:
         return _analyticsSettings();
-      case 11:
+      case 10:
         return _securitySettings(data.profile);
       default:
         return _generalSettings();
@@ -568,12 +549,6 @@ class _SubTenantCityProfileScreenState
           label: 'Contact Person',
           validator: (value) =>
               (value ?? '').trim().isEmpty ? 'Required' : null,
-        ),
-        const SizedBox(height: 14),
-        SubTenantTextField(
-          controller: _descriptionCtrl,
-          label: 'Office Description',
-          maxLines: 4,
         ),
       ],
     );
@@ -657,21 +632,8 @@ class _SubTenantCityProfileScreenState
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           right: SubTenantTextField(
-            controller: _additionalPassengerFeeCtrl,
-            label: 'Additional Passenger Fee',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-        ),
-        const SizedBox(height: 14),
-        _TwoColumn(
-          left: SubTenantTextField(
             controller: _waitingFeeCtrl,
-            label: 'Waiting Fee',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          right: SubTenantTextField(
-            controller: _guideFeeCtrl,
-            label: 'Guide / Service Fee',
+            label: 'Waiting Fee (PHP / hour)',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
         ),
@@ -709,51 +671,7 @@ class _SubTenantCityProfileScreenState
       ],
     );
   }
-
-  Widget _bookingSettings() {
-    return _SettingsContent(
-      title: 'Booking Settings',
-      subtitle: 'Control how tourists book packages.',
-      children: [
-        _SwitchTile(
-          icon: Icons.flash_on_rounded,
-          title: 'Allow Instant Booking',
-          subtitle: 'Tourists can book without manual approval.',
-          value: _allowInstantBooking,
-          onChanged: (value) {
-            setState(() {
-              _allowInstantBooking = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.assignment_turned_in_rounded,
-          title: 'Manual Confirmation Required',
-          subtitle: 'City admin confirms bookings first.',
-          value: _manualBookingConfirmation,
-          onChanged: (value) {
-            setState(() {
-              _manualBookingConfirmation = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.cancel_schedule_send_rounded,
-          title: 'Allow Cancellations',
-          subtitle: 'Tourists may cancel before the cutoff period.',
-          value: _allowCancellation,
-          onChanged: (value) {
-            setState(() {
-              _allowCancellation = value;
-              _dirty = true;
-            });
-          },
-        ),
-      ],
-    );
-  }
+  
 
   Widget _driverSettings() {
     return _SettingsContent(
@@ -853,18 +771,6 @@ class _SubTenantCityProfileScreenState
           onChanged: (value) {
             setState(() {
               _requireCoverImage = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.public_rounded,
-          title: 'Auto-publish New Spots',
-          subtitle: 'Created spots immediately become visible.',
-          value: _autoPublishSpots,
-          onChanged: (value) {
-            setState(() {
-              _autoPublishSpots = value;
               _dirty = true;
             });
           },
@@ -1543,9 +1449,7 @@ class _FarePreview extends StatelessWidget {
     final rows = [
       ('Base fare', calculation.baseFare),
       ('Distance fee sample', calculation.distanceFee),
-      ('Passenger fee sample', calculation.passengerFee),
-      ('Waiting fee', calculation.waitingFee),
-      ('Guide/service fee', calculation.guideFee),
+      ('Waiting fee (per hour sample)', calculation.waitingFee),
       ('Minimum fare adjustment', calculation.minimumFareAdjustment),
     ];
 

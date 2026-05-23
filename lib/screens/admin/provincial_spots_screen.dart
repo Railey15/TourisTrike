@@ -26,6 +26,13 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
   String _spotStatusFilter = 'all';
   String _verificationFilter = 'all';
 
+  void _showSpotDetails(ProvinceSpot spot) {
+    showDialog(
+      context: context,
+      builder: (context) => _SpotDetailsDialog(spot: spot),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -39,7 +46,7 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
     super.dispose();
   }
 
-  void _reload() {
+  Future<void> _reload() async {
     setState(() => _future = _service.fetchProvinceSpots());
   }
 
@@ -113,42 +120,6 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
 
       return false;
     }).length;
-  }
-
-  Future<void> _verify(ProvinceSpot spot) async {
-    try {
-      await _service.verifySpot(spot);
-      if (!mounted) return;
-      showAdminSnack(context, 'Tourist spot verified.', error: false);
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showAdminSnack(context, 'Failed to verify spot: $e');
-    }
-  }
-
-  Future<void> _flag(ProvinceSpot spot) async {
-    try {
-      await _service.flagSpot(spot);
-      if (!mounted) return;
-      showAdminSnack(context, 'Tourist spot flagged.', error: false);
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showAdminSnack(context, 'Failed to flag spot: $e');
-    }
-  }
-
-  Future<void> _archive(ProvinceSpot spot) async {
-    try {
-      await _service.archiveSpot(spot);
-      if (!mounted) return;
-      showAdminSnack(context, 'Tourist spot archived.', error: false);
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showAdminSnack(context, 'Failed to archive spot: $e');
-    }
   }
 
   @override
@@ -251,18 +222,14 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
                         padding: const EdgeInsets.only(bottom: 12),
                         child: _SpotCard(
                           spot: spot,
-                          onVerify: () => _verify(spot),
-                          onFlag: () => _flag(spot),
-                          onArchive: () => _archive(spot),
+                          onViewDetails: () => _showSpotDetails(spot),
                         ),
                       ),
                     )
                   else
                     _SpotGrid(
                       spots: spots,
-                      onVerify: _verify,
-                      onFlag: _flag,
-                      onArchive: _archive,
+                      onViewDetails: _showSpotDetails,
                     ),
                 ],
               ),
@@ -399,7 +366,7 @@ class _HeroText extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Review LGU-submitted tourist spots, verify accurate data, and flag records that need correction.',
+          'Tourist spots created by city tenants will appear here.',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -1041,15 +1008,11 @@ class _FilterOption extends StatelessWidget {
 class _SpotGrid extends StatelessWidget {
   const _SpotGrid({
     required this.spots,
-    required this.onVerify,
-    required this.onFlag,
-    required this.onArchive,
+    required this.onViewDetails,
   });
 
   final List<ProvinceSpot> spots;
-  final ValueChanged<ProvinceSpot> onVerify;
-  final ValueChanged<ProvinceSpot> onFlag;
-  final ValueChanged<ProvinceSpot> onArchive;
+  final ValueChanged<ProvinceSpot> onViewDetails;
 
   @override
   Widget build(BuildContext context) {
@@ -1072,9 +1035,7 @@ class _SpotGrid extends StatelessWidget {
 
             return _SpotCard(
               spot: spot,
-              onVerify: () => onVerify(spot),
-              onFlag: () => onFlag(spot),
-              onArchive: () => onArchive(spot),
+              onViewDetails: () => onViewDetails(spot),
             );
           },
         );
@@ -1086,15 +1047,11 @@ class _SpotGrid extends StatelessWidget {
 class _SpotCard extends StatelessWidget {
   const _SpotCard({
     required this.spot,
-    required this.onVerify,
-    required this.onFlag,
-    required this.onArchive,
+    required this.onViewDetails,
   });
 
   final ProvinceSpot spot;
-  final VoidCallback onVerify;
-  final VoidCallback onFlag;
-  final VoidCallback onArchive;
+  final VoidCallback onViewDetails;
 
   @override
   Widget build(BuildContext context) {
@@ -1105,6 +1062,7 @@ class _SpotCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
+        onTap: onViewDetails,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1155,31 +1113,6 @@ class _SpotCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   AdminStatusPill(status: spot.status),
-                  PopupMenuButton<String>(
-                    tooltip: 'Spot actions',
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'verify':
-                          onVerify();
-                          break;
-                        case 'flag':
-                          onFlag();
-                          break;
-                        case 'archive':
-                          onArchive();
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'verify', child: Text('Verify Spot')),
-                      PopupMenuItem(value: 'flag', child: Text('Flag Issue')),
-                      PopupMenuDivider(),
-                      PopupMenuItem(
-                        value: 'archive',
-                        child: Text('Archive Spot'),
-                      ),
-                    ],
-                  ),
                 ],
               ),
               const SizedBox(height: 14),
@@ -1207,36 +1140,9 @@ class _SpotCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: _VerificationBox(
-                      verified: verified,
-                      status: spot.verificationStatus,
-                      onVerify: onVerify,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _SpotActionBox(
-                      label: 'Flag',
-                      subtitle: 'Mark inaccurate',
-                      icon: Icons.flag_rounded,
-                      color: ProvincialAdminColors.amber,
-                      onTap: onFlag,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _SpotActionBox(
-                      label: 'Archive',
-                      subtitle: 'Hide record',
-                      icon: Icons.archive_rounded,
-                      color: ProvincialAdminColors.red,
-                      onTap: onArchive,
-                    ),
-                  ),
-                ],
+              _VerificationBox(
+                verified: verified,
+                status: spot.verificationStatus,
               ),
             ],
           ),
@@ -1334,128 +1240,339 @@ class _VerificationBox extends StatelessWidget {
   const _VerificationBox({
     required this.verified,
     required this.status,
-    required this.onVerify,
   });
 
   final bool verified;
   final String status;
-  final VoidCallback onVerify;
 
   @override
   Widget build(BuildContext context) {
     final color = verified ? ProvincialAdminColors.green : ProvincialAdminColors.amber;
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: verified ? null : onVerify,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: .10)),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              verified ? Icons.verified_rounded : Icons.pending_actions_rounded,
-              size: 16,
-              color: color,
-            ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: verified ? 'Verified\n' : 'Pending\n',
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: .10)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            verified ? Icons.verified_rounded : Icons.pending_actions_rounded,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: verified ? 'Verified\n' : 'Pending\n',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
                     ),
-                    TextSpan(
-                      text: verified ? 'Approved data' : 'Tap to verify',
-                      style: const TextStyle(
-                        color: ProvincialAdminColors.muted,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                        height: 1.1,
+                  ),
+                  TextSpan(
+                    text: verified ? 'Approved data' : 'Awaiting verification',
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.muted,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpotDetailsDialog extends StatelessWidget {
+  const _SpotDetailsDialog({required this.spot});
+
+  final ProvinceSpot spot;
+
+  @override
+  Widget build(BuildContext context) {
+    final verified = spot.verificationStatus.toLowerCase().trim() == 'verified';
+    final color =
+        verified ? ProvincialAdminColors.green : ProvincialAdminColors.amber;
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with title and close button
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Spot Details',
+                          style: const TextStyle(
+                            color: ProvincialAdminColors.text,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'View-only information',
+                          style: TextStyle(
+                            color: ProvincialAdminColors.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Spot image
+              Container(
+                width: double.infinity,
+                height: 200,
+                clipBehavior: Clip.hardEdge,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF4FF),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: spot.imageUrl.isEmpty
+                    ? const Icon(
+                        Icons.travel_explore_rounded,
+                        color: ProvincialAdminColors.blue,
+                        size: 56,
+                      )
+                    : Image.network(
+                        spot.imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.travel_explore_rounded,
+                          color: ProvincialAdminColors.blue,
+                          size: 56,
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 20),
+
+              // Spot title
+              Text(
+                spot.title,
+                style: const TextStyle(
+                  color: ProvincialAdminColors.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  height: 1.2,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Description
+              if (spot.description.isNotEmpty) ...[
+                Text(
+                  spot.description,
+                  style: const TextStyle(
+                    color: ProvincialAdminColors.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // Details section
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FBFF),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: ProvincialAdminColors.line),
+                ),
+                child: Column(
+                  children: [
+                    _DetailRow(
+                      label: 'City',
+                      value: spot.city,
+                      icon: Icons.location_city_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    _DetailRow(
+                      label: 'Barangay',
+                      value: spot.barangay.isEmpty ? 'N/A' : spot.barangay,
+                      icon: Icons.place_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    _DetailRow(
+                      label: 'Status',
+                      value: spot.status,
+                      icon: Icons.info_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    _DetailRow(
+                      label: 'Rating',
+                      value: spot.rating <= 0
+                          ? 'No rating'
+                          : spot.rating.toStringAsFixed(1),
+                      icon: Icons.star_rounded,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Verification status box
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: color.withValues(alpha: .10)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      verified
+                          ? Icons.verified_rounded
+                          : Icons.pending_actions_rounded,
+                      size: 24,
+                      color: color,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            spot.verificationStatus,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            verified
+                                ? 'This spot has been verified'
+                                : 'Awaiting verification by admin',
+                            style: const TextStyle(
+                              color: ProvincialAdminColors.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 20),
+
+              // Close button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: ProvincialAdminColors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _SpotActionBox extends StatelessWidget {
-  const _SpotActionBox({
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
     required this.label,
-    required this.subtitle,
+    required this.value,
     required this.icon,
-    required this.color,
-    required this.onTap,
   });
 
   final String label;
-  final String subtitle;
+  final String value;
   final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: .10)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '$label\n',
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
-                    ),
-                    TextSpan(
-                      text: subtitle,
-                      style: const TextStyle(
-                        color: ProvincialAdminColors.muted,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                        height: 1.1,
-                      ),
-                    ),
-                  ],
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon, color: ProvincialAdminColors.blue, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: ProvincialAdminColors.lightMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: ProvincialAdminColors.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

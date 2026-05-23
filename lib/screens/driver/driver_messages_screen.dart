@@ -135,7 +135,11 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
       backgroundColor: const Color(0xFFF5F7FB),
       bottomNavigationBar: const AppBottomNavDriver(currentIndex: 4),
       body: SafeArea(
-        child: Column(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -220,6 +224,8 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
               ),
             ),
           ],
+        ),
+          ),
         ),
       ),
     );

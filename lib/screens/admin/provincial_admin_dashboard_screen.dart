@@ -256,9 +256,10 @@ class _HeroBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 500;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+      padding: EdgeInsets.symmetric(horizontal: narrow ? 16 : 28, vertical: 20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF4AA3FF), Color(0xFF1D63E9)],
@@ -270,19 +271,19 @@ class _HeroBanner extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 64,
-            height: 64,
+            width: narrow ? 48 : 64,
+            height: narrow ? 48 : 64,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: .18),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.account_balance_rounded,
               color: Colors.white,
-              size: 32,
+              size: narrow ? 24 : 32,
             ),
           ),
-          const SizedBox(width: 18),
+          SizedBox(width: narrow ? 12 : 18),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -290,54 +291,69 @@ class _HeroBanner extends StatelessWidget {
               children: [
                 Text(
                   'Bulacan Provincial Tourism Office',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: .88),
-                    fontSize: 13.5,
+                    fontSize: narrow ? 11.5 : 13.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 4),
                 Text(
                   'Hello, $name',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
-                    fontSize: 30,
+                    fontSize: narrow ? 22 : 30,
                     height: 1.05,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Manage tenants, tourism data, packages, revenue, and reports across Bulacan.',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .92),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    height: 1.15,
+                if (!narrow) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Manage tenants, tourism data, packages, revenue, and reports across Bulacan.',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .92),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      height: 1.15,
+                    ),
                   ),
-                ),
+                ] else ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    '$activeCities active cities',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .85),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .16),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              '$activeCities active cities',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w900,
+          if (!narrow)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .16),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$activeCities active cities',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -844,61 +860,81 @@ class _BookingsOverview extends StatelessWidget {
         .where((item) => item.status.toLowerCase() == 'cancelled')
         .length;
 
-    return _SectionCard(
-      title: 'Bookings Overview',
-      subtitle: 'Summary of booking statuses across the province.',
-      child: Center(
-        child: SizedBox(
-          height: 108,
-          child: Row(
-            children: [
-              Expanded(
-                child: _BookingStatusBox(
-                  label: 'Total',
-                  value: total,
-                  subtitle: 'All time',
-                  color: ProvincialAdminColors.blue,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: _BookingStatusBox(
-                  label: 'Pending',
-                  value: pending,
-                  subtitle: _percent(pending, total),
-                  color: ProvincialAdminColors.amber,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: _BookingStatusBox(
-                  label: 'Confirmed',
-                  value: confirmed,
-                  subtitle: _percent(confirmed, total),
-                  color: ProvincialAdminColors.purple,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: _BookingStatusBox(
-                  label: 'Completed',
-                  value: completed,
-                  subtitle: _percent(completed, total),
-                  color: ProvincialAdminColors.green,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: _BookingStatusBox(
-                  label: 'Cancelled',
-                  value: cancelled,
-                  subtitle: _percent(cancelled, total),
-                  color: ProvincialAdminColors.red,
-                ),
-              ),
-            ],
+    final boxes = [
+      _BookingStatusBox(label: 'Total', value: total, subtitle: 'All time', color: ProvincialAdminColors.blue),
+      _BookingStatusBox(label: 'Pending', value: pending, subtitle: _percent(pending, total), color: ProvincialAdminColors.amber),
+      _BookingStatusBox(label: 'Confirmed', value: confirmed, subtitle: _percent(confirmed, total), color: ProvincialAdminColors.purple),
+      _BookingStatusBox(label: 'Completed', value: completed, subtitle: _percent(completed, total), color: ProvincialAdminColors.green),
+      _BookingStatusBox(label: 'Cancelled', value: cancelled, subtitle: _percent(cancelled, total), color: ProvincialAdminColors.red),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: ProvincialAdminColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Bookings Overview',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: ProvincialAdminColors.text,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              height: 1.05,
+            ),
           ),
-        ),
+          const SizedBox(height: 5),
+          const Text(
+            'Summary of booking statuses across the province.',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: ProvincialAdminColors.muted,
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 600;
+              if (wide) {
+                return SizedBox(
+                  height: 108,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < boxes.length; i++) ...[
+                        Expanded(child: boxes[i]),
+                        if (i < boxes.length - 1) const SizedBox(width: 10),
+                      ],
+                    ],
+                  ),
+                );
+              }
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: boxes.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.1,
+                ),
+                itemBuilder: (_, i) => boxes[i],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -924,9 +960,11 @@ class _BookingStatusBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 108,
-      padding: const EdgeInsets.all(16),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 130;
+        return Container(
+      padding: EdgeInsets.all(compact ? 10 : 16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: .08),
         borderRadius: BorderRadius.circular(18),
@@ -940,33 +978,39 @@ class _BookingStatusBox extends StatelessWidget {
             '$value',
             style: TextStyle(
               color: color,
-              fontSize: 28,
+              fontSize: compact ? 20 : 28,
               fontWeight: FontWeight.w900,
               height: .95,
             ),
           ),
-          const SizedBox(height: 9),
+          SizedBox(height: compact ? 4 : 9),
           Text(
             label,
-            style: const TextStyle(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
               color: ProvincialAdminColors.text,
               fontWeight: FontWeight.w900,
-              fontSize: 14,
+              fontSize: compact ? 11 : 14,
               height: 1.05,
             ),
           ),
-          const SizedBox(height: 5),
+          SizedBox(height: compact ? 2 : 5),
           Text(
             subtitle,
-            style: const TextStyle(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
               color: ProvincialAdminColors.muted,
               fontWeight: FontWeight.w700,
-              fontSize: 12,
+              fontSize: compact ? 10 : 12,
               height: 1.1,
             ),
           ),
         ],
       ),
+    );
+      },
     );
   }
 }

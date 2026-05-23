@@ -106,12 +106,16 @@ class _TouristPackagesScreenState extends State<TouristPackagesScreen> {
                   return RefreshIndicator(
                     onRefresh: () async => _reload(),
                     color: const Color(0xFF2A86FF),
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(16, 12, 16, navTotalH + 18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 680),
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.fromLTRB(16, 12, 16, navTotalH + 18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                           Row(
                             children: [
                               _BackButtonCircle(
@@ -172,6 +176,8 @@ class _TouristPackagesScreenState extends State<TouristPackagesScreen> {
                               ),
                             ),
                         ],
+                          ),
+                        ),
                       ),
                     ),
                   );

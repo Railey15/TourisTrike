@@ -426,9 +426,13 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F8FF),
-      body: Column(
-        children: [
-          _buildHeader(),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: Column(
+            children: [
+              _buildHeader(),
           if (_hasActiveTour)
             Container(
               width: double.infinity,
@@ -450,6 +454,8 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
             ),
           Expanded(child: _buildBody()),
         ],
+      ),
+        ),
       ),
       bottomNavigationBar: const AppBottomNavDriver(currentIndex: 1),
     );

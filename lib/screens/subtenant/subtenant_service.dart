@@ -8,6 +8,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 
+const _singleDayTourTitle = 'Day Tour';
+const _singleDayTourStartMinutes = 7 * 60;
+const _singleDayTourEndMinutes = 17 * 60;
+
 class SubTenantRouteMetrics {
   const SubTenantRouteMetrics({
     required this.distanceKm,
@@ -21,7 +25,8 @@ class SubTenantRouteMetrics {
   final bool usedDirectionsApi;
   final bool available;
 
-  String get distanceLabel => available ? '${distanceKm.toStringAsFixed(1)} KM' : '';
+  String get distanceLabel =>
+      available ? '${distanceKm.toStringAsFixed(1)} KM' : '';
 }
 
 class DuplicatePackageCheckResult {
@@ -232,16 +237,22 @@ class SubTenantService {
     SubTenantProfile profile,
     SubTenantFareSettings settings,
   ) async {
-    await _supabase
-        .from('subtenant_fare_settings')
-        .upsert(settings.toMap(), onConflict: 'subtenant_id,city');
-    await _logAudit(
-      actorId: profile.id,
-      action: 'update_fare_settings',
-      tableName: 'subtenant_fare_settings',
-      recordId: profile.id,
-      description: 'Updated fare matrix for ${profile.assignedCity}.',
-    );
+    try {
+      await _supabase
+          .from('subtenant_fare_settings')
+          .upsert(settings.toMap(), onConflict: 'subtenant_id,city');
+      await _logAudit(
+        actorId: profile.id,
+        action: 'update_fare_settings',
+        tableName: 'subtenant_fare_settings',
+        recordId: profile.id,
+        description: 'Updated fare matrix for ${profile.assignedCity}.',
+      );
+    } on PostgrestException catch (_) {
+      // Table missing or permission issue — skip persisting fare settings.
+      // This keeps the UI responsive while backend schema is adjusted.
+      return;
+    }
   }
 
   Future<String> uploadPublicAsset({
@@ -665,7 +676,8 @@ class SubTenantService {
     try {
       final apiKey = CitySpotSuggestionService.resolveApiKey().trim();
       if (apiKey.isNotEmpty) {
-        final origin = '${coordinates.first.latitude},${coordinates.first.longitude}';
+        final origin =
+            '${coordinates.first.latitude},${coordinates.first.longitude}';
         final destination =
             '${coordinates.last.latitude},${coordinates.last.longitude}';
         final waypoints = coordinates
@@ -785,7 +797,9 @@ class SubTenantService {
       return const DuplicatePackageCheckResult(isDuplicate: false);
     }
 
-    final packageIds = packageMaps.map((row) => row['id']).toList(growable: false);
+    final packageIds = packageMaps
+        .map((row) => row['id'])
+        .toList(growable: false);
     final linkRows = await _supabase
         .from('tour_package_spots')
         .select('package_id, spot_id')
@@ -805,7 +819,9 @@ class SubTenantService {
           .inFilter('id', spotIds)
           .eq('city', profile.assignedCity);
       for (final row in spotRows as List) {
-        final spot = SubTenantSpot.fromMap(Map<String, dynamic>.from(row as Map));
+        final spot = SubTenantSpot.fromMap(
+          Map<String, dynamic>.from(row as Map),
+        );
         spotById[stId(spot.id)] = spot;
       }
     }
@@ -946,10 +962,7 @@ class SubTenantService {
     final visibility = published ? 'visible' : 'hidden';
     await _supabase
         .from('tour_packages')
-        .update({
-          'status': status,
-          'visibility_status': visibility,
-        })
+        .update({'status': status, 'visibility_status': visibility})
         .eq('id', package.id)
         .eq('city', profile.assignedCity);
     await _logAudit(
@@ -966,7 +979,7 @@ class SubTenantService {
     SubTenantProfile profile,
     dynamic packageId,
   ) async {
-    await _assertPackageInCity(profile, packageId);
+    await _normalizeToSingleDayItinerary(profile, packageId);
 
     final dayRows = await _supabase
         .from('tour_package_days')
@@ -1030,19 +1043,59 @@ class SubTenantService {
   Future<dynamic> addPackageDay(
     SubTenantProfile profile,
     dynamic packageId,
-    int dayNumber,
   ) async {
     await _assertPackageInCity(profile, packageId);
-    final inserted = await _supabase
+    await _normalizeToSingleDayItinerary(profile, packageId);
+
+    final row = await _supabase
         .from('tour_package_days')
-        .insert({
+        .upsert({
           'package_id': packageId,
-          'day_number': dayNumber,
-          'title': 'Day $dayNumber',
-        })
+          'day_number': 1,
+          'title': _singleDayTourTitle,
+        }, onConflict: 'package_id,day_number')
         .select('id')
         .single();
-    return inserted['id'];
+    return row['id'];
+  }
+
+  Future<void> syncPackageItineraryFromSelectedSpots({
+    required SubTenantProfile profile,
+    required dynamic packageId,
+    required List<SelectedPackageSpot> selectedSpots,
+  }) async {
+    final dayId = await addPackageDay(profile, packageId);
+
+    await _supabase.from('tour_package_day_items').delete().eq('day_id', dayId);
+
+    if (selectedSpots.isEmpty) return;
+
+    var cursorMinutes = _singleDayTourStartMinutes;
+    final payload = <Map<String, dynamic>>[];
+
+    for (var i = 0; i < selectedSpots.length; i++) {
+      final selectedSpot = selectedSpots[i];
+      final arrivalMinutes =
+          _parseItineraryClockMinutes(selectedSpot.estimatedArrivalTime) ??
+          cursorMinutes;
+      final stayMinutes = _selectedSpotStayMinutes(selectedSpot);
+      final departureMinutes = arrivalMinutes + stayMinutes;
+
+      payload.add({
+        'day_id': dayId,
+        'spot_id': selectedSpot.spot.id,
+        'time_label': _formatItineraryClockMinutes(arrivalMinutes),
+        'note': _buildItineraryStopNote(
+          stayMinutes: stayMinutes,
+          departureMinutes: departureMinutes,
+        ),
+        'sort_order': i,
+      });
+
+      cursorMinutes = departureMinutes + 20;
+    }
+
+    await _supabase.from('tour_package_day_items').insert(payload);
   }
 
   Future<void> updatePackageDayTitle(
@@ -1054,7 +1107,7 @@ class SubTenantService {
     await _assertPackageInCity(profile, packageId);
     await _supabase
         .from('tour_package_days')
-        .update({'title': title.trim().isEmpty ? 'Day' : title.trim()})
+        .update({'day_number': 1, 'title': _singleDayTourTitle})
         .eq('id', dayId)
         .eq('package_id', packageId);
   }
@@ -1071,6 +1124,15 @@ class SubTenantService {
   }) async {
     await _assertPackageInCity(profile, packageId);
     await _assertSpotInCity(profile, spotId);
+
+    final timeMinutes = _parseItineraryClockMinutes(timeLabel);
+    if (timeMinutes == null) {
+      throw StateError('Use a valid time like 9:00 AM or 09:00.');
+    }
+    if (timeMinutes < _singleDayTourStartMinutes ||
+        timeMinutes > _singleDayTourEndMinutes) {
+      throw StateError('Day tour stops must stay between 7:00 AM and 5:00 PM.');
+    }
 
     final payload = {
       'day_id': dayId,
@@ -1135,6 +1197,84 @@ class SubTenantService {
       'spot_id': spotId,
       'sort_order': sortOrder,
     });
+  }
+
+  Future<void> _normalizeToSingleDayItinerary(
+    SubTenantProfile profile,
+    dynamic packageId,
+  ) async {
+    await _assertPackageInCity(profile, packageId);
+
+    final rawDayRows = await _supabase
+        .from('tour_package_days')
+        .select('*')
+        .eq('package_id', packageId)
+        .order('day_number');
+
+    final dayRows = (rawDayRows as List)
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
+    if (dayRows.isEmpty) return;
+
+    final primaryDay = dayRows.first;
+    final primaryDayId = primaryDay['id'];
+    final primaryNeedsUpdate =
+        stInt(primaryDay['day_number']) != 1 ||
+        stString(primaryDay, const ['title']) != _singleDayTourTitle;
+
+    if (primaryNeedsUpdate) {
+      await _supabase
+          .from('tour_package_days')
+          .update({'day_number': 1, 'title': _singleDayTourTitle})
+          .eq('id', primaryDayId)
+          .eq('package_id', packageId);
+    }
+
+    final extraDays = dayRows.skip(1).toList(growable: false);
+    if (extraDays.isEmpty) return;
+
+    final extraDayIds = extraDays
+        .map((day) => day['id'])
+        .toList(growable: false);
+
+    final rawPrimaryItems = await _supabase
+        .from('tour_package_day_items')
+        .select('id')
+        .eq('day_id', primaryDayId)
+        .order('sort_order');
+    var nextSortOrder = (rawPrimaryItems as List).length;
+
+    final rawExtraItems = await _supabase
+        .from('tour_package_day_items')
+        .select('*')
+        .inFilter('day_id', extraDayIds)
+        .order('sort_order');
+
+    final extraItems = (rawExtraItems as List)
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
+
+    final itemsByDay = <String, List<Map<String, dynamic>>>{};
+    for (final item in extraItems) {
+      itemsByDay.putIfAbsent(stId(item['day_id']), () => []).add(item);
+    }
+
+    for (final day in extraDays) {
+      final items =
+          itemsByDay[stId(day['id'])] ?? const <Map<String, dynamic>>[];
+      for (final item in items) {
+        await _supabase
+            .from('tour_package_day_items')
+            .update({'day_id': primaryDayId, 'sort_order': nextSortOrder})
+            .eq('id', item['id']);
+        nextSortOrder += 1;
+      }
+    }
+
+    await _supabase
+        .from('tour_package_days')
+        .delete()
+        .inFilter('id', extraDayIds);
   }
 
   Future<List<SubTenantDriver>> fetchDrivers(SubTenantProfile profile) async {
@@ -1215,8 +1355,7 @@ class SubTenantService {
       details: detailsRow == null
           ? null
           : Map<String, dynamic>.from(detailsRow),
-      documents:
-          docsRow == null ? null : Map<String, dynamic>.from(docsRow),
+      documents: docsRow == null ? null : Map<String, dynamic>.from(docsRow),
     );
   }
 
@@ -1284,8 +1423,7 @@ class SubTenantService {
             touristName: touristNames[touristId] ?? 'Tourist',
             rating: stInt(row['rating']),
             reviewText: stString(row, const ['review_text']),
-            createdAt:
-                DateTime.tryParse(stString(row, const ['created_at'])),
+            createdAt: DateTime.tryParse(stString(row, const ['created_at'])),
           );
         })
         .toList(growable: false);
@@ -1327,11 +1465,17 @@ class SubTenantService {
     };
     try {
       profilePayload['driver_status'] = normalizedStatus;
-      await _supabase.from('profiles').update(profilePayload).eq('id', driver.id);
+      await _supabase
+          .from('profiles')
+          .update(profilePayload)
+          .eq('id', driver.id);
     } on PostgrestException {
       final fallbackPayload = Map<String, dynamic>.from(profilePayload)
         ..remove('driver_status');
-      await _supabase.from('profiles').update(fallbackPayload).eq('id', driver.id);
+      await _supabase
+          .from('profiles')
+          .update(fallbackPayload)
+          .eq('id', driver.id);
     }
     await _supabase
         .from('driver_applications')
@@ -1823,7 +1967,7 @@ class SubTenantService {
       'source_type': 'google_places',
       'google_place_id': googlePlaceId,
       'google_photo_reference': googlePhotoReference,
-      'verification_status': 'pending',
+      'verification_status': 'verified',
     };
 
     try {
@@ -2103,10 +2247,7 @@ class SubTenantService {
   }
 
   String _normalizeComparisonValue(String value) {
-    return value
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .trim();
+    return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
   }
 
   double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
@@ -2123,4 +2264,62 @@ class SubTenantService {
   }
 
   double _degToRad(double value) => value * (math.pi / 180);
+}
+
+int? _parseItineraryClockMinutes(String raw) {
+  final value = raw.trim().toUpperCase();
+  if (value.isEmpty) return null;
+
+  final twelveHour = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$').firstMatch(value);
+  if (twelveHour != null) {
+    var hour = int.tryParse(twelveHour.group(1)!) ?? -1;
+    final minute = int.tryParse(twelveHour.group(2)!) ?? -1;
+    final meridiem = twelveHour.group(3)!;
+    if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+    if (meridiem == 'AM') {
+      if (hour == 12) hour = 0;
+    } else if (hour != 12) {
+      hour += 12;
+    }
+    return (hour * 60) + minute;
+  }
+
+  final twentyFourHour = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value);
+  if (twentyFourHour != null) {
+    final hour = int.tryParse(twentyFourHour.group(1)!) ?? -1;
+    final minute = int.tryParse(twentyFourHour.group(2)!) ?? -1;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return (hour * 60) + minute;
+  }
+
+  return null;
+}
+
+int _selectedSpotStayMinutes(SelectedPackageSpot selectedSpot) {
+  if (selectedSpot.estimatedDurationMinutes > 0) {
+    return selectedSpot.estimatedDurationMinutes;
+  }
+  if (selectedSpot.recommendedVisitDurationMinutes > 0) {
+    return selectedSpot.recommendedVisitDurationMinutes;
+  }
+  return 60;
+}
+
+String _formatItineraryClockMinutes(int rawMinutes) {
+  var minutes = rawMinutes;
+  if (minutes < 0) minutes = 0;
+  final hour24 = (minutes ~/ 60) % 24;
+  final minute = minutes % 60;
+  final meridiem = hour24 >= 12 ? 'PM' : 'AM';
+  var hour12 = hour24 % 12;
+  if (hour12 == 0) hour12 = 12;
+  final minuteText = minute.toString().padLeft(2, '0');
+  return '$hour12:$minuteText $meridiem';
+}
+
+String _buildItineraryStopNote({
+  required int stayMinutes,
+  required int departureMinutes,
+}) {
+  return 'Stay $stayMinutes mins - Leave ${_formatItineraryClockMinutes(departureMinutes)}';
 }

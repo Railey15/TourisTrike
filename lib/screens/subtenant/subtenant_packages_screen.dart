@@ -759,7 +759,6 @@ class _PackageActionsButton extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       itemBuilder: (context) => [
         const PopupMenuItem(value: 'edit', child: Text('Edit Package')),
-        const PopupMenuItem(value: 'itinerary', child: Text('Manage Itinerary')),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: published ? 'unpublish' : 'publish',

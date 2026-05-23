@@ -46,6 +46,8 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
   _MunicipalityArea? _selectedArea;
   bool _usingManualLocation = false;
 
+  Set<String> _activeMunicipalities = {};
+
   // AI Preferences
   String _prefLocation = '';
   List<String> _prefCategories = [];
@@ -60,6 +62,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     _homeFuture = _loadHome();
     _startLocationWatch();
     _loadPreferences();
+    _loadActiveMunicipalities();
   }
 
   @override
@@ -279,6 +282,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                       itemBuilder: (_, i) {
                         final m = _bulacanMunicipalities[i];
                         final selectedNow = _selectedArea?.name == m.name;
+                        final isActive = _activeMunicipalities.contains(m.name);
 
                         return ListTile(
                           shape: RoundedRectangleBorder(
@@ -290,14 +294,20 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                           leading: CircleAvatar(
                             backgroundColor: selectedNow
                                 ? const Color(0xFF2A86FF)
-                                : const Color(0xFFE2E8F0),
+                                : isActive
+                                    ? const Color(0xFFDCFCE7)
+                                    : const Color(0xFFE2E8F0),
                             child: Icon(
                               selectedNow
                                   ? Icons.check_rounded
-                                  : Icons.place_rounded,
+                                  : isActive
+                                      ? Icons.store_rounded
+                                      : Icons.place_rounded,
                               color: selectedNow
                                   ? Colors.white
-                                  : const Color(0xFF64748B),
+                                  : isActive
+                                      ? const Color(0xFF16A34A)
+                                      : const Color(0xFF64748B),
                             ),
                           ),
                           title: Text(
@@ -307,8 +317,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                               color: Color(0xFF0F172A),
                             ),
                           ),
-                          subtitle: const Text(
-                            'Show famous spots and packages here',
+                          subtitle: Text(
+                            isActive
+                                ? 'Has packages & spots'
+                                : 'No listings yet',
+                            style: TextStyle(
+                              color: isActive
+                                  ? const Color(0xFF16A34A)
+                                  : const Color(0xFF94A3B8),
+                            ),
                           ),
                           onTap: () => Navigator.pop(context, m),
                         );
@@ -414,6 +431,24 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     } catch (e) {
       debugPrint('HOME location watch unavailable: $e');
     }
+  }
+
+  Future<void> _loadActiveMunicipalities() async {
+    try {
+      final rows = await supabase
+          .from('subtenant_details')
+          .select('city')
+          .eq('is_active', true);
+      if (!mounted) return;
+      setState(() {
+        _activeMunicipalities = {
+          for (final row in rows as List)
+            if (row['city'] is String &&
+                (row['city'] as String).trim().isNotEmpty)
+              (row['city'] as String).trim(),
+        };
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadPreferences() async {

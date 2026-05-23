@@ -87,9 +87,13 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
               dailyGoalAmount: widget.dailyGoalAmount,
             );
 
-            return CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680),
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
@@ -214,6 +218,8 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
                     ),
                   ),
               ],
+                ),
+              ),
             );
           },
         ),

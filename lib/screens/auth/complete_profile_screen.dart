@@ -266,8 +266,11 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                child: Column(
-                  children: [
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Column(
+                      children: [
                     _AvatarHeader(
                       imageFile: _imageFile,
                       uploading: _uploadingImage,
@@ -391,6 +394,8 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                 ),
               ),
             ),
+          ),
+        ),
           ],
         ),
       ),

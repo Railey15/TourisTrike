@@ -153,9 +153,12 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 26),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                     _TopBar(onBack: () => Navigator.maybePop(context)),
                     const SizedBox(height: 28),
                     const _HeroIcon(),
@@ -198,6 +201,8 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                 ),
               ),
             ),
+          ),
+        ),
           ],
         ),
       ),

@@ -345,7 +345,10 @@ class _SubTenantPackageFormScreenState
     final normalizedSuggestions = <String, List<_GPlaceSuggestion>>{};
     for (final entry in googleSuggestions.entries) {
       normalizedSuggestions[entry.key] = entry.value
-          .map((suggestion) => _toGoogleSuggestion(suggestion, fallbackTag: entry.key))
+          .map(
+            (suggestion) =>
+                _toGoogleSuggestion(suggestion, fallbackTag: entry.key),
+          )
           .toList(growable: false);
     }
 
@@ -450,12 +453,10 @@ class _SubTenantPackageFormScreenState
             : '';
         _distanceHint = metrics.available
             ? (metrics.usedDirectionsApi
-                ? 'Calculated from Google Maps route'
-                : 'Calculated with route fallback')
+                  ? 'Calculated from Google Maps route'
+                  : 'Calculated with route fallback')
             : 'Not available';
-        _durationCtrl.text = _buildDurationText(
-          metrics.travelDurationMinutes,
-        );
+        _durationCtrl.text = _buildDurationText(metrics.travelDurationMinutes);
         _durationHint = _durationCtrl.text.isEmpty
             ? 'Not available'
             : 'Auto-generated for a day tour';
@@ -511,9 +512,7 @@ class _SubTenantPackageFormScreenState
 
     final stayMinutes = _selectedSpots.fold<int>(
       0,
-      (sum, selectedSpot) =>
-          sum +
-          _preferredStayMinutes(selectedSpot),
+      (sum, selectedSpot) => sum + _preferredStayMinutes(selectedSpot),
     );
     final computedTravel = travelDurationMinutes > 0
         ? travelDurationMinutes
@@ -570,7 +569,9 @@ class _SubTenantPackageFormScreenState
     final value = raw.trim().toUpperCase();
     if (value.isEmpty) return null;
 
-    final twelveHour = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$').firstMatch(value);
+    final twelveHour = RegExp(
+      r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+    ).firstMatch(value);
     if (twelveHour != null) {
       var hour = int.tryParse(twelveHour.group(1)!) ?? -1;
       final minute = int.tryParse(twelveHour.group(2)!) ?? -1;
@@ -598,7 +599,30 @@ class _SubTenantPackageFormScreenState
   FareCalculation _fareCalculation(SubTenantFareSettings settings) {
     final distance =
         double.tryParse(_distanceCtrl.text.trim().replaceAll(',', '')) ?? 0;
-    return settings.calculate(routeDistanceKm: distance, groupSize: 1);
+    return settings.calculate(
+      routeDistanceKm: distance,
+      groupSize: 1,
+      waitingHours: _totalWaitingHours(),
+    );
+  }
+
+  int _totalWaitingMinutes() {
+    if (_selectedSpots.isEmpty) return 0;
+    return _selectedSpots.fold<int>(
+      0,
+      (sum, selectedSpot) => sum + _preferredStayMinutes(selectedSpot),
+    );
+  }
+
+  double _totalWaitingHours() => _totalWaitingMinutes() / 60.0;
+
+  String _totalWaitingLabel() {
+    final totalMinutes = _totalWaitingMinutes();
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return '${hours}h ${minutes}m';
+    if (hours > 0) return '${hours}h';
+    return '${minutes}m';
   }
 
   void _useSuggestedPrice(SubTenantFareSettings settings) {
@@ -788,7 +812,7 @@ class _SubTenantPackageFormScreenState
     return RegExp(r"^[A-Za-zÀ-ÖØ-öø-ÿÑñ' -]+$").hasMatch(trimmed);
   }
 
-  String? _validateWizard() {
+  String? _validateWizard({bool requirePrice = true}) {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) return 'Package title is required.';
     if (!_isValidPackageName(title)) {
@@ -797,7 +821,9 @@ class _SubTenantPackageFormScreenState
     if (_descriptionCtrl.text.trim().isEmpty) {
       return 'Package description is required.';
     }
-    if (_priceCtrl.text.trim().isEmpty) return 'Price text is required.';
+    if (requirePrice && _priceCtrl.text.trim().isEmpty) {
+      return 'Price text is required.';
+    }
     if (_selectedSpots.isEmpty) {
       return 'Add at least one destination to this package.';
     }
@@ -810,7 +836,9 @@ class _SubTenantPackageFormScreenState
 
     var cursor = earliestMinutes;
     for (final selectedSpot in _selectedSpots) {
-      final explicitArrival = _parseClockMinutes(selectedSpot.estimatedArrivalTime);
+      final explicitArrival = _parseClockMinutes(
+        selectedSpot.estimatedArrivalTime,
+      );
       final arrival = explicitArrival ?? cursor;
       final stayMinutes = _preferredStayMinutes(selectedSpot);
       final departure = arrival + stayMinutes;
@@ -866,6 +894,22 @@ class _SubTenantPackageFormScreenState
     return null;
   }
 
+  Future<String?> _validateBeforeItinerary(SubTenantProfile profile) async {
+    final basicMessage = _validateWizard(requirePrice: false);
+    if (basicMessage != null) return basicMessage;
+
+    final duplicate = await _service.checkDuplicatePackageComposition(
+      profile: profile,
+      selectedSpots: _selectedSpots,
+      excludePackageId: _workingPackageId,
+    );
+    if (duplicate.isDuplicate) {
+      return 'This package is too similar to an existing package.';
+    }
+
+    return null;
+  }
+
   Future<dynamic> _savePackageDraft(
     SubTenantProfile profile, {
     bool showSuccess = false,
@@ -875,8 +919,7 @@ class _SubTenantPackageFormScreenState
       _distanceCtrl.text.trim().replaceAll(',', ''),
     );
 
-    final published =
-        _status == 'published' && _visibility == 'visible';
+    final published = _status == 'published' && _visibility == 'visible';
 
     final id = await _service.savePackage(
       profile: profile,
@@ -920,7 +963,7 @@ class _SubTenantPackageFormScreenState
   Future<void> _ensurePackageAndLoadItinerary(SubTenantProfile profile) async {
     if (_wizardBusy) return;
 
-    final validationMessage = await _validateBeforeSave(profile);
+    final validationMessage = await _validateBeforeItinerary(profile);
     if (!mounted) return;
     if (validationMessage != null) {
       showSubTenantSnack(context, validationMessage);
@@ -934,15 +977,16 @@ class _SubTenantPackageFormScreenState
 
     try {
       await _savePackageDraft(profile);
-      var days = await _service.fetchItinerary(profile, _workingPackageId);
-      if (days.isEmpty) {
-        await _service.addPackageDay(profile, _workingPackageId, 1);
-        days = await _service.fetchItinerary(profile, _workingPackageId);
-      }
+      await _service.syncPackageItineraryFromSelectedSpots(
+        profile: profile,
+        packageId: _workingPackageId,
+        selectedSpots: _selectedSpots,
+      );
+      final days = await _service.fetchItinerary(profile, _workingPackageId);
       if (!mounted) return;
       setState(() {
         _itineraryDays = days;
-        _currentStep = 3;
+        _currentStep = 2;
       });
     } catch (error) {
       if (!mounted) return;
@@ -985,11 +1029,13 @@ class _SubTenantPackageFormScreenState
   Future<void> _handleNext(_BuilderData data) async {
     if (_wizardBusy) return;
 
-    if (_currentStep == 0 || _currentStep == 1) {
+    // Validate basic info only when on the first step
+    if (_currentStep == 0) {
       if (!_formKey.currentState!.validate()) return;
     }
 
-    if (_currentStep == 2) {
+    // When on the Spots step, prepare package and load itinerary (jump to itinerary)
+    if (_currentStep == 1) {
       await _ensurePackageAndLoadItinerary(data.profile);
       return;
     }
@@ -1002,15 +1048,6 @@ class _SubTenantPackageFormScreenState
   void _handleBack() {
     if (_wizardBusy || _currentStep == 0) return;
     setState(() => _currentStep -= 1);
-  }
-
-  List<SubTenantSpot> _itinerarySpots(_BuilderData data) {
-    if (_selectedSpots.isNotEmpty) {
-      return _selectedSpots.map((item) => item.spot).toList(growable: false);
-    }
-    return data.spots
-        .where((spot) => spot.status != 'archived')
-        .toList(growable: false);
   }
 
   Future<void> _reloadItinerary(SubTenantProfile profile) async {
@@ -1033,23 +1070,15 @@ class _SubTenantPackageFormScreenState
 
   Future<void> _addDay(SubTenantProfile profile) async {
     if (_workingPackageId == null || _itineraryLoading) return;
-    if (_itineraryDays.isNotEmpty) {
-      showSubTenantSnack(
-        context,
-        'Tour packages support one day itinerary only.',
-      );
-      return;
-    }
     setState(() => _itineraryLoading = true);
     try {
-      await _service.addPackageDay(
-        profile,
-        _workingPackageId,
-        _itineraryDays.length + 1,
-      );
+      await _syncGeneratedItinerary(profile);
       if (!mounted) return;
-      showSubTenantSnack(context, 'Package day added.', error: false);
-      await _reloadItinerary(profile);
+      showSubTenantSnack(
+        context,
+        'Day tour itinerary generated.',
+        error: false,
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() => _itineraryLoading = false);
@@ -1057,102 +1086,47 @@ class _SubTenantPackageFormScreenState
     }
   }
 
-  Future<void> _renameDay(
-    SubTenantProfile profile,
-    PackageItineraryDay day,
-  ) async {
-    final controller = TextEditingController(text: day.title);
-    final title = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename day'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Day title'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+  Future<void> _syncGeneratedItinerary(SubTenantProfile profile) async {
+    if (_workingPackageId == null) return;
+
+    await _service.savePackageSelectedSpots(
+      packageId: _workingPackageId,
+      selectedSpots: _selectedSpots,
     );
-    controller.dispose();
-
-    if (title == null || _workingPackageId == null) return;
-
-    setState(() => _itineraryLoading = true);
-    try {
-      await _service.updatePackageDayTitle(
-        profile,
-        _workingPackageId,
-        day.id,
-        title,
-      );
-      await _reloadItinerary(profile);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _itineraryLoading = false);
-      showSubTenantSnack(context, 'Failed to rename day: $error');
-    }
+    await _service.syncPackageItineraryFromSelectedSpots(
+      profile: profile,
+      packageId: _workingPackageId,
+      selectedSpots: _selectedSpots,
+    );
+    await _reloadItinerary(profile);
   }
 
   Future<void> _openItemForm(
     _BuilderData data,
-    PackageItineraryDay day, {
-    PackageItineraryItem? item,
-  }) async {
-    if (_workingPackageId == null) return;
-
-    final spots = _itinerarySpots(data);
-    if (spots.isEmpty) {
+    PackageItineraryItem item,
+  ) async {
+    final index = _selectedSpots.indexWhere(
+      (selectedSpot) => stId(selectedSpot.spot.id) == stId(item.spotId),
+    );
+    if (index < 0) {
       showSubTenantSnack(
         context,
-        'Select tourist spots for this package first before editing the itinerary.',
+        'This itinerary stop is no longer linked to the selected package spots.',
       );
       return;
     }
 
-    final saved = await showModalBottomSheet<bool>(
+    final updated = await showModalBottomSheet<SelectedPackageSpot>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ItineraryItemSheet(
-        service: _service,
-        profile: data.profile,
-        packageId: _workingPackageId,
-        day: day,
-        spots: spots,
-        item: item,
-      ),
+      builder: (_) =>
+          _SpotScheduleSheet(spot: _selectedSpots[index], forItinerary: true),
     );
 
-    if (saved == true) {
-      await _reloadItinerary(data.profile);
-    }
-  }
-
-  Future<void> _deleteItem(
-    SubTenantProfile profile,
-    PackageItineraryItem item,
-  ) async {
-    if (_workingPackageId == null) return;
-    setState(() => _itineraryLoading = true);
-    try {
-      await _service.deleteItineraryItem(profile, _workingPackageId, item);
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Itinerary item removed.', error: false);
-      await _reloadItinerary(profile);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _itineraryLoading = false);
-      showSubTenantSnack(context, 'Failed to remove item: $error');
-    }
+    if (updated == null || !mounted) return;
+    setState(() => _selectedSpots[index] = updated);
+    await _syncGeneratedItinerary(data.profile);
   }
 
   Future<void> _moveItem(
@@ -1167,31 +1141,31 @@ class _SubTenantPackageFormScreenState
       return;
     }
 
-    final items = [...day.items];
-    final moved = items.removeAt(oldIndex);
-    items.insert(newIndex, moved);
+    final movedSpotId = stId(day.items[oldIndex].spotId);
+    final sourceIndex = _selectedSpots.indexWhere(
+      (selectedSpot) => stId(selectedSpot.spot.id) == movedSpotId,
+    );
+    if (sourceIndex < 0) return;
 
-    setState(() => _itineraryLoading = true);
+    setState(() {
+      final moved = _selectedSpots.removeAt(sourceIndex);
+      _selectedSpots.insert(newIndex, moved);
+      _normalizeSelectedSpots();
+    });
+
     try {
-      await _service.updateItineraryItemOrder(
-        profile,
-        _workingPackageId,
-        items,
-      );
-      await _reloadItinerary(profile);
+      await _syncGeneratedItinerary(profile);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _itineraryLoading = false);
       showSubTenantSnack(context, 'Failed to reorder item: $error');
     }
   }
 
   String get _stepSubtitle => switch (_currentStep) {
     0 => 'Set the package title, description, city, and category.',
-    1 => 'Configure pricing, route details, images, and publish settings.',
-    2 => 'Pick the tourist spots to include and arrange their visit order.',
-    _ =>
-      'Build the day-by-day itinerary, then review everything before saving.',
+    1 => 'Pick the tourist spots to include and arrange their visit order.',
+    2 => 'Build the single-day itinerary from 7:00 AM to 5:00 PM.',
+    _ => 'Configure pricing, route details, images, and publish settings.',
   };
 
   @override
@@ -1278,49 +1252,7 @@ class _SubTenantPackageFormScreenState
                 ],
               );
       case 1:
-        return isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 58,
-                    child: Column(
-                      children: [
-                        _detailsCard(data),
-                        const SizedBox(height: 14),
-                        _imagesCard(data),
-                        const SizedBox(height: 14),
-                        _publishingCard(),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    flex: 42,
-                    child: Column(
-                      children: [
-                        _previewCard(),
-                        const SizedBox(height: 14),
-                        _fareBreakdownCard(data),
-                      ],
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                children: [
-                  _detailsCard(data),
-                  const SizedBox(height: 14),
-                  _imagesCard(data),
-                  const SizedBox(height: 14),
-                  _publishingCard(),
-                  const SizedBox(height: 14),
-                  _fareBreakdownCard(data),
-                  const SizedBox(height: 14),
-                  _previewCard(),
-                ],
-              );
-      case 2:
+        // Spots selection step (previously case 2)
         return isWide
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1359,7 +1291,8 @@ class _SubTenantPackageFormScreenState
                   _previewCard(),
                 ],
               );
-      default:
+      case 2:
+        // Itinerary editor step (previously default)
         return isWide
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1417,6 +1350,50 @@ class _SubTenantPackageFormScreenState
                   _previewCard(),
                 ],
               );
+      default:
+        // Details step moved to last (previously case 1)
+        return isWide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 58,
+                    child: Column(
+                      children: [
+                        _detailsCard(data),
+                        const SizedBox(height: 14),
+                        _imagesCard(data),
+                        const SizedBox(height: 14),
+                        _publishingCard(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    flex: 42,
+                    child: Column(
+                      children: [
+                        _previewCard(),
+                        const SizedBox(height: 14),
+                        _fareBreakdownCard(data),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  _detailsCard(data),
+                  const SizedBox(height: 14),
+                  _imagesCard(data),
+                  const SizedBox(height: 14),
+                  _publishingCard(),
+                  const SizedBox(height: 14),
+                  _fareBreakdownCard(data),
+                  const SizedBox(height: 14),
+                  _previewCard(),
+                ],
+              );
     }
   }
 
@@ -1465,7 +1442,7 @@ class _SubTenantPackageFormScreenState
                     onPressed: () => _saveAndClose(data.profile),
                   )
                 : SubTenantGradientButton(
-                    label: _currentStep == 2
+                    label: _currentStep == 1
                         ? 'Continue to Itinerary'
                         : 'Next Step',
                     icon: Icons.arrow_forward_rounded,
@@ -1570,13 +1547,13 @@ class _SubTenantPackageFormScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SubTenantSectionHeader(
-            title: 'Step 2: Package Details',
+            title: 'Step 4: Package Details',
             subtitle: 'Pricing, route details, and suggested fare.',
           ),
           const SizedBox(height: 14),
           SubTenantTextField(
             controller: _priceCtrl,
-            label: 'Price Text',
+            label: 'Price',
             hint: 'From PHP 1,200',
             validator: (value) =>
                 (value ?? '').trim().isEmpty ? 'Required' : null,
@@ -1593,9 +1570,7 @@ class _SubTenantPackageFormScreenState
           SubTenantTextField(
             controller: _budgetCtrl,
             label: 'Estimated Budget (PHP)',
-            keyboardType: const TextInputType.numberWithOptions(
-              decimal: true,
-            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 12),
           SubTenantTextField(
@@ -1618,6 +1593,7 @@ class _SubTenantPackageFormScreenState
           const SizedBox(height: 12),
           _PackageFareSuggestion(
             calculation: calculation,
+            waitingLabel: _totalWaitingLabel(),
             onUse: () => _useSuggestedPrice(data.fareSettings),
           ),
         ],
@@ -1743,8 +1719,7 @@ class _SubTenantPackageFormScreenState
           _dropdownLabel('Availability'),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue:
-                _status == 'published' && _visibility == 'visible'
+            initialValue: _status == 'published' && _visibility == 'visible'
                 ? 'published'
                 : 'draft',
             decoration: _dropdownDecoration(),
@@ -1769,6 +1744,7 @@ class _SubTenantPackageFormScreenState
 
   Widget _fareBreakdownCard(_BuilderData data) {
     final calculation = _fareCalculation(data.fareSettings);
+    final waitingLabel = _totalWaitingLabel();
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1790,6 +1766,18 @@ class _SubTenantPackageFormScreenState
             value: _distanceCtrl.text.trim().isEmpty
                 ? '0 km'
                 : '${_distanceCtrl.text.trim()} km',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.hourglass_bottom_rounded,
+            label: 'Total Waiting Time',
+            value: waitingLabel,
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.schedule_rounded,
+            label: 'Waiting Fee',
+            value: 'PHP ${calculation.waitingFee.toStringAsFixed(0)}',
           ),
         ],
       ),
@@ -1821,7 +1809,7 @@ class _SubTenantPackageFormScreenState
             children: [
               const Expanded(
                 child: SubTenantSectionHeader(
-                  title: 'Step 3: Smart Suggestions',
+                  title: 'Step 2: Smart Suggestions',
                   subtitle: 'Google Places recommendations by category.',
                 ),
               ),
@@ -2169,10 +2157,10 @@ class _SubTenantPackageFormScreenState
             children: [
               Expanded(
                 child: SubTenantSectionHeader(
-                  title: 'Step 4: Day Tour Itinerary',
+                  title: 'Step 3: Day Tour Itinerary',
                   subtitle: _workingPackageId == null
                       ? 'The package will be saved first before itinerary editing becomes available.'
-                      : 'Manage the single-day itinerary without leaving this form.',
+                      : 'Manage the single-day itinerary from 7:00 AM to 5:00 PM.',
                 ),
               ),
             ],
@@ -2195,7 +2183,7 @@ class _SubTenantPackageFormScreenState
               icon: Icons.map_outlined,
               title: 'No day tour itinerary yet',
               message:
-                  'Create the single-day itinerary using the selected tourist spots.',
+                  'Create the 7:00 AM to 5:00 PM day tour using the selected tourist spots.',
               actionLabel: 'Start Itinerary',
               onAction: () => _addDay(data.profile),
             )
@@ -2205,10 +2193,7 @@ class _SubTenantPackageFormScreenState
                 padding: const EdgeInsets.only(bottom: 14),
                 child: _WizardDayCard(
                   day: day,
-                  onRename: () => _renameDay(data.profile, day),
-                  onAddItem: () => _openItemForm(data, day),
-                  onEditItem: (item) => _openItemForm(data, day, item: item),
-                  onDeleteItem: (item) => _deleteItem(data.profile, item),
+                  onEditItem: (item) => _openItemForm(data, item),
                   onMoveItem: (oldIndex, newIndex) =>
                       _moveItem(data.profile, day, oldIndex, newIndex),
                 ),
@@ -2277,7 +2262,7 @@ class _WizardProgressCard extends StatelessWidget {
   final int currentStep;
   final String subtitle;
 
-  static const _steps = ['Basic Info', 'Details', 'Spots', 'Itinerary'];
+  static const _steps = ['Basic Info', 'Spots', 'Itinerary', 'Details'];
 
   @override
   Widget build(BuildContext context) {
@@ -2363,10 +2348,12 @@ class _WizardProgressCard extends StatelessWidget {
 class _PackageFareSuggestion extends StatelessWidget {
   const _PackageFareSuggestion({
     required this.calculation,
+    required this.waitingLabel,
     required this.onUse,
   });
 
   final FareCalculation calculation;
+  final String waitingLabel;
   final VoidCallback onUse;
 
   String _money(double value) => 'PHP ${value.toStringAsFixed(0)}';
@@ -2376,9 +2363,7 @@ class _PackageFareSuggestion extends StatelessWidget {
     final rows = [
       ('Base fare', calculation.baseFare),
       ('Distance fee', calculation.distanceFee),
-      ('Passenger fee', calculation.passengerFee),
-      ('Waiting fee', calculation.waitingFee),
-      ('Guide/service fee', calculation.guideFee),
+      ('Waiting fee ($waitingLabel)', calculation.waitingFee),
       if (calculation.minimumFareAdjustment > 0)
         ('Minimum fare adjustment', calculation.minimumFareAdjustment),
     ];
@@ -2782,7 +2767,15 @@ class _SelectedSpotTile extends StatelessWidget {
       parts.add('Arrive ${selectedSpot.estimatedArrivalTime}');
     }
     if (selectedSpot.estimatedDurationMinutes > 0) {
-      parts.add('Stay ${selectedSpot.estimatedDurationMinutes}m');
+      final departure = _scheduleDepartureLabel(
+        selectedSpot.estimatedArrivalTime,
+        selectedSpot.estimatedDurationMinutes,
+      );
+      parts.add(
+        departure == null
+            ? 'Stay ${selectedSpot.estimatedDurationMinutes}m'
+            : 'Stay ${selectedSpot.estimatedDurationMinutes}m, leave $departure',
+      );
     } else if (selectedSpot.recommendedVisitDurationMinutes > 0) {
       parts.add('Recommended ${selectedSpot.recommendedVisitDurationMinutes}m');
     }
@@ -2797,57 +2790,148 @@ class _SelectedSpotTile extends StatelessWidget {
   }
 }
 
+String? _scheduleDepartureLabel(String arrivalTime, int durationMinutes) {
+  if (durationMinutes <= 0) return null;
+  final arrival = _parseScheduleTime(arrivalTime);
+  if (arrival == null) return null;
+  return _formatScheduleTime(arrival + durationMinutes);
+}
+
+int? _parseScheduleTime(String raw) {
+  final value = raw.trim().toUpperCase();
+  if (value.isEmpty) return null;
+
+  final twelveHour = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$').firstMatch(value);
+  if (twelveHour != null) {
+    var hour = int.tryParse(twelveHour.group(1)!) ?? -1;
+    final minute = int.tryParse(twelveHour.group(2)!) ?? -1;
+    final meridiem = twelveHour.group(3)!;
+    if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+    if (meridiem == 'AM') {
+      if (hour == 12) hour = 0;
+    } else if (hour != 12) {
+      hour += 12;
+    }
+    return (hour * 60) + minute;
+  }
+
+  final twentyFourHour = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value);
+  if (twentyFourHour != null) {
+    final hour = int.tryParse(twentyFourHour.group(1)!) ?? -1;
+    final minute = int.tryParse(twentyFourHour.group(2)!) ?? -1;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return (hour * 60) + minute;
+  }
+
+  return null;
+}
+
+String _formatScheduleTime(int rawMinutes) {
+  var minutes = rawMinutes;
+  if (minutes < 0) minutes = 0;
+  final hour24 = (minutes ~/ 60) % 24;
+  final minute = minutes % 60;
+  final meridiem = hour24 >= 12 ? 'PM' : 'AM';
+  var hour12 = hour24 % 12;
+  if (hour12 == 0) hour12 = 12;
+  final minuteText = minute.toString().padLeft(2, '0');
+  return '$hour12:$minuteText $meridiem';
+}
+
+class _ScheduleDropdown<T> extends StatelessWidget {
+  const _ScheduleDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.itemLabel,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T? value;
+  final List<T> items;
+  final String Function(T value) itemLabel;
+  final ValueChanged<T?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<T>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: SubTenantColors.line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: SubTenantColors.line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: SubTenantColors.blue, width: 1.3),
+        ),
+      ),
+      items: items
+          .map(
+            (item) =>
+                DropdownMenuItem<T>(value: item, child: Text(itemLabel(item))),
+          )
+          .toList(growable: false),
+      onChanged: onChanged,
+    );
+  }
+}
+
 class _SpotScheduleSheet extends StatefulWidget {
-  const _SpotScheduleSheet({required this.spot});
+  const _SpotScheduleSheet({required this.spot, this.forItinerary = false});
 
   final SelectedPackageSpot spot;
+  final bool forItinerary;
 
   @override
   State<_SpotScheduleSheet> createState() => _SpotScheduleSheetState();
 }
 
 class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
-  late final TextEditingController _openingCtrl;
-  late final TextEditingController _closingCtrl;
-  late final TextEditingController _arrivalCtrl;
-  late final TextEditingController _durationCtrl;
-  late final TextEditingController _recommendedCtrl;
+  late String? _openingTime;
+  late String? _closingTime;
+  late String? _arrivalTime;
+  late int? _stayDurationMinutes;
+  late int? _recommendedDurationMinutes;
+
+  static final List<String> _timeOptions = [
+    for (var minutes = 7 * 60; minutes <= 17 * 60; minutes += 15)
+      _formatScheduleTime(minutes),
+  ];
+
+  static final List<int> _durationOptions = [
+    for (var minutes = 15; minutes <= 240; minutes += 15) minutes,
+  ];
 
   @override
   void initState() {
     super.initState();
-    _openingCtrl = TextEditingController(text: widget.spot.openingTime);
-    _closingCtrl = TextEditingController(text: widget.spot.closingTime);
-    _arrivalCtrl = TextEditingController(
-      text: widget.spot.estimatedArrivalTime,
+    _openingTime = _normalizeTimeValue(widget.spot.openingTime);
+    _closingTime = _normalizeTimeValue(widget.spot.closingTime);
+    _arrivalTime = _normalizeTimeValue(widget.spot.estimatedArrivalTime);
+    _stayDurationMinutes = _normalizeDurationValue(
+      widget.spot.estimatedDurationMinutes,
     );
-    _durationCtrl = TextEditingController(
-      text: widget.spot.estimatedDurationMinutes <= 0
-          ? ''
-          : widget.spot.estimatedDurationMinutes.toString(),
+    _recommendedDurationMinutes = _normalizeDurationValue(
+      widget.spot.recommendedVisitDurationMinutes,
     );
-    _recommendedCtrl = TextEditingController(
-      text: widget.spot.recommendedVisitDurationMinutes <= 0
-          ? ''
-          : widget.spot.recommendedVisitDurationMinutes.toString(),
-    );
-  }
-
-  @override
-  void dispose() {
-    _openingCtrl.dispose();
-    _closingCtrl.dispose();
-    _arrivalCtrl.dispose();
-    _durationCtrl.dispose();
-    _recommendedCtrl.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final departureLabel = _departurePreview();
     return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         decoration: const BoxDecoration(
@@ -2880,9 +2964,11 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Set visit hours and package-specific schedule timing for this tourist spot.',
-                style: TextStyle(
+              Text(
+                widget.forItinerary
+                    ? 'Adjust the auto-generated day tour schedule for this stop.'
+                    : 'Set visit hours and package-specific schedule timing for this tourist spot.',
+                style: const TextStyle(
                   color: SubTenantColors.muted,
                   fontWeight: FontWeight.w700,
                 ),
@@ -2891,18 +2977,24 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: SubTenantTextField(
-                      controller: _openingCtrl,
+                    child: _ScheduleDropdown<String>(
                       label: 'Opening Time',
-                      hint: '08:00',
+                      value: _openingTime,
+                      items: _timeOptions,
+                      itemLabel: (value) => value,
+                      onChanged: (value) =>
+                          setState(() => _openingTime = value),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: SubTenantTextField(
-                      controller: _closingCtrl,
+                    child: _ScheduleDropdown<String>(
                       label: 'Closing Time',
-                      hint: '17:00',
+                      value: _closingTime,
+                      items: _timeOptions,
+                      itemLabel: (value) => value,
+                      onChanged: (value) =>
+                          setState(() => _closingTime = value),
                     ),
                   ),
                 ],
@@ -2911,30 +3003,57 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: SubTenantTextField(
-                      controller: _arrivalCtrl,
-                      label: 'Estimated Arrival',
-                      hint: '09:00',
+                    child: _ScheduleDropdown<String>(
+                      label: 'Arrival Time',
+                      value: _arrivalTime,
+                      items: _timeOptions,
+                      itemLabel: (value) => value,
+                      onChanged: (value) =>
+                          setState(() => _arrivalTime = value),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: SubTenantTextField(
-                      controller: _durationCtrl,
+                    child: _ScheduleDropdown<int>(
                       label: 'Stay Duration (min)',
-                      hint: '45',
-                      keyboardType: TextInputType.number,
+                      value: _stayDurationMinutes,
+                      items: _durationOptions,
+                      itemLabel: (value) => '$value mins',
+                      onChanged: (value) =>
+                          setState(() => _stayDurationMinutes = value),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
-              SubTenantTextField(
-                controller: _recommendedCtrl,
+              _ScheduleDropdown<int>(
                 label: 'Recommended Visit Duration (min)',
-                hint: '60',
-                keyboardType: TextInputType.number,
+                value: _recommendedDurationMinutes,
+                items: _durationOptions,
+                itemLabel: (value) => '$value mins',
+                onChanged: (value) =>
+                    setState(() => _recommendedDurationMinutes = value),
               ),
+              if (departureLabel != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FBFF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: SubTenantColors.line),
+                  ),
+                  child: Text(
+                    'Departure preview: $departureLabel',
+                    style: const TextStyle(
+                      color: SubTenantColors.text,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               SubTenantGradientButton(
                 label: 'Save Spot Schedule',
@@ -2945,13 +3064,12 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
                     SelectedPackageSpot(
                       spot: widget.spot.spot,
                       sortOrder: widget.spot.sortOrder,
-                      openingTime: _openingCtrl.text.trim(),
-                      closingTime: _closingCtrl.text.trim(),
-                      estimatedArrivalTime: _arrivalCtrl.text.trim(),
-                      estimatedDurationMinutes:
-                          int.tryParse(_durationCtrl.text.trim()) ?? 0,
+                      openingTime: _openingTime ?? '',
+                      closingTime: _closingTime ?? '',
+                      estimatedArrivalTime: _arrivalTime ?? '',
+                      estimatedDurationMinutes: _stayDurationMinutes ?? 0,
                       recommendedVisitDurationMinutes:
-                          int.tryParse(_recommendedCtrl.text.trim()) ?? 0,
+                          _recommendedDurationMinutes ?? 0,
                     ),
                   );
                 },
@@ -2962,23 +3080,40 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
       ),
     );
   }
+
+  String? _departurePreview() {
+    final arrival = _arrivalTime;
+    final stay = _stayDurationMinutes;
+    if (arrival == null || stay == null || stay <= 0) return null;
+    final arrivalMinutes = _parseScheduleTime(arrival);
+    if (arrivalMinutes == null) return null;
+    return _formatScheduleTime(arrivalMinutes + stay);
+  }
+
+  static String? _normalizeTimeValue(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final minutes = _parseScheduleTime(trimmed);
+    if (minutes == null) return null;
+    final formatted = _formatScheduleTime(minutes);
+    return _timeOptions.contains(formatted) ? formatted : null;
+  }
+
+  static int? _normalizeDurationValue(int raw) {
+    if (raw <= 0) return null;
+    return _durationOptions.contains(raw) ? raw : null;
+  }
 }
 
 class _WizardDayCard extends StatelessWidget {
   const _WizardDayCard({
     required this.day,
-    required this.onRename,
-    required this.onAddItem,
     required this.onEditItem,
-    required this.onDeleteItem,
     required this.onMoveItem,
   });
 
   final PackageItineraryDay day;
-  final VoidCallback onRename;
-  final VoidCallback onAddItem;
   final ValueChanged<PackageItineraryItem> onEditItem;
-  final ValueChanged<PackageItineraryItem> onDeleteItem;
   final void Function(int oldIndex, int newIndex) onMoveItem;
 
   @override
@@ -2995,22 +3130,10 @@ class _WizardDayCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: SubTenantSectionHeader(
-                  title: 'Day ${day.dayNumber}',
-                  subtitle: day.title,
+                child: const SubTenantSectionHeader(
+                  title: 'Day Tour',
+                  subtitle: '7:00 AM to 5:00 PM',
                 ),
-              ),
-              IconButton(
-                tooltip: 'Rename day',
-                onPressed: onRename,
-                icon: const Icon(Icons.edit_rounded),
-                color: SubTenantColors.blue,
-              ),
-              IconButton(
-                tooltip: 'Add stop',
-                onPressed: onAddItem,
-                icon: const Icon(Icons.add_location_alt_rounded),
-                color: SubTenantColors.blue,
               ),
             ],
           ),
@@ -3018,8 +3141,9 @@ class _WizardDayCard extends StatelessWidget {
           if (day.items.isEmpty)
             const SubTenantEmptyState(
               icon: Icons.route_outlined,
-              title: 'No stops for this day',
-              message: 'Add itinerary items from the selected tourist spots.',
+              title: 'No stops for this day tour',
+              message:
+                  'Return to the Spots step to configure destinations, then generate the itinerary again.',
             )
           else
             ...day.items.asMap().entries.map(
@@ -3028,7 +3152,6 @@ class _WizardDayCard extends StatelessWidget {
                 index: entry.key,
                 total: day.items.length,
                 onEdit: () => onEditItem(entry.value),
-                onDelete: () => onDeleteItem(entry.value),
                 onMoveUp: () => onMoveItem(entry.key, entry.key - 1),
                 onMoveDown: () => onMoveItem(entry.key, entry.key + 1),
               ),
@@ -3045,7 +3168,6 @@ class _WizardItineraryTile extends StatelessWidget {
     required this.index,
     required this.total,
     required this.onEdit,
-    required this.onDelete,
     required this.onMoveUp,
     required this.onMoveDown,
   });
@@ -3054,7 +3176,6 @@ class _WizardItineraryTile extends StatelessWidget {
   final int index;
   final int total;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
 
@@ -3152,13 +3273,6 @@ class _WizardItineraryTile extends StatelessWidget {
                     onPressed: onEdit,
                     icon: const Icon(Icons.edit_rounded),
                     color: SubTenantColors.blue,
-                  ),
-                  IconButton(
-                    tooltip: 'Delete',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    color: const Color(0xFFDC2626),
                   ),
                 ],
               ),
@@ -3306,6 +3420,7 @@ class _ItineraryItemSheetState extends State<_ItineraryItemSheet> {
                 controller: _timeCtrl,
                 label: 'Time Label',
                 hint: '09:00 AM',
+                helperText: 'Use a stop time between 7:00 AM and 5:00 PM.',
               ),
               const SizedBox(height: 14),
               SubTenantTextField(
@@ -3407,7 +3522,7 @@ class _PackageReviewCard extends StatelessWidget {
           _ReviewMetric(
             icon: Icons.calendar_view_day_rounded,
             label: 'Itinerary Days',
-            value: '$itineraryDayCount',
+            value: itineraryDayCount <= 0 ? '0' : '1',
           ),
           const SizedBox(height: 10),
           _ReviewMetric(

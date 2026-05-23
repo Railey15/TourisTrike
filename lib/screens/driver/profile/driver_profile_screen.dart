@@ -65,32 +65,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       ),
     );
 
-    if (confirmed != true) return;
-
-    if (mounted) {
-      setState(() => _loggingOut = true);
-    }
+    if (confirmed != true || !mounted) return;
 
     try {
-      await Supabase.instance.client.auth.signOut();
-      if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
       );
+
+      await Supabase.instance.client.auth.signOut();
     } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to log out: $error'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFFDC2626),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _loggingOut = false);
-      }
+      // Optional: ignore logout navigation errors
     }
   }
 
@@ -302,14 +287,6 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                           onTap: () => _navigateTo(
                             DriverOnlineStatusScreen(bundle: bundle),
                           ),
-                        ),
-                        DriverSettingsTile(
-                          icon: Icons.verified_user_outlined,
-                          title: 'Role',
-                          trailingText: profile.role,
-                          onTap: () =>
-                              _navigateTo(DriverRoleScreen(bundle: bundle)),
-                          showDivider: false,
                         ),
                       ],
                     ),

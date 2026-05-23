@@ -136,7 +136,11 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
         backgroundColor: const Color(0xFFF5F7FB),
         bottomNavigationBar: const AppBottomNav(selectedIndex: 4),
         body: SafeArea(
-        child: Column(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: Column(
           children: [
             // Header
             Padding(
@@ -217,6 +221,8 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
               ),
             ),
           ],
+        ),
+          ),
         ),
       ),
     ));

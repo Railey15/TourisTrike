@@ -89,8 +89,8 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
       });
     }
     try {
-      final wallet = await _repo.fetchOrCreateWallet(role: 'driver');
-      final transactions = await _repo.fetchWalletTransactions(role: 'driver');
+      final wallet = await _repo.fetchOrCreateWallet(role: 'tourist');
+      final transactions = await _repo.fetchWalletTransactions(role: 'tourist');
       if (!mounted) return;
       setState(() {
         _wallet = wallet;
@@ -201,7 +201,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
               if (_isSuccessfulStatus(status)) {
                 _pendingCashInTransactionId = null;
                 _showSnack(
-                  'Driver wallet cash-in completed.',
+                  'Wallet cash-in completed.',
                   backgroundColor: const Color(0xFF16A34A),
                 );
               } else if (status == 'failed') {
@@ -276,7 +276,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
     _refreshingCheckoutState = true;
     if (showIntroSnack) {
       _showSnack(
-        'Payment received. Refreshing your driver wallet...',
+        'Payment received. Refreshing your wallet...',
         backgroundColor: const Color(0xFF2F6FFF),
       );
     }
@@ -299,7 +299,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
           if (_isSuccessfulStatus(status)) {
             _pendingCashInTransactionId = null;
             _showSnack(
-              'Driver wallet cash-in completed.',
+              'Wallet cash-in completed.',
               backgroundColor: const Color(0xFF16A34A),
             );
             return;
@@ -402,44 +402,50 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
             : RefreshIndicator(
                 onRefresh: _reload,
                 color: const Color(0xFF2F6FFF),
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-                  children: [
-                    _DriverWalletHero(
-                      wallet: _wallet!,
-                      balanceHidden: _balanceHidden,
-                      onToggleHide: () {
-                        setState(() => _balanceHidden = !_balanceHidden);
-                      },
-                      onCashIn: _showCashIn,
-                      onScanToPay: _showScanToPay,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 680),
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                      children: [
+                        _DriverWalletHero(
+                          wallet: _wallet!,
+                          balanceHidden: _balanceHidden,
+                          onToggleHide: () {
+                            setState(() => _balanceHidden = !_balanceHidden);
+                          },
+                          onCashIn: _showCashIn,
+                          onScanToPay: _showScanToPay,
+                        ),
+                        const SizedBox(height: 16),
+                        _DriverWalletStats(activities: _activities),
+                        const SizedBox(height: 22),
+                        const Text(
+                          'Recent Earnings',
+                          style: TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _DriverEarningsList(activities: _activities),
+                        const SizedBox(height: 22),
+                        const Text(
+                          'Transaction History',
+                          style: TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _DriverTransactionList(transactions: _transactions),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    _DriverWalletStats(activities: _activities),
-                    const SizedBox(height: 22),
-                    const Text(
-                      'Recent Earnings',
-                      style: TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _DriverEarningsList(activities: _activities),
-                    const SizedBox(height: 22),
-                    const Text(
-                      'Transaction History',
-                      style: TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _DriverTransactionList(transactions: _transactions),
-                  ],
+                  ),
                 ),
               ),
       ),
@@ -1057,7 +1063,7 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
     final amount = double.tryParse(raw.replaceAll(',', ''));
 
     if (amount == null || amount < 50) {
-      setState(() => _error = 'Minimum cash-in is PHP 50.');
+      setState(() => _error = 'Minimum cash-in is ₱50.');
       return;
     }
 
@@ -1070,7 +1076,6 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
       final result = await widget.repo.cashIn(
         amount: amount,
         paymentMethod: _method,
-        role: 'driver',
       );
 
       final checkoutUrl = result['checkout_url'] as String?;
@@ -1136,7 +1141,7 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
           ),
           const SizedBox(height: 16),
           const Text(
-            'Top Up Driver Wallet',
+            'Cash In',
             style: TextStyle(
               color: Color(0xFF0F172A),
               fontWeight: FontWeight.w900,
@@ -1145,7 +1150,7 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Add funds using GCash, Maya, or card.',
+            'Add money to your TourisPay wallet',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontWeight: FontWeight.w700,
@@ -1234,7 +1239,7 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
               FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
             ],
             decoration: InputDecoration(
-              prefixText: 'PHP  ',
+              prefixText: '₱  ',
               prefixStyle: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
@@ -1282,7 +1287,7 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
                             borderRadius: BorderRadius.circular(99),
                           ),
                           child: Text(
-                            'PHP ${amount.toStringAsFixed(0)}',
+                            '₱${amount.toStringAsFixed(0)}',
                             style: const TextStyle(
                               color: Color(0xFF2F6FFF),
                               fontWeight: FontWeight.w900,
@@ -1305,7 +1310,7 @@ class _DriverCashInSheetState extends State<_DriverCashInSheet> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: const Text(
-              'Chrome or your external browser will open automatically. After payment, PayMongo will return you to the driver wallet screen.',
+              'Chrome or your external browser will open automatically. After you pay, PayMongo will return you to the wallet screen.',
               style: TextStyle(
                 color: Color(0xFF1E3A8A),
                 fontWeight: FontWeight.w700,

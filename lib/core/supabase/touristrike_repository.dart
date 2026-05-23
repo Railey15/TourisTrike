@@ -2220,4 +2220,20 @@ class TourisTrikeRepository {
       rethrow;
     }
   }
+
+  Future<Set<String>> fetchActiveMunicipalities() async {
+    try {
+      final rows = await _client
+          .from(TourisTrikeTables.subtenantDetails)
+          .select('city')
+          .eq('is_active', true);
+      return {
+        for (final row in _rows(rows))
+          if (row['city'] is String && (row['city'] as String).trim().isNotEmpty)
+            (row['city'] as String).trim(),
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
 }

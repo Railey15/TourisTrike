@@ -23,7 +23,11 @@ class DriverProfilePageScaffold extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       body: SafeArea(
-        child: Column(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -72,6 +76,8 @@ class DriverProfilePageScaffold extends StatelessWidget {
             ),
             Expanded(child: child),
           ],
+        ),
+          ),
         ),
       ),
       bottomNavigationBar: bottomBar == null

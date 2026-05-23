@@ -362,64 +362,68 @@ class _TouristWalletScreenState extends State<TouristWalletScreen>
           top: false,
           child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 2)),
         ),
-      body: SafeArea(
-        child: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
-              )
-            : _loadError != null
-                ? _ErrorState(
-                    message: _loadError!,
-                    onRetry: () => unawaited(_loadWalletData()),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _reload,
-                    color: const Color(0xFF2A86FF),
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: [
-                        _WalletCard(
-                          wallet: _wallet!,
-                          balanceHidden: _balanceHidden,
-                          onToggleHide: () {
-                            setState(() => _balanceHidden = !_balanceHidden);
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                        Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 20),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        body: SafeArea(
+          child: _loading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
+                )
+              : _loadError != null
+                  ? _ErrorState(
+                      message: _loadError!,
+                      onRetry: () => unawaited(_loadWalletData()),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _reload,
+                      color: const Color(0xFF2A86FF),
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 680),
+                          child: ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
                             children: [
-                              _ActionButton(
-                                icon: Icons.add_rounded,
-                                label: 'Cash In',
-                                color: const Color(0xFF2A86FF),
-                                onTap: _showCashIn,
+                              _WalletCard(
+                                wallet: _wallet!,
+                                balanceHidden: _balanceHidden,
+                                onToggleHide: () {
+                                  setState(() => _balanceHidden = !_balanceHidden);
+                                },
                               ),
-                              _ActionButton(
-                                icon: Icons.qr_code_scanner_rounded,
-                                label: 'Scan To Pay',
-                                color: const Color(0xFF16A34A),
-                                onTap: _showScanToPay,
+                              const SizedBox(height: 20),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _ActionButton(
+                                      icon: Icons.add_rounded,
+                                      label: 'Cash In',
+                                      color: const Color(0xFF2A86FF),
+                                      onTap: _showCashIn,
+                                    ),
+                                    _ActionButton(
+                                      icon: Icons.qr_code_scanner_rounded,
+                                      label: 'Scan To Pay',
+                                      color: const Color(0xFF16A34A),
+                                      onTap: _showScanToPay,
+                                    ),
+                                  ],
+                                ),
                               ),
+                              const SizedBox(height: 24),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: _TransactionList(transactions: _transactions),
+                              ),
+                              const SizedBox(height: 20),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 24),
-                        Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 16),
-                          child: _TransactionList(
-                              transactions: _transactions),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                      ),
                     ),
-                  ),
+        ),
       ),
-    ));
+    );
   }
 }
 

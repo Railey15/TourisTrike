@@ -46,6 +46,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   late Future<_ExploreData> _future;
 
   LatLng? _lastKnownCenter;
+  Set<String> _activeMunicipalities = {};
 
   static const List<_CategoryChipModel> _spotCategories = [
     _CategoryChipModel('Historical', icon: Icons.account_balance_outlined),
@@ -70,6 +71,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     super.initState();
     _future = _loadExploreData();
     touristLocationStore.addListener(_onLocationSelectionChanged);
+    _loadActiveMunicipalities();
   }
 
   @override
@@ -119,6 +121,24 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   void _onLocationSelectionChanged() {
     if (!mounted) return;
     setState(() => _future = _loadExploreData());
+  }
+
+  Future<void> _loadActiveMunicipalities() async {
+    try {
+      final rows = await supabase
+          .from('subtenant_details')
+          .select('city')
+          .eq('is_active', true);
+      if (!mounted) return;
+      setState(() {
+        _activeMunicipalities = {
+          for (final row in rows as List)
+            if (row['city'] is String &&
+                (row['city'] as String).trim().isNotEmpty)
+              (row['city'] as String).trim(),
+        };
+      });
+    } catch (_) {}
   }
 
   Future<LatLng> _resolveCurrentCenter() async {
@@ -681,6 +701,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                       itemBuilder: (_, i) {
                         final m = touristBulacanMunicipalities[i];
                         final selectedNow = selectedArea?.name == m.name;
+                        final isActive = _activeMunicipalities.contains(m.name);
 
                         return ListTile(
                           shape: RoundedRectangleBorder(
@@ -692,14 +713,20 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                           leading: CircleAvatar(
                             backgroundColor: selectedNow
                                 ? const Color(0xFF2A86FF)
-                                : const Color(0xFFE2E8F0),
+                                : isActive
+                                    ? const Color(0xFFDCFCE7)
+                                    : const Color(0xFFE2E8F0),
                             child: Icon(
                               selectedNow
                                   ? Icons.check_rounded
-                                  : Icons.place_rounded,
+                                  : isActive
+                                      ? Icons.store_rounded
+                                      : Icons.place_rounded,
                               color: selectedNow
                                   ? Colors.white
-                                  : const Color(0xFF64748B),
+                                  : isActive
+                                      ? const Color(0xFF16A34A)
+                                      : const Color(0xFF64748B),
                             ),
                           ),
                           title: Text(
@@ -709,8 +736,15 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                               color: Color(0xFF0F172A),
                             ),
                           ),
-                          subtitle: const Text(
-                            'Show famous spots and packages here',
+                          subtitle: Text(
+                            isActive
+                                ? 'Has packages & spots'
+                                : 'No listings yet',
+                            style: TextStyle(
+                              color: isActive
+                                  ? const Color(0xFF16A34A)
+                                  : const Color(0xFF94A3B8),
+                            ),
                           ),
                           onTap: () => Navigator.pop(context, m),
                         );

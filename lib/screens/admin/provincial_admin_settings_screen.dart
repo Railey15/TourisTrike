@@ -230,13 +230,6 @@ class _DesktopSettingsLayout extends StatelessWidget {
                             settings.copyWith(systemNotices: value),
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        _LanguageBox(
-                          value: settings.language,
-                          onChanged: (value) => onChanged(
-                            settings.copyWith(language: value),
-                          ),
-                        ),
                       ],
                     ),
                   ),

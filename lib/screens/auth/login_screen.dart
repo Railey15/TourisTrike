@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/screens/driver/profile/driver_profile_completion_screen.dart';
 import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
-
+import 'web_portal_login_screen.dart';
 import 'signup_screen.dart';
 import 'complete_profile_screen.dart';
 import '../tourist/tourist_home_screen.dart';
@@ -243,36 +243,39 @@ class _LoginScreenState extends State<LoginScreen> {
                         _Header(height: headerHeight),
                         Transform.translate(
                           offset: const Offset(0, -34),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Column(
-                              children: [
-                                _LoginCard(
-                                  formKey: _formKey,
-                                  emailCtrl: _emailCtrl,
-                                  passwordCtrl: _passwordCtrl,
-                                  obscure: _obscure,
-                                  loading: _loading,
-                                  onTogglePassword: () {
-                                    setState(() => _obscure = !_obscure);
-                                  },
-                                  onLogin: _loading ? null : _login,
-                                  onResetPassword: _loading
-                                      ? null
-                                      : _resetPassword,
-                                  onSignUp: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const SignupScreen(),
-                                      ),
-                                    );
-                                  },
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 480),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                child: Column(
+                                  children: [
+                                    _LoginCard(
+                                      formKey: _formKey,
+                                      emailCtrl: _emailCtrl,
+                                      passwordCtrl: _passwordCtrl,
+                                      obscure: _obscure,
+                                      loading: _loading,
+                                      onTogglePassword: () {
+                                        setState(() => _obscure = !_obscure);
+                                      },
+                                      onLogin: _loading ? null : _login,
+                                      onResetPassword: _loading ? null : _resetPassword,
+                                      onSignUp: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => const SignupScreen(),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _TermsText(context: context),
+                                    const SizedBox(height: 28),
+                                  ],
                                 ),
-                                const SizedBox(height: 18),
-                                _TermsText(context: context),
-                                const SizedBox(height: 28),
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -457,6 +460,43 @@ class _LoginCard extends StatelessWidget {
                 onPressed: onLogin,
               ),
             ),
+
+            // Small Admin Login button for mobile
+            if (MediaQuery.of(context).size.width < 700) ...[
+              const SizedBox(height: 10),
+
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const WebPortalLoginScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.admin_panel_settings_outlined,
+                    size: 14,
+                  ),
+                  label: const Text('Admin'),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: const Color(0xFF64748B),
+                    textStyle: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],    
           ],
         ),
       ),

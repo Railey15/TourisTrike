@@ -258,7 +258,6 @@ class _MobileShell extends StatelessWidget {
         child: child,
       ),
       floatingActionButton: floatingActionButton,
-      bottomNavigationBar: AppBottomNavSubTenant(currentIndex: currentIndex),
     );
   }
 }

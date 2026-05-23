@@ -288,9 +288,7 @@ class SubTenantSettingsData {
     this.defaultPackageVisibility = 'visible',
     this.defaultSpotStatus = 'active',
     this.requirePackageReview = true,
-    this.allowMultiDayPackages = true,
-    this.allowInstantBooking = false,
-    this.manualBookingConfirmation = true,
+    // multi-day packages handled separately
     this.allowCancellation = true,
     this.driverAutoApproval = false,
     this.requireDriverDocuments = true,
@@ -298,7 +296,6 @@ class SubTenantSettingsData {
     this.requireSpotVerification = true,
     this.requireMapPin = true,
     this.requireCoverImage = true,
-    this.autoPublishSpots = false,
     this.enableAiSuggestions = true,
     this.diversePlaceTypes = true,
     this.prioritizePopular = true,
@@ -329,9 +326,7 @@ class SubTenantSettingsData {
   final String defaultPackageVisibility;
   final String defaultSpotStatus;
   final bool requirePackageReview;
-  final bool allowMultiDayPackages;
-  final bool allowInstantBooking;
-  final bool manualBookingConfirmation;
+  // multi-day packages handled separately
   final bool allowCancellation;
   final bool driverAutoApproval;
   final bool requireDriverDocuments;
@@ -339,7 +334,6 @@ class SubTenantSettingsData {
   final bool requireSpotVerification;
   final bool requireMapPin;
   final bool requireCoverImage;
-  final bool autoPublishSpots;
   final bool enableAiSuggestions;
   final bool diversePlaceTypes;
   final bool prioritizePopular;
@@ -406,18 +400,7 @@ class SubTenantSettingsData {
         map['require_package_review'],
         fallback: defaults.requirePackageReview,
       ),
-      allowMultiDayPackages: _stBool(
-        map['allow_multi_day_packages'],
-        fallback: defaults.allowMultiDayPackages,
-      ),
-      allowInstantBooking: _stBool(
-        map['allow_instant_booking'],
-        fallback: defaults.allowInstantBooking,
-      ),
-      manualBookingConfirmation: _stBool(
-        map['manual_booking_confirmation'],
-        fallback: defaults.manualBookingConfirmation,
-      ),
+      // multi-day packages handled separately
       allowCancellation: _stBool(
         map['allow_cancellation'],
         fallback: defaults.allowCancellation,
@@ -445,10 +428,6 @@ class SubTenantSettingsData {
       requireCoverImage: _stBool(
         map['require_cover_image'],
         fallback: defaults.requireCoverImage,
-      ),
-      autoPublishSpots: _stBool(
-        map['auto_publish_spots'],
-        fallback: defaults.autoPublishSpots,
       ),
       enableAiSuggestions: _stBool(
         map['enable_ai_suggestions'],
@@ -535,35 +514,7 @@ class SubTenantSettingsData {
       'show_bookings': showBookings,
       'show_popular_destinations': showPopularDestinations,
       'show_top_packages': showTopPackages,
-      'default_package_visibility': defaultPackageVisibility,
-      'default_spot_status': defaultSpotStatus,
-      'require_package_review': requirePackageReview,
-      'allow_multi_day_packages': allowMultiDayPackages,
-      'allow_instant_booking': allowInstantBooking,
-      'manual_booking_confirmation': manualBookingConfirmation,
       'allow_cancellation': allowCancellation,
-      'driver_auto_approval': driverAutoApproval,
-      'require_driver_documents': requireDriverDocuments,
-      'require_toda_verification': requireTodaVerification,
-      'require_spot_verification': requireSpotVerification,
-      'require_map_pin': requireMapPin,
-      'require_cover_image': requireCoverImage,
-      'auto_publish_spots': autoPublishSpots,
-      'enable_ai_suggestions': enableAiSuggestions,
-      'diverse_place_types': diversePlaceTypes,
-      'prioritize_popular': prioritizePopular,
-      'prioritize_nearby': prioritizeNearby,
-      'prioritize_food': prioritizeFood,
-      'prioritize_nature': prioritizeNature,
-      'prioritize_historical': prioritizeHistorical,
-      'booking_notifications': bookingNotifications,
-      'driver_notifications': driverNotifications,
-      'review_notifications': reviewNotifications,
-      'email_notifications': emailNotifications,
-      'revenue_tracking': revenueTracking,
-      'spot_popularity_tracking': spotPopularityTracking,
-      'driver_analytics': driverAnalytics,
-      'monthly_reports': monthlyReports,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
   }
@@ -577,9 +528,8 @@ class SubTenantFareSettings {
     this.baseFare = 50,
     this.farePerKm = 50,
     this.minimumFare = 0,
-    this.additionalPassengerFee = 0,
+    // removed additionalPassengerFee and guideFee (no longer used)
     this.waitingFee = 0,
-    this.guideFee = 0,
     this.weekendSurcharge = 0,
     this.isActive = true,
   });
@@ -590,9 +540,8 @@ class SubTenantFareSettings {
   final double baseFare;
   final double farePerKm;
   final double minimumFare;
-  final double additionalPassengerFee;
   final double waitingFee;
-  final double guideFee;
+  // additionalPassengerFee and guideFee removed
   final double weekendSurcharge;
   final bool isActive;
 
@@ -620,12 +569,7 @@ class SubTenantFareSettings {
         map['minimum_fare'],
         fallback: defaults.minimumFare,
       ),
-      additionalPassengerFee: stDouble(
-        map['additional_passenger_fee'],
-        fallback: defaults.additionalPassengerFee,
-      ),
       waitingFee: stDouble(map['waiting_fee'], fallback: defaults.waitingFee),
-      guideFee: stDouble(map['guide_fee'], fallback: defaults.guideFee),
       weekendSurcharge: stDouble(
         map['weekend_surcharge'],
         fallback: defaults.weekendSurcharge,
@@ -641,9 +585,7 @@ class SubTenantFareSettings {
       'base_fare': baseFare,
       'fare_per_km': farePerKm,
       'minimum_fare': minimumFare,
-      'additional_passenger_fee': additionalPassengerFee,
       'waiting_fee': waitingFee,
-      'guide_fee': guideFee,
       'weekend_surcharge': weekendSurcharge,
       'is_active': isActive,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
@@ -654,22 +596,17 @@ class SubTenantFareSettings {
     required double routeDistanceKm,
     required int groupSize,
     bool includeWeekendSurcharge = false,
+    double waitingHours = 1.0,
   }) {
-    final normalizedGroupSize = groupSize < 1 ? 1 : groupSize;
     final normalizedDistance = routeDistanceKm < 0 ? 0.0 : routeDistanceKm;
-    final extraPassengers = normalizedGroupSize > 1
-        ? normalizedGroupSize - 1
-        : 0;
     final distanceFee = farePerKm * normalizedDistance;
-    final passengerFee = additionalPassengerFee * extraPassengers;
+    // additional passenger fee removed -> passenger surcharge not applied
+    final passengerFee = 0.0;
+    final waitingTotal = waitingFee * (waitingHours < 0 ? 0 : waitingHours);
     final surcharge = includeWeekendSurcharge ? weekendSurcharge : 0.0;
+    // guide fee removed -> not included in total
     final rawTotal =
-        baseFare +
-        distanceFee +
-        passengerFee +
-        waitingFee +
-        guideFee +
-        surcharge;
+        baseFare + distanceFee + passengerFee + waitingTotal + surcharge;
     final total = minimumFare > 0 && rawTotal < minimumFare
         ? minimumFare
         : rawTotal;
@@ -677,8 +614,8 @@ class SubTenantFareSettings {
       baseFare: baseFare,
       distanceFee: distanceFee,
       passengerFee: passengerFee,
-      waitingFee: waitingFee,
-      guideFee: guideFee,
+      waitingFee: waitingTotal,
+      guideFee: 0.0,
       weekendSurcharge: surcharge,
       minimumFareAdjustment: total - rawTotal,
       total: total,

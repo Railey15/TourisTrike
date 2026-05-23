@@ -116,10 +116,14 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
             return RefreshIndicator(
               onRefresh: () async => _reload(),
               color: const Color(0xFF2F6FFF),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-                children: [
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+                    children: [
                   Row(
                     children: [
                       const SizedBox(width: 44),
@@ -188,6 +192,8 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
                       ),
                     ),
                 ],
+                  ),
+                ),
               ),
             );
           },

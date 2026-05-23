@@ -44,36 +44,58 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
     setState(() => _future = _service.fetchProvincePackages());
   }
 
+  String _packagePrice(ProvincePackage package) {
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
+    if (package.priceText.trim().isNotEmpty) return package.priceText;
+    return money.format(package.estimatedBudget);
+  }
+
+  Future<void> _showPackageDetails(ProvincePackage package) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _PackageDetailsDialog(
+        package: package,
+        priceText: _packagePrice(package),
+        spotsFuture: _service.fetchPackageSpotTitles(package.id),
+      ),
+    );
+  }
+
   List<ProvincePackage> _filtered(List<ProvincePackage> packages) {
     final query = _searchCtrl.text.trim().toLowerCase();
 
-    return packages.where((package) {
-      final city = package.city.trim();
-      final status = package.status.toLowerCase().trim();
-      final visibility = package.visibilityStatus.toLowerCase().trim();
+    return packages
+        .where((package) {
+          final city = package.city.trim();
+          final status = package.status.toLowerCase().trim();
+          final visibility = package.visibilityStatus.toLowerCase().trim();
 
-      final matchesCity = _cityFilter == 'all' || city == _cityFilter;
-      final matchesStatus = _statusFilter == 'all' || status == _statusFilter;
-      final matchesVisibility =
-          _visibilityFilter == 'all' || visibility == _visibilityFilter;
+          final matchesCity = _cityFilter == 'all' || city == _cityFilter;
+          final matchesStatus =
+              _statusFilter == 'all' || status == _statusFilter;
+          final matchesVisibility =
+              _visibilityFilter == 'all' || visibility == _visibilityFilter;
 
-      if (!matchesCity || !matchesStatus || !matchesVisibility) return false;
+          if (!matchesCity || !matchesStatus || !matchesVisibility) {
+            return false;
+          }
 
-      if (query.isEmpty) return true;
+          if (query.isEmpty) return true;
 
-      final searchable = [
-        package.title,
-        package.subtitle,
-        package.description,
-        package.city,
-        package.status,
-        package.visibilityStatus,
-        package.priceText,
-        package.durationText,
-      ].join(' ').toLowerCase();
+          final searchable = [
+            package.title,
+            package.subtitle,
+            package.description,
+            package.city,
+            package.status,
+            package.visibilityStatus,
+            package.priceText,
+            package.durationText,
+          ].join(' ').toLowerCase();
 
-      return searchable.contains(query);
-    }).toList(growable: false);
+          return searchable.contains(query);
+        })
+        .toList(growable: false);
   }
 
   int _countByStatus(List<ProvincePackage> packages, String status) {
@@ -86,7 +108,9 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
   int _countByVisibility(List<ProvincePackage> packages, String visibility) {
     if (visibility == 'all') return packages.length;
     return packages
-        .where((item) => item.visibilityStatus.toLowerCase().trim() == visibility)
+        .where(
+          (item) => item.visibilityStatus.toLowerCase().trim() == visibility,
+        )
         .length;
   }
 
@@ -142,12 +166,13 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
           final allPackages = snapshot.data ?? const <ProvincePackage>[];
           final packages = _filtered(allPackages);
 
-          final cities = allPackages
-              .map((item) => item.city)
-              .where((city) => city.trim().isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
+          final cities =
+              allPackages
+                  .map((item) => item.city)
+                  .where((city) => city.trim().isNotEmpty)
+                  .toSet()
+                  .toList()
+                ..sort();
 
           final totalBookings = allPackages.fold<int>(
             0,
@@ -222,10 +247,12 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
                         padding: const EdgeInsets.only(bottom: 12),
                         child: _PackageCard(
                           package: package,
+                          onTap: () => _showPackageDetails(package),
                           onPublish: () => _updateStatus(package, 'published'),
                           onReturn: () => _updateStatus(package, 'returned'),
                           onDraft: () => _updateStatus(package, 'draft'),
-                          onVisible: () => _updateVisibility(package, 'visible'),
+                          onVisible: () =>
+                              _updateVisibility(package, 'visible'),
                           onHidden: () => _updateVisibility(package, 'hidden'),
                         ),
                       ),
@@ -233,6 +260,7 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
                   else
                     _PackageGrid(
                       packages: packages,
+                      onTap: _showPackageDetails,
                       onStatus: _updateStatus,
                       onVisibility: _updateVisibility,
                     ),
@@ -409,8 +437,16 @@ class _HeroStats extends StatelessWidget {
     final items = [
       _HeroStatData('Total', total.toString(), Icons.inventory_2_rounded),
       _HeroStatData('Published', published.toString(), Icons.public_rounded),
-      _HeroStatData('Pending', pending.toString(), Icons.pending_actions_rounded),
-      _HeroStatData('Bookings', bookings.toString(), Icons.receipt_long_rounded),
+      _HeroStatData(
+        'Pending',
+        pending.toString(),
+        Icons.pending_actions_rounded,
+      ),
+      _HeroStatData(
+        'Bookings',
+        bookings.toString(),
+        Icons.receipt_long_rounded,
+      ),
       _HeroStatData('Revenue', revenue, Icons.payments_rounded),
     ];
 
@@ -474,7 +510,6 @@ class _HeroStatData {
   final IconData icon;
 }
 
-
 class _PackageToolbar extends StatelessWidget {
   const _PackageToolbar({
     required this.controller,
@@ -530,15 +565,11 @@ class _PackageToolbar extends StatelessWidget {
           contentPadding: const EdgeInsets.symmetric(horizontal: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.line,
-            ),
+            borderSide: const BorderSide(color: ProvincialAdminColors.line),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.line,
-            ),
+            borderSide: const BorderSide(color: ProvincialAdminColors.line),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
@@ -567,8 +598,9 @@ class _PackageToolbar extends StatelessWidget {
       ),
       child: Flex(
         direction: desktop ? Axis.horizontal : Axis.vertical,
-        crossAxisAlignment:
-            desktop ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
+        crossAxisAlignment: desktop
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.stretch,
         children: [
           if (desktop) Expanded(child: searchField) else searchField,
           SizedBox(width: desktop ? 14 : 0, height: desktop ? 0 : 12),
@@ -653,15 +685,16 @@ class _PackageFilterButton extends StatelessWidget {
         statusFilter: statusFilter,
         visibilityFilter: visibilityFilter,
         counts: counts,
-        onApply: ({
-          required String city,
-          required String status,
-          required String visibility,
-        }) {
-          onCityChanged(city);
-          onStatusChanged(status);
-          onVisibilityChanged(visibility);
-        },
+        onApply:
+            ({
+              required String city,
+              required String status,
+              required String visibility,
+            }) {
+              onCityChanged(city);
+              onStatusChanged(status);
+              onVisibilityChanged(visibility);
+            },
       ),
     );
   }
@@ -769,7 +802,8 @@ class _PackageFilterSheet extends StatefulWidget {
     required String city,
     required String status,
     required String visibility,
-  }) onApply;
+  })
+  onApply;
 
   @override
   State<_PackageFilterSheet> createState() => _PackageFilterSheetState();
@@ -805,11 +839,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
   }
 
   void _apply() {
-    widget.onApply(
-      city: _city,
-      status: _status,
-      visibility: _visibility,
-    );
+    widget.onApply(city: _city, status: _status, visibility: _visibility);
     Navigator.pop(context);
   }
 
@@ -856,7 +886,9 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: ProvincialAdminColors.blue.withValues(alpha: .10),
+                        color: ProvincialAdminColors.blue.withValues(
+                          alpha: .10,
+                        ),
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: const Icon(
@@ -894,10 +926,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                         ),
                       ),
                     ),
-                    TextButton(
-                      onPressed: _reset,
-                      child: const Text('Reset'),
-                    ),
+                    TextButton(onPressed: _reset, child: const Text('Reset')),
                   ],
                 ),
                 const SizedBox(height: 18),
@@ -1034,10 +1063,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
 }
 
 class _FilterSection extends StatelessWidget {
-  const _FilterSection({
-    required this.title,
-    required this.children,
-  });
+  const _FilterSection({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
@@ -1064,11 +1090,7 @@ class _FilterSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 11),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: children,
-          ),
+          Wrap(spacing: 8, runSpacing: 8, children: children),
         ],
       ),
     );
@@ -1120,10 +1142,7 @@ class _ChoiceChipButton extends StatelessWidget {
             if (count != null) ...[
               const SizedBox(width: 7),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
                   color: selected
                       ? Colors.white.withValues(alpha: .22)
@@ -1150,11 +1169,13 @@ class _ChoiceChipButton extends StatelessWidget {
 class _PackageGrid extends StatelessWidget {
   const _PackageGrid({
     required this.packages,
+    required this.onTap,
     required this.onStatus,
     required this.onVisibility,
   });
 
   final List<ProvincePackage> packages;
+  final ValueChanged<ProvincePackage> onTap;
   final void Function(ProvincePackage package, String status) onStatus;
   final void Function(ProvincePackage package, String visibility) onVisibility;
 
@@ -1179,6 +1200,7 @@ class _PackageGrid extends StatelessWidget {
 
             return _PackageCard(
               package: package,
+              onTap: () => onTap(package),
               onPublish: () => onStatus(package, 'published'),
               onReturn: () => onStatus(package, 'returned'),
               onDraft: () => onStatus(package, 'draft'),
@@ -1195,6 +1217,7 @@ class _PackageGrid extends StatelessWidget {
 class _PackageCard extends StatelessWidget {
   const _PackageCard({
     required this.package,
+    required this.onTap,
     required this.onPublish,
     required this.onReturn,
     required this.onDraft,
@@ -1203,6 +1226,7 @@ class _PackageCard extends StatelessWidget {
   });
 
   final ProvincePackage package;
+  final VoidCallback onTap;
   final VoidCallback onPublish;
   final VoidCallback onReturn;
   final VoidCallback onDraft;
@@ -1219,6 +1243,7 @@ class _PackageCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1266,44 +1291,6 @@ class _PackageCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  AdminStatusPill(status: package.status),
-                  PopupMenuButton<String>(
-                    tooltip: 'Package actions',
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'published':
-                          onPublish();
-                          break;
-                        case 'returned':
-                          onReturn();
-                          break;
-                        case 'draft':
-                          onDraft();
-                          break;
-                        case 'visible':
-                          onVisible();
-                          break;
-                        case 'hidden':
-                          onHidden();
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: 'published',
-                        child: Text('Mark as Published'),
-                      ),
-                      PopupMenuItem(
-                        value: 'returned',
-                        child: Text('Return for Revision'),
-                      ),
-                      PopupMenuItem(value: 'draft', child: Text('Set as Draft')),
-                      PopupMenuDivider(),
-                      PopupMenuItem(value: 'visible', child: Text('Make Visible')),
-                      PopupMenuItem(value: 'hidden', child: Text('Hide Package')),
-                    ],
                   ),
                 ],
               ),
@@ -1363,10 +1350,328 @@ class _PackageCard extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Tap card to view package details',
+                  style: const TextStyle(
+                    color: ProvincialAdminColors.lightMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PackageDetailsDialog extends StatelessWidget {
+  const _PackageDetailsDialog({
+    required this.package,
+    required this.priceText,
+    required this.spotsFuture,
+  });
+
+  final ProvincePackage package;
+  final String priceText;
+  final Future<List<String>> spotsFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: ProvincialAdminColors.line),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .08),
+                  blurRadius: 28,
+                  offset: const Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            package.title,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: ProvincialAdminColors.text,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            package.city,
+                            style: const TextStyle(
+                              color: ProvincialAdminColors.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      color: ProvincialAdminColors.lightMuted,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _PackageDetailBlock(
+                        icon: Icons.payments_rounded,
+                        label: 'Price',
+                        value: priceText,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _PackageDetailBlock(
+                        icon: Icons.schedule_rounded,
+                        label: 'Duration',
+                        value: package.durationText.trim().isEmpty
+                            ? 'Not set'
+                            : package.durationText,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Included Spots',
+                  style: TextStyle(
+                    color: ProvincialAdminColors.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                FutureBuilder<List<String>>(
+                  future: spotsFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    if (snapshot.hasError) {
+                      return _PackageSpotsMessage(
+                        icon: Icons.error_outline_rounded,
+                        message: 'Unable to load package spots right now.',
+                      );
+                    }
+
+                    final spots = snapshot.data ?? const <String>[];
+                    if (spots.isEmpty) {
+                      return _PackageSpotsMessage(
+                        icon: Icons.place_outlined,
+                        message: 'No linked spots were found for this package.',
+                      );
+                    }
+
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FBFF),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: ProvincialAdminColors.line),
+                      ),
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < spots.length; i++) ...[
+                            _PackageSpotRow(index: i + 1, title: spots[i]),
+                            if (i != spots.length - 1)
+                              const Divider(
+                                height: 16,
+                                color: ProvincialAdminColors.line,
+                              ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PackageDetailBlock extends StatelessWidget {
+  const _PackageDetailBlock({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: ProvincialAdminColors.line),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: ProvincialAdminColors.blue, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$label\n',
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.lightMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  TextSpan(
+                    text: value,
+                    style: const TextStyle(
+                      color: ProvincialAdminColors.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageSpotsMessage extends StatelessWidget {
+  const _PackageSpotsMessage({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: ProvincialAdminColors.line),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: ProvincialAdminColors.lightMuted, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: ProvincialAdminColors.muted,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageSpotRow extends StatelessWidget {
+  const _PackageSpotRow({required this.index, required this.title});
+
+  final int index;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFFDCEBFF),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            '$index',
+            style: const TextStyle(
+              color: ProvincialAdminColors.blue,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: ProvincialAdminColors.text,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              height: 1.25,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1395,7 +1700,7 @@ class _PackageImage extends StatelessWidget {
           : Image.network(
               url,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Icon(
+              errorBuilder: (_, _, _) => const Icon(
                 Icons.inventory_2_rounded,
                 color: ProvincialAdminColors.blue,
                 size: 28,
@@ -1532,7 +1837,9 @@ class _VisibilityBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = visible ? ProvincialAdminColors.green : ProvincialAdminColors.red;
+    final color = visible
+        ? ProvincialAdminColors.green
+        : ProvincialAdminColors.red;
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),

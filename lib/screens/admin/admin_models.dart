@@ -210,7 +210,7 @@ class CityTenant {
         'contact_person',
         'office_name',
         'name',
-      ], fallback: generatedName.isEmpty ? 'City Admin' : generatedName),
+      ], fallback: generatedName.isEmpty ? 'Subtenant Admin' : generatedName),
       email: adminString(map, const [
         'email',
         'contact_email',

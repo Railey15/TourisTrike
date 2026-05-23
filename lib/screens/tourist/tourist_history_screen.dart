@@ -81,10 +81,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
             return RefreshIndicator(
               onRefresh: () async => _reload(),
               color: const Color(0xFF2A86FF),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-                children: [
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+                    children: [
                   Row(
                     children: [
                       const SizedBox(width: 44),
@@ -148,6 +152,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                 ],
+                  ),
+                ),
               ),
             );
           },

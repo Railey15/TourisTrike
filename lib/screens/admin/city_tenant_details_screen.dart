@@ -284,15 +284,18 @@ class _ProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tenant = data.tenant;
-    final initial =
-        tenant.city.isNotEmpty ? tenant.city[0].toUpperCase() : 'C';
+    final initial = tenant.city.isNotEmpty ? tenant.city[0].toUpperCase() : 'C';
     final joined = tenant.createdAt != null
         ? DateFormat('MMMM yyyy').format(tenant.createdAt!)
         : null;
+
     final contact = [
       if (tenant.mobile.isNotEmpty) tenant.mobile,
       if (tenant.email.isNotEmpty) tenant.email,
     ].join('  ·  ');
+
+    final isVerified = tenant.verified;
+    final isActive = tenant.status.toLowerCase().trim() == 'active';
 
     final infoContent = _InfoContent(
       data: data,
@@ -322,6 +325,8 @@ class _ProfileCard extends StatelessWidget {
           ),
           _ActionSection(
             saving: saving,
+            isVerified: isVerified,
+            isActive: isActive,
             onVerify: onVerify,
             onActivate: onActivate,
             onDeactivate: onDeactivate,
@@ -583,6 +588,8 @@ class _InfoRow extends StatelessWidget {
 class _ActionSection extends StatelessWidget {
   const _ActionSection({
     required this.saving,
+    required this.isVerified,
+    required this.isActive,
     required this.onVerify,
     required this.onActivate,
     required this.onDeactivate,
@@ -590,6 +597,8 @@ class _ActionSection extends StatelessWidget {
   });
 
   final bool saving;
+  final bool isVerified;
+  final bool isActive;
   final VoidCallback onVerify;
   final VoidCallback onActivate;
   final VoidCallback onDeactivate;
@@ -602,42 +611,56 @@ class _ActionSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FilledButton.icon(
-            onPressed: saving ? null : onVerify,
-            icon: const Icon(Icons.verified_rounded, size: 17),
-            label: const Text('Verify Tenant'),
-            style: FilledButton.styleFrom(
-              backgroundColor: ProvincialAdminColors.blue,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 11),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              textStyle: const TextStyle(
-                  fontWeight: FontWeight.w900, fontSize: 13),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: saving ? null : onActivate,
-                  icon: const Icon(Icons.check_circle_rounded, size: 16),
-                  label: const Text('Activate'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: ProvincialAdminColors.green,
-                    side: BorderSide(
-                      color: ProvincialAdminColors.green.withValues(alpha: 0.55),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(
-                        fontWeight: FontWeight.w900, fontSize: 12),
-                  ),
+          if (!isVerified) ...[
+            FilledButton.icon(
+              onPressed: saving ? null : onVerify,
+              icon: const Icon(Icons.verified_rounded, size: 17),
+              label: const Text('Verify Tenant'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ProvincialAdminColors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
                 ),
               ),
-              const SizedBox(width: 8),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          Row(
+            children: [
+              if (!isActive) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : onActivate,
+                    icon: const Icon(Icons.check_circle_rounded, size: 16),
+                    label: const Text('Activate'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ProvincialAdminColors.green,
+                      side: BorderSide(
+                        color: ProvincialAdminColors.green.withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: saving ? null : onDeactivate,
@@ -650,17 +673,22 @@ class _ActionSection extends StatelessWidget {
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     textStyle: const TextStyle(
-                        fontWeight: FontWeight.w900, fontSize: 12),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),
             ],
           ),
+
           const SizedBox(height: 8),
+
           OutlinedButton.icon(
-            onPressed: onReports,
+            onPressed: saving ? null : onReports,
             icon: const Icon(Icons.query_stats_rounded, size: 16),
             label: const Text('Open Reports'),
             style: OutlinedButton.styleFrom(
@@ -668,11 +696,15 @@ class _ActionSection extends StatelessWidget {
               side: const BorderSide(color: ProvincialAdminColors.line),
               padding: const EdgeInsets.symmetric(vertical: 10),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                borderRadius: BorderRadius.circular(12),
+              ),
               textStyle: const TextStyle(
-                  fontWeight: FontWeight.w900, fontSize: 12),
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
             ),
           ),
+
           if (saving) ...[
             const SizedBox(height: 12),
             const Center(

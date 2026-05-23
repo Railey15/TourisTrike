@@ -274,47 +274,52 @@ class _SignupScreenState extends State<SignupScreen> {
                         _Header(height: headerHeight),
                         Transform.translate(
                           offset: const Offset(0, -34),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Column(
-                              children: [
-                                _SignupCard(
-                                  role: _role,
-                                  emailCtrl: _emailCtrl,
-                                  passwordCtrl: _passwordCtrl,
-                                  confirmCtrl: _confirmCtrl,
-                                  emailFocus: _emailFocus,
-                                  passwordFocus: _passwordFocus,
-                                  confirmFocus: _confirmFocus,
-                                  emailKey: _emailKey,
-                                  passwordKey: _passwordKey,
-                                  confirmKey: _confirmKey,
-                                  obscurePassword: _obscurePassword,
-                                  obscureConfirm: _obscureConfirm,
-                                  loading: _loading,
-                                  strength: _strength,
-                                  strengthLabel: _strength == null
-                                      ? ''
-                                      : _strengthLabel(_strength!),
-                                  strengthColor: _strength == null
-                                      ? const Color(0xFFE2E8F0)
-                                      : _strengthColor(_strength!),
-                                  passwordErrors: _passwordErrors,
-                                  onRoleChanged: (role) =>
-                                      setState(() => _role = role),
-                                  onTogglePassword: () => setState(
-                                    () => _obscurePassword = !_obscurePassword,
-                                  ),
-                                  onToggleConfirm: () => setState(
-                                    () => _obscureConfirm = !_obscureConfirm,
-                                  ),
-                                  onLogin: () => Navigator.pop(context),
-                                  onSignup: _loading ? null : _signup,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 480),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                child: Column(
+                                  children: [
+                                    _SignupCard(
+                                      role: _role,
+                                      emailCtrl: _emailCtrl,
+                                      passwordCtrl: _passwordCtrl,
+                                      confirmCtrl: _confirmCtrl,
+                                      emailFocus: _emailFocus,
+                                      passwordFocus: _passwordFocus,
+                                      confirmFocus: _confirmFocus,
+                                      emailKey: _emailKey,
+                                      passwordKey: _passwordKey,
+                                      confirmKey: _confirmKey,
+                                      obscurePassword: _obscurePassword,
+                                      obscureConfirm: _obscureConfirm,
+                                      loading: _loading,
+                                      strength: _strength,
+                                      strengthLabel: _strength == null
+                                          ? ''
+                                          : _strengthLabel(_strength!),
+                                      strengthColor: _strength == null
+                                          ? const Color(0xFFE2E8F0)
+                                          : _strengthColor(_strength!),
+                                      passwordErrors: _passwordErrors,
+                                      onRoleChanged: (role) =>
+                                          setState(() => _role = role),
+                                      onTogglePassword: () => setState(
+                                        () => _obscurePassword = !_obscurePassword,
+                                      ),
+                                      onToggleConfirm: () => setState(
+                                        () => _obscureConfirm = !_obscureConfirm,
+                                      ),
+                                      onLogin: () => Navigator.pop(context),
+                                      onSignup: _loading ? null : _signup,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _TermsText(context: context),
+                                    const SizedBox(height: 28),
+                                  ],
                                 ),
-                                const SizedBox(height: 18),
-                                _TermsText(context: context),
-                                const SizedBox(height: 28),
-                              ],
+                              ),
                             ),
                           ),
                         ),

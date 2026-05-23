@@ -60,7 +60,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   final _suggestedSpotCtrl = TextEditingController();
 
   String _status = 'active';
-  String _verificationStatus = 'pending';
+  String _verificationStatus = 'verified';
   dynamic _categoryId;
 
   bool _saving = false;
@@ -898,11 +898,10 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       // Supabase RLS: subtenants can only insert rows where submitted_by = auth.uid()
       if (isCreate) 'submitted_by': authUserId,
 
-      // New spots submit as pending; verification is controlled by the review flow
       'verification_status': isCreate
-          ? 'pending'
+          ? 'verified'
           : (_verificationStatus.trim().isEmpty
-                ? 'pending'
+                ? 'verified'
                 : _verificationStatus.trim()),
 
       if (_categoryId != null) 'category_id': _categoryId,
@@ -941,7 +940,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     // Flutter's DropdownButton assertion.
     if (normalized == 'approved') return 'verified';
     if (normalized == 'verified') return 'verified';
-    return 'pending';
+    return 'verified';
   }
 
   String _selectedCategoryName() {
@@ -1529,7 +1528,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       initialValue: _safeVerificationStatus(
-                        _editing ? _verificationStatus : 'pending',
+                        _editing ? _verificationStatus : 'verified',
                       ),
                       isExpanded: true,
                       decoration: _inputDecoration(hint: 'Verification'),
@@ -1555,12 +1554,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                 ],
               ),
               if (!_editing) ...[
-                const SizedBox(height: 10),
-                _smartHelper(
-                  icon: Icons.lock_clock_rounded,
-                  text:
-                      'New spots are submitted as Pending. Verification is controlled by the admin review flow.',
-                ),
+                
               ],
             ],
           ),
@@ -1973,7 +1967,6 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     final checks = [
       (label: 'Spot name', ok: _titleCtrl.text.trim().isNotEmpty),
       (label: 'Description', ok: _descriptionCtrl.text.trim().isNotEmpty),
-      (label: 'Category selected', ok: _categoryId != null),
       (
         label: 'Barangay selected',
         ok: (_selectedBarangay?.trim() ?? _barangayCtrl.text.trim()).isNotEmpty,

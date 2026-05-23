@@ -496,13 +496,17 @@ class DriverSettingsTile extends StatelessWidget {
                   ),
                   child: Icon(icon, color: const Color(0xFF2A86FF)),
                 ),
+
                 const SizedBox(width: 12),
-                Expanded(
+
+                Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Color(0xFF0F172A),
                           fontWeight: FontWeight.w900,
@@ -512,6 +516,8 @@ class DriverSettingsTile extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Color(0xFF64748B),
                             fontWeight: FontWeight.w700,
@@ -523,21 +529,26 @@ class DriverSettingsTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (trailingText != null) ...[
+
+                const Spacer(),
+
+                if (trailingText != null && trailingText!.trim().isNotEmpty) ...[
                   const SizedBox(width: 10),
-                  Flexible(
-                    child: Text(
-                      trailingText!,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: trailingColor ?? const Color(0xFF64748B),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12.5,
-                      ),
+                  Text(
+                    trailingText!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: trailingColor ?? const Color(0xFF64748B),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
                     ),
                   ),
                 ],
+
                 const SizedBox(width: 8),
+
                 const Icon(
                   Icons.chevron_right_rounded,
                   color: Color(0xFF94A3B8),
