@@ -75,12 +75,12 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
       if (_pendingCashInTransactionId != null) {
         unawaited(_pollForCheckoutSettlement());
       } else {
-        unawaited(_loadData());
+        unawaited(_loadWalletData());
       }
     }
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadWalletData() async {
     if (!mounted) return;
     if (_wallet == null) {
       setState(() {
@@ -88,29 +88,32 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
         _loadError = null;
       });
     }
-
     try {
-      final results = await Future.wait([
-        _repo.fetchOrCreateWallet(role: 'driver'),
-        _repo.fetchWalletTransactions(role: 'driver'),
-        _repo.fetchDriverActivities(),
-      ]);
-
+      final wallet = await _repo.fetchOrCreateWallet(role: 'driver');
+      final transactions = await _repo.fetchWalletTransactions(role: 'driver');
       if (!mounted) return;
       setState(() {
-        _wallet = results[0] as Wallet;
-        _transactions = results[1] as List<WalletTransaction>;
-        _activities = results[2] as List<PackageActivity>;
+        _wallet = wallet;
+        _transactions = transactions;
         _loading = false;
         _loadError = null;
       });
-    } catch (error) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = error.toString();
+        _loadError = e.toString();
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadData() async {
+    await _loadWalletData();
+    try {
+      final activities = await _repo.fetchDriverActivities();
+      if (!mounted) return;
+      setState(() => _activities = activities);
+    } catch (_) {}
   }
 
   Future<void> _reload() => _loadData();
@@ -162,7 +165,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
               Map<String, dynamic>.from(payload.newRecord),
             );
             setState(() => _transactions = [newTx, ..._transactions]);
-            unawaited(_loadData());
+            unawaited(_loadWalletData());
           },
         )
         .onPostgresChanges(
@@ -245,14 +248,14 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
         break;
       case 'cancel':
         _pendingCashInTransactionId = null;
-        await _loadData();
+        await _loadWalletData();
         _showSnack(
           'Cash-in was cancelled. No balance was added.',
           backgroundColor: const Color(0xFFF59E0B),
         );
         break;
       default:
-        await _loadData();
+        await _loadWalletData();
         break;
     }
   }
@@ -265,7 +268,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
   Future<void> _pollForCheckoutSettlement({bool showIntroSnack = false}) async {
     final transactionId = _pendingCashInTransactionId;
     if (transactionId == null || transactionId.isEmpty) {
-      await _loadData();
+      await _loadWalletData();
       return;
     }
     if (_refreshingCheckoutState) return;
@@ -280,7 +283,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
 
     try {
       for (var attempt = 0; attempt < 12; attempt++) {
-        await _loadData();
+        await _loadWalletData();
         if (!mounted) return;
 
         WalletTransaction? tx;
@@ -335,7 +338,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen>
       backgroundColor: const Color(0xFF2F6FFF),
     );
 
-    unawaited(_loadData());
+    unawaited(_loadWalletData());
   }
 
   void _showSnack(String message, {Color? backgroundColor}) {
