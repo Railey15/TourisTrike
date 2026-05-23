@@ -126,9 +126,10 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   Future<void> _loadActiveMunicipalities() async {
     try {
       final rows = await supabase
-          .from('subtenant_details')
+          .from('tour_packages')
           .select('city')
-          .eq('is_active', true);
+          .eq('status', 'published')
+          .eq('visibility_status', 'visible');
       if (!mounted) return;
       setState(() {
         _activeMunicipalities = {
