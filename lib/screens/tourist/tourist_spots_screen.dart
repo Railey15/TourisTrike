@@ -15,7 +15,7 @@ class TouristSpotsScreen extends StatefulWidget {
 class _TouristSpotsScreenState extends State<TouristSpotsScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final _searchCtrl = TextEditingController();
-
+ 
   late Future<List<_PublicTouristSpot>> _future;
 
   int _navIndex = 1;
