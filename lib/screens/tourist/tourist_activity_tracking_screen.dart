@@ -14,7 +14,9 @@ import 'package:touristrike/core/services/emergency_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
+import 'package:touristrike/widgets/gcash_payment_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ActivityTrackingScreen extends StatefulWidget {
@@ -27,8 +29,8 @@ class ActivityTrackingScreen extends StatefulWidget {
 }
 
 class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
-  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
-  final _routeService = const RoutePolylineService(apiKey: _apiKey);
+  static final _apiKey = CitySpotSuggestionService.resolveApiKey();
+  final _routeService = RoutePolylineService(apiKey: _apiKey);
 
   final _repo = TourisTrikeRepository();
   final _supabase = Supabase.instance.client;
@@ -38,6 +40,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   DriverInfo? _driverInfo;
   List<BookingItineraryItem> _spots = [];
   List<EmergencyContactRecord> _emergencyContacts = [];
+  List<PaymentRecord> _paymentRecords = [];
 
   bool _loading = true;
   String? _error;
@@ -71,6 +74,55 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
   BookingItineraryItem? get _currentItineraryItem =>
       _spots.where((s) => s.spotStatus != 'completed').firstOrNull;
+
+  // package_bookings.id is uuid in this project (not bigint), so the raw
+  // string id is passed through as-is.
+  dynamic get _bookingIdForQueries => widget.bookingId;
+
+  PaymentRecord? _paymentRecordForStage(String stage) {
+    final matches =
+        _paymentRecords.where((p) => p.paymentStage == stage && p.status != 'cancelled').toList()
+          ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+    return matches.isEmpty ? null : matches.first;
+  }
+
+  // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+  Future<void> _openPaymentSheet({
+    required String stage,
+    required double amount,
+    required String description,
+  }) async {
+    final driverInfo = _driverInfo;
+    if (driverInfo == null || driverInfo.id.isEmpty) return;
+    final details = driverInfo.details;
+
+    final record = await showGcashPaymentSheet(
+      context,
+      payeeId: driverInfo.id,
+      payeeName: driverInfo.name,
+      gcashQrUrl: details?.gcashQrUrl ?? '',
+      gcashNumber: details?.gcashNumber ?? '',
+      gcashName: details?.gcashName ?? '',
+      amount: amount,
+      serviceDescription: description,
+      bookingId: _bookingIdForQueries,
+      paymentStage: stage,
+    );
+    if (record != null && mounted) {
+      _load();
+    }
+  }
+
+  void _openReceipt(PaymentRecord record) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AcknowledgementReceiptScreen(
+          record: record,
+          payeeName: _driverInfo?.name,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -132,6 +184,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         driverInfo = await _repo.fetchDriverInfo(driverId);
       }
 
+      var paymentRecords = <PaymentRecord>[];
+      try {
+        paymentRecords = await _repo.fetchPaymentRecordsFor(
+          bookingId: _bookingIdForQueries,
+        );
+      } catch (_) {
+        // Non-fatal — payment status cards just won't show yet.
+      }
+
       if (!mounted) return;
       setState(() {
         _activity = activity;
@@ -139,6 +200,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         _driverInfo = driverInfo;
         _spots = spots;
         _emergencyContacts = emergencyContacts;
+        _paymentRecords = paymentRecords;
         _loading = false;
       });
 
@@ -1204,6 +1266,43 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                     const SizedBox(height: 12),
                   ],
 
+                  // ── GCash-to-GCash payment (down payment + remaining) ──
+                  // TourisTrike does NOT custody funds. Money moves directly
+                  // from the tourist's GCash to the driver's GCash.
+                  if (driverName.isNotEmpty &&
+                      bookingType == 'advanced' &&
+                      (booking?.downpaymentAmount ?? 0) > 0) ...[
+                    _PaymentStageCard(
+                      title: 'Down Payment',
+                      amount: booking!.downpaymentAmount,
+                      record: _paymentRecordForStage('down_payment'),
+                      onPay: () => _openPaymentSheet(
+                        stage: 'down_payment',
+                        amount: booking.downpaymentAmount,
+                        description:
+                            'Down payment for package booking #${widget.bookingId}',
+                      ),
+                      onViewReceipt: _openReceipt,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (driverName.isNotEmpty &&
+                      (booking?.remainingBalance ?? 0) > 0) ...[
+                    _PaymentStageCard(
+                      title: 'Remaining Balance',
+                      amount: booking!.remainingBalance,
+                      record: _paymentRecordForStage('remaining_balance'),
+                      onPay: () => _openPaymentSheet(
+                        stage: 'remaining_balance',
+                        amount: booking.remainingBalance,
+                        description:
+                            'Remaining balance for package booking #${widget.bookingId}',
+                      ),
+                      onViewReceipt: _openReceipt,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
                   // ── Booking Details ───────────────────────────
                   _SectionLabel('Booking Details'),
                   const SizedBox(height: 8),
@@ -1581,6 +1680,118 @@ class _InfoCard extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+// TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+class _PaymentStageCard extends StatelessWidget {
+  const _PaymentStageCard({
+    required this.title,
+    required this.amount,
+    required this.record,
+    required this.onPay,
+    required this.onViewReceipt,
+  });
+
+  final String title;
+  final double amount;
+  final PaymentRecord? record;
+  final VoidCallback onPay;
+  final ValueChanged<PaymentRecord> onViewReceipt;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
+    final r = record;
+    final status = r?.status;
+
+    Color chipColor = const Color(0xFF64748B);
+    Color chipBg = const Color(0xFFF1F5F9);
+    String chipLabel = 'Not yet paid';
+    if (status == 'confirmed') {
+      chipColor = const Color(0xFF16A34A);
+      chipBg = const Color(0xFFDCFCE7);
+      chipLabel = 'Confirmed';
+    } else if (status == 'pending_confirmation') {
+      chipColor = const Color(0xFFB45309);
+      chipBg = const Color(0xFFFFF3CD);
+      chipLabel = 'Waiting for driver confirmation';
+    } else if (status == 'disputed') {
+      chipColor = const Color(0xFFDC2626);
+      chipBg = const Color(0xFFFFF1F2);
+      chipLabel = 'Disputed';
+    }
+
+    return _InfoCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      money.format(amount),
+                      style: const TextStyle(
+                        color: Color(0xFF2A86FF),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: chipBg,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  chipLabel,
+                  style: TextStyle(color: chipColor, fontWeight: FontWeight.w800, fontSize: 11.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: status == 'confirmed'
+                ? OutlinedButton.icon(
+                    onPressed: () => onViewReceipt(r!),
+                    icon: const Icon(Icons.receipt_long_rounded),
+                    label: const Text('View Receipt'),
+                  )
+                : status == 'pending_confirmation'
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 6),
+                    child: Text(
+                      'Submitted. Waiting for the driver to confirm receipt.',
+                      style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700),
+                    ),
+                  )
+                : FilledButton.icon(
+                    onPressed: onPay,
+                    icon: const Icon(Icons.qr_code_2_rounded),
+                    label: const Text('Pay Now'),
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2A86FF)),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

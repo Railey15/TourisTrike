@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
 import 'package:touristrike/screens/driver/profile/driver_documents_screen.dart';
+import 'package:touristrike/screens/driver/profile/driver_gcash_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_license_expiry_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_online_status_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_personal_info_screen.dart';
@@ -275,6 +276,16 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                               '${documents.uploadedCount} uploaded of ${documents.totalCount}',
                           onTap: () => _navigateTo(
                             DriverDocumentsScreen(bundle: bundle),
+                          ),
+                        ),
+                        DriverSettingsTile(
+                          icon: Icons.qr_code_2_rounded,
+                          title: 'GCash Payment Details',
+                          subtitle: details.isGcashPaymentComplete
+                              ? 'QR and details on file'
+                              : 'Add your GCash QR so tourists can pay you',
+                          onTap: () => _navigateTo(
+                            DriverGcashScreen(bundle: bundle),
                           ),
                         ),
                         DriverSettingsTile(

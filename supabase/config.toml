@@ -1,10 +1,2 @@
 # Supabase project configuration.
 # See https://supabase.com/docs/guides/local-development/cli/config
-
-[functions.paymongo-webhook]
-# PayMongo POSTs here without any JWT — must be publicly reachable.
-verify_jwt = false
-
-[functions.paymongo-redirect]
-# Browser redirected here by PayMongo after payment — must be publicly reachable.
-verify_jwt = false

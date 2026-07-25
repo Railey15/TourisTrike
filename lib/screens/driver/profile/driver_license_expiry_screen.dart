@@ -119,7 +119,7 @@ class _DriverLicenseExpiryScreenState extends State<DriverLicenseExpiryScreen> {
       title: 'License Information',
       subtitle: widget.flowStep == null
           ? 'Update your driver license number and expiry date.'
-          : 'Step 2 of 7: add your license information.',
+          : 'Step 2 of 8: add your license information.',
       bottomBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: DriverPrimaryButton(

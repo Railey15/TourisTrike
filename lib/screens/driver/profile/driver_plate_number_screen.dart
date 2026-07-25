@@ -92,7 +92,7 @@ class _DriverPlateNumberScreenState extends State<DriverPlateNumberScreen> {
       title: 'Plate Number',
       subtitle: widget.flowStep == null
           ? 'Update your tricycle plate number.'
-          : 'Step 4 of 7: add your assigned plate number.',
+          : 'Step 4 of 8: add your assigned plate number.',
       bottomBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: DriverPrimaryButton(

@@ -23,7 +23,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>GMSApiKey</key>
-	<string>AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k</string>
+	<string>AIzaSyAjeYJX5R6zmdEFDW2G-s4aQJcDjmKNggU</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

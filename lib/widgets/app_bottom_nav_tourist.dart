@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'package:touristrike/screens/tourist/profile/payment_history_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_explore_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_home_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
-import 'package:touristrike/screens/tourist/tourist_wallet_screen.dart';
 
 class AppBottomNav extends StatelessWidget {
   const AppBottomNav({
@@ -16,7 +16,7 @@ class AppBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int>? onSelect;
 
-  // 0 = Home, 1 = Explore, 2 = Wallet, 3 = Activity, 4 = Messages
+  // 0 = Home, 1 = Explore, 2 = Payments, 3 = Activity, 4 = Messages
   void _go(BuildContext context, int index) {
     if (index == selectedIndex) return;
     onSelect?.call(index);
@@ -24,7 +24,7 @@ class AppBottomNav extends StatelessWidget {
     final Widget target = switch (index) {
       0 => const TouristHomeScreen(),
       1 => const TouristExploreScreen(),
-      2 => const TouristWalletScreen(),
+      2 => const PaymentHistoryScreen(),
       3 => const ActivityScreen(),
       4 => const TouristMessagesScreen(),
       _ => const TouristHomeScreen(),
@@ -72,8 +72,8 @@ class AppBottomNav extends StatelessWidget {
           ),
           Expanded(
             child: _NavItem(
-              icon: Icons.account_balance_wallet_rounded,
-              label: 'Wallet',
+              icon: Icons.receipt_rounded,
+              label: 'Payments',
               selected: selectedIndex == 2,
               onTap: () => _go(context, 2),
             ),

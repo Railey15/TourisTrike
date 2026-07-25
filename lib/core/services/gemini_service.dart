@@ -215,7 +215,7 @@ class GeminiService {
     try {
       final searchQuery = '${query.trim()} Bulacan Philippines';
       final encoded = Uri.encodeQueryComponent(searchQuery);
-      const apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+      final apiKey = CitySpotSuggestionService.resolveApiKey();
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/place/textsearch/json'
         '?query=$encoded&region=ph&key=$apiKey',

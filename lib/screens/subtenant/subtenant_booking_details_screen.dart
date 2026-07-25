@@ -431,7 +431,7 @@ class _SubTenantBookingDetailsScreenState
   Future<List<_PaymentView>> _loadPayments() async {
     try {
       final rows = await _supabase
-          .from('payments')
+          .from('payment_records')
           .select()
           .eq('booking_id', widget.bookingId)
           .order('created_at', ascending: false);
@@ -614,7 +614,7 @@ class _SubTenantBookingDetailsScreenState
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
-            table: 'payments',
+            table: 'payment_records',
             filter: PostgresChangeFilter(
               type: PostgresChangeFilterType.eq,
               column: 'booking_id',
@@ -1301,15 +1301,13 @@ class _PaymentView {
       amount: stDouble(row['amount']),
       paymentMethod: stString(row, const <String>['payment_method']),
       paymentStatus: stString(row, const <String>[
-        'payment_status',
         'status',
-      ], fallback: 'pending'),
-      paymentType: stString(row, const <String>['payment_type', 'type']),
+      ], fallback: 'pending_confirmation'),
+      paymentType: stString(row, const <String>['payment_stage']),
       paymentReference: stString(row, const <String>[
-        'payment_reference',
-        'reference_key',
+        'external_reference_no',
       ]),
-      paidAt: stDate(row['paid_at']),
+      paidAt: stDate(row['payee_confirmed_at']),
       createdAt: stDate(row['created_at']),
     );
   }

@@ -3,6 +3,7 @@ import 'package:touristrike/screens/subtenant/subtenant_bookings_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_dashboard_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_drivers_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_packages_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_payment_disputes_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_profile_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_reports_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_spots_screen.dart';
@@ -36,6 +37,8 @@ class AppBottomNavSubTenant extends StatelessWidget {
         return const SubTenantReportsScreen();
       case 6:
         return const SubTenantProfileScreen();
+      case 7:
+        return const SubTenantPaymentDisputesScreen();
       default:
         return const SubTenantDashboardScreen();
     }
@@ -119,6 +122,12 @@ class AppBottomNavSubTenant extends StatelessWidget {
             icon: Icons.settings_rounded,
             active: currentIndex == 6,
             onTap: () => _handleTap(context, 6),
+          ),
+          _NavItem(
+            label: 'Disputes',
+            icon: Icons.report_problem_rounded,
+            active: currentIndex == 7,
+            onTap: () => _handleTap(context, 7),
           ),
         ],
       ),

@@ -61,6 +61,14 @@ class _SubTenantDriverDetailsScreenState
     String status, {
     String suspensionReason = '',
   }) async {
+    if (status == 'approved' && !driver.hasGcashDetails) {
+      showSubTenantSnack(
+        context,
+        'Driver needs a GCash QR (or GCash number + name) before approval, '
+        'so tourists have a way to pay them directly.',
+      );
+      return;
+    }
     try {
       await _service.updateDriverStatus(
         profile,
@@ -225,6 +233,8 @@ class _SubTenantDriverDetailsScreenState
                 ),
                 const SizedBox(height: 14),
                 _DocumentsCard(driver: driver),
+                const SizedBox(height: 14),
+                _GcashCard(driver: driver),
                 const SizedBox(height: 14),
                 _RatingsFeedbackCard(
                   driver: driver,
@@ -591,6 +601,63 @@ class _DriverInfoCard extends StatelessWidget {
           value:
               driver.operatorCode.isEmpty ? 'Not provided' : driver.operatorCode,
         ),
+      ],
+    );
+  }
+}
+
+// TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+// Shown here so subtenant approvers can sanity-check the driver's GCash before approval.
+class _GcashCard extends StatelessWidget {
+  const _GcashCard({required this.driver});
+
+  final SubTenantDriver driver;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DetailCard(
+      title: 'GCash Payment Details',
+      subtitle: 'How tourists pay this driver directly.',
+      icon: Icons.qr_code_2_rounded,
+      children: [
+        if (!driver.hasGcashDetails)
+          const _EmptyCardBody(
+            icon: Icons.qr_code_2_outlined,
+            title: 'No GCash details yet',
+            message:
+                'Driver has not uploaded a GCash QR or number/name yet.',
+          )
+        else ...[
+          if (driver.gcashQrUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.network(
+                  driver.gcashQrUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: const Color(0xFFF8FAFC),
+                    alignment: Alignment.center,
+                    child: const Text('Preview unavailable'),
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          _InfoRow(
+            icon: Icons.phone_iphone_rounded,
+            label: 'GCash Number',
+            value: driver.gcashNumber.isEmpty
+                ? 'Not provided'
+                : driver.gcashNumber,
+          ),
+          _InfoRow(
+            icon: Icons.badge_rounded,
+            label: 'GCash Account Name',
+            value: driver.gcashName.isEmpty ? 'Not provided' : driver.gcashName,
+          ),
+        ],
       ],
     );
   }

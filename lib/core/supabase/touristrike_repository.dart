@@ -22,7 +22,8 @@ class TourisTrikeTables {
   static const notifications = 'notifications';
   static const packageBookings = 'package_bookings';
   static const packageActivities = 'package_activities';
-  static const payments = 'payments';
+  static const paymentRecords = 'payment_records';
+  static const paymentDisputes = 'payment_disputes';
   static const rides = 'rides';
   static const rideFeedback = 'ride_feedback';
   static const rideReviews = 'ride_reviews';
@@ -40,8 +41,6 @@ class TourisTrikeTables {
   static const touristSpots = 'tourist_spots';
   static const conversations = 'conversations';
   static const messages = 'messages';
-  static const wallets = 'wallets';
-  static const walletTransactions = 'wallet_transactions';
   static const bookingDrivers = 'booking_drivers';
   static const driverLiveLocations = 'driver_live_locations';
   static const tripStatusLogs = 'trip_status_logs';
@@ -819,37 +818,167 @@ class TourisTrikeRepository {
     return counts;
   }
 
-  Future<PaymentRecord> createPayment({
-    required dynamic bookingId,
+  // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+  // The current user is always the payer here; the payee confirms receipt separately via confirmPaymentRecord.
+  Future<PaymentRecord> createPaymentRecord({
+    dynamic rideId,
+    dynamic bookingId,
+    required String payeeId,
     required double amount,
     required String paymentMethod,
-    String paymentStatus = 'pending',
-    String paymentType = 'full_payment',
-    String? paymentReference,
-    String? checkoutUrl,
+    String paymentStage = 'full',
+    String? externalReferenceNo,
+    String? proofImageUrl,
+    String? serviceDescription,
   }) async {
-    final row = await insertRow(TourisTrikeTables.payments, {
+    final row = await insertRow(TourisTrikeTables.paymentRecords, {
+      'ride_id': rideId,
       'booking_id': bookingId,
-      'user_id': requireUserId(),
+      'payer_id': requireUserId(),
+      'payee_id': payeeId,
       'amount': amount,
       'payment_method': paymentMethod,
-      'payment_status': paymentStatus,
-      'payment_type': paymentType,
-      'payment_reference': paymentReference,
-      'checkout_url': checkoutUrl,
+      'payment_stage': paymentStage,
+      'external_reference_no': externalReferenceNo,
+      'proof_image_url': proofImageUrl,
+      'service_description': serviceDescription,
     });
     return PaymentRecord(row);
   }
 
-  Future<List<PaymentRecord>> fetchPayments({int limit = 80}) async {
+  Future<PaymentRecord> attachPaymentProof({
+    required String paymentRecordId,
+    required String proofImageUrl,
+  }) async {
+    final result = await _client.rpc(
+      'attach_payment_proof',
+      params: {
+        'p_payment_record_id': paymentRecordId,
+        'p_proof_image_url': proofImageUrl,
+      },
+    );
+    return PaymentRecord(Json.from(result as Map));
+  }
+
+  Future<PaymentRecord> confirmPaymentRecord(String id) async {
+    final row = await _client
+        .from(TourisTrikeTables.paymentRecords)
+        .update({'status': 'confirmed'})
+        .eq('id', id)
+        .select()
+        .single();
+    return PaymentRecord(Json.from(row));
+  }
+
+  /// [role]: 'payer' (money sent) or 'payee' (money received) relative to the current user.
+  Future<List<PaymentRecord>> fetchPaymentRecords({
+    String role = 'payer',
+    dynamic bookingId,
+    dynamic rideId,
+    int limit = 80,
+  }) async {
+    final equals = <String, dynamic>{
+      role == 'payee' ? 'payee_id' : 'payer_id': requireUserId(),
+    };
+    if (bookingId != null) equals['booking_id'] = bookingId;
+    if (rideId != null) equals['ride_id'] = rideId;
     final rows = await fetchRows(
-      TourisTrikeTables.payments,
-      equals: {'user_id': requireUserId()},
+      TourisTrikeTables.paymentRecords,
+      equals: equals,
       orderBy: 'created_at',
       ascending: false,
       limit: limit,
     );
     return rows.map(PaymentRecord.new).toList(growable: false);
+  }
+
+  /// All payment records for a booking/ride, regardless of payer/payee — used by
+  /// booking-detail and dispute screens where either participant may be viewing.
+  Future<List<PaymentRecord>> fetchPaymentRecordsFor({
+    dynamic bookingId,
+    dynamic rideId,
+  }) async {
+    assert(bookingId != null || rideId != null);
+    final equals = <String, dynamic>{
+      if (bookingId != null) 'booking_id': bookingId,
+      if (rideId != null) 'ride_id': rideId,
+    };
+    final rows = await fetchRows(
+      TourisTrikeTables.paymentRecords,
+      equals: equals,
+      orderBy: 'created_at',
+      ascending: false,
+    );
+    return rows.map(PaymentRecord.new).toList(growable: false);
+  }
+
+  /// Tricycle single-ride flow only — see `record_ride_payment` in the
+  /// payment-trail migration for why this is driver-attested rather than
+  /// tourist-submitted like package-booking payments.
+  Future<PaymentRecord> recordRidePayment({
+    required dynamic rideId,
+    required String paymentMethod,
+    required double amount,
+    String? externalReferenceNo,
+  }) async {
+    final result = await _client.rpc(
+      'record_ride_payment',
+      params: {
+        'p_ride_id': rideId,
+        'p_payment_method': paymentMethod,
+        'p_amount': amount,
+        'p_external_reference_no': externalReferenceNo,
+      },
+    );
+    return PaymentRecord(Json.from(result as Map));
+  }
+
+  Future<PaymentDispute> raisePaymentDispute({
+    required String paymentRecordId,
+    required String reason,
+    String? description,
+    String? evidenceUrl,
+  }) async {
+    final result = await _client.rpc(
+      'raise_payment_dispute',
+      params: {
+        'p_payment_record_id': paymentRecordId,
+        'p_reason': reason,
+        'p_description': description,
+        'p_evidence_url': evidenceUrl,
+      },
+    );
+    return PaymentDispute(Json.from(result as Map));
+  }
+
+  Future<PaymentDispute> resolvePaymentDispute({
+    required String disputeId,
+    required String newStatus,
+    String? resolutionNote,
+  }) async {
+    final result = await _client.rpc(
+      'resolve_payment_dispute',
+      params: {
+        'p_dispute_id': disputeId,
+        'p_new_status': newStatus,
+        'p_resolution_note': resolutionNote,
+      },
+    );
+    return PaymentDispute(Json.from(result as Map));
+  }
+
+  Future<List<PaymentDispute>> fetchPaymentDisputes({
+    List<String>? statuses,
+    int limit = 80,
+  }) async {
+    dynamic query = _client.from(TourisTrikeTables.paymentDisputes).select();
+    if (statuses != null && statuses.isNotEmpty) {
+      query = query.inFilter('status', statuses);
+    }
+    final rows = await query
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return _rows(rows).map(PaymentDispute.new).toList(growable: false);
   }
 
   Future<List<SavedPlaceRecord>> fetchSavedPlaces({int limit = 100}) async {
@@ -1100,54 +1229,6 @@ class TourisTrikeRepository {
       'record_id': recordId,
       'description': description,
     });
-  }
-
-  // ── WALLET ──────────────────────────────────────────────────
-
-  Future<Wallet> fetchOrCreateWallet({String role = 'tourist'}) async {
-    final result = await _client.rpc(
-      'get_or_create_wallet',
-      params: {'p_user_id': requireUserId(), 'p_role': role},
-    );
-    if (result is Map) return Wallet(Json.from(result));
-    if (result is List && result.isNotEmpty) {
-      return Wallet(Json.from(result.first as Map));
-    }
-    throw StateError('get_or_create_wallet returned no data.');
-  }
-
-  Future<List<WalletTransaction>> fetchWalletTransactions({
-    String role = 'tourist',
-    int limit = 60,
-  }) async {
-    final rows = await fetchRows(
-      TourisTrikeTables.walletTransactions,
-      equals: {'user_id': requireUserId(), 'role': role},
-      orderBy: 'created_at',
-      ascending: false,
-      limit: limit,
-    );
-    return rows.map(WalletTransaction.new).toList(growable: false);
-  }
-
-  /// Calls the wallet-cash-in edge function. Returns:
-  /// { 'checkout_url': '...', 'transaction_id': '...' }
-  Future<Map<String, dynamic>> cashIn({
-    required double amount,
-    required String paymentMethod,
-    String role = 'tourist',
-  }) async {
-    final response = await _client.functions.invoke(
-      'wallet-cash-in',
-      body: {'amount': amount, 'payment_method': paymentMethod, 'role': role},
-    );
-    if (response.status != 200) {
-      final msg = response.data is Map
-          ? response.data['error'] ?? 'Cash in failed'
-          : 'Cash in failed';
-      throw Exception(msg);
-    }
-    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<bool> hasActiveTour({String? touristId}) async {
@@ -1743,27 +1824,6 @@ class TourisTrikeRepository {
   }
 
   // ── WALLET DEDUCTION ─────────────────────────────────────────
-
-  Future<void> deductWalletForBooking({
-    required String bookingId,
-    required double amount,
-    required String transactionType,
-    String description = '',
-    String referenceKey = '',
-  }) async {
-    await _client.rpc(
-      'deduct_wallet_balance',
-      params: {
-        'p_user_id': requireUserId(),
-        'p_role': 'tourist',
-        'p_amount': amount,
-        'p_booking_id': bookingId,
-        'p_transaction_type': transactionType,
-        'p_description': description,
-        'p_reference_key': referenceKey,
-      },
-    );
-  }
 
   String _bookingStatusFromTourStatus(String tourStatus) {
     switch (tourStatus) {

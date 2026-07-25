@@ -55,8 +55,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   int _children = 0;
   _PaymentMethod _payment = _PaymentMethod.cashPickup;
   bool _saving = false;
-  double? _walletBalance;
-  bool _walletLoading = true;
 
   // Pickup / drop-off
   _SelectedLocation? _selectedPickup;
@@ -285,18 +283,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   void initState() {
     super.initState();
     _future = _loadPackage();
-    _loadWallet();
-  }
-
-  Future<void> _loadWallet() async {
-    try {
-      final wallet = await _repo.fetchOrCreateWallet(role: 'tourist');
-      if (mounted) setState(() => _walletBalance = wallet.balance);
-    } catch (_) {
-      // wallet unavailable
-    } finally {
-      if (mounted) setState(() => _walletLoading = false);
-    }
   }
 
   @override
@@ -772,7 +758,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             picked.day == now.day;
 
         if (!pickedIsToday && _payment == _PaymentMethod.cashPickup) {
-          _payment = _PaymentMethod.wallet;
+          _payment = _PaymentMethod.gcash;
         }
       });
     }
@@ -850,21 +836,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       }
     }
 
-    // Wallet sufficiency check
-    final amountToPayNow = _amountToPayNow(package);
-    if (_payment == _PaymentMethod.wallet) {
-      if (_walletBalance == null || _walletBalance! < amountToPayNow) {
-        _snack('Insufficient wallet balance. Please top up your wallet.');
-        return;
-      }
-    }
-
     setState(() => _saving = true);
     try {
       final total = _totalPrice(package);
       final downpayment = _downpaymentAmount(package);
       final remaining = _remainingBalance(package);
-      final method = _payment == _PaymentMethod.cashPickup ? 'cash' : 'wallet';
+      final method = _payment == _PaymentMethod.cashPickup ? 'cash' : 'gcash';
 
       final booking = await _repo.createPackageBooking(
         packageId: package.id,
@@ -896,25 +873,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         province: _packageProvince(package),
         totalPassengers: _totalParticipants,
       );
-
-      await _repo.createPayment(
-        bookingId: booking.id,
-        amount: amountToPayNow,
-        paymentMethod: method,
-        paymentStatus: _isSameDay ? 'fully_paid' : 'dp_paid',
-        paymentType: _isSameDay ? 'full_payment' : 'down_payment',
-      );
-
-      // Deduct wallet balance if wallet was used
-      if (_payment == _PaymentMethod.wallet) {
-        await _repo.deductWalletForBooking(
-          bookingId: booking.id.toString(),
-          amount: amountToPayNow,
-          transactionType: _isSameDay ? 'package_payment' : 'package_payment',
-          description: 'Payment for ${package.title}',
-          referenceKey: 'initial_wallet_payment',
-        );
-      }
 
       if (!mounted) return;
       _navigateToActivityTracking(booking.id.toString());
@@ -1290,14 +1248,21 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                       const SizedBox(height: 10),
 
-                      _WalletPaymentCard(
-                        selected: _payment == _PaymentMethod.wallet,
-                        walletBalance: _walletBalance,
-                        walletLoading: _walletLoading,
-                        amountToPayNow: amountToPayNow,
-                        isSameDay: _isSameDay,
-                        onTap: () =>
-                            setState(() => _payment = _PaymentMethod.wallet),
+                      _PaymentCard(
+                        selected: _payment == _PaymentMethod.gcash,
+                        enabled: _selectedDate != null,
+                        icon: Icons.qr_code_2_rounded,
+                        title: 'GCash',
+                        subtitle: _selectedDate == null
+                            ? 'Select a date first.'
+                            : _isSameDay
+                            ? 'Scan the driver\'s GCash QR and pay the full amount.'
+                            : 'Pay the driver\'s GCash QR: down payment once a driver accepts, remaining balance at the end of the tour.',
+                        onTap: () {
+                          if (_selectedDate != null) {
+                            setState(() => _payment = _PaymentMethod.gcash);
+                          }
+                        },
                       ),
 
                       const SizedBox(height: 10),
@@ -1306,8 +1271,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                         _selectedDate == null
                             ? 'Note: Select a travel date to see available payment options.'
                             : _isSameDay
-                            ? 'Note: Same-day bookings can use Cash on Pick-up or E-Wallet. Full payment is required.'
-                            : 'Note: Advanced bookings require a 50% down payment via E-Wallet. Cash on Pick-up is disabled for advanced bookings.',
+                            ? 'Note: Same-day bookings pay the full amount, in cash or GCash, directly to the driver.'
+                            : 'Note: Advanced bookings pay a 50% down payment once a driver accepts, and the remaining balance at the end of the tour — in cash or GCash, directly to the driver. TourisTrike never holds this money.',
                         style: const TextStyle(
                           color: Color(0xFF64748B),
                           fontWeight: FontWeight.w700,
@@ -1369,7 +1334,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 }
 
-enum _PaymentMethod { cashPickup, wallet }
+// TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+// This is only a payment-method preference recorded on the booking; no funds
+// are captured here. The actual GCash-to-driver payment happens once a driver
+// is assigned (down payment) and again at tour completion (remaining balance).
+enum _PaymentMethod { cashPickup, gcash }
 
 enum _ItineraryViewMode { aiSuggested, customize }
 
@@ -2191,7 +2160,7 @@ class _LocationPickerCard extends StatefulWidget {
 }
 
 class _LocationPickerCardState extends State<_LocationPickerCard> {
-  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+  static final _apiKey = CitySpotSuggestionService.resolveApiKey();
 
   final _searchCtrl = TextEditingController();
   final _focusNode = FocusNode();
@@ -2857,7 +2826,7 @@ class _SharedRouteMapPreview extends StatelessWidget {
     required this.dropoffLng,
   });
 
-  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+  static final _apiKey = CitySpotSuggestionService.resolveApiKey();
 
   final String? pickupAddress;
   final double? pickupLat;
@@ -3347,30 +3316,33 @@ class _BookingSummaryCard extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Amount to Pay Now',
-                        style: TextStyle(
-                          color: accent,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 13,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Amount to Pay Now',
+                          style: TextStyle(
+                            color: accent,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        isSameDay
-                            ? 'Full payment — no remaining balance'
-                            : '50% down payment',
-                        style: const TextStyle(
-                          color: Color(0xFF64748B),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11.5,
+                        const SizedBox(height: 2),
+                        Text(
+                          isSameDay
+                              ? 'Full payment — no remaining balance'
+                              : '50% down payment',
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11.5,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 12),
                   Text(
                     money.format(amountToPayNow),
                     style: TextStyle(
@@ -3784,176 +3756,6 @@ class _PaymentCard extends StatelessWidget {
                     ? const Color(0xFF2A86FF)
                     : const Color(0xFFCBD5E1),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// Wallet payment card
-// ============================================================================
-
-class _WalletPaymentCard extends StatelessWidget {
-  const _WalletPaymentCard({
-    required this.selected,
-    required this.walletBalance,
-    required this.walletLoading,
-    required this.amountToPayNow,
-    required this.isSameDay,
-    required this.onTap,
-  });
-
-  final bool selected;
-  final double? walletBalance;
-  final bool walletLoading;
-  final double amountToPayNow;
-  final bool isSameDay;
-  final VoidCallback onTap;
-
-  bool get _sufficient =>
-      walletBalance != null && walletBalance! >= amountToPayNow;
-
-  @override
-  Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
-    final enabled = _sufficient;
-    final activeSelected = selected && enabled;
-
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.55,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(20),
-        child: _Card(
-          selected: activeSelected,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF2FF),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.account_balance_wallet_outlined,
-                      color: Color(0xFF2A86FF),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'E-Wallet (In-App Balance)',
-                          style: TextStyle(
-                            color: Color(0xFF0F172A),
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          isSameDay
-                              ? 'Pay full amount from wallet.'
-                              : 'Pay 50% down payment from wallet.',
-                          style: const TextStyle(
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    activeSelected
-                        ? Icons.radio_button_checked_rounded
-                        : Icons.radio_button_off_rounded,
-                    color: activeSelected
-                        ? const Color(0xFF2A86FF)
-                        : const Color(0xFFCBD5E1),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: _sufficient
-                      ? const Color(0xFFDCFCE7)
-                      : const Color(0xFFFFF1F2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _sufficient
-                        ? const Color(0xFF86EFAC)
-                        : const Color(0xFFFCA5A5),
-                  ),
-                ),
-                child: walletLoading
-                    ? const SizedBox(
-                        height: 16,
-                        child: Center(
-                          child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Color(0xFF2A86FF),
-                            ),
-                          ),
-                        ),
-                      )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Wallet Balance',
-                            style: TextStyle(
-                              color: _sufficient
-                                  ? const Color(0xFF15803D)
-                                  : const Color(0xFFDC2626),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12.5,
-                            ),
-                          ),
-                          Text(
-                            walletBalance != null
-                                ? money.format(walletBalance)
-                                : '—',
-                            style: TextStyle(
-                              color: _sufficient
-                                  ? const Color(0xFF15803D)
-                                  : const Color(0xFFDC2626),
-                              fontWeight: FontWeight.w900,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-              if (!_sufficient && !walletLoading) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Insufficient wallet balance. Please top up your wallet.',
-                  style: TextStyle(
-                    color: Color(0xFFDC2626),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                ),
-              ],
             ],
           ),
         ),

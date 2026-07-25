@@ -261,6 +261,11 @@ class DriverDetails extends TourisTrikeRow {
   String get approvedBy => dbString(row['approved_by']);
   DateTime? get approvedAt => dbDate(row['approved_at']);
   String get suspendedReason => dbString(row['suspended_reason']);
+  String get gcashNumber => dbString(row['gcash_number']);
+  String get gcashName => dbString(row['gcash_name']);
+  String get gcashQrUrl => dbString(row['gcash_qr_url']);
+  bool get hasGcashDetails =>
+      gcashQrUrl.isNotEmpty || (gcashNumber.isNotEmpty && gcashName.isNotEmpty);
 
   String get vehicleLabel {
     final parts = [
@@ -396,21 +401,48 @@ class PackageBooking extends TourisTrikeRow {
       row['driver'] is Map ? Json.from(row['driver'] as Map) : null;
 }
 
+// TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
 class PaymentRecord extends TourisTrikeRow {
   const PaymentRecord(super.row);
 
+  dynamic get rideId => row['ride_id'];
   dynamic get bookingId => row['booking_id'];
-  String get userId => dbString(row['user_id']);
+  String get payerId => dbString(row['payer_id']);
+  String get payeeId => dbString(row['payee_id']);
   double get amount => dbDouble(row['amount']);
   String get paymentMethod => dbString(row['payment_method']);
-  String get paymentStatus =>
-      dbString(row['payment_status'], fallback: 'pending');
-  String get paymentType =>
-      dbString(row['payment_type'], fallback: 'full_payment');
-  String get paymentReference => dbString(row['payment_reference']);
-  String get checkoutUrl => dbString(row['checkout_url']);
-  DateTime? get paidAt => dbDate(row['paid_at']);
+  String get paymentStage => dbString(row['payment_stage'], fallback: 'full');
+  String get externalReferenceNo => dbString(row['external_reference_no']);
+  String get proofImageUrl => dbString(row['proof_image_url']);
+  String get status =>
+      dbString(row['status'], fallback: 'pending_confirmation');
+  DateTime? get payerSubmittedAt => dbDate(row['payer_submitted_at']);
+  DateTime? get payeeConfirmedAt => dbDate(row['payee_confirmed_at']);
+  String get receiptNo => dbString(row['receipt_no']);
+  String get serviceDescription => dbString(row['service_description']);
+  String get notes => dbString(row['notes']);
   DateTime? get createdAt => dbDate(row['created_at']);
+
+  bool get isConfirmed => status == 'confirmed';
+  bool get isPending => status == 'pending_confirmation';
+  bool get isDisputed => status == 'disputed';
+}
+
+class PaymentDispute extends TourisTrikeRow {
+  const PaymentDispute(super.row);
+
+  String get paymentRecordId => dbString(row['payment_record_id']);
+  dynamic get bookingId => row['booking_id'];
+  dynamic get rideId => row['ride_id'];
+  String get raisedBy => dbString(row['raised_by']);
+  String get reason => dbString(row['reason']);
+  String get description => dbString(row['description']);
+  String get evidenceUrl => dbString(row['evidence_url']);
+  String get status => dbString(row['status'], fallback: 'open');
+  String get resolvedBy => dbString(row['resolved_by']);
+  String get resolutionNote => dbString(row['resolution_note']);
+  DateTime? get createdAt => dbDate(row['created_at']);
+  DateTime? get resolvedAt => dbDate(row['resolved_at']);
 }
 
 class Ride extends TourisTrikeRow {
@@ -696,35 +728,6 @@ class TouristSpotView extends TourisTrikeRow {
   dynamic get spotId => row['spot_id'];
   String get userId => dbString(row['user_id']);
   DateTime? get createdAt => dbDate(row['created_at']);
-}
-
-class Wallet extends TourisTrikeRow {
-  const Wallet(super.row);
-
-  String get userId => dbString(row['user_id']);
-  String get role => dbString(row['role'], fallback: 'tourist');
-  double get balance => dbDouble(row['balance']);
-  DateTime? get createdAt => dbDate(row['created_at']);
-  DateTime? get updatedAt => dbDate(row['updated_at']);
-}
-
-class WalletTransaction extends TourisTrikeRow {
-  const WalletTransaction(super.row);
-
-  String get walletId => dbString(row['wallet_id']);
-  String get userId => dbString(row['user_id']);
-  String get role => dbString(row['role'], fallback: 'tourist');
-  String get type => dbString(row['type']);
-  double get amount => dbDouble(row['amount']);
-  String get status => dbString(row['status'], fallback: 'pending');
-  String get paymentMethod => dbString(row['payment_method']);
-  String get bookingId => dbString(row['booking_id']);
-  String get description => dbString(row['description']);
-  String get referenceKey => dbString(row['reference_key']);
-  String get paymongoReferenceId => dbString(row['paymongo_reference_id']);
-  String get checkoutUrl => dbString(row['checkout_url']);
-  DateTime? get createdAt => dbDate(row['created_at']);
-  DateTime? get updatedAt => dbDate(row['updated_at']);
 }
 
 class PackageActivity extends TourisTrikeRow {

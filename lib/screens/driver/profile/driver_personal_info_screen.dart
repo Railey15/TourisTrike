@@ -227,7 +227,7 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
       title: 'Personal Info',
       subtitle: widget.flowStep == null
           ? 'Update your driver identity, contact details, and address.'
-          : 'Step 1 of 7: complete your personal information.',
+          : 'Step 1 of 8: complete your personal information.',
       bottomBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: DriverPrimaryButton(

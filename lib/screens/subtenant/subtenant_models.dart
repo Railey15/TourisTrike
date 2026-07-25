@@ -847,6 +847,13 @@ class SubTenantDriver {
   String get todaName => stString(details ?? const {}, const ['toda_name']);
   String get operatorCode =>
       stString(details ?? const {}, const ['operator_code']);
+  String get gcashNumber =>
+      stString(details ?? const {}, const ['gcash_number']);
+  String get gcashName => stString(details ?? const {}, const ['gcash_name']);
+  String get gcashQrUrl =>
+      stString(details ?? const {}, const ['gcash_qr_url']);
+  bool get hasGcashDetails =>
+      gcashQrUrl.isNotEmpty || (gcashNumber.isNotEmpty && gcashName.isNotEmpty);
   int get uploadedDocumentCount => documentLinks.length;
   int get requiredDocumentCount => 11;
   String get documentCompleteness =>

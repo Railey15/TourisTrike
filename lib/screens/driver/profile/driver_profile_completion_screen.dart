@@ -2,6 +2,7 @@
 
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
 import 'package:touristrike/screens/driver/profile/driver_documents_screen.dart';
+import 'package:touristrike/screens/driver/profile/driver_gcash_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_license_expiry_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_online_status_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_personal_info_screen.dart';
@@ -80,6 +81,8 @@ class _DriverProfileCompletionScreenState
         return DriverTodaAssignmentScreen(bundle: bundle, flowStep: step);
       case DriverProfileStep.plateNumber:
         return DriverPlateNumberScreen(bundle: bundle, flowStep: step);
+      case DriverProfileStep.gcashPayment:
+        return DriverGcashScreen(bundle: bundle, flowStep: step);
       case DriverProfileStep.roleSelection:
         return DriverRoleScreen(bundle: bundle, flowStep: step);
       case DriverProfileStep.documentsUpload:
@@ -154,7 +157,7 @@ class _DriverProfileCompletionScreenState
                 completionPercent: bundle.completionPercent,
                 progressLabel: bundle.isFullyComplete
                     ? 'Profile setup complete'
-                    : 'Complete all 7 driver profile steps',
+                    : 'Complete all 8 driver profile steps',
               ),
               const SizedBox(height: 14),
               DriverProfileCard(

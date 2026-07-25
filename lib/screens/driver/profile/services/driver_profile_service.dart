@@ -16,6 +16,7 @@ class DriverProfileService {
 
   static const String storageBucket = 'public-assets';
   static const String storageFolder = 'driver-documents';
+  static const String gcashPaymentFolder = 'driver-payment';
 
   User? get currentUser => _supabase.auth.currentUser;
 
@@ -356,6 +357,53 @@ class DriverProfileService {
     await _deleteStorageObjectIfPossible(existingUrl);
   }
 
+  /// GCash-to-GCash direct payment setup — the driver's own QR code, uploaded
+  /// under the `driver-payment/` folder (a distinct storage RLS policy from
+  /// `driver-documents/`, see the payment-trail migration).
+  Future<String> uploadGcashQr({
+    required String userId,
+    required XFile file,
+    String? previousUrl,
+  }) async {
+    final upload = await _uploadFile(
+      userId: userId,
+      baseName: 'gcash_qr',
+      file: file,
+      folder: gcashPaymentFolder,
+    );
+
+    await _upsertDriverDetails(userId, <String, dynamic>{
+      'gcash_qr_url': upload.publicUrl,
+    });
+
+    if (previousUrl != null && previousUrl.trim().isNotEmpty) {
+      unawaited(_deleteStorageObjectIfPossible(previousUrl));
+    }
+
+    return upload.publicUrl;
+  }
+
+  Future<void> removeGcashQr({
+    required String userId,
+    required String existingUrl,
+  }) async {
+    await _upsertDriverDetails(userId, <String, dynamic>{
+      'gcash_qr_url': null,
+    });
+    await _deleteStorageObjectIfPossible(existingUrl);
+  }
+
+  Future<void> saveGcashDetails({
+    required String userId,
+    String? gcashNumber,
+    String? gcashName,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (gcashNumber != null) payload['gcash_number'] = _nullableText(gcashNumber);
+    if (gcashName != null) payload['gcash_name'] = _nullableText(gcashName);
+    await _upsertDriverDetails(userId, payload);
+  }
+
   Future<void> ensureDriverRows(String userId) async {
     await _upsertDriverDetails(userId, const <String, dynamic>{});
     await _upsertDriverDocuments(userId, const <String, dynamic>{});
@@ -442,11 +490,12 @@ class DriverProfileService {
     required String userId,
     required String baseName,
     required XFile file,
+    String? folder,
   }) async {
     final bytes = await file.readAsBytes();
     final ext = _extensionFromPath(file.path);
     final storagePath =
-        '$storageFolder/$userId/${baseName}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+        '${folder ?? storageFolder}/$userId/${baseName}_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
     await _supabase.storage
         .from(storageBucket)

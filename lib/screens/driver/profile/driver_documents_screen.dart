@@ -393,7 +393,7 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
       title: 'Driver Documents',
       subtitle: widget.flowStep == null
           ? 'Upload and manage the required driver documents.'
-          : 'Step 6 of 7: upload all required driver documents.',
+          : 'Step 7 of 8: upload all required driver documents.',
       bottomBar: widget.flowStep == null
           ? null
           : Padding(

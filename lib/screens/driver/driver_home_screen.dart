@@ -489,12 +489,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     var completedTotal = 0;
 
     try {
-      // Today's earnings from wallet_transactions (type: driver_earning)
+      // Today's earnings from confirmed GCash-to-GCash payment_records.
+      // TourisTrike does NOT custody funds — this only reads the driver's own
+      // confirmed payment records, it never moves money.
       final txRows = await supabase
-          .from('wallet_transactions')
+          .from('payment_records')
           .select('amount, created_at')
-          .eq('user_id', _user.id)
-          .eq('type', 'driver_earning')
+          .eq('payee_id', _user.id)
+          .eq('status', 'confirmed')
           .gte('created_at', start.toIso8601String())
           .lt('created_at', end.toIso8601String());
 

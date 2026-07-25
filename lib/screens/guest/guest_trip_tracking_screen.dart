@@ -30,8 +30,8 @@ class GuestTripTrackingScreen extends StatefulWidget {
 }
 
 class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
-  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
-  final _routeService = const RoutePolylineService(apiKey: _apiKey);
+  static final _apiKey = CitySpotSuggestionService.resolveApiKey();
+  final _routeService = RoutePolylineService(apiKey: _apiKey);
 
   final _repo = TourisTrikeRepository();
   final _supabase = Supabase.instance.client;

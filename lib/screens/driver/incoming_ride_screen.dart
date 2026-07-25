@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import '../driver/driver_location_service.dart';
 
 class IncomingRideScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class IncomingRideScreen extends StatefulWidget {
 
 class _IncomingRideScreenState extends State<IncomingRideScreen> {
   final supabase = Supabase.instance.client;
+  final _repo = TourisTrikeRepository();
 
   Map<String, dynamic>? _ride;
   Map<String, dynamic>? _touristProfile;
@@ -379,6 +381,111 @@ class _IncomingRideScreenState extends State<IncomingRideScreen> {
       _snack('Status update blocked. Check RLS.');
     } finally {
       if (mounted) setState(() => _updatingStatus = false);
+    }
+  }
+
+  // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+  // No live tourist-facing ride screen exists yet for this flow, so the driver
+  // records what the tourist already paid them (cash-in-hand, or a GCash
+  // reference the tourist shared verbally) rather than the tourist submitting
+  // it themselves, unlike the package-booking flow.
+  Future<bool> _recordRidePaymentBeforeCompleting() async {
+    final ride = _ride;
+    if (ride == null) return true;
+    final fare = ride['fare_amount'];
+    final amount = fare is num ? fare.toDouble() : 0.0;
+    if (amount <= 0) return true;
+
+    final rawMethod = (ride['payment_method'] ?? 'cash').toString().trim().toLowerCase();
+    final method = rawMethod == 'gcash' || rawMethod == 'maya' ? rawMethod : 'cash';
+    final refController = TextEditingController();
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Confirm Payment Received',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '₱${amount.toStringAsFixed(2)} via ${method.toUpperCase()}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 22,
+                color: Color(0xFF2F6FFF),
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (method != 'cash')
+              TextField(
+                controller: refController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'GCash/Maya Reference Number',
+                  border: OutlineInputBorder(),
+                ),
+              )
+            else
+              const Text(
+                'Confirm that you have received this fare in cash from the tourist.',
+                style: TextStyle(color: Color(0xFF64748B)),
+              ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Confirm & Complete Tour'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return false;
+
+    try {
+      await _repo.recordRidePayment(
+        rideId: widget.rideId,
+        paymentMethod: method,
+        amount: amount,
+        externalReferenceNo: refController.text.trim().isEmpty
+            ? null
+            : refController.text.trim(),
+      );
+      return true;
+    } catch (e) {
+      _snack('Unable to record payment: $e');
+      return false;
     }
   }
 
@@ -786,6 +893,11 @@ class _IncomingRideScreenState extends State<IncomingRideScreen> {
                           onPressed: (_updatingStatus || action == null)
                               ? null
                               : () async {
+                                  if (action.nextStatus == 'completed') {
+                                    final ok =
+                                        await _recordRidePaymentBeforeCompleting();
+                                    if (!ok) return;
+                                  }
                                   await _setStatus(action.nextStatus);
                                   if (action.nextStatus != 'completed') {
                                     _snack(action.toast);

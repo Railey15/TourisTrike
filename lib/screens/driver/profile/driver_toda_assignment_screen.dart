@@ -99,7 +99,7 @@ class _DriverTodaAssignmentScreenState
       title: 'TODA Assignment',
       subtitle: widget.flowStep == null
           ? 'Update your TODA name and operator code.'
-          : 'Step 3 of 7: add your TODA assignment details.',
+          : 'Step 3 of 8: add your TODA assignment details.',
       bottomBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: DriverPrimaryButton(

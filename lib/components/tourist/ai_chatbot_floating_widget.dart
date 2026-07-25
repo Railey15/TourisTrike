@@ -146,7 +146,7 @@ class _TouristAiChatbotWrapperState extends State<TouristAiChatbotWrapper> {
       MaterialPageRoute(
         builder: (_) => TouristSpotDetailsScreen(
           spot: spotData,
-          googleMapsApiKey: CitySpotSuggestionService.defaultGoogleMapsApiKey,
+          googleMapsApiKey: CitySpotSuggestionService.resolveApiKey(),
         ),
       ),
     );

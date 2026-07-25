@@ -795,7 +795,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
             openNow: spot.openNow,
             municipality: spot.municipality,
           ),
-          googleMapsApiKey: CitySpotSuggestionService.defaultGoogleMapsApiKey,
+          googleMapsApiKey: CitySpotSuggestionService.resolveApiKey(),
         ),
       ),
     );

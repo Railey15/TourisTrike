@@ -238,8 +238,9 @@ class CitySpotSuggestionService {
   static String buildStaticMapUrl({
     required double latitude,
     required double longitude,
-    String apiKey = defaultGoogleMapsApiKey,
+    String? apiKey,
   }) {
+    final key = apiKey ?? resolveApiKey();
     final marker = Uri.encodeComponent('$latitude,$longitude');
     return 'https://maps.googleapis.com/maps/api/staticmap'
         '?center=$marker'
@@ -248,7 +249,7 @@ class CitySpotSuggestionService {
         '&scale=2'
         '&maptype=roadmap'
         '&markers=color:red%7C$marker'
-        '&key=$apiKey';
+        '&key=$key';
   }
 
   Future<List<CitySpotSuggestion>> _fetchGoogleTextSearch({

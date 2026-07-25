@@ -41,20 +41,14 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     }
 
     try {
-      final results = await Future.wait([
-        _supabase
-            .from('payments')
-            .select('payment_method, created_at')
-            .eq('user_id', userId),
-        _supabase
-            .from('wallet_transactions')
-            .select('payment_method, created_at')
-            .eq('user_id', userId),
-      ]);
+      final rows = await _supabase
+          .from('payment_records')
+          .select('payment_method, created_at')
+          .eq('payer_id', userId);
 
       final usage = <String, _MethodUsage>{};
 
-      for (final row in results.expand((value) => value as List<dynamic>)) {
+      for (final row in rows as List<dynamic>) {
         final map = Map<String, dynamic>.from(row as Map);
         final method = (map['payment_method'] ?? '')
             .toString()
@@ -112,20 +106,6 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
         subtitle: 'Maya digital wallet payments',
         icon: Icons.wallet_rounded,
         usage: usage['maya'],
-      ),
-      _PaymentMethodViewModel(
-        key: 'card',
-        title: 'Card',
-        subtitle: 'Debit or credit card payments',
-        icon: Icons.credit_card_rounded,
-        usage: usage['card'],
-      ),
-      _PaymentMethodViewModel(
-        key: 'wallet',
-        title: 'Wallet',
-        subtitle: 'Use your in-app wallet balance',
-        icon: Icons.account_balance_wallet_outlined,
-        usage: usage['wallet'],
       ),
     ];
 
@@ -207,7 +187,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                         border: Border.all(color: line),
                       ),
                       child: const Text(
-                        'This screen reflects supported payment methods plus methods found in your payments and wallet transaction history. No separate payment methods table is used.',
+                        'This screen reflects supported payment methods plus methods found in your payment history. TourisTrike never holds your money — GCash and Maya payments go directly to the driver.',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           color: textMid,

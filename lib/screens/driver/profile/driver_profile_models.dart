@@ -5,6 +5,7 @@ enum DriverProfileStep {
   licenseInformation,
   todaAssignment,
   plateNumber,
+  gcashPayment,
   roleSelection,
   documentsUpload,
   onlineStatus,
@@ -21,6 +22,8 @@ extension DriverProfileStepX on DriverProfileStep {
         return 'TODA Assignment';
       case DriverProfileStep.plateNumber:
         return 'Plate Number';
+      case DriverProfileStep.gcashPayment:
+        return 'GCash Payment Details';
       case DriverProfileStep.roleSelection:
         return 'Role Selection';
       case DriverProfileStep.documentsUpload:
@@ -40,6 +43,8 @@ extension DriverProfileStepX on DriverProfileStep {
         return 'Your TODA name and operator code.';
       case DriverProfileStep.plateNumber:
         return 'The tricycle plate number assigned to you.';
+      case DriverProfileStep.gcashPayment:
+        return 'Your GCash QR code and details so tourists can pay you directly.';
       case DriverProfileStep.roleSelection:
         return 'Confirm the driver role linked to your profile.';
       case DriverProfileStep.documentsUpload:
@@ -59,6 +64,8 @@ extension DriverProfileStepX on DriverProfileStep {
         return Icons.groups_2_outlined;
       case DriverProfileStep.plateNumber:
         return Icons.directions_bike_outlined;
+      case DriverProfileStep.gcashPayment:
+        return Icons.qr_code_2_rounded;
       case DriverProfileStep.roleSelection:
         return Icons.verified_user_outlined;
       case DriverProfileStep.documentsUpload:
@@ -182,6 +189,8 @@ class DriverProfileBundle {
         return details.isTodaAssignmentComplete;
       case DriverProfileStep.plateNumber:
         return details.isPlateNumberComplete;
+      case DriverProfileStep.gcashPayment:
+        return details.isGcashPaymentComplete;
       case DriverProfileStep.roleSelection:
         return profile.isRoleSelectionComplete;
       case DriverProfileStep.documentsUpload:
@@ -367,6 +376,9 @@ class DriverDetailsRecord {
     required this.operatorCode,
     required this.status,
     required this.approvedAt,
+    required this.gcashNumber,
+    required this.gcashName,
+    required this.gcashQrUrl,
   });
 
   factory DriverDetailsRecord.fromMap(Map<String, dynamic> map, String userId) {
@@ -380,6 +392,9 @@ class DriverDetailsRecord {
       operatorCode: _stringValue(map['operator_code']),
       status: _stringValue(map['status'], fallback: 'pending'),
       approvedAt: _dateValue(map['approved_at']),
+      gcashNumber: _stringValue(map['gcash_number']),
+      gcashName: _stringValue(map['gcash_name']),
+      gcashQrUrl: _stringValue(map['gcash_qr_url']),
     );
   }
 
@@ -394,6 +409,9 @@ class DriverDetailsRecord {
       operatorCode: '',
       status: 'pending',
       approvedAt: null,
+      gcashNumber: '',
+      gcashName: '',
+      gcashQrUrl: '',
     );
   }
 
@@ -406,6 +424,9 @@ class DriverDetailsRecord {
   final String operatorCode;
   final String status;
   final DateTime? approvedAt;
+  final String gcashNumber;
+  final String gcashName;
+  final String gcashQrUrl;
 
   bool get isLicenseInformationComplete {
     return licenseNumber.trim().isNotEmpty && licenseExpiry != null;
@@ -416,6 +437,12 @@ class DriverDetailsRecord {
   }
 
   bool get isPlateNumberComplete => plateNumber.trim().isNotEmpty;
+
+  // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+  bool get isGcashPaymentComplete {
+    return gcashQrUrl.trim().isNotEmpty ||
+        (gcashNumber.trim().isNotEmpty && gcashName.trim().isNotEmpty);
+  }
 }
 
 class DriverDocumentsRecord {

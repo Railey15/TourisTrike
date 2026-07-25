@@ -12,6 +12,7 @@ import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/screens/shared/payment_dispute_screen.dart' show paymentDisputeReasons;
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -27,9 +28,9 @@ class DriverPackageTrackingScreen extends StatefulWidget {
 
 class _DriverPackageTrackingScreenState
     extends State<DriverPackageTrackingScreen> {
-  static const _apiKey = CitySpotSuggestionService.defaultGoogleMapsApiKey;
+  static final _apiKey = CitySpotSuggestionService.resolveApiKey();
   static const _defaultCenter = LatLng(14.9597, 120.9206);
-  final _routeService = const RoutePolylineService(apiKey: _apiKey);
+  final _routeService = RoutePolylineService(apiKey: _apiKey);
   // Driver must be within 150m to mark arrival/pickup
   static const double _proximityMeters = 150.0;
 
@@ -43,6 +44,7 @@ class _DriverPackageTrackingScreenState
   PackageActivity? _activity;
   PackageBooking? _booking;
   List<BookingItineraryItem> _spots = [];
+  List<PaymentRecord> _paymentRecords = [];
 
   bool _loading = true;
   String? _error;
@@ -133,12 +135,21 @@ class _DriverPackageTrackingScreenState
         spots = await _repo.fetchBookingItinerary(bookingId);
       }
 
+      var paymentRecords = <PaymentRecord>[];
+      try {
+        // package_bookings.id is uuid in this project, not bigint.
+        paymentRecords = await _repo.fetchPaymentRecordsFor(bookingId: bookingId);
+      } catch (_) {
+        // Non-fatal — payments card just won't show yet.
+      }
+
       if (!mounted) return;
       setState(() {
         _bookingId = bookingId;
         _activity = initialActivity;
         _booking = booking;
         _spots = spots;
+        _paymentRecords = paymentRecords;
         _loading = false;
       });
 
@@ -888,19 +899,97 @@ class _DriverPackageTrackingScreenState
     final isAdvanced = (booking?.bookingType ?? 'same_day') == 'advanced';
     final remainingBalance = booking?.remainingBalance ?? 0.0;
 
-    if (isAdvanced && remainingBalance > 0) {
-      final confirmed = await _showCashConfirmDialog(remainingBalance);
-      if (confirmed != true) return;
+    // TourisTrike does NOT custody funds — the RPC itself now requires a
+    // CONFIRMED remaining-balance payment_records row before it lets the
+    // tour close (see complete_package_tour in the payment-trail migration).
+    if (isAdvanced && remainingBalance > 0 && !_hasConfirmedRemainingBalance) {
+      _showSnack(
+        'Confirm the remaining balance payment (below) before completing the tour.',
+      );
+      return;
     }
 
-    await _repo.completePackageActivity(
-      widget.activityId,
-      remainingPaymentMethod: isAdvanced && remainingBalance > 0 ? 'cash' : '',
-    );
+    try {
+      await _repo.completePackageActivity(widget.activityId);
+    } on PostgrestException catch (e) {
+      if (e.message.contains('REMAINING_BALANCE_UNPAID')) {
+        _showSnack(
+          'Confirm the remaining balance payment before completing the tour.',
+        );
+        return;
+      }
+      rethrow;
+    }
     await _refreshTrackingState(logTag: 'complete-tour');
     _logStatus('completed');
     _showSnack('Tour completed successfully.');
   });
+
+  bool get _hasConfirmedRemainingBalance => _paymentRecords.any(
+    (p) => p.paymentStage == 'remaining_balance' && p.status == 'confirmed',
+  );
+
+  // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+  Future<void> _confirmPayment(PaymentRecord record) async {
+    try {
+      await _repo.confirmPaymentRecord(record.id as String);
+      await _repo.notifyUser(
+        userId: record.payerId,
+        title: 'Payment confirmed',
+        body: 'Your payment of ₱${record.amount.toStringAsFixed(2)} was confirmed.',
+        type: 'payment_confirmed',
+      );
+      _showSnack('Payment confirmed.');
+      await _refreshTrackingState(logTag: 'payment-confirmed');
+    } catch (e) {
+      _showSnack('Unable to confirm payment: $e');
+    }
+  }
+
+  Future<void> _disputePayment(PaymentRecord record) async {
+    final reason = await _pickDisputeReason();
+    if (reason == null) return;
+    try {
+      await _repo.raisePaymentDispute(
+        paymentRecordId: record.id as String,
+        reason: reason,
+      );
+      _showSnack('Dispute filed. An admin will review it.');
+      await _refreshTrackingState(logTag: 'payment-disputed');
+    } catch (e) {
+      _showSnack('Unable to file dispute: $e');
+    }
+  }
+
+  Future<String?> _pickDisputeReason() {
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Report a Problem',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+              ),
+            ),
+            ...paymentDisputeReasons.entries.map(
+              (e) => ListTile(
+                title: Text(e.value),
+                onTap: () => Navigator.pop(context, e.key),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _logStatus(String status, {int? spotIndex}) {
     final activity = _activity;
@@ -916,58 +1005,6 @@ class _DriverPackageTrackingScreenState
           longitude: pos?.longitude,
         )
         .catchError((_) {});
-  }
-
-  Future<bool?> _showCashConfirmDialog(double amount) {
-    return showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text(
-          'Confirm Remaining Balance',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This is an advanced booking with a remaining balance due:',
-              style: TextStyle(color: Color(0xFF64748B)),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'PHP ${amount.toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Confirm that the tourist has paid the remaining balance before completing the tour.',
-              style: TextStyle(color: Color(0xFF64748B), height: 1.4),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(ctx, true),
-            icon: const Icon(Icons.check_circle_rounded),
-            label: const Text('Payment Confirmed'),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF16A34A),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showSnack(String msg) {
@@ -1258,6 +1295,14 @@ class _DriverPackageTrackingScreenState
                 ),
                 const SizedBox(height: 12),
               ],
+              if (_paymentRecords.isNotEmpty) ...[
+                _DriverPaymentsCard(
+                  records: _paymentRecords,
+                  onConfirm: _confirmPayment,
+                  onDispute: _disputePayment,
+                ),
+                const SizedBox(height: 12),
+              ],
               _TouristCard(
                 activity: activity,
                 onMessage: _openTouristChat,
@@ -1277,6 +1322,98 @@ class _DriverPackageTrackingScreenState
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Payments Card ─────────────────────────────────────────────
+// TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+
+class _DriverPaymentsCard extends StatelessWidget {
+  const _DriverPaymentsCard({
+    required this.records,
+    required this.onConfirm,
+    required this.onDispute,
+  });
+
+  final List<PaymentRecord> records;
+  final ValueChanged<PaymentRecord> onConfirm;
+  final ValueChanged<PaymentRecord> onDispute;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = records
+        .where((r) => r.status == 'pending_confirmation')
+        .toList();
+    if (pending.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Payments Awaiting Your Confirmation',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+          ),
+          const SizedBox(height: 10),
+          for (final r in pending) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'PHP ${r.amount.toStringAsFixed(2)} via ${r.paymentMethod.toUpperCase()}'
+                    '${r.paymentStage == 'down_payment' ? ' (down payment)' : r.paymentStage == 'remaining_balance' ? ' (remaining balance)' : ''}',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  if (r.externalReferenceNo.isNotEmpty)
+                    Text(
+                      'Ref: ${r.externalReferenceNo}',
+                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 12.5),
+                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => onDispute(r),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFDC2626),
+                          ),
+                          child: const Text('Dispute'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => onConfirm(r),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF16A34A),
+                          ),
+                          child: const Text('Confirm'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

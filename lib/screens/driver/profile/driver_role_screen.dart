@@ -67,7 +67,7 @@ class _DriverRoleScreenState extends State<DriverRoleScreen> {
       title: 'Role Selection',
       subtitle: widget.flowStep == null
           ? 'Review the role attached to your driver account.'
-          : 'Step 5 of 7: confirm your driver role.',
+          : 'Step 6 of 8: confirm your driver role.',
       bottomBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: DriverPrimaryButton(

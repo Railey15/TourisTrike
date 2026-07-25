@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/driver/driver_trips.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
 
@@ -27,6 +28,59 @@ class DriverEarningScreen extends StatefulWidget {
 
 class _DriverEarningScreenState extends State<DriverEarningScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final TourisTrikeRepository _repo = TourisTrikeRepository();
+
+  // ride_id -> confirmed GCash/cash amount actually received (not just the
+  // fare_amount stamped on the ride, which says nothing about whether it was
+  // ever paid). TourisTrike does NOT custody funds — this is a read of the
+  // driver's own confirmed payment_records rows.
+  Map<String, double> _confirmedByRide = {};
+  RealtimeChannel? _paymentsChannel;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfirmedPayments();
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId != null) {
+      _paymentsChannel = _supabase
+          .channel('driver_earning_payment_records_$userId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'payment_records',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'payee_id',
+              value: userId,
+            ),
+            callback: (_) => _loadConfirmedPayments(),
+          )
+          .subscribe();
+    }
+  }
+
+  @override
+  void dispose() {
+    _paymentsChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  Future<void> _loadConfirmedPayments() async {
+    try {
+      final records = await _repo.fetchPaymentRecords(role: 'payee', limit: 500);
+      final byRide = <String, double>{};
+      for (final r in records) {
+        if (!r.isConfirmed || r.rideId == null) continue;
+        final key = r.rideId.toString();
+        byRide[key] = (byRide[key] ?? 0) + r.amount;
+      }
+      if (!mounted) return;
+      setState(() => _confirmedByRide = byRide);
+    } catch (_) {
+      // Non-fatal — totals just stay at 0 until this succeeds.
+    }
+  }
 
   Stream<List<DriverRide>> _ridesStream(String driverId) {
     return _supabase
@@ -85,6 +139,7 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
             final summary = DriverEarningSummary.fromRides(
               rides: rides,
               dailyGoalAmount: widget.dailyGoalAmount,
+              confirmedAmountsByRideId: _confirmedByRide,
             );
 
             return Align(
@@ -353,6 +408,7 @@ class DriverEarningSummary {
   factory DriverEarningSummary.fromRides({
     required List<DriverRide> rides,
     required double dailyGoalAmount,
+    Map<String, double> confirmedAmountsByRideId = const {},
   }) {
     final now = DateTime.now();
 
@@ -364,14 +420,17 @@ class DriverEarningSummary {
           completedTime.day == now.day;
     }).toList();
 
+    double confirmedAmountFor(DriverRide ride) =>
+        confirmedAmountsByRideId[ride.id] ?? 0;
+
     final totalEarnings = rides.fold<double>(
       0,
-      (sum, ride) => sum + ride.fareAmount,
+      (sum, ride) => sum + confirmedAmountFor(ride),
     );
 
     final todayEarnings = todayRides.fold<double>(
       0,
-      (sum, ride) => sum + ride.fareAmount,
+      (sum, ride) => sum + confirmedAmountFor(ride),
     );
 
     final safeGoal = dailyGoalAmount <= 0 ? 1 : dailyGoalAmount;

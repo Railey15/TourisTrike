@@ -88,7 +88,7 @@ class _DriverOnlineStatusScreenState extends State<DriverOnlineStatusScreen> {
       title: 'Online Status',
       subtitle: widget.flowStep == null
           ? 'Choose whether you are currently available for bookings.'
-          : 'Step 7 of 7: choose your online availability.',
+          : 'Step 8 of 8: choose your online availability.',
       bottomBar: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
         child: DriverPrimaryButton(
