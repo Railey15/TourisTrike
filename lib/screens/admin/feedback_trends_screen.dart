@@ -87,7 +87,10 @@ class _FeedbackTrendsScreenState extends State<FeedbackTrendsScreen> {
               return Padding(
                 padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
                 child: _DesktopFeedbackLayout(
-                  height: constraints.maxHeight - 28,
+                  height: (constraints.maxHeight - 28).clamp(
+                    0.0,
+                    double.infinity,
+                  ),
                   data: data,
                   averageRating: averageRating,
                   totalFeedback: totalFeedback,
@@ -155,36 +158,25 @@ class _DesktopFeedbackLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const gap = 14.0;
-    const heroHeight = 106.0;
-    const metricHeight = 100.0;
-
-    final bodyHeight = height - heroHeight - metricHeight - gap * 3;
 
     return SizedBox(
       height: height,
       child: Column(
         children: [
-          SizedBox(
-            height: heroHeight,
-            child: _FeedbackHero(
-              averageRating: averageRating,
-              totalFeedback: totalFeedback,
-              lowRatedCount: lowRated.length,
-            ),
+          _FeedbackHero(
+            averageRating: averageRating,
+            totalFeedback: totalFeedback,
+            lowRatedCount: lowRated.length,
           ),
           const SizedBox(height: gap),
-          SizedBox(
-            height: metricHeight,
-            child: _MetricRow(
-              averageRating: averageRating,
-              totalFeedback: totalFeedback,
-              lowRatedCount: lowRated.length,
-              driverFeedback: driverFeedback,
-            ),
+          _MetricRow(
+            averageRating: averageRating,
+            totalFeedback: totalFeedback,
+            lowRatedCount: lowRated.length,
+            driverFeedback: driverFeedback,
           ),
           const SizedBox(height: gap),
-          SizedBox(
-            height: bodyHeight,
+          Expanded(
             child: Row(
               children: [
                 Expanded(
@@ -295,13 +287,11 @@ class _MobileFeedbackLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          height: 140,
-          child: _FeedbackHero(
-            averageRating: averageRating,
-            totalFeedback: totalFeedback,
-            lowRatedCount: lowRated.length,
-          ),
+        _FeedbackHero(
+          compact: true,
+          averageRating: averageRating,
+          totalFeedback: totalFeedback,
+          lowRatedCount: lowRated.length,
         ),
         const SizedBox(height: 14),
         _MetricGrid(
@@ -311,59 +301,51 @@ class _MobileFeedbackLayout extends StatelessWidget {
           driverFeedback: driverFeedback,
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 300,
-          child: _FeedbackPanel(
-            title: 'Low-Rated Reviews',
-            subtitle: 'Tourist feedback below 3 stars.',
-            icon: Icons.warning_rounded,
-            color: ProvincialAdminColors.red,
-            child: _FeedbackList(
-              items: lowRated,
-              empty: 'No low-rated reviews found.',
-            ),
+        _FeedbackPanel(
+          expand: false,
+          title: 'Low-Rated Reviews',
+          subtitle: 'Tourist feedback below 3 stars.',
+          icon: Icons.warning_rounded,
+          color: ProvincialAdminColors.red,
+          child: _FeedbackList(
+            items: lowRated,
+            empty: 'No low-rated reviews found.',
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 300,
-          child: _FeedbackPanel(
-            title: 'Recent Feedback',
-            subtitle: 'Latest reviews and tourist comments.',
-            icon: Icons.forum_rounded,
-            color: ProvincialAdminColors.blue,
-            child: _FeedbackList(
-              items: data.feedback.take(6).toList(),
-              empty: 'No feedback records yet.',
-            ),
+        _FeedbackPanel(
+          expand: false,
+          title: 'Recent Feedback',
+          subtitle: 'Latest reviews and tourist comments.',
+          icon: Icons.forum_rounded,
+          color: ProvincialAdminColors.blue,
+          child: _FeedbackList(
+            items: data.feedback.take(6).toList(),
+            empty: 'No feedback records yet.',
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 280,
-          child: _FeedbackPanel(
-            title: 'Reviews by City',
-            subtitle: 'Feedback grouped by city where available.',
-            icon: Icons.location_city_rounded,
-            color: ProvincialAdminColors.cyan,
-            child: _CityReviewRows(
-              rows: reviewsByCity,
-              empty: 'No city-linked feedback yet.',
-            ),
+        _FeedbackPanel(
+          expand: false,
+          title: 'Reviews by City',
+          subtitle: 'Feedback grouped by city where available.',
+          icon: Icons.location_city_rounded,
+          color: ProvincialAdminColors.cyan,
+          child: _CityReviewRows(
+            rows: reviewsByCity,
+            empty: 'No city-linked feedback yet.',
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 280,
-          child: _FeedbackPanel(
-            title: 'Rating Distribution',
-            subtitle: 'Breakdown of tourist ratings.',
-            icon: Icons.star_rounded,
-            color: ProvincialAdminColors.amber,
-            child: _RatingDistribution(
-              ratings: ratingDistribution,
-              total: totalFeedback,
-            ),
+        _FeedbackPanel(
+          expand: false,
+          title: 'Rating Distribution',
+          subtitle: 'Breakdown of tourist ratings.',
+          icon: Icons.star_rounded,
+          color: ProvincialAdminColors.amber,
+          child: _RatingDistribution(
+            ratings: ratingDistribution,
+            total: totalFeedback,
           ),
         ),
       ],
@@ -376,17 +358,101 @@ class _FeedbackHero extends StatelessWidget {
     required this.averageRating,
     required this.totalFeedback,
     required this.lowRatedCount,
+    this.compact = false,
   });
 
   final double averageRating;
   final int totalFeedback;
   final int lowRatedCount;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final iconBadge = Container(
+      width: compact ? 46 : 58,
+      height: compact ? 46 : 58,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .18),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: .22)),
+      ),
+      child: Icon(
+        Icons.rate_review_rounded,
+        color: Colors.white,
+        size: compact ? 24 : 30,
+      ),
+    );
+
+    final titleBlock = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'FEEDBACK TRENDS',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .86),
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .4,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'Tourist Experience Review',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: compact ? 19 : 27,
+            fontWeight: FontWeight.w900,
+            height: 1.1,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'Monitor tourist ratings, comments, driver feedback, and low-rated service experiences.',
+          maxLines: compact ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .92),
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            height: 1.2,
+          ),
+        ),
+      ],
+    );
+
+    final chips = Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _HeroValueChip(
+          label: 'Avg Rating',
+          value: averageRating.toStringAsFixed(1),
+          icon: Icons.star_rounded,
+        ),
+        _HeroValueChip(
+          label: 'Low Rated',
+          value: '$lowRatedCount',
+          icon: Icons.warning_rounded,
+        ),
+        _HeroValueChip(
+          label: 'Reviews',
+          value: '$totalFeedback',
+          icon: Icons.forum_rounded,
+        ),
+      ],
+    );
+
     return Container(
-      height: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 18 : 22,
+        vertical: 16,
+      ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF4AA3FF), Color(0xFF1D63E9)],
@@ -395,86 +461,31 @@ class _FeedbackHero extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(24),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .18),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: .22)),
-            ),
-            child: const Icon(
-              Icons.rate_review_rounded,
-              color: Colors.white,
-              size: 30,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+      child: compact
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'FEEDBACK TRENDS',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .86),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: .4,
-                  ),
+                Row(
+                  children: [
+                    iconBadge,
+                    const SizedBox(width: 14),
+                    Expanded(child: titleBlock),
+                  ],
                 ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Tourist Experience Review',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 27,
-                    fontWeight: FontWeight.w900,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Monitor tourist ratings, comments, driver feedback, and low-rated service experiences.',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .92),
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    height: 1.2,
-                  ),
-                ),
+                const SizedBox(height: 14),
+                chips,
+              ],
+            )
+          : Row(
+              children: [
+                iconBadge,
+                const SizedBox(width: 16),
+                Expanded(child: titleBlock),
+                const SizedBox(width: 14),
+                chips,
               ],
             ),
-          ),
-          const SizedBox(width: 14),
-          _HeroValueChip(
-            label: 'Avg Rating',
-            value: averageRating.toStringAsFixed(1),
-            icon: Icons.star_rounded,
-          ),
-          const SizedBox(width: 10),
-          _HeroValueChip(
-            label: 'Low Rated',
-            value: '$lowRatedCount',
-            icon: Icons.warning_rounded,
-          ),
-          const SizedBox(width: 10),
-          _HeroValueChip(
-            label: 'Reviews',
-            value: '$totalFeedback',
-            icon: Icons.forum_rounded,
-          ),
-        ],
-      ),
     );
   }
 }
@@ -593,17 +604,15 @@ class _MetricGrid extends StatelessWidget {
       driverFeedback: driverFeedback,
     );
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 2.8,
-      ),
-      itemBuilder: (_, index) => _MetricCard(item: items[index]),
+    return AdminResponsiveGrid(
+      minItemWidth: 230,
+      maxColumns: 3,
+      mobileAspectRatio: 2.8,
+      tabletAspectRatio: 2.6,
+      desktopAspectRatio: 2.6,
+      children: [
+        for (final item in items) _MetricCard(item: item),
+      ],
     );
   }
 }
@@ -745,6 +754,7 @@ class _FeedbackPanel extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.child,
+    this.expand = true,
   });
 
   final String title;
@@ -752,6 +762,7 @@ class _FeedbackPanel extends StatelessWidget {
   final IconData icon;
   final Color color;
   final Widget child;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
@@ -770,6 +781,7 @@ class _FeedbackPanel extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -814,7 +826,7 @@ class _FeedbackPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 13),
-          Expanded(child: child),
+          expand ? Expanded(child: child) : child,
         ],
       ),
     );
@@ -1072,6 +1084,7 @@ class _RatingDistribution extends StatelessWidget {
     }
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         for (final rating in [5, 4, 3, 2, 1]) ...[
@@ -1268,37 +1281,34 @@ class _PanelEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.topCenter,
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(top: 10),
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FBFF),
-          borderRadius: BorderRadius.circular(17),
-          border: Border.all(color: ProvincialAdminColors.line),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: ProvincialAdminColors.lightMuted.withValues(alpha: .75),
-              size: 32,
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: ProvincialAdminColors.line),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            color: ProvincialAdminColors.lightMuted.withValues(alpha: .75),
+            size: 32,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: ProvincialAdminColors.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: ProvincialAdminColors.muted,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

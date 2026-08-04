@@ -7,6 +7,7 @@ import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
+import 'package:touristrike/screens/admin/widgets/admin_data_table.dart';
 import 'package:touristrike/screens/admin/widgets/admin_empty_state.dart';
 import 'package:touristrike/screens/admin/widgets/admin_section_card.dart';
 import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
@@ -653,7 +654,12 @@ class _HeroStats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
+    final width = Responsive.responsiveValue<double>(
+      context,
+      mobile: 135,
+      tablet: 120,
+      desktop: 105,
+    );
 
     final items = [
       _HeroStatData('Total', total, Icons.domain_rounded),
@@ -667,7 +673,7 @@ class _HeroStats extends StatelessWidget {
       runSpacing: 10,
       children: items.map((item) {
         return Container(
-          width: desktop ? 105 : 135,
+          width: width,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: .15),
@@ -916,34 +922,24 @@ class _TenantGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1250 ? 3 : 2;
-        final aspectRatio = columns == 3 ? 2.2 : 2.0;
-
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: tenants.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: aspectRatio,
+    return AdminResponsiveGrid(
+      minItemWidth: 320,
+      maxColumns: 3,
+      spacing: 16,
+      runSpacing: 16,
+      mobileAspectRatio: 2.0,
+      tabletAspectRatio: 2.0,
+      desktopAspectRatio: 2.2,
+      children: [
+        for (final tenant in tenants)
+          _TenantCard(
+            tenant: tenant,
+            onTap: () => onOpen(tenant),
+            onEditCity: () => onEditCity(tenant),
+            onActivate: () => onStatus(tenant, 'active'),
+            onDeactivate: () => onStatus(tenant, 'inactive'),
           ),
-          itemBuilder: (context, index) {
-            final tenant = tenants[index];
-
-            return _TenantCard(
-              tenant: tenant,
-              onTap: () => onOpen(tenant),
-              onEditCity: () => onEditCity(tenant),
-              onActivate: () => onStatus(tenant, 'active'),
-              onDeactivate: () => onStatus(tenant, 'inactive'),
-            );
-          },
-        );
-      },
+      ],
     );
   }
 }
@@ -1124,37 +1120,35 @@ class _RegistrationsTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AdminSectionCard(
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(
-          children: [
-            const _RegistrationTableHeader(),
-            const Divider(height: 1, color: ProvincialAdminColors.line),
-            ...registrations.asMap().entries.map((entry) {
-              final index = entry.key;
-              final registration = entry.value;
-              return Column(
-                children: [
-                  _RegistrationTableRow(
-                    registration: registration,
-                    shaded: index.isOdd,
-                    onView: () => onView(registration),
-                    onApprove: () => onApprove(registration),
-                    onReject: () => onReject(registration),
+    return AdminDataTable(
+      minWidth: 1040,
+      child: Column(
+        children: [
+          const _RegistrationTableHeader(),
+          const Divider(height: 1, color: ProvincialAdminColors.line),
+          ...registrations.asMap().entries.map((entry) {
+            final index = entry.key;
+            final registration = entry.value;
+            return Column(
+              children: [
+                _RegistrationTableRow(
+                  registration: registration,
+                  shaded: index.isOdd,
+                  onView: () => onView(registration),
+                  onApprove: () => onApprove(registration),
+                  onReject: () => onReject(registration),
+                ),
+                if (index < registrations.length - 1)
+                  const Divider(
+                    height: 1,
+                    color: ProvincialAdminColors.line,
+                    indent: 16,
+                    endIndent: 16,
                   ),
-                  if (index < registrations.length - 1)
-                    const Divider(
-                      height: 1,
-                      color: ProvincialAdminColors.line,
-                      indent: 16,
-                      endIndent: 16,
-                    ),
-                ],
-              );
-            }),
-          ],
-        ),
+              ],
+            );
+          }),
+        ],
       ),
     );
   }
@@ -1170,11 +1164,11 @@ class _RegistrationTableHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: const Row(
         children: [
-          Expanded(flex: 3, child: _HeadCell('City')),
-          Expanded(flex: 4, child: _HeadCell('Office')),
-          Expanded(flex: 4, child: _HeadCell('Contact')),
-          Expanded(flex: 5, child: _HeadCell('Email')),
-          Expanded(flex: 3, child: _HeadCell('Submitted')),
+          SizedBox(width: 130, child: _HeadCell('City')),
+          SizedBox(width: 160, child: _HeadCell('Office')),
+          SizedBox(width: 150, child: _HeadCell('Contact')),
+          SizedBox(width: 200, child: _HeadCell('Email')),
+          SizedBox(width: 120, child: _HeadCell('Submitted')),
           SizedBox(width: 100, child: _HeadCell('Status')),
           SizedBox(width: 132, child: _HeadCell('Actions')),
         ],
@@ -1232,8 +1226,8 @@ class _RegistrationTableRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Expanded(
-              flex: 3,
+            SizedBox(
+              width: 130,
               child: Text(
                 registration.city,
                 maxLines: 1,
@@ -1245,8 +1239,8 @@ class _RegistrationTableRow extends StatelessWidget {
                 ),
               ),
             ),
-            Expanded(
-              flex: 4,
+            SizedBox(
+              width: 160,
               child: Text(
                 registration.officeName.isEmpty
                     ? 'Tourism Office'
@@ -1260,8 +1254,8 @@ class _RegistrationTableRow extends StatelessWidget {
                 ),
               ),
             ),
-            Expanded(
-              flex: 4,
+            SizedBox(
+              width: 150,
               child: Text(
                 registration.contactPerson.isEmpty
                     ? 'No contact person'
@@ -1275,8 +1269,8 @@ class _RegistrationTableRow extends StatelessWidget {
                 ),
               ),
             ),
-            Expanded(
-              flex: 5,
+            SizedBox(
+              width: 200,
               child: Text(
                 registration.email.isEmpty ? 'No email' : registration.email,
                 maxLines: 2,
@@ -1288,8 +1282,8 @@ class _RegistrationTableRow extends StatelessWidget {
                 ),
               ),
             ),
-            Expanded(
-              flex: 3,
+            SizedBox(
+              width: 120,
               child: Text(
                 submitted,
                 style: const TextStyle(

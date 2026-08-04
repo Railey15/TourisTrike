@@ -101,7 +101,10 @@ class _ProvincialAdminSettingsScreenState
                 padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
                 child: wide
                     ? _DesktopSettingsLayout(
-                        height: constraints.maxHeight - 28,
+                        height: (constraints.maxHeight - 28).clamp(
+                          0.0,
+                          double.infinity,
+                        ),
                         settings: _settings,
                         saving: _saving,
                         onChanged: _update,
@@ -142,22 +145,14 @@ class _DesktopSettingsLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const gap = 14.0;
-    const heroHeight = 106.0;
-    const footerHeight = 66.0;
-
-    final bodyHeight = height - heroHeight - footerHeight - gap * 3;
 
     return SizedBox(
       height: height,
       child: Column(
         children: [
-          const SizedBox(
-            height: heroHeight,
-            child: _SettingsHero(),
-          ),
+          const _SettingsHero(),
           const SizedBox(height: gap),
-          SizedBox(
-            height: bodyHeight,
+          Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -251,13 +246,10 @@ class _DesktopSettingsLayout extends StatelessWidget {
             ),
           ),
           const SizedBox(height: gap),
-          SizedBox(
-            height: footerHeight,
-            child: _SaveFooter(
-              available: settings.available,
-              saving: saving,
-              onSave: onSave,
-            ),
+          _SaveFooter(
+            available: settings.available,
+            saving: saving,
+            onSave: onSave,
           ),
         ],
       ),
@@ -282,115 +274,103 @@ class _MobileSettingsLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        const SizedBox(
-          height: 130,
-          child: _SettingsHero(),
-        ),
+        const _SettingsHero(compact: true),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 310,
-          child: _SettingsPanel(
-            title: 'Notifications',
-            subtitle: 'Alert preferences for provincial workflows.',
-            icon: Icons.notifications_active_rounded,
-            color: ProvincialAdminColors.blue,
-            child: Column(
-              children: [
-                _SwitchTile(
-                  icon: Icons.notifications_rounded,
-                  title: 'General Notifications',
-                  subtitle: 'Enable admin notifications.',
-                  value: settings.notifications,
-                  onChanged: (value) => onChanged(
-                    settings.copyWith(notifications: value),
-                  ),
+        _SettingsPanel(
+          expand: false,
+          title: 'Notifications',
+          subtitle: 'Alert preferences for provincial workflows.',
+          icon: Icons.notifications_active_rounded,
+          color: ProvincialAdminColors.blue,
+          child: Column(
+            children: [
+              _SwitchTile(
+                icon: Icons.notifications_rounded,
+                title: 'General Notifications',
+                subtitle: 'Enable admin notifications.',
+                value: settings.notifications,
+                onChanged: (value) => onChanged(
+                  settings.copyWith(notifications: value),
                 ),
-                const SizedBox(height: 12),
-                _SwitchTile(
-                  icon: Icons.inventory_2_rounded,
-                  title: 'Package Alerts',
-                  subtitle: 'Package submissions needing review.',
-                  value: settings.packageAlerts,
-                  onChanged: (value) => onChanged(
-                    settings.copyWith(packageAlerts: value),
-                  ),
+              ),
+              const SizedBox(height: 12),
+              _SwitchTile(
+                icon: Icons.inventory_2_rounded,
+                title: 'Package Alerts',
+                subtitle: 'Package submissions needing review.',
+                value: settings.packageAlerts,
+                onChanged: (value) => onChanged(
+                  settings.copyWith(packageAlerts: value),
                 ),
-                const SizedBox(height: 12),
-                _SwitchTile(
-                  icon: Icons.travel_explore_rounded,
-                  title: 'Tourist Spot Alerts',
-                  subtitle: 'Tourism data needing verification.',
-                  value: settings.touristSpotAlerts,
-                  onChanged: (value) => onChanged(
-                    settings.copyWith(touristSpotAlerts: value),
-                  ),
+              ),
+              const SizedBox(height: 12),
+              _SwitchTile(
+                icon: Icons.travel_explore_rounded,
+                title: 'Tourist Spot Alerts',
+                subtitle: 'Tourism data needing verification.',
+                value: settings.touristSpotAlerts,
+                onChanged: (value) => onChanged(
+                  settings.copyWith(touristSpotAlerts: value),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 300,
-          child: _SettingsPanel(
-            title: 'Reports & Notices',
-            subtitle: 'Operational summaries and notices.',
-            icon: Icons.campaign_rounded,
-            color: ProvincialAdminColors.purple,
-            child: Column(
-              children: [
-                _SwitchTile(
-                  icon: Icons.analytics_rounded,
-                  title: 'Performance Reports',
-                  subtitle: 'Recurring report reminders.',
-                  value: settings.performanceReports,
-                  onChanged: (value) => onChanged(
-                    settings.copyWith(performanceReports: value),
-                  ),
+        _SettingsPanel(
+          expand: false,
+          title: 'Reports & Notices',
+          subtitle: 'Operational summaries and notices.',
+          icon: Icons.campaign_rounded,
+          color: ProvincialAdminColors.purple,
+          child: Column(
+            children: [
+              _SwitchTile(
+                icon: Icons.analytics_rounded,
+                title: 'Performance Reports',
+                subtitle: 'Recurring report reminders.',
+                value: settings.performanceReports,
+                onChanged: (value) => onChanged(
+                  settings.copyWith(performanceReports: value),
                 ),
-                const SizedBox(height: 12),
-                _SwitchTile(
-                  icon: Icons.campaign_rounded,
-                  title: 'System Notices',
-                  subtitle: 'Platform notices in dashboard.',
-                  value: settings.systemNotices,
-                  onChanged: (value) => onChanged(
-                    settings.copyWith(systemNotices: value),
-                  ),
+              ),
+              const SizedBox(height: 12),
+              _SwitchTile(
+                icon: Icons.campaign_rounded,
+                title: 'System Notices',
+                subtitle: 'Platform notices in dashboard.',
+                value: settings.systemNotices,
+                onChanged: (value) => onChanged(
+                  settings.copyWith(systemNotices: value),
                 ),
-                const SizedBox(height: 16),
-                _LanguageBox(
-                  value: settings.language,
-                  onChanged: (value) => onChanged(
-                    settings.copyWith(language: value),
-                  ),
+              ),
+              const SizedBox(height: 16),
+              _LanguageBox(
+                value: settings.language,
+                onChanged: (value) => onChanged(
+                  settings.copyWith(language: value),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 370,
-          child: _SettingsPanel(
-            title: 'Dashboard Widgets',
-            subtitle: 'Choose the widgets shown on overview.',
-            icon: Icons.dashboard_customize_rounded,
-            color: ProvincialAdminColors.green,
-            child: _DashboardWidgetToggles(
-              settings: settings,
-              onChanged: onChanged,
-            ),
+        _SettingsPanel(
+          expand: false,
+          title: 'Dashboard Widgets',
+          subtitle: 'Choose the widgets shown on overview.',
+          icon: Icons.dashboard_customize_rounded,
+          color: ProvincialAdminColors.green,
+          child: _DashboardWidgetToggles(
+            settings: settings,
+            onChanged: onChanged,
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          height: 66,
-          child: _SaveFooter(
-            available: settings.available,
-            saving: saving,
-            onSave: onSave,
-          ),
+        _SaveFooter(
+          available: settings.available,
+          saving: saving,
+          onSave: onSave,
         ),
       ],
     );
@@ -398,13 +378,92 @@ class _MobileSettingsLayout extends StatelessWidget {
 }
 
 class _SettingsHero extends StatelessWidget {
-  const _SettingsHero();
+  const _SettingsHero({this.compact = false});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final iconBadge = Container(
+      width: compact ? 46 : 58,
+      height: compact ? 46 : 58,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .18),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: .22)),
+      ),
+      child: Icon(
+        Icons.settings_rounded,
+        color: Colors.white,
+        size: compact ? 24 : 30,
+      ),
+    );
+
+    final titleBlock = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'ADMIN PREFERENCES',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .86),
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .4,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'Provincial Admin Settings',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: compact ? 19 : 27,
+            fontWeight: FontWeight.w900,
+            height: 1.1,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'Configure alerts, system notices, language, and dashboard widget preferences.',
+          maxLines: compact ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .92),
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            height: 1.2,
+          ),
+        ),
+      ],
+    );
+
+    final chips = Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: const [
+        _HeroChip(
+          icon: Icons.notifications_active_rounded,
+          value: 'Alerts',
+          label: 'enabled',
+        ),
+        _HeroChip(
+          icon: Icons.dashboard_customize_rounded,
+          value: 'Widgets',
+          label: 'customizable',
+        ),
+      ],
+    );
+
     return Container(
-      height: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 18 : 22,
+        vertical: 16,
+      ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF4AA3FF), Color(0xFF1D63E9)],
@@ -413,80 +472,31 @@ class _SettingsHero extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(24),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .18),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: .22)),
-            ),
-            child: const Icon(
-              Icons.settings_rounded,
-              color: Colors.white,
-              size: 30,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+      child: compact
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'ADMIN PREFERENCES',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .86),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: .4,
-                  ),
+                Row(
+                  children: [
+                    iconBadge,
+                    const SizedBox(width: 14),
+                    Expanded(child: titleBlock),
+                  ],
                 ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Provincial Admin Settings',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 27,
-                    fontWeight: FontWeight.w900,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Configure alerts, system notices, language, and dashboard widget preferences.',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .92),
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    height: 1.2,
-                  ),
-                ),
+                const SizedBox(height: 14),
+                chips,
+              ],
+            )
+          : Row(
+              children: [
+                iconBadge,
+                const SizedBox(width: 16),
+                Expanded(child: titleBlock),
+                const SizedBox(width: 14),
+                chips,
               ],
             ),
-          ),
-          const SizedBox(width: 14),
-          _HeroChip(
-            icon: Icons.notifications_active_rounded,
-            value: 'Alerts',
-            label: 'enabled',
-          ),
-          const SizedBox(width: 10),
-          _HeroChip(
-            icon: Icons.dashboard_customize_rounded,
-            value: 'Widgets',
-            label: 'customizable',
-          ),
-        ],
-      ),
     );
   }
 }
@@ -557,6 +567,7 @@ class _SettingsPanel extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.child,
+    this.expand = true,
   });
 
   final String title;
@@ -564,6 +575,7 @@ class _SettingsPanel extends StatelessWidget {
   final IconData icon;
   final Color color;
   final Widget child;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
@@ -582,6 +594,7 @@ class _SettingsPanel extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -626,7 +639,7 @@ class _SettingsPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Expanded(child: child),
+          expand ? Expanded(child: child) : child,
         ],
       ),
     );
@@ -809,80 +822,96 @@ class _SaveFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: ProvincialAdminColors.line),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                Icon(
-                  available
-                      ? Icons.check_circle_rounded
-                      : Icons.info_rounded,
-                  color: available
-                      ? ProvincialAdminColors.green
-                      : ProvincialAdminColors.amber,
-                  size: 22,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    available
-                        ? 'Settings are connected and ready to save.'
-                        : 'Settings table is not available. Defaults are shown.',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.muted,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
+    final message = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          available ? Icons.check_circle_rounded : Icons.info_rounded,
+          color: available
+              ? ProvincialAdminColors.green
+              : ProvincialAdminColors.amber,
+          size: 22,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            available
+                ? 'Settings are connected and ready to save.'
+                : 'Settings table is not available. Defaults are shown.',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: ProvincialAdminColors.muted,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 460;
+
+        final button = SizedBox(
+          width: stacked ? double.infinity : 220,
+          height: 44,
+          child: ElevatedButton.icon(
+            onPressed: saving ? null : onSave,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ProvincialAdminColors.blue,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            icon: saving
+                ? const SizedBox(
+                    width: 17,
+                    height: 17,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 220,
-            height: 44,
-            child: ElevatedButton.icon(
-              onPressed: saving ? null : onSave,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ProvincialAdminColors.blue,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              icon: saving
-                  ? const SizedBox(
-                      width: 17,
-                      height: 17,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.save_rounded, size: 18),
-              label: Text(
-                saving ? 'Saving...' : 'Save Settings',
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w900,
-                ),
+                  )
+                : const Icon(Icons.save_rounded, size: 18),
+            label: Text(
+              saving ? 'Saving...' : 'Save Settings',
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ),
-        ],
-      ),
+        );
+
+        return Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: ProvincialAdminColors.line),
+          ),
+          child: stacked
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    message,
+                    const SizedBox(height: 10),
+                    button,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: message),
+                    const SizedBox(width: 12),
+                    button,
+                  ],
+                ),
+        );
+      },
     );
   }
 }
