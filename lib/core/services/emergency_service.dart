@@ -73,19 +73,40 @@ class EmergencyService {
 
     final alertId = alertRow['id'] as String;
 
-    // 3. In-app notification for the assigned driver
-    if (driverId != null && driverId.isNotEmpty) {
-      try {
-        await _supabase.from('notifications').insert({
-          'user_id': driverId,
-          'title': '🚨 Emergency Alert',
-          'body': '${touristName?.isNotEmpty == true ? touristName : 'Your tourist'} '
-              'has triggered an emergency alert during the tour!'
-              '${mapsLink != null ? '\n📍 Location: $mapsLink' : ''}',
-          'type': 'emergency',
-        });
-      } catch (_) {}
-    }
+    // 3. In-app notification for EVERY driver in the convoy (Open
+    // Question 5: emergency broadcasts to all booking_drivers, not just
+    // the single legacy assigned_driver_id) — falls back to the single
+    // `driverId` param for rides/bookings with no booking_drivers rows
+    // (e.g. non-package rides, where this service is also used).
+    try {
+      final driverIds = <String>{};
+      if (bookingId.isNotEmpty) {
+        final convoyRows = await _supabase
+            .from('booking_drivers')
+            .select('driver_id')
+            .eq('booking_id', bookingId)
+            .eq('status', 'accepted');
+        for (final row in convoyRows as List) {
+          final id = (row as Map)['driver_id']?.toString();
+          if (id != null && id.isNotEmpty) driverIds.add(id);
+        }
+      }
+      if (driverId != null && driverId.isNotEmpty) driverIds.add(driverId);
+
+      if (driverIds.isNotEmpty) {
+        await _supabase.from('notifications').insert([
+          for (final id in driverIds)
+            {
+              'user_id': id,
+              'title': '🚨 Emergency Alert',
+              'body': '${touristName?.isNotEmpty == true ? touristName : 'Your tourist'} '
+                  'has triggered an emergency alert during the tour!'
+                  '${mapsLink != null ? '\n📍 Location: $mapsLink' : ''}',
+              'type': 'emergency',
+            },
+        ]);
+      }
+    } catch (_) {}
 
     // 4. In-app notifications for subtenant admins
     try {

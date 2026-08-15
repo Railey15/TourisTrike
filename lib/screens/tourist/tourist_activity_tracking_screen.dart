@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -9,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
 import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
+import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/emergency_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
@@ -16,6 +18,8 @@ import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
+import 'package:touristrike/widgets/convoy/convoy_overall_status_banner.dart';
+import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
 import 'package:touristrike/widgets/gcash_payment_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -66,6 +70,13 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   RealtimeChannel? _bookingChannel;
   RealtimeChannel? _itineraryChannel;
   GoogleMapController? _mapCtrl;
+
+  // ── Convoy Sync (Phase 3) ────────────────────────────────────
+  List<ConvoyDriverSnapshot> _convoy = [];
+  String? _selectedConvoyDriverId;
+  RealtimeChannel? _bookingDriversChannel;
+  Timer? _convoyPollTimer;
+  bool _hasAutoFitConvoyBounds = false;
 
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
@@ -129,6 +140,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     super.initState();
     _initCustomMarkers();
     _load();
+    _loadConvoy();
+    _subscribeConvoyRealtime();
   }
 
   @override
@@ -137,9 +150,121 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     _locationChannel?.unsubscribe();
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
+    _bookingDriversChannel?.unsubscribe();
+    _convoyPollTimer?.cancel();
     _touristGpsSub?.cancel();
     _mapCtrl?.dispose();
     super.dispose();
+  }
+
+  // ── Convoy Sync (Phase 3) ────────────────────────────────────
+
+  Future<void> _loadConvoy() async {
+    try {
+      final roster = await _repo.fetchConvoyRoster(_bookingIdForQueries.toString());
+      if (!mounted) return;
+      setState(() => _convoy = roster);
+      _buildMarkers();
+      _autoFitConvoyBoundsOnce();
+    } catch (e) {
+      debugPrint('[ConvoySync] Failed to load roster: $e');
+    }
+  }
+
+  /// "Auto-fit bounds para makita lahat ng tricycle + pickup point" — only
+  /// once, the first time there are 2+ known positions, so the tourist's
+  /// own subsequent pan/zoom isn't fought on every realtime update.
+  void _autoFitConvoyBoundsOnce() {
+    if (_hasAutoFitConvoyBounds) return;
+    final points = <LatLng>[
+      for (final d in _convoy)
+        if (d.latitude != null && d.longitude != null) LatLng(d.latitude!, d.longitude!),
+    ];
+    final pickup = _booking?.pickupLatitude != null && _booking?.pickupLongitude != null
+        ? LatLng(_booking!.pickupLatitude!, _booking!.pickupLongitude!)
+        : null;
+    if (pickup != null) points.add(pickup);
+    if (points.length < 2) return;
+    _hasAutoFitConvoyBounds = true;
+
+    var minLat = points.first.latitude, maxLat = points.first.latitude;
+    var minLng = points.first.longitude, maxLng = points.first.longitude;
+    for (final p in points) {
+      minLat = math.min(minLat, p.latitude);
+      maxLat = math.max(maxLat, p.latitude);
+      minLng = math.min(minLng, p.longitude);
+      maxLng = math.max(maxLng, p.longitude);
+    }
+    _isProgrammaticMove = true;
+    _mapCtrl?.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        60,
+      ),
+    );
+  }
+
+  void _subscribeConvoyRealtime() {
+    final bookingId = _bookingIdForQueries.toString();
+    _bookingDriversChannel?.unsubscribe();
+    _bookingDriversChannel = _supabase
+        .channel('tourist-convoy-roster:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) => _loadConvoy(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) => _loadConvoy(),
+        )
+        .subscribe();
+
+    // Same fallback-polling reasoning as the driver screen (Adjustment 1)
+    // — a passive display doesn't need to react instantly, but it must
+    // never depend on the websocket alone either.
+    _convoyPollTimer?.cancel();
+    _convoyPollTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _loadConvoy(),
+    );
+  }
+
+  void _selectConvoyDriver(String driverId) {
+    setState(() => _selectedConvoyDriverId = driverId);
+    final driver = _convoy.where((d) => d.driverId == driverId).firstOrNull;
+    if (driver?.latitude == null || driver?.longitude == null) return;
+    _isProgrammaticMove = true;
+    _mapCtrl?.animateCamera(
+      CameraUpdate.newLatLngZoom(
+        LatLng(driver!.latitude!, driver.longitude!),
+        16,
+      ),
+    );
+  }
+
+  Future<void> _callConvoyDriver(ConvoyDriverSnapshot driver) async {
+    if (driver.phoneNumber.isEmpty) {
+      _showSnack('${driver.driverName}\'s phone number is not available.');
+      return;
+    }
+    await _launchPhone(driver.phoneNumber);
   }
 
   // ── Custom marker loading ─────────────────────────────────────
@@ -577,25 +702,59 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       );
     }
 
-    // Driver position — tricycle icon, rotates with heading
-    final activity = _activity;
-    if (activity != null &&
-        activity.driverLatitude != null &&
-        activity.driverLongitude != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('driver'),
-          position: LatLng(activity.driverLatitude!, activity.driverLongitude!),
-          icon:
-              _tricycleMarker ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
-          rotation: _driverHeading,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          infoWindow: const InfoWindow(title: 'Your Driver'),
-          zIndexInt: 1,
-        ),
-      );
+    // Driver position(s) — sourced from the convoy roster (backed by
+    // driver_live_locations, the correct per-driver table) whenever it's
+    // loaded, REGARDLESS of driver count. One code path for solo and
+    // group alike (Phase 4) — not an if(isGroup) branch. Only falls back
+    // to the legacy shared `activity.driverLatitude` field for the brief
+    // window before the convoy roster has loaded at all, since that
+    // field is no longer reliably kept current for every driver (see the
+    // Phase 4 report on driver_package_tracking_screen.dart's
+    // `_startGpsStreaming`).
+    if (_convoy.isNotEmpty) {
+      for (var i = 0; i < _convoy.length; i++) {
+        final driver = _convoy[i];
+        if (driver.latitude == null || driver.longitude == null) continue;
+        markers.add(
+          Marker(
+            markerId: MarkerId('convoy_${driver.driverId}'),
+            position: LatLng(driver.latitude!, driver.longitude!),
+            icon:
+                _tricycleMarker ??
+                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+            rotation: driver.heading,
+            anchor: const Offset(0.5, 0.5),
+            flat: true,
+            onTap: () => _selectConvoyDriver(driver.driverId),
+            infoWindow: InfoWindow(
+              title:
+                  'Tricycle ${i + 1}${driver.plateNumber.isNotEmpty ? ' — ${driver.plateNumber}' : ''}',
+              snippet: driver.journeyState.label,
+            ),
+            zIndexInt: 1,
+          ),
+        );
+      }
+    } else {
+      final activity = _activity;
+      if (activity != null &&
+          activity.driverLatitude != null &&
+          activity.driverLongitude != null) {
+        markers.add(
+          Marker(
+            markerId: const MarkerId('driver'),
+            position: LatLng(activity.driverLatitude!, activity.driverLongitude!),
+            icon:
+                _tricycleMarker ??
+                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+            rotation: _driverHeading,
+            anchor: const Offset(0.5, 0.5),
+            flat: true,
+            infoWindow: const InfoWindow(title: 'Your Driver'),
+            zIndexInt: 1,
+          ),
+        );
+      }
     }
 
     if (mounted) setState(() => _markers = markers);
@@ -1163,8 +1322,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // ── Driver Info ───────────────────────────────
-                  if (driverName.isNotEmpty) ...[
+                  // ── Convoy: overall status + Your Driver(s) (Phase 3) ──
+                  // Falls back to the single legacy driver card below if
+                  // the convoy roster hasn't loaded yet, so there's no
+                  // gap for solo bookings or during the first frame.
+                  if (_convoy.isNotEmpty) ...[
+                    ConvoyOverallStatusBanner(convoy: _convoy),
+                    const SizedBox(height: 12),
+                    ConvoyTouristDriverList(
+                      convoy: _convoy,
+                      selectedDriverId: _selectedConvoyDriverId,
+                      onSelect: _selectConvoyDriver,
+                      onCall: _callConvoyDriver,
+                    ),
+                    const SizedBox(height: 12),
+                  ] else if (driverName.isNotEmpty) ...[
                     _SectionLabel('Your Driver'),
                     const SizedBox(height: 8),
                     _InfoCard(

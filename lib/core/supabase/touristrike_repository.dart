@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 
 class TourisTrikeTables {
@@ -2014,6 +2015,110 @@ class TourisTrikeRepository {
       orderBy: 'accepted_at',
     );
     return rows.map(BookingDriver.new).toList(growable: false);
+  }
+
+  /// The full convoy roster for [bookingId] — one [ConvoyDriverSnapshot]
+  /// per currently-accepted driver, with display name/plate and last-seen
+  /// location joined in. Feeds ConvoyBarrierService directly.
+  ///
+  /// Returns an empty list (never throws for "no drivers yet") — the
+  /// caller (DriverPackageTrackingScreen) is responsible for showing an
+  /// explicit retry state rather than treating empty as a crash or a
+  /// blank screen.
+  Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(
+    String bookingId,
+  ) async {
+    final bookingDrivers = await fetchBookingDrivers(bookingId);
+    final accepted = bookingDrivers
+        .where((bd) => bd.status == 'accepted')
+        .toList(growable: false);
+    if (accepted.isEmpty) return const [];
+
+    final driverIds = accepted.map((bd) => bd.driverId).toSet().toList();
+    final infos = await fetchDriverInfos(driverIds);
+    final locations = await Future.wait(
+      driverIds.map(fetchDriverLiveLocation),
+    );
+    final locationByDriverId = <String, DriverLiveLocation?>{
+      for (var i = 0; i < driverIds.length; i++) driverIds[i]: locations[i],
+    };
+
+    return accepted.map((bd) {
+      final info = infos[bd.driverId];
+      final displayName = info?.name.isNotEmpty == true ? info!.name : 'Driver';
+      final plate = info?.details?.plateNumber ?? '';
+      final avatar = info?.profile?.profileImageUrl.isNotEmpty == true
+          ? info!.profile!.profileImageUrl
+          : (info?.profile?.avatarUrl ?? '');
+      final loc = locationByDriverId[bd.driverId];
+      return ConvoyDriverSnapshot(
+        driverId: bd.driverId,
+        driverName: displayName,
+        plateNumber: plate,
+        journeyState: bd.journeyState,
+        currentStopIndex: bd.currentStopIndex,
+        stateUpdatedAt: bd.stateUpdatedAt,
+        lastLocationAt: loc?.updatedAt,
+        phoneNumber: info?.phoneNumber ?? '',
+        avatarUrl: avatar,
+        latitude: loc == null || (loc.latitude == 0 && loc.longitude == 0)
+            ? null
+            : loc.latitude,
+        longitude: loc == null || (loc.latitude == 0 && loc.longitude == 0)
+            ? null
+            : loc.longitude,
+        heading: loc?.heading ?? 0,
+        todaName: info?.details?.todaName ?? '',
+        rating: info?.profile?.averageRating ?? 0,
+        assignedPassengers: bd.assignedPassengers,
+      );
+    }).toList(growable: false);
+  }
+
+  /// The only sanctioned way to move the current driver's journey_state
+  /// forward — thin wrapper around the `advance_driver_journey_state` RPC,
+  /// which validates the transition and enforces the barrier server-side
+  /// (see supabase/migrations/20260805020000_convoy_phase2b_advance_state_rpc.sql).
+  /// Throws [ConvoyBarrierNotMetException] specifically when the server
+  /// rejects the move because other drivers aren't ready yet, so the UI
+  /// can react distinctly from a generic error.
+  Future<Map<String, dynamic>> advanceDriverJourneyState({
+    required String bookingId,
+    required ConvoyJourneyState targetState,
+  }) async {
+    try {
+      final result = await _client.rpc(
+        'advance_driver_journey_state',
+        params: {
+          'p_booking_id': bookingId,
+          'p_target_state': targetState.dbValue,
+        },
+      );
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return const {'success': true};
+    } on PostgrestException catch (e) {
+      if (e.message.contains('BARRIER_NOT_MET')) {
+        throw const ConvoyBarrierNotMetException();
+      }
+      rethrow;
+    }
+  }
+
+  /// Releases this driver's own slot on a group booking BEFORE the tour
+  /// has actually started (barrier-side deadlock protection, Open
+  /// Question 3 / Adjustment 5 — see
+  /// supabase/migrations/20260805030000_convoy_phase3_passenger_split_and_slot_release.sql).
+  /// Reopens the slot for other drivers by flipping booking_status back
+  /// to 'waiting_for_drivers'. Server rejects this once the tour is
+  /// already on_tour — that needs an admin override instead, not a
+  /// self-serve cancel (still open, see the Phase 5 report).
+  Future<Map<String, dynamic>> cancelDriverSlot(String bookingId) async {
+    final result = await _client.rpc(
+      'cancel_driver_slot',
+      params: {'p_booking_id': bookingId},
+    );
+    if (result is Map) return Map<String, dynamic>.from(result);
+    return const {'success': true};
   }
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────

@@ -4,16 +4,22 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/convoy_barrier_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/payment_dispute_screen.dart' show paymentDisputeReasons;
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
+import 'package:touristrike/widgets/convoy/convoy_roster_error_card.dart';
+import 'package:touristrike/widgets/convoy/convoy_roster_strip.dart';
+import 'package:touristrike/widgets/convoy/convoy_waiting_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class DriverPackageTrackingScreen extends StatefulWidget {
@@ -67,6 +73,33 @@ class _DriverPackageTrackingScreenState
   StreamSubscription<Position>? _gpsSub;
   GoogleMapController? _mapCtrl;
 
+  // ── Convoy Sync ──────────────────────────────────────────────
+  // journey_state/barrier source of truth is booking_drivers, read via
+  // ConvoyDriverSnapshot — see lib/core/models/convoy_state.dart and
+  // lib/core/services/convoy_barrier_service.dart. package_activities.
+  // tour_status keeps getting mirrored (server-side, in the
+  // advance_driver_journey_state RPC) for readers not yet migrated —
+  // see the Phase 2b chat report for the full list.
+  List<ConvoyDriverSnapshot> _convoy = [];
+  bool _convoyLoading = true;
+  String? _convoyError;
+  RealtimeChannel? _bookingDriversChannel;
+  Timer? _convoyPollTimer;
+  // Only ticks while THIS driver is blocked on a barrier — a plain
+  // setState-trigger so the "waiting Xm Ys" labels stay live. Not running
+  // otherwise, to avoid burning battery on an idle screen.
+  Timer? _convoyTicker;
+  // Degraded-state banner (Requirement A item 6) — a lightweight signal
+  // derived from repeated fetch failures rather than a real connectivity
+  // check, since adding one means a new dependency (connectivity_plus or
+  // similar) that hasn't been asked for. Two in a row before showing the
+  // banner, so a single transient blip doesn't flash it needlessly. The
+  // existing 15s convoy poll (Adjustment 1) already retries automatically
+  // — there's no separate action queue; a blocked button attempted while
+  // offline just surfaces the normal error snackbar via `_doAction`.
+  int _convoyConsecutiveFailures = 0;
+  bool get _appearsOffline => _convoyConsecutiveFailures >= 2;
+
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
 
@@ -82,6 +115,9 @@ class _DriverPackageTrackingScreenState
     _activityChannel?.unsubscribe();
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
+    _bookingDriversChannel?.unsubscribe();
+    _convoyPollTimer?.cancel();
+    _convoyTicker?.cancel();
     _gpsSub?.cancel();
     _mapCtrl?.dispose();
     super.dispose();
@@ -158,6 +194,8 @@ class _DriverPackageTrackingScreenState
       _fetchCurrentRoute();
       _subscribeRealtime();
       _startGpsStreaming();
+      _loadConvoy();
+      _subscribeConvoyRealtime();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -166,6 +204,207 @@ class _DriverPackageTrackingScreenState
       });
     }
   }
+
+  // ── Convoy Sync ──────────────────────────────────────────────
+
+  Future<void> _loadConvoy() async {
+    if (_bookingId.isEmpty) return;
+    if (_convoy.isEmpty) {
+      setState(() {
+        _convoyLoading = true;
+        _convoyError = null;
+      });
+    }
+    // Snapshot BEFORE the refetch, to detect a barrier releasing (blocked
+    // -> ready) for the barrier-transition feedback below. Comparing
+    // against the pre-fetch snapshot, not just "isEmpty now", is what
+    // tells a genuine release apart from this driver having advanced on
+    // their own tap.
+    final before = _myConvoyStatus;
+    final wasBlocked = before != null && _blockingDriversFor(before).isNotEmpty;
+    try {
+      final roster = await _repo.fetchConvoyRoster(_bookingId);
+      if (!mounted) return;
+      setState(() {
+        _convoy = roster;
+        _convoyLoading = false;
+        _convoyConsecutiveFailures = 0;
+        // Empty roster is an explicit error state (Adjustment 5), not a
+        // silent blank screen — a booking whose tracking screen is even
+        // showing must have at least the current driver accepted.
+        _convoyError = roster.isEmpty
+            ? 'Could not load the driver roster for this booking.'
+            : null;
+      });
+      _syncConvoyTicker();
+      _buildMarkers();
+      _maybeAnnounceBarrierReleased(before: before, wasBlocked: wasBlocked);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _convoyLoading = false;
+        _convoyConsecutiveFailures++;
+        // Only surface the hard error card once we're past the "probably
+        // just offline" threshold — the banner covers that case instead,
+        // less alarming than a full error card on every 15s poll blip.
+        if (!_appearsOffline) {
+          _convoyError = 'Could not load the driver roster: $e';
+        }
+      });
+    }
+  }
+
+  void _subscribeConvoyRealtime() {
+    final bookingId = _bookingId;
+    if (bookingId.isEmpty) return;
+
+    _bookingDriversChannel?.unsubscribe();
+    _bookingDriversChannel = _supabase
+        .channel('convoy-roster:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) => _loadConvoy(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) => _loadConvoy(),
+        )
+        .subscribe();
+
+    // Fallback poll (Adjustment 1) — a barrier must never depend on the
+    // websocket alone. 15s is frequent enough that a driver waiting on a
+    // barrier isn't stuck watching a stale roster for long, even if
+    // realtime silently drops.
+    _convoyPollTimer?.cancel();
+    _convoyPollTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _loadConvoy(),
+    );
+  }
+
+  /// This driver's own convoy row, or null if the roster hasn't loaded /
+  /// doesn't (yet) contain them — explicit null, never a `!` on a
+  /// possibly-empty async result.
+  ConvoyDriverSnapshot? get _myConvoyStatus {
+    final myId = _repo.currentUserId;
+    if (myId == null) return null;
+    for (final d in _convoy) {
+      if (d.driverId == myId) return d;
+    }
+    return null;
+  }
+
+  /// Starts/stops the 1s ticker based on whether THIS driver is currently
+  /// sitting behind an unmet barrier — never runs otherwise.
+  void _syncConvoyTicker() {
+    final me = _myConvoyStatus;
+    final blocked = me != null && _blockingDriversFor(me).isNotEmpty;
+    if (blocked && _convoyTicker == null) {
+      _convoyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!blocked && _convoyTicker != null) {
+      _convoyTicker?.cancel();
+      _convoyTicker = null;
+    }
+  }
+
+  /// Barrier transition feedback (Requirement A, item 5): fires haptic +
+  /// a snackbar the moment every other driver catches up and THIS
+  /// driver's gated action becomes available. Only fires on a genuine
+  /// release — i.e. this driver's own journey_state didn't change (so
+  /// it isn't just "I advanced myself") and they were actually blocked
+  /// a moment ago.
+  void _maybeAnnounceBarrierReleased({
+    required ConvoyDriverSnapshot? before,
+    required bool wasBlocked,
+  }) {
+    if (!wasBlocked || before == null) return;
+    final after = _myConvoyStatus;
+    if (after == null || after.journeyState != before.journeyState) return;
+    if (_blockingDriversFor(after).isNotEmpty) return;
+    HapticFeedback.mediumImpact();
+    _showSnack('All drivers ready — you may depart.');
+  }
+
+  /// Who's blocking [me] from taking the next gated action, given the
+  /// CURRENT convoy snapshot — empty if [me] isn't at a barrier at all
+  /// (independent state) or the barrier is already satisfied.
+  List<ConvoyDriverSnapshot> _blockingDriversFor(ConvoyDriverSnapshot me) {
+    switch (me.journeyState) {
+      case ConvoyJourneyState.boarded:
+        return ConvoyBarrierService.blockingDepartFromPickup(_convoy);
+      case ConvoyJourneyState.stopDone:
+        return ConvoyBarrierService.blockingDepartFromStop(
+          _convoy,
+          me.currentStopIndex,
+        );
+      case ConvoyJourneyState.atDropoff:
+        return ConvoyBarrierService.blockingCompleteTour(_convoy);
+      default:
+        return const [];
+    }
+  }
+
+  /// Central write path for every journey_state transition — the ONLY
+  /// sanctioned way any button in this screen advances convoy state.
+  /// Reuses the existing `_doAction`/`_actionBusy` guard (double-tap
+  /// protection) rather than inventing a second one. No optimistic local
+  /// mutation: the button shows its busy/spinner state until the RPC
+  /// returns, then the fresh roster (RPC result, and shortly after,
+  /// realtime) drives the UI — so there's nothing to roll back on failure.
+  /// Unguarded core — callers that need an extra precondition (proximity
+  /// check, etc.) before advancing wrap this in their OWN `_doAction`
+  /// call directly, rather than nesting two guards (nesting would no-op
+  /// the inner call, since `_actionBusy` would already be true).
+  ///
+  /// Returns true if the transition actually landed, false if the server
+  /// rejected it as barrier-not-met (already surfaced via snackbar) —
+  /// callers with an extra side effect that should only fire on a real
+  /// transition (e.g. marking the next itinerary item "travelling") check
+  /// this before doing that work.
+  Future<bool> _advanceConvoyStateCore(ConvoyJourneyState target) async {
+    try {
+      await _repo.advanceDriverJourneyState(
+        bookingId: _bookingId,
+        targetState: target,
+      );
+      // The RPC also wrote package_activities.tour_status/status and
+      // package_bookings.booking_status server-side (legacy mirror — see
+      // Adjustment 2 in the Phase 2b report) — re-read those too so the
+      // map/route/booking card stay in sync, not just the convoy roster.
+      await Future.wait([
+        _loadConvoy(),
+        _refreshTrackingState(logTag: 'convoy-advance'),
+      ]);
+      return true;
+    } on ConvoyBarrierNotMetException {
+      await _loadConvoy();
+      _showSnack(
+        'Not everyone is ready yet — waiting for the rest of the convoy.',
+      );
+      return false;
+    }
+  }
+
+  /// For actions with no extra precondition and no follow-up side effect
+  /// — guarded, single call.
+  Future<void> _advanceConvoyState(ConvoyJourneyState target) =>
+      _doAction(() => _advanceConvoyStateCore(target));
 
   void _subscribeRealtime() {
     final bookingId = _bookingId;
@@ -233,17 +472,13 @@ class _DriverPackageTrackingScreenState
     _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen((
       pos,
     ) async {
-      if (_activity == null) return;
+      final activity = _activity;
+      if (activity == null) return;
       _currentPosition = pos;
 
       try {
-        // Update activity + booking rows
-        await _repo.updateDriverLocation(
-          activityId: widget.activityId,
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-        );
-        // Also upsert live location table for tourists' real-time channel
+        // Every driver writes their OWN position here — this is the
+        // collision-free, per-driver source of truth (Phase 4).
         await _repo.upsertDriverLiveLocation(
           activityId: widget.activityId,
           latitude: pos.latitude,
@@ -251,13 +486,33 @@ class _DriverPackageTrackingScreenState
           heading: pos.heading,
           speed: pos.speed,
         );
+        // Legacy mirror (package_activities/package_bookings.driver_
+        // latitude/longitude) — guest_trip_tracking_screen.dart and any
+        // other not-yet-migrated reader still watch these SHARED, single-
+        // value columns. Only the driver the legacy system already
+        // considers canonical (assigned_driver_id — always true for solo
+        // bookings, since there's only one) is allowed to write them, so
+        // two drivers in a group booking never stomp on each other's
+        // position here. Reduces to "always write" for solo, so this is
+        // one code path, not an if(isGroup) branch.
+        final isLegacyWriter =
+            _convoy.length <= 1 || _booking?.assignedDriverId == _repo.currentUserId;
+        if (isLegacyWriter) {
+          await _repo.updateDriverLocation(
+            activityId: widget.activityId,
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+          );
+        }
         if (mounted) {
           setState(() {
             _activity = PackageActivity({
-              ..._activity!.row,
-              'driver_latitude': pos.latitude,
-              'driver_longitude': pos.longitude,
-              'driver_last_seen': DateTime.now().toIso8601String(),
+              ...activity.row,
+              if (isLegacyWriter) ...{
+                'driver_latitude': pos.latitude,
+                'driver_longitude': pos.longitude,
+                'driver_last_seen': DateTime.now().toIso8601String(),
+              },
             });
           });
           _buildMarkers();
@@ -489,6 +744,34 @@ class _DriverPackageTrackingScreenState
       );
     }
 
+    // Other convoy tricycles — secondary color, labelled by plate. Own
+    // marker above is already the primary/blue one; this loop skips self.
+    final myId = _repo.currentUserId;
+    for (final driver in _convoy) {
+      if (driver.driverId == myId) continue;
+      final lat = driver.latitude;
+      final lng = driver.longitude;
+      if (lat == null || lng == null) continue;
+      markers.add(
+        Marker(
+          markerId: MarkerId('convoy_${driver.driverId}'),
+          position: LatLng(lat, lng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueViolet,
+          ),
+          rotation: driver.heading,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          infoWindow: InfoWindow(
+            title: driver.plateNumber.isNotEmpty
+                ? driver.plateNumber
+                : driver.driverName,
+            snippet: driver.journeyState.label,
+          ),
+        ),
+      );
+    }
+
     if (mounted) setState(() => _markers = markers);
   }
 
@@ -553,7 +836,15 @@ class _DriverPackageTrackingScreenState
     });
   }
 
+  /// This driver's own position for their own map/marker/route origin.
+  /// Prefers live GPS (freshest, always available once streaming starts,
+  /// and never subject to the legacy-writer gate above) over the shared
+  /// `_activity.driverLatitude` fallback — the latter isn't reliably kept
+  /// current for every driver anymore post-Phase-4 (see
+  /// `_startGpsStreaming`), so it's a last resort only.
   LatLng? _driverLatLng() {
+    final pos = _currentPosition;
+    if (pos != null) return LatLng(pos.latitude, pos.longitude);
     final lat = _activity?.driverLatitude;
     final lng = _activity?.driverLongitude;
     if (lat == null || lng == null) return null;
@@ -599,6 +890,41 @@ class _DriverPackageTrackingScreenState
     return 12.0;
   }
 
+  /// "Fit All Convoy Members" FAB — every tricycle position plus this
+  /// driver's own, bounded so the whole convoy is visible at once.
+  void _fitConvoyBounds() {
+    final points = <LatLng>[
+      for (final driver in _convoy)
+        if (driver.latitude != null && driver.longitude != null)
+          LatLng(driver.latitude!, driver.longitude!),
+    ];
+    final ownPos = _driverLatLng();
+    if (ownPos != null) points.add(ownPos);
+    if (points.length < 2) {
+      _showSnack('Not enough convoy positions to fit yet.');
+      return;
+    }
+    setState(() => _isFollowingDriver = false);
+    var minLat = points.first.latitude, maxLat = points.first.latitude;
+    var minLng = points.first.longitude, maxLng = points.first.longitude;
+    for (final p in points) {
+      minLat = math.min(minLat, p.latitude);
+      maxLat = math.max(maxLat, p.latitude);
+      minLng = math.min(minLng, p.longitude);
+      maxLng = math.max(maxLng, p.longitude);
+    }
+    _isProgrammaticMove = true;
+    _mapCtrl?.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        60,
+      ),
+    );
+  }
+
   // ── Actions ───────────────────────────────────────────────────
 
   Future<void> _doAction(Future<void> Function() action) async {
@@ -613,17 +939,12 @@ class _DriverPackageTrackingScreenState
     }
   }
 
-  Future<void> _markEnRoute() => _doAction(() async {
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'driver_en_route',
-    );
-    _logStatus('driver_en_route');
-    await _refreshTrackingState(logTag: 'driver-en-route');
-    _showSnack('Status: En route to pickup.');
-  });
+  Future<void> _markEnRoutePickup() =>
+      _advanceConvoyState(ConvoyJourneyState.enRoutePickup).then((_) {
+        _logStatus('driver_en_route');
+      });
 
-  Future<void> _markArrived() => _doAction(() async {
+  Future<void> _markAtPickup() => _doAction(() async {
     final pickupPos = _pickupLatLng();
     // TODO: REMOVE TEST MODE BEFORE PRODUCTION
     if (!kDriverActionTestMode &&
@@ -634,17 +955,18 @@ class _DriverPackageTrackingScreenState
       );
       return;
     }
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'driver_arrived',
-      extra: {'arrived_at': DateTime.now().toIso8601String()},
-    );
-    _logStatus('driver_arrived');
-    await _refreshTrackingState(logTag: 'driver-arrived');
-    _showSnack('Status: Arrived at pickup.');
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atPickup);
+    if (advanced) {
+      _logStatus('driver_arrived');
+      _showSnack('Status: Arrived at pickup.');
+    }
   });
 
-  Future<void> _markPickedUp() => _doAction(() async {
+  /// Independent, per-driver — NOT barrier-gated. Marks this driver's own
+  /// passengers boarded; the group only actually pulls away once every
+  /// driver has done this AND someone taps the gated "Depart" action
+  /// (see [_departPickup]).
+  Future<void> _markBoarded() => _doAction(() async {
     final pickupPos = _pickupLatLng();
     // TODO: REMOVE TEST MODE BEFORE PRODUCTION
     if (!kDriverActionTestMode &&
@@ -655,43 +977,31 @@ class _DriverPackageTrackingScreenState
       );
       return;
     }
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'on_tour',
-      activityStatus: 'ongoing',
-      bookingStatus: 'on_tour',
-      extra: {'picked_up_at': DateTime.now().toIso8601String()},
-    );
-    final currentItem = _currentItineraryItem;
-    if (_bookingId.isNotEmpty && currentItem != null) {
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.boarded);
+    if (advanced) {
+      _logStatus('boarded');
+      _showSnack('Passengers boarded. Waiting for the rest of the convoy.');
+    }
+  });
+
+  /// BARRIER-GATED — "Depart from Pickup". The server independently
+  /// re-validates that every convoy driver has boarded before allowing
+  /// this; a stale/optimistic client can't force it through (Adjustment 3).
+  Future<void> _departPickup() => _doAction(() async {
+    final target = _spots.isEmpty
+        ? ConvoyJourneyState.enRouteDropoff
+        : ConvoyJourneyState.enRouteStop;
+    final advanced = await _advanceConvoyStateCore(target);
+    if (!advanced) return;
+    final firstItem = _spots.isEmpty ? null : _spots.first;
+    if (_bookingId.isNotEmpty && firstItem != null) {
       await _repo.markSpotTravelling(
         bookingId: _bookingId,
-        itineraryItemId: currentItem.id.toString(),
+        itineraryItemId: firstItem.id.toString(),
       );
     }
     _logStatus('picked_up');
-    await _refreshTrackingState(logTag: 'picked-up');
-    _showSnack('Status: Tourist picked up.');
-  });
-
-  Future<void> _markEnRouteToSpot() => _doAction(() async {
-    final bookingId = _bookingId;
-    final currentItem = _currentItineraryItem;
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'on_tour',
-      activityStatus: 'ongoing',
-      bookingStatus: 'on_tour',
-    );
-    if (bookingId.isNotEmpty && currentItem != null) {
-      await _repo.markSpotTravelling(
-        bookingId: bookingId,
-        itineraryItemId: currentItem.id.toString(),
-      );
-    }
-    _logStatus('en_route_to_spot');
-    await _refreshTrackingState(logTag: 'en-route-to-spot');
-    _showSnack('Status: En route to next spot.');
+    _showSnack('Convoy departing pickup.');
   });
 
   Future<void> _markAtSpot() => _doAction(() async {
@@ -720,12 +1030,10 @@ class _DriverPackageTrackingScreenState
       });
     }
 
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'on_tour',
-      activityStatus: 'ongoing',
-      bookingStatus: 'on_tour',
-    );
+    // Independent, per-driver, NOT gated — each driver marks their own
+    // arrival at the current stop on their own schedule.
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atStop);
+    if (!advanced) return;
     if (bookingId.isNotEmpty && currentItem != null) {
       await _repo.markSpotActualArrival(
         bookingId: bookingId,
@@ -733,7 +1041,6 @@ class _DriverPackageTrackingScreenState
       );
     }
     _logStatus('at_spot');
-    await _refreshTrackingState(logTag: 'at-spot');
     _showSnack('Arrived at ${currentItem?.destinationName ?? 'spot'}.');
   });
 
@@ -845,20 +1152,23 @@ class _DriverPackageTrackingScreenState
       }
     }
 
+    // Own journey_state, NOT gated — reaching stopDone is independent per
+    // driver. The group only actually leaves once every driver is here
+    // AND someone taps the gated "Depart" action (see [_departStop]).
+    // Note: the itinerary-item auto-advance above (marking the next spot
+    // "travelling" server-side inside completeCurrentItineraryItem) is
+    // pre-existing, shared-booking behavior this phase does not change —
+    // see the Phase 2b report's open question about booking_itinerary_
+    // items eventually needing the same per-driver treatment.
+    await _advanceConvoyStateCore(ConvoyJourneyState.stopDone);
+
     if (allSpotsCompletedNow) {
-      // All spots done — transition to en_route_to_dropoff.
-      // The RPC leaves tour_status as 'on_tour'; we promote it here.
-      await _repo.updateActivityTourStatus(
-        activityId: widget.activityId,
-        tourStatus: 'en_route_to_dropoff',
-        bookingStatus: 'on_tour',
+      _logStatus('stop_done');
+      _showSnack(
+        'All $rpcTotal spots done! Depart once the rest of the convoy is ready.',
       );
-      await _refreshTrackingState(logTag: 'all-spots-done');
-      _logStatus('en_route_to_dropoff');
-      _showSnack('All $rpcTotal spots done! Head to the drop-off point.');
     } else {
-      await _refreshTrackingState(logTag: 'spot-complete');
-      _logStatus('on_tour');
+      _logStatus('stop_done');
       final nextItem = _spots
           .where((s) => s.spotStatus.trim().toLowerCase() != 'completed')
           .firstOrNull;
@@ -869,7 +1179,33 @@ class _DriverPackageTrackingScreenState
     }
   });
 
-  Future<void> _markArrivedAtDropoff() => _doAction(() async {
+  /// BARRIER-GATED — "Depart from Stop N". Advances past whichever stop
+  /// this driver just finished; the target is either the next stop or
+  /// drop-off depending on whether more itinerary items remain. Same
+  /// server-side re-validation as [_departPickup].
+  Future<void> _departStop() => _doAction(() async {
+    final hasMoreStops = !_allItineraryItemsCompleted;
+    final target = hasMoreStops
+        ? ConvoyJourneyState.enRouteStop
+        : ConvoyJourneyState.enRouteDropoff;
+    final advanced = await _advanceConvoyStateCore(target);
+    if (!advanced) return;
+    final nextItem = _currentItineraryItem;
+    if (_bookingId.isNotEmpty && hasMoreStops && nextItem != null) {
+      await _repo.markSpotTravelling(
+        bookingId: _bookingId,
+        itineraryItemId: nextItem.id.toString(),
+      );
+    }
+    _logStatus(hasMoreStops ? 'en_route_to_spot' : 'en_route_to_dropoff');
+    _showSnack(
+      hasMoreStops
+          ? 'Convoy departing to the next stop.'
+          : 'Convoy departing to drop-off.',
+    );
+  });
+
+  Future<void> _markAtDropoff() => _doAction(() async {
     final dropoffPos = _dropoffLatLng();
     // TODO: REMOVE TEST MODE BEFORE PRODUCTION
     if (!kDriverActionTestMode &&
@@ -878,18 +1214,19 @@ class _DriverPackageTrackingScreenState
       _showSnack('You must be within 150 m of the drop-off point.');
       return;
     }
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'ready_to_complete',
-      bookingStatus: 'on_tour',
-      extra: {'dropped_off_at': DateTime.now().toIso8601String()},
-    );
-    _logStatus('dropped_off');
-    await _refreshTrackingState(logTag: 'arrived-dropoff');
-    _showSnack('Arrived at drop-off. Tap "Complete Trip" when ready.');
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atDropoff);
+    if (advanced) {
+      _logStatus('dropped_off');
+      _showSnack('Arrived at drop-off. Waiting for the rest of the convoy.');
+    }
   });
 
-  Future<void> _markCompleteTour() => _doAction(() async {
+  /// BARRIER-GATED — "Complete Tour". Advances this driver's own
+  /// journey_state to completed (server re-checks every driver is at
+  /// drop-off) THEN runs the existing, untouched completion flow
+  /// (remaining-balance payment gate + completePackageActivity) — this
+  /// phase only adds a gate in FRONT of that flow, it doesn't change it.
+  Future<void> _completeTour() => _doAction(() async {
     if (!_allItineraryItemsCompleted) {
       _showSnack('Complete all itinerary spots before finishing the tour.');
       return;
@@ -908,6 +1245,9 @@ class _DriverPackageTrackingScreenState
       );
       return;
     }
+
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.completed);
+    if (!advanced) return;
 
     try {
       await _repo.completePackageActivity(widget.activityId);
@@ -1079,6 +1419,23 @@ class _DriverPackageTrackingScreenState
     }
   }
 
+  /// Call from the convoy roster strip. No driver-to-driver in-app chat
+  /// exists yet (`conversations` is tourist<->driver only — see the Phase
+  /// 2b report's flagged open question), so ConvoyRosterStrip only wires
+  /// `onCall`, not `onMessage`, for now.
+  Future<void> _callConvoyDriver(ConvoyDriverSnapshot driver) async {
+    if (driver.phoneNumber.isEmpty) {
+      _showSnack('${driver.driverName}\'s phone number is not available.');
+      return;
+    }
+    final uri = Uri.parse('tel:${driver.phoneNumber}');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      _showSnack('Unable to launch phone dialer.');
+    }
+  }
+
   // ── UI ────────────────────────────────────────────────────────
 
   @override
@@ -1088,15 +1445,60 @@ class _DriverPackageTrackingScreenState
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F8FF),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _buildError()
-          : _buildContent(mapHeight),
+      body: Column(
+        children: [
+          // Persistent degraded-state banner (Requirement A item 6) —
+          // stays pinned above the scroll view, not inside it.
+          if (_appearsOffline)
+            Container(
+              width: double.infinity,
+              color: const Color(0xFF991B1B),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                MediaQuery.of(context).padding.top + 8,
+                16,
+                8,
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.cloud_off_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "You're offline — retrying automatically.",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? _buildError()
+                : _buildContent(mapHeight),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildError() {
+  Widget _buildError({String? message}) {
+    // Explicit fallback — never force-unwraps `_error`. This exact `!`
+    // used to be reachable (a stale `_activity` with `_error` still null
+    // after a realtime refetch raced RLS) and was the direct cause of the
+    // "Null check operator" crash this Convoy Sync work fixed. Kept
+    // explicit here on purpose so it can't regress the same way.
+    final text = message ?? _error ?? 'Something went wrong loading this tour.';
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -1115,7 +1517,7 @@ class _DriverPackageTrackingScreenState
             ),
             const SizedBox(height: 6),
             Text(
-              _error!,
+              text,
               textAlign: TextAlign.center,
               style: const TextStyle(color: Color(0xFF64748B)),
             ),
@@ -1131,10 +1533,158 @@ class _DriverPackageTrackingScreenState
     );
   }
 
+  /// Status card + either the waiting card (barrier not met) or the
+  /// action buttons (ready) — driven entirely by THIS driver's own
+  /// ConvoyDriverSnapshot, never the shared package_activities row.
+  List<Widget> _buildConvoyStatusSection() {
+    // Persistent roster strip (spec: "sa itaas ng Driver Actions") — shows
+    // whenever there's more than one driver, even while the rest of this
+    // section is still loading or erroring out.
+    final rosterStrip = _convoy.length > 1
+        ? [
+            ConvoyRosterStrip(
+              convoy: _convoy,
+              selfDriverId: _repo.currentUserId ?? '',
+              onCall: _callConvoyDriver,
+            ),
+            const SizedBox(height: 12),
+          ]
+        : const <Widget>[];
+
+    if (_convoyError != null) {
+      return [
+        ...rosterStrip,
+        ConvoyRosterErrorCard(message: _convoyError!, onRetry: _loadConvoy),
+        const SizedBox(height: 12),
+      ];
+    }
+    final me = _myConvoyStatus;
+    if (me == null) {
+      return [
+        ...rosterStrip,
+        if (_convoyLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          ConvoyRosterErrorCard(
+            message: "You're not recorded as an accepted driver on this booking.",
+            onRetry: _loadConvoy,
+          ),
+        const SizedBox(height: 12),
+      ];
+    }
+
+    final blocking = _blockingDriversFor(me);
+    final widgets = <Widget>[...rosterStrip, _StatusCard(state: me.journeyState)];
+    widgets.add(const SizedBox(height: 12));
+
+    if (me.journeyState != ConvoyJourneyState.completed) {
+      // AnimatedSwitcher (Requirement A, item 5) — the waiting card
+      // visibly morphs into the enabled action button the instant the
+      // barrier clears, instead of popping.
+      widgets.add(
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          child: blocking.isNotEmpty
+              ? ConvoyWaitingCard(
+                  key: const ValueKey('convoy-waiting'),
+                  blockingDrivers: blocking,
+                )
+              : _actionButtonsFor(me),
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
+    // Slot cancellation (Open Question 3 / Adjustment 5 deadlock exit
+    // path) — only offered before this driver has boarded. Once boarded,
+    // ditching the group blocks the "Depart from Pickup" barrier for
+    // everyone else in a way a self-serve cancel shouldn't paper over —
+    // that needs the tourism-office "Report Issue" override instead
+    // (still open, see the report).
+    if (_convoy.length > 1 &&
+        (me.journeyState == ConvoyJourneyState.assigned ||
+            me.journeyState == ConvoyJourneyState.enRoutePickup ||
+            me.journeyState == ConvoyJourneyState.atPickup)) {
+      widgets.add(
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _actionBusy ? null : _confirmCancelSlot,
+            icon: const Icon(Icons.close_rounded, size: 16),
+            label: const Text('Cancel this trip'),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
+          ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 8));
+    }
+    return widgets;
+  }
+
+  Future<void> _confirmCancelSlot() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel this trip?'),
+        content: const Text(
+          'This releases your slot so another driver can take it. The '
+          'other driver(s) in this group will be notified they need to '
+          'wait for a replacement.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep my slot'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            child: const Text('Cancel trip'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _doAction(() async {
+      await _repo.cancelDriverSlot(_bookingId);
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  Widget _actionButtonsFor(ConvoyDriverSnapshot me) {
+    return _ActionButtons(
+      key: const ValueKey('convoy-actions'),
+      myState: me.journeyState,
+      hasCurrentItem: _currentItineraryItem != null,
+      currentSpotName: _currentSpotName,
+      currentItemStatus: _currentItineraryItem?.spotStatus ?? '',
+      allSpotsCompleted: _allItineraryItemsCompleted,
+      actionBusy: _actionBusy,
+      // TODO: REMOVE TEST MODE BEFORE PRODUCTION
+      testMode: kDriverActionTestMode,
+      onMarkEnRoutePickup: _markEnRoutePickup,
+      onMarkAtPickup: _markAtPickup,
+      onMarkBoarded: _markBoarded,
+      onDepartPickup: _departPickup,
+      onMarkAtStop: _markAtSpot,
+      onMarkStopDone: _markSpotComplete,
+      onDepartStop: _departStop,
+      onMarkAtDropoff: _markAtDropoff,
+      onCompleteTour: _completeTour,
+    );
+  }
+
   Widget _buildContent(double mapHeight) {
-    final activity = _activity!;
+    final activity = _activity;
+    if (activity == null) {
+      return _buildError(
+        message: 'Activity data is unavailable right now. Tap Retry to reload.',
+      );
+    }
     final status = activity.tourStatus;
-    final isCompleted = status == 'completed';
     final bottom = MediaQuery.of(context).padding.bottom;
 
     return CustomScrollView(
@@ -1260,6 +1810,18 @@ class _DriverPackageTrackingScreenState
                         },
                         child: const Icon(Icons.my_location_rounded, size: 20),
                       ),
+                      if (_convoy.length > 1) ...[
+                        const SizedBox(height: 8),
+                        FloatingActionButton.small(
+                          heroTag: 'driver_recenter_convoy',
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF7C3AED),
+                          elevation: 4,
+                          tooltip: 'Fit All Convoy Members',
+                          onPressed: _fitConvoyBounds,
+                          child: const Icon(Icons.groups_2_rounded, size: 20),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1271,30 +1833,7 @@ class _DriverPackageTrackingScreenState
           padding: EdgeInsets.fromLTRB(16, 14, 16, 24 + bottom),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
-              _StatusCard(status: status),
-              const SizedBox(height: 12),
-              if (!isCompleted) ...[
-                _ActionButtons(
-                  status: status,
-                  hasPickedUp: _hasPickedUp,
-                  hasCurrentItem: _currentItineraryItem != null,
-                  currentSpotName: _currentSpotName,
-                  currentItemStatus: _currentItineraryItem?.spotStatus ?? '',
-                  allSpotsCompleted: _allItineraryItemsCompleted,
-                  actionBusy: _actionBusy,
-                  // TODO: REMOVE TEST MODE BEFORE PRODUCTION
-                  testMode: kDriverActionTestMode,
-                  onMarkEnRoute: _markEnRoute,
-                  onMarkArrived: _markArrived,
-                  onMarkPickedUp: _markPickedUp,
-                  onMarkEnRouteToSpot: _markEnRouteToSpot,
-                  onMarkAtSpot: _markAtSpot,
-                  onMarkSpotComplete: _markSpotComplete,
-                  onMarkArrivedAtDropoff: _markArrivedAtDropoff,
-                  onMarkCompleteTour: _markCompleteTour,
-                ),
-                const SizedBox(height: 12),
-              ],
+              ..._buildConvoyStatusSection(),
               if (_paymentRecords.isNotEmpty) ...[
                 _DriverPaymentsCard(
                   records: _paymentRecords,
@@ -1421,12 +1960,12 @@ class _DriverPaymentsCard extends StatelessWidget {
 // ── Status Card ───────────────────────────────────────────────
 
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.status});
-  final String status;
+  const _StatusCard({required this.state});
+  final ConvoyJourneyState state;
 
   @override
   Widget build(BuildContext context) {
-    final info = _statusInfo(status);
+    final info = _statusInfo(state);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1475,9 +2014,9 @@ class _StatusCard extends StatelessWidget {
     );
   }
 
-  _StatusInfo _statusInfo(String s) {
+  _StatusInfo _statusInfo(ConvoyJourneyState s) {
     switch (s) {
-      case 'driver_accepted':
+      case ConvoyJourneyState.assigned:
         return _StatusInfo(
           icon: Icons.check_circle_rounded,
           label: 'Booking Accepted',
@@ -1487,7 +2026,7 @@ class _StatusCard extends StatelessWidget {
           border: const Color(0xFFBFD7FF),
           iconBg: const Color(0xFFD6E8FF),
         );
-      case 'driver_en_route':
+      case ConvoyJourneyState.enRoutePickup:
         return _StatusInfo(
           icon: Icons.navigation_rounded,
           label: 'En Route to Pickup',
@@ -1497,7 +2036,7 @@ class _StatusCard extends StatelessWidget {
           border: const Color(0xFFDDD6FE),
           iconBg: const Color(0xFFEDE9FE),
         );
-      case 'driver_arrived':
+      case ConvoyJourneyState.atPickup:
         return _StatusInfo(
           icon: Icons.location_on_rounded,
           label: 'Arrived at Pickup',
@@ -1507,28 +2046,17 @@ class _StatusCard extends StatelessWidget {
           border: const Color(0xFFA5F3FC),
           iconBg: const Color(0xFFCFFAFE),
         );
-      case 'picked_up':
+      case ConvoyJourneyState.boarded:
         return _StatusInfo(
           icon: Icons.groups_rounded,
-          label: 'Tourist Picked Up',
-          description: 'Head to the first tour spot when ready.',
+          label: 'Passengers Boarded',
+          description: 'Depart once the rest of the convoy is ready.',
           color: const Color(0xFF059669),
           bg: const Color(0xFFECFDF5),
           border: const Color(0xFFA7F3D0),
           iconBg: const Color(0xFFD1FAE5),
         );
-      case 'on_tour':
-        return _StatusInfo(
-          icon: Icons.route_rounded,
-          label: 'On Tour',
-          description:
-              'Follow the tourist itinerary and complete each selected spot one by one.',
-          color: const Color(0xFF0EA5E9),
-          bg: const Color(0xFFF0F9FF),
-          border: const Color(0xFFBAE6FD),
-          iconBg: const Color(0xFFE0F2FE),
-        );
-      case 'en_route_to_spot':
+      case ConvoyJourneyState.enRouteStop:
         return _StatusInfo(
           icon: Icons.directions_car_rounded,
           label: 'En Route to Spot',
@@ -1538,7 +2066,7 @@ class _StatusCard extends StatelessWidget {
           border: const Color(0xFFFDE68A),
           iconBg: const Color(0xFFFEF3C7),
         );
-      case 'at_spot':
+      case ConvoyJourneyState.atStop:
         return _StatusInfo(
           icon: Icons.place_rounded,
           label: 'At Tour Spot',
@@ -1548,7 +2076,17 @@ class _StatusCard extends StatelessWidget {
           border: const Color(0xFFFED7AA),
           iconBg: const Color(0xFFFFEDD5),
         );
-      case 'en_route_to_dropoff':
+      case ConvoyJourneyState.stopDone:
+        return _StatusInfo(
+          icon: Icons.task_alt_rounded,
+          label: 'Stop Complete',
+          description: 'Depart once the rest of the convoy is ready.',
+          color: const Color(0xFF0F766E),
+          bg: const Color(0xFFECFDF5),
+          border: const Color(0xFFA7F3D0),
+          iconBg: const Color(0xFFD1FAE5),
+        );
+      case ConvoyJourneyState.enRouteDropoff:
         return _StatusInfo(
           icon: Icons.flag_rounded,
           label: 'En Route to Drop-off',
@@ -1558,19 +2096,18 @@ class _StatusCard extends StatelessWidget {
           border: const Color(0xFFDDD6FE),
           iconBg: const Color(0xFFEDE9FE),
         );
-      case 'ready_to_complete':
+      case ConvoyJourneyState.atDropoff:
         return _StatusInfo(
           icon: Icons.task_alt_rounded,
-          label: 'All Spots Completed',
+          label: 'Arrived at Drop-off',
           description:
-              'All itinerary spots are done. Finish the tour when ready.',
+              'Waiting for the rest of the convoy before completing the tour.',
           color: const Color(0xFF0F766E),
           bg: const Color(0xFFECFDF5),
           border: const Color(0xFFA7F3D0),
           iconBg: const Color(0xFFD1FAE5),
         );
-      case 'dropped_off':
-      case 'completed':
+      case ConvoyJourneyState.completed:
         return _StatusInfo(
           icon: Icons.task_alt_rounded,
           label: 'Tour Completed',
@@ -1579,16 +2116,6 @@ class _StatusCard extends StatelessWidget {
           bg: const Color(0xFFECFDF5),
           border: const Color(0xFFA7F3D0),
           iconBg: const Color(0xFFD1FAE5),
-        );
-      default:
-        return _StatusInfo(
-          icon: Icons.hourglass_empty_rounded,
-          label: 'Waiting to Start',
-          description: 'Review booking details and tap Accept.',
-          color: const Color(0xFF64748B),
-          bg: const Color(0xFFF1F5F9),
-          border: const Color(0xFFE2E8F0),
-          iconBg: const Color(0xFFE2E8F0),
         );
     }
   }
@@ -1617,8 +2144,8 @@ class _StatusInfo {
 
 class _ActionButtons extends StatelessWidget {
   const _ActionButtons({
-    required this.status,
-    required this.hasPickedUp,
+    super.key,
+    required this.myState,
     required this.hasCurrentItem,
     required this.currentSpotName,
     required this.currentItemStatus,
@@ -1626,18 +2153,23 @@ class _ActionButtons extends StatelessWidget {
     required this.actionBusy,
     // TODO: REMOVE TEST MODE BEFORE PRODUCTION
     this.testMode = false,
-    required this.onMarkEnRoute,
-    required this.onMarkArrived,
-    required this.onMarkPickedUp,
-    required this.onMarkEnRouteToSpot,
-    required this.onMarkAtSpot,
-    required this.onMarkSpotComplete,
-    required this.onMarkArrivedAtDropoff,
-    required this.onMarkCompleteTour,
+    required this.onMarkEnRoutePickup,
+    required this.onMarkAtPickup,
+    required this.onMarkBoarded,
+    required this.onDepartPickup,
+    required this.onMarkAtStop,
+    required this.onMarkStopDone,
+    required this.onDepartStop,
+    required this.onMarkAtDropoff,
+    required this.onCompleteTour,
   });
 
-  final String status;
-  final bool hasPickedUp;
+  /// This driver's own convoy state — never the shared
+  /// package_activities.tour_status. Only rendered at all once the
+  /// barrier (if any) for this state is already clear — see
+  /// _buildConvoyStatusSection, which shows ConvoyWaitingCard instead
+  /// when it isn't.
+  final ConvoyJourneyState myState;
   final bool hasCurrentItem;
   final String currentSpotName;
   final String currentItemStatus;
@@ -1645,14 +2177,15 @@ class _ActionButtons extends StatelessWidget {
   final bool actionBusy;
   // TODO: REMOVE TEST MODE BEFORE PRODUCTION
   final bool testMode;
-  final VoidCallback onMarkEnRoute;
-  final VoidCallback onMarkArrived;
-  final VoidCallback onMarkPickedUp;
-  final VoidCallback onMarkEnRouteToSpot;
-  final VoidCallback onMarkAtSpot;
-  final VoidCallback onMarkSpotComplete;
-  final VoidCallback onMarkArrivedAtDropoff;
-  final VoidCallback onMarkCompleteTour;
+  final VoidCallback onMarkEnRoutePickup;
+  final VoidCallback onMarkAtPickup;
+  final VoidCallback onMarkBoarded;
+  final VoidCallback onDepartPickup;
+  final VoidCallback onMarkAtStop;
+  final VoidCallback onMarkStopDone;
+  final VoidCallback onDepartStop;
+  final VoidCallback onMarkAtDropoff;
+  final VoidCallback onCompleteTour;
 
   @override
   Widget build(BuildContext context) {
@@ -1692,105 +2225,104 @@ class _ActionButtons extends StatelessWidget {
   }
 
   List<Widget> _buildButtons() {
-    switch (status) {
-      case 'driver_accepted':
+    switch (myState) {
+      case ConvoyJourneyState.assigned:
         return [
           _ActionBtn(
             label: 'En Route to Pickup',
             icon: Icons.navigation_rounded,
             primary: true,
             busy: actionBusy,
-            onTap: onMarkEnRoute,
+            onTap: onMarkEnRoutePickup,
           ),
         ];
-      case 'driver_en_route':
+      case ConvoyJourneyState.enRoutePickup:
         return [
           _ActionBtn(
             label: 'Arrived at Pickup',
             icon: Icons.location_on_rounded,
             primary: true,
             busy: actionBusy,
-            onTap: onMarkArrived,
+            onTap: onMarkAtPickup,
           ),
         ];
-      case 'driver_arrived':
+      case ConvoyJourneyState.atPickup:
         return [
           _ActionBtn(
             label: 'Mark Tourist Picked Up',
             icon: Icons.groups_rounded,
             primary: true,
             busy: actionBusy,
-            onTap: onMarkPickedUp,
+            onTap: onMarkBoarded,
           ),
         ];
-      case 'picked_up':
-      case 'on_tour':
-      case 'en_route_to_spot':
-      case 'at_spot':
-      case 'en_route_to_dropoff':
-      case 'ready_to_complete':
-        // TODO: REMOVE TEST MODE BEFORE PRODUCTION
-        if (!testMode && !hasPickedUp) {
-          return [
-            _ActionBtn(
-              label: 'Mark Tourist Picked Up',
-              icon: Icons.groups_rounded,
-              primary: true,
-              busy: actionBusy,
-              onTap: onMarkPickedUp,
-            ),
-          ];
-        }
-
-        // ── Drop-off flow (all itinerary spots are completed) ──
-        if (allSpotsCompleted) {
-          if (status == 'ready_to_complete') {
-            return [
-              _ActionBtn(
-                label: 'Complete Trip',
-                icon: Icons.task_alt_rounded,
-                primary: true,
-                busy: actionBusy,
-                onTap: onMarkCompleteTour,
-              ),
-            ];
-          }
-          return [
-            _ActionBtn(
-              label: 'Arrived at Drop-off',
-              icon: Icons.flag_rounded,
-              primary: true,
-              busy: actionBusy,
-              onTap: onMarkArrivedAtDropoff,
-            ),
-          ];
-        }
-
-        // ── Itinerary spot progression ─────────────────────────
+      case ConvoyJourneyState.boarded:
+        // Barrier already clear (see _buildConvoyStatusSection — the
+        // waiting card shows instead of this widget otherwise).
+        return [
+          _ActionBtn(
+            label: 'Depart from Pickup',
+            icon: Icons.arrow_forward_rounded,
+            primary: true,
+            busy: actionBusy,
+            onTap: onDepartPickup,
+          ),
+        ];
+      case ConvoyJourneyState.enRouteStop:
         // TODO: REMOVE TEST MODE BEFORE PRODUCTION
         if (!testMode && !hasCurrentItem) return [];
-
-        if (currentItemStatus == 'at_spot') {
-          return [
-            _ActionBtn(
-              label: 'Complete $currentSpotName',
-              icon: Icons.check_circle_rounded,
-              primary: true,
-              busy: actionBusy,
-              onTap: onMarkSpotComplete,
-            ),
-          ];
-        }
         return [
           _ActionBtn(
             label: 'Arrived at $currentSpotName',
             icon: Icons.place_rounded,
             primary: true,
             busy: actionBusy,
-            onTap: onMarkAtSpot,
+            onTap: onMarkAtStop,
           ),
         ];
-      default:
+      case ConvoyJourneyState.atStop:
+        return [
+          _ActionBtn(
+            label: 'Complete $currentSpotName',
+            icon: Icons.check_circle_rounded,
+            primary: true,
+            busy: actionBusy,
+            onTap: onMarkStopDone,
+          ),
+        ];
+      case ConvoyJourneyState.stopDone:
+        // Barrier already clear.
+        return [
+          _ActionBtn(
+            label: allSpotsCompleted ? 'Depart to Drop-off' : 'Depart to Next Stop',
+            icon: Icons.arrow_forward_rounded,
+            primary: true,
+            busy: actionBusy,
+            onTap: onDepartStop,
+          ),
+        ];
+      case ConvoyJourneyState.enRouteDropoff:
+        return [
+          _ActionBtn(
+            label: 'Arrived at Drop-off',
+            icon: Icons.flag_rounded,
+            primary: true,
+            busy: actionBusy,
+            onTap: onMarkAtDropoff,
+          ),
+        ];
+      case ConvoyJourneyState.atDropoff:
+        // Barrier already clear.
+        return [
+          _ActionBtn(
+            label: 'Complete Trip',
+            icon: Icons.task_alt_rounded,
+            primary: true,
+            busy: actionBusy,
+            onTap: onCompleteTour,
+          ),
+        ];
+      case ConvoyJourneyState.completed:
         return [];
     }
   }

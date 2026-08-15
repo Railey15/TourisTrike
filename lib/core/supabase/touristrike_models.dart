@@ -1,3 +1,5 @@
+import 'package:touristrike/core/models/convoy_state.dart';
+
 typedef Json = Map<String, dynamic>;
 
 String dbString(dynamic value, {String fallback = ''}) {
@@ -875,6 +877,18 @@ class BookingDriver extends TourisTrikeRow {
   DateTime? get acceptedAt => dbDate(row['accepted_at']);
   DateTime? get completedAt => dbDate(row['completed_at']);
   DateTime? get createdAt => dbDate(row['created_at']);
+
+  // ── Convoy Sync (Phase 0 columns) ─────────────────────────────
+  ConvoyJourneyState get journeyState =>
+      ConvoyJourneyState.fromDb(row['journey_state'] as String?);
+  int get currentStopIndex => dbInt(row['current_stop_index']);
+  int get assignedPassengers => dbInt(row['assigned_passengers']);
+  // Falls back to acceptedAt/createdAt for rows fetched before the
+  // Phase 0 migration ran, or for backfilled rows — never null in
+  // practice, but ConvoyDriverSnapshot.stateUpdatedAt is non-nullable
+  // so callers still need a concrete value.
+  DateTime get stateUpdatedAt =>
+      dbDate(row['state_updated_at']) ?? acceptedAt ?? createdAt ?? DateTime.now();
 }
 
 class DriverLiveLocation extends TourisTrikeRow {
