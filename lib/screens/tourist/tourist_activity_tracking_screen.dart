@@ -83,6 +83,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
   static const _defaultCenter = LatLng(14.9597, 120.9206);
 
+  /// One color per convoy driver's route line, cycled by roster position —
+  /// keeps each tricycle's polyline visually distinct on the shared map.
+  static const _convoyRouteColors = [
+    Color(0xFF2A86FF),
+    Color(0xFFFF6B2A),
+    Color(0xFF00B37E),
+    Color(0xFFB23AFF),
+  ];
+
   BookingItineraryItem? get _currentItineraryItem =>
       _spots.where((s) => s.spotStatus != 'completed').firstOrNull;
 
@@ -166,6 +175,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       setState(() => _convoy = roster);
       _buildMarkers();
       _autoFitConvoyBoundsOnce();
+      // driver_live_locations (sourced above) is the per-driver position
+      // of record — routes must re-derive from it too, not just markers.
+      _fetchCurrentRoute();
     } catch (e) {
       debugPrint('[ConvoySync] Failed to load roster: $e');
     }
@@ -762,9 +774,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
   // ── Route / polyline ─────────────────────────────────────────
   Future<void> _fetchCurrentRoute() async {
-    final activity = _activity;
     final booking = _booking;
-    if (activity == null || booking == null) return;
+    if (booking == null) return;
+
+    // Convoy roster loaded (Phase 4, N>=1 drivers) — derive every driver's
+    // route from THEIR OWN journey_state/current_stop_index, same as the
+    // marker logic above. One code path for solo and group alike.
+    if (_convoy.isNotEmpty) {
+      await _fetchConvoyRoutes(booking);
+      return;
+    }
+
+    final activity = _activity;
+    if (activity == null) return;
 
     LatLng? origin;
     LatLng? destination;
@@ -830,6 +852,78 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         ),
       };
       _eta = result.durationText;
+    });
+  }
+
+  /// Multi-tricycle counterpart of the single-route logic above — one
+  /// polyline per convoy driver who currently has a known position AND is
+  /// actively en route somewhere (drivers waiting at a barrier gate draw
+  /// no line, matching the marker/roster "N of M ready" convention).
+  Future<void> _fetchConvoyRoutes(PackageBooking booking) async {
+    final pickup = booking.pickupLatitude != null && booking.pickupLongitude != null
+        ? LatLng(booking.pickupLatitude!, booking.pickupLongitude!)
+        : null;
+    final dropoff = booking.dropoffLatitude != null && booking.dropoffLongitude != null
+        ? LatLng(booking.dropoffLatitude!, booking.dropoffLongitude!)
+        : null;
+
+    final legDrivers = <ConvoyDriverSnapshot>[];
+    final legs = <(LatLng, LatLng)>[];
+    for (final driver in _convoy) {
+      if (driver.latitude == null || driver.longitude == null) continue;
+      final origin = LatLng(driver.latitude!, driver.longitude!);
+      final stopIndex = driver.currentStopIndex;
+      final destination = switch (driver.journeyState) {
+        ConvoyJourneyState.enRoutePickup => pickup,
+        ConvoyJourneyState.enRouteStop =>
+          stopIndex >= 0 && stopIndex < _spots.length
+              ? LatLng(_spots[stopIndex].latitude, _spots[stopIndex].longitude)
+              : null,
+        ConvoyJourneyState.enRouteDropoff => dropoff,
+        _ => null, // stationary at a gate — nothing to draw
+      };
+      if (destination == null) continue;
+      legDrivers.add(driver);
+      legs.add((origin, destination));
+    }
+
+    if (legs.isEmpty) {
+      if (mounted) setState(() => _polylines = {});
+      return;
+    }
+
+    final results = await Future.wait(
+      legs.map((leg) => _routeService.fetchRoute(leg.$1, leg.$2)),
+    );
+    if (!mounted) return;
+
+    final polylines = <Polyline>{
+      for (var i = 0; i < legDrivers.length; i++)
+        Polyline(
+          polylineId: PolylineId('route_${legDrivers[i].driverId}'),
+          points: results[i].points,
+          color: _convoyRouteColors[i % _convoyRouteColors.length],
+          width: 5,
+          geodesic: true,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+    };
+
+    // Header ETA badge mirrors "slowest driver wins" (ConvoyBarrierService.
+    // deriveOverallState) — shows how long until the convoy AS A WHOLE
+    // clears its current leg, not whichever driver happens to be fastest.
+    final slowestId = _convoy
+        .reduce((a, b) => a.journeyState.order <= b.journeyState.order ? a : b)
+        .driverId;
+    final slowestLegIndex = legDrivers.indexWhere((d) => d.driverId == slowestId);
+
+    setState(() {
+      _polylines = polylines;
+      _eta = slowestLegIndex >= 0
+          ? results[slowestLegIndex].durationText
+          : results.first.durationText;
     });
   }
 
