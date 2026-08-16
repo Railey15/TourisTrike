@@ -447,6 +447,35 @@ class PaymentDispute extends TourisTrikeRow {
   DateTime? get resolvedAt => dbDate(row['resolved_at']);
 }
 
+/// One driver's share of a booking's payment, per stage — the per-driver
+/// breakdown a single `payment_records` row fans out into. See
+/// supabase/migrations/20260817000000_paymongo_disbursement_schema.sql /
+/// 20260817010000_paymongo_disbursement_rpcs_and_triggers.sql for the
+/// state machine this drives through (pending -> processing -> paid/failed).
+class PayoutRecord extends TourisTrikeRow {
+  const PayoutRecord(super.row);
+
+  dynamic get bookingId => row['booking_id'];
+  String get driverId => dbString(row['driver_id']);
+  String get paymentStage => dbString(row['payment_stage'], fallback: 'full');
+  double get amount => dbDouble(row['amount']);
+  String get status => dbString(row['status'], fallback: 'pending');
+  String get disbursementMode => dbString(row['disbursement_mode']);
+  String get paymongoTransferId => dbString(row['paymongo_transfer_id']);
+  String get referenceNumber => dbString(row['reference_number']);
+  String get providerReferenceNumber => dbString(row['provider_reference_number']);
+  String get errorMessage => dbString(row['error_message']);
+  int get retryCount => dbInt(row['retry_count'], fallback: 0);
+  DateTime? get gateSatisfiedAt => dbDate(row['gate_satisfied_at']);
+  DateTime? get createdAt => dbDate(row['created_at']);
+  DateTime? get updatedAt => dbDate(row['updated_at']);
+
+  bool get isPending => status == 'pending';
+  bool get isProcessing => status == 'processing';
+  bool get isPaid => status == 'paid';
+  bool get isFailed => status == 'failed';
+}
+
 class Ride extends TourisTrikeRow {
   const Ride(super.row);
 

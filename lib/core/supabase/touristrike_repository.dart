@@ -25,6 +25,7 @@ class TourisTrikeTables {
   static const packageActivities = 'package_activities';
   static const paymentRecords = 'payment_records';
   static const paymentDisputes = 'payment_disputes';
+  static const payoutRecords = 'payout_records';
   static const rides = 'rides';
   static const rideFeedback = 'ride_feedback';
   static const rideReviews = 'ride_reviews';
@@ -911,6 +912,56 @@ class TourisTrikeRepository {
       ascending: false,
     );
     return rows.map(PaymentRecord.new).toList(growable: false);
+  }
+
+  /// Per-driver payout breakdown for a booking — what a tourist's payment
+  /// split into, and where each driver's share is in the PayMongo
+  /// disbursement pipeline. RLS (payout_records_select) already scopes
+  /// this to the booking's tourist, the driver themselves, or admin/
+  /// subtenant — no extra filtering needed here.
+  Future<List<PayoutRecord>> fetchPayoutRecordsForBooking(dynamic bookingId) async {
+    final rows = await fetchRows(
+      TourisTrikeTables.payoutRecords,
+      equals: {'booking_id': bookingId},
+      orderBy: 'created_at',
+      ascending: true,
+    );
+    return rows.map(PayoutRecord.new).toList(growable: false);
+  }
+
+  /// A driver's own payout history across all bookings — earnings
+  /// breakdown screen.
+  Future<List<PayoutRecord>> fetchPayoutRecordsForDriver(String driverId, {int limit = 200}) async {
+    final rows = await fetchRows(
+      TourisTrikeTables.payoutRecords,
+      equals: {'driver_id': driverId},
+      orderBy: 'created_at',
+      ascending: false,
+      limit: limit,
+    );
+    return rows.map(PayoutRecord.new).toList(growable: false);
+  }
+
+  /// Re-attempts a failed (or not-yet-attempted) disbursement via the
+  /// paymongo-disburse Edge Function. Callable by the driver on their own
+  /// payout or by admin/subtenant on any — the function re-checks that
+  /// itself, this call just carries the user's own session JWT.
+  Future<void> retryDisbursement({
+    required dynamic bookingId,
+    required String driverId,
+    required String paymentStage,
+  }) async {
+    final res = await _client.functions.invoke(
+      'paymongo-disburse',
+      body: {
+        'booking_id': bookingId,
+        'driver_id': driverId,
+        'payment_stage': paymentStage,
+      },
+    );
+    if (res.status != 200) {
+      throw Exception('Retry failed: ${res.data}');
+    }
   }
 
   /// Tricycle single-ride flow only — see `record_ride_payment` in the
