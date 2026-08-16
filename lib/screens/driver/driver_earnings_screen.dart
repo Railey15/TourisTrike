@@ -5,6 +5,7 @@ import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
+import 'package:touristrike/widgets/payments/payout_status_card.dart';
 
 // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
 // Replaces the old "Driver Wallet" screen. There is no app-held balance here —
@@ -23,6 +24,8 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   bool _loading = true;
   List<PaymentRecord> _records = const [];
   List<PackageActivity> _activities = const [];
+  List<PayoutRecord> _payoutRecords = const [];
+  String? _retryingKey; // '${bookingId}_${paymentStage}' mid-retry
 
   @override
   void initState() {
@@ -36,11 +39,13 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       final results = await Future.wait([
         _repo.fetchPaymentRecords(role: 'payee', limit: 200),
         _repo.fetchDriverActivities(),
+        _repo.fetchPayoutRecordsForDriver(_repo.requireUserId()),
       ]);
       if (!mounted) return;
       setState(() {
         _records = results[0] as List<PaymentRecord>;
         _activities = results[1] as List<PackageActivity>;
+        _payoutRecords = results[2] as List<PayoutRecord>;
         _loading = false;
       });
     } catch (e) {
@@ -49,6 +54,26 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Unable to load earnings: $e')),
       );
+    }
+  }
+
+  Future<void> _retryPayout(PayoutRecord record) async {
+    final key = '${record.bookingId}_${record.paymentStage}';
+    setState(() => _retryingKey = key);
+    try {
+      await _repo.retryDisbursement(
+        bookingId: record.bookingId,
+        driverId: record.driverId,
+        paymentStage: record.paymentStage,
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Retry failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _retryingKey = null);
     }
   }
 
@@ -61,6 +86,14 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
   int get _completedCount =>
       _activities.where((a) => a.lifecycleStatus == 'completed').length;
+
+  Map<String, List<PayoutRecord>> get _payoutsByBooking {
+    final map = <String, List<PayoutRecord>>{};
+    for (final r in _payoutRecords) {
+      map.putIfAbsent(r.bookingId.toString(), () => []).add(r);
+    }
+    return map;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,6 +176,31 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                   ),
                 ],
               ),
+              if (_payoutRecords.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const Text(
+                  'PayMongo Disbursements',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textDark),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Your share per booking — split evenly across every driver in the convoy.',
+                  style: TextStyle(color: textMid, fontWeight: FontWeight.w600, fontSize: 12),
+                ),
+                const SizedBox(height: 10),
+                ..._payoutsByBooking.entries.map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: PayoutStatusCard(
+                      records: entry.value,
+                      onRetry: _retryPayout,
+                      retryingStage: _retryingKey?.startsWith('${entry.key}_') == true
+                          ? _retryingKey!.substring('${entry.key}_'.length)
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               const Text(
                 'Transaction History',

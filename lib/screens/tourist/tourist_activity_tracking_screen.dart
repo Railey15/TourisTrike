@@ -21,6 +21,7 @@ import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:touristrike/widgets/convoy/convoy_overall_status_banner.dart';
 import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
 import 'package:touristrike/widgets/gcash_payment_sheet.dart';
+import 'package:touristrike/widgets/payments/payment_split_breakdown_widget.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ActivityTrackingScreen extends StatefulWidget {
@@ -45,6 +46,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   List<BookingItineraryItem> _spots = [];
   List<EmergencyContactRecord> _emergencyContacts = [];
   List<PaymentRecord> _paymentRecords = [];
+  List<PayoutRecord> _payoutRecords = [];
 
   bool _loading = true;
   String? _error;
@@ -180,6 +182,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       _fetchCurrentRoute();
     } catch (e) {
       debugPrint('[ConvoySync] Failed to load roster: $e');
+    }
+
+    // Piggybacks on the same 15s cadence rather than adding a second
+    // timer — payout status (processing -> paid/failed) isn't urgent
+    // enough to need its own realtime channel.
+    try {
+      final payouts = await _repo.fetchPayoutRecordsForBooking(_bookingIdForQueries);
+      if (mounted) setState(() => _payoutRecords = payouts);
+    } catch (e) {
+      debugPrint('[ConvoySync] Failed to refresh payout records: $e');
     }
   }
 
@@ -330,6 +342,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         // Non-fatal — payment status cards just won't show yet.
       }
 
+      var payoutRecords = <PayoutRecord>[];
+      try {
+        payoutRecords = await _repo.fetchPayoutRecordsForBooking(_bookingIdForQueries);
+      } catch (_) {
+        // Non-fatal — split breakdown just won't show yet (e.g. no
+        // PayMongo payment has landed for this booking).
+      }
+
       if (!mounted) return;
       setState(() {
         _activity = activity;
@@ -338,6 +358,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         _spots = spots;
         _emergencyContacts = emergencyContacts;
         _paymentRecords = paymentRecords;
+        _payoutRecords = payoutRecords;
         _loading = false;
       });
 
@@ -1565,6 +1586,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                             'Remaining balance for package booking #${widget.bookingId}',
                       ),
                       onViewReceipt: _openReceipt,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // ── Per-driver payout split (PayMongo path) ────
+                  // Only renders once payout_records exist for this
+                  // booking — empty (no PayMongo payment yet) is a no-op.
+                  if (_payoutRecords.isNotEmpty) ...[
+                    PaymentSplitBreakdownWidget(
+                      records: _payoutRecords,
+                      driverNames: {
+                        for (final d in _convoy) d.driverId: d.driverName,
+                      },
                     ),
                     const SizedBox(height: 12),
                   ],
