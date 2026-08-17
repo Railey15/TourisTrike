@@ -6,7 +6,9 @@
       "Bash(Sort-Object FullName)",
       "Bash(Get-ChildItem -Path \"c:\\\\Projects\\\\touristrike\" -Recurse -Force)",
       "Bash(Select-Object -First 500)",
-      "Bash(Format-Table -Property FullName, PSIsContainer)"
+      "Bash(Format-Table -Property FullName, PSIsContainer)",
+      "Bash(flutter analyze *)",
+      "Bash(supabase projects *)"
     ]
   }
 }

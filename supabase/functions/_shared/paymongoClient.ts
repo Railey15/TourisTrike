@@ -28,10 +28,25 @@ export interface CreateTransferResult {
   status: "processing";
 }
 
-const MODE = (Deno.env.get("PAYMONGO_MODE") ?? "stub").toLowerCase();
-const SECRET_KEY = Deno.env.get("PAYMONGO_SECRET_KEY") ?? "";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const INTERNAL_TRIGGER_SECRET = Deno.env.get("INTERNAL_TRIGGER_SECRET") ?? "";
+// Access environment variables in a runtime-agnostic way (Deno or Node).
+const envGet = (k: string): string | undefined => {
+  try {
+    // Deno
+    // @ts-ignore
+    if (typeof globalThis?.Deno?.env?.get === "function") return globalThis.Deno.env.get(k);
+  } catch (_) {}
+  try {
+    // Node/process
+    // @ts-ignore
+    if (typeof process?.env === "object") return process.env[k];
+  } catch (_) {}
+  return undefined;
+};
+
+const MODE = (envGet("PAYMONGO_MODE") ?? "stub").toLowerCase();
+const SECRET_KEY = envGet("PAYMONGO_SECRET_KEY") ?? "";
+const SUPABASE_URL = envGet("SUPABASE_URL") ?? "";
+const INTERNAL_TRIGGER_SECRET = envGet("INTERNAL_TRIGGER_SECRET") ?? "";
 
 // Same shape as the driver_details.gcash_number DB check constraint
 // (20260725000000_gcash_payment_trail.sql) — the stub's "will this fail"

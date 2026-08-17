@@ -21,11 +21,17 @@
 // (PayMongo has no Supabase JWT — its own HMAC signature is the auth.)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { verifyPaymongoSignature } from "../_shared/paymongoSignature.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const PAYMONGO_WEBHOOK_SECRET = Deno.env.get("PAYMONGO_WEBHOOK_SECRET") ?? "";
+// Support environments where the global `Deno` identifier may not be present
+function getEnv(name: string): string | undefined {
+  if (typeof Deno !== "undefined" && Deno?.env?.get) return Deno.env.get(name);
+  if (typeof process !== "undefined" && process?.env) return process.env[name];
+  return undefined;
+}
+
+const SUPABASE_URL = getEnv("SUPABASE_URL") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = getEnv("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const PAYMONGO_WEBHOOK_SECRET = getEnv("PAYMONGO_WEBHOOK_SECRET") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -35,13 +41,55 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// Header shape: "t=<timestamp>,te=<test_signature>,li=<live_signature>".
+// Verify against BOTH te and li — the payload's own livemode flag tells us
+// which mode it is, but comparing against whichever is present is simpler
+// and just as safe (an attacker without the secret can't forge either).
+async function verifySignature(rawBody: string, signatureHeader: string | null): Promise<boolean> {
+  if (!PAYMONGO_WEBHOOK_SECRET || !signatureHeader) return false;
+
+  const parts = Object.fromEntries(
+    signatureHeader.split(",").map((kv) => {
+      const [k, v] = kv.split("=");
+      return [k?.trim(), v?.trim()];
+    }),
+  );
+  const timestamp = parts["t"];
+  const candidates = [parts["te"], parts["li"]].filter(Boolean) as string[];
+  if (!timestamp || candidates.length === 0) return false;
+
+  const expected = await hmacSha256Hex(PAYMONGO_WEBHOOK_SECRET, `${timestamp}.${rawBody}`);
+  return candidates.some((c) => timingSafeEqual(c, expected));
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const rawBody = await req.text();
   const signatureHeader = req.headers.get("Paymongo-Signature");
 
-  const verified = await verifyPaymongoSignature(rawBody, signatureHeader, PAYMONGO_WEBHOOK_SECRET);
+  const verified = await verifySignature(rawBody, signatureHeader);
   if (!verified) {
     console.warn("[paymongo-payment-webhook] signature verification failed");
     return json({ error: "Invalid signature" }, 401);
