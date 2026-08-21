@@ -165,6 +165,7 @@ class _DriverPackageTrackingScreenState
     _itineraryChannel?.unsubscribe();
 
     _bookingDriversChannel?.unsubscribe();
+
     _convoyPollTimer?.cancel();
     _convoyTicker?.cancel();
 
@@ -269,19 +270,251 @@ class _DriverPackageTrackingScreenState
       if (_isBookingCancelled) {
         await _gpsSub?.cancel();
         _gpsSub = null;
+
+        _bookingDriversChannel?.unsubscribe();
+        _bookingDriversChannel = null;
+
+        _convoyPollTimer?.cancel();
+        _convoyPollTimer = null;
+
+        _convoyTicker?.cancel();
+        _convoyTicker = null;
+
+        if (mounted) {
+          setState(() {
+            _convoy = [];
+            _convoyLoading = false;
+            _convoyError = null;
+            _convoyConsecutiveFailures = 0;
+          });
+        }
       } else {
         _fetchCurrentRoute();
         _startGpsStreaming();
+
+        await _loadConvoy();
+        _subscribeConvoyRealtime();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[DriverTracking:load] Error: $e');
+
+      debugPrintStack(stackTrace: stackTrace);
+
       if (!mounted) return;
 
       setState(() {
-        _error = e.toString();
+        _error = 'Unable to load tour information. Please try again.';
         _loading = false;
       });
     }
   }
+
+  // =========================================================================
+  // CONVOY SYNC
+  // =========================================================================
+
+  Future<void> _loadConvoy() async {
+    if (_bookingId.isEmpty) return;
+
+    if (_convoy.isEmpty && mounted) {
+      setState(() {
+        _convoyLoading = true;
+        _convoyError = null;
+      });
+    }
+
+    final before = _myConvoyStatus;
+
+    final wasBlocked = before != null && _blockingDriversFor(before).isNotEmpty;
+
+    try {
+      final roster = await _repo.fetchConvoyRoster(_bookingId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _convoy = roster;
+        _convoyLoading = false;
+        _convoyConsecutiveFailures = 0;
+
+        _convoyError = roster.isEmpty
+            ? 'Could not load the driver roster for this booking.'
+            : null;
+      });
+
+      _syncConvoyTicker();
+
+      _buildMarkers();
+
+      _maybeAnnounceBarrierReleased(before: before, wasBlocked: wasBlocked);
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _convoyLoading = false;
+        _convoyConsecutiveFailures++;
+
+        if (!_appearsOffline) {
+          _convoyError = 'Could not load the driver roster: $e';
+        }
+      });
+    }
+  }
+
+  void _subscribeConvoyRealtime() {
+    final bookingId = _bookingId;
+
+    if (bookingId.isEmpty) return;
+
+    _bookingDriversChannel?.unsubscribe();
+
+    _bookingDriversChannel = _supabase
+        .channel('convoy-roster:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) {
+            _loadConvoy();
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) {
+            _loadConvoy();
+          },
+        )
+        .subscribe();
+
+    _convoyPollTimer?.cancel();
+
+    _convoyPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!_isBookingCancelled) {
+        _loadConvoy();
+      }
+    });
+  }
+
+  ConvoyDriverSnapshot? get _myConvoyStatus {
+    final myId = _repo.currentUserId;
+
+    if (myId == null) return null;
+
+    for (final driver in _convoy) {
+      if (driver.driverId == myId) {
+        return driver;
+      }
+    }
+
+    return null;
+  }
+
+  void _syncConvoyTicker() {
+    final me = _myConvoyStatus;
+
+    final blocked = me != null && _blockingDriversFor(me).isNotEmpty;
+
+    if (blocked && _convoyTicker == null) {
+      _convoyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    } else if (!blocked && _convoyTicker != null) {
+      _convoyTicker?.cancel();
+      _convoyTicker = null;
+    }
+  }
+
+  void _maybeAnnounceBarrierReleased({
+    required ConvoyDriverSnapshot? before,
+    required bool wasBlocked,
+  }) {
+    if (!wasBlocked || before == null) {
+      return;
+    }
+
+    final after = _myConvoyStatus;
+
+    if (after == null) return;
+
+    if (after.journeyState != before.journeyState) {
+      return;
+    }
+
+    if (_blockingDriversFor(after).isNotEmpty) {
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+
+    _showSnack('All drivers are ready. You may continue.');
+  }
+
+  List<ConvoyDriverSnapshot> _blockingDriversFor(ConvoyDriverSnapshot me) {
+    switch (me.journeyState) {
+      case ConvoyJourneyState.boarded:
+        return ConvoyBarrierService.blockingDepartFromPickup(_convoy);
+
+      case ConvoyJourneyState.stopDone:
+        return ConvoyBarrierService.blockingDepartFromStop(
+          _convoy,
+          me.currentStopIndex,
+        );
+
+      case ConvoyJourneyState.atDropoff:
+        return ConvoyBarrierService.blockingCompleteTour(_convoy);
+
+      default:
+        return const [];
+    }
+  }
+
+  Future<bool> _advanceConvoyStateCore(ConvoyJourneyState target) async {
+    try {
+      await _repo.advanceDriverJourneyState(
+        bookingId: _bookingId,
+        targetState: target,
+      );
+
+      await Future.wait([
+        _loadConvoy(),
+        _refreshTrackingState(logTag: 'convoy-advance'),
+      ]);
+
+      return true;
+    } on ConvoyBarrierNotMetException {
+      await _loadConvoy();
+
+      _showSnack(
+        'Not everyone is ready yet. Waiting for the rest of the convoy.',
+      );
+
+      return false;
+    }
+  }
+
+  Future<void> _advanceConvoyState(ConvoyJourneyState target) {
+    return _doAction(() async {
+      await _advanceConvoyStateCore(target);
+    });
+  }
+
+  // =========================================================================
+  // REALTIME
+  // =========================================================================
 
   void _subscribeRealtime() {
     final bookingId = _bookingId;
@@ -303,7 +536,9 @@ class _DriverPackageTrackingScreenState
             column: 'booking_id',
             value: bookingId,
           ),
-          callback: (_) => _refreshTrackingState(logTag: 'activity-update'),
+          callback: (_) {
+            _refreshTrackingState(logTag: 'activity-update');
+          },
         )
         .subscribe();
 
@@ -320,7 +555,9 @@ class _DriverPackageTrackingScreenState
             column: 'id',
             value: bookingId,
           ),
-          callback: (_) => _refreshTrackingState(logTag: 'booking-update'),
+          callback: (_) {
+            _refreshTrackingState(logTag: 'booking-update');
+          },
         )
         .subscribe();
 
@@ -337,7 +574,9 @@ class _DriverPackageTrackingScreenState
             column: 'booking_id',
             value: bookingId,
           ),
-          callback: (_) => _refreshTrackingState(logTag: 'itinerary-update'),
+          callback: (_) {
+            _refreshTrackingState(logTag: 'itinerary-update');
+          },
         )
         .subscribe();
   }
@@ -584,15 +823,34 @@ class _DriverPackageTrackingScreenState
       await _gpsSub?.cancel();
       _gpsSub = null;
 
+      _bookingDriversChannel?.unsubscribe();
+      _bookingDriversChannel = null;
+
+      _convoyPollTimer?.cancel();
+      _convoyPollTimer = null;
+
+      _convoyTicker?.cancel();
+      _convoyTicker = null;
+
       if (mounted) {
         setState(() {
           _markers = {};
           _polylines = {};
+
+          _convoy = [];
+          _convoyLoading = false;
+          _convoyError = null;
+          _convoyConsecutiveFailures = 0;
         });
       }
     } else {
       _buildMarkers();
       _fetchCurrentRoute();
+
+      // Refresh convoy state as part of a tracking refresh.
+      if (_bookingId.isNotEmpty) {
+        _loadConvoy();
+      }
     }
   }
 
