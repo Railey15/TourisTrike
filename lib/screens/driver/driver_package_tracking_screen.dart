@@ -203,7 +203,7 @@ class _DriverPackageTrackingScreenState
   static const double _proximityMeters = 150.0;
 
   // TODO: REMOVE TEST MODE BEFORE PRODUCTION
-  static const bool kDriverActionTestMode = true;
+  static const bool kDriverActionTestMode = kDebugMode;
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final SupabaseClient _supabase = Supabase.instance.client;
