@@ -1,5 +1,5 @@
 import 'dart:math';
-
+import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -2078,6 +2078,134 @@ class TourisTrikeRepository {
     );
     return rows.map(BookingDriver.new).toList(growable: false);
   }
+
+  Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(
+  String bookingId,
+) async {
+  final bookingDrivers = await fetchBookingDrivers(bookingId);
+
+  final accepted = bookingDrivers
+      .where((bd) => bd.status == 'accepted')
+      .toList(growable: false);
+
+  if (accepted.isEmpty) {
+    return const [];
+  }
+
+  final driverIds = accepted
+      .map((bd) => bd.driverId)
+      .toSet()
+      .toList();
+
+  final infos = await fetchDriverInfos(driverIds);
+
+  final locations = await Future.wait(
+    driverIds.map(fetchDriverLiveLocation),
+  );
+
+  final locationByDriverId = <String, DriverLiveLocation?>{
+    for (var i = 0; i < driverIds.length; i++)
+      driverIds[i]: locations[i],
+  };
+
+  return accepted.map((bd) {
+    final info = infos[bd.driverId];
+
+    final displayName =
+        info?.name.isNotEmpty == true
+            ? info!.name
+            : 'Driver';
+
+    final plate =
+        info?.details?.plateNumber ?? '';
+
+    final avatar =
+        info?.profile?.profileImageUrl.isNotEmpty == true
+            ? info!.profile!.profileImageUrl
+            : (info?.profile?.avatarUrl ?? '');
+
+    final loc =
+        locationByDriverId[bd.driverId];
+
+    return ConvoyDriverSnapshot(
+      driverId: bd.driverId,
+      driverName: displayName,
+      plateNumber: plate,
+      journeyState: bd.journeyState,
+      currentStopIndex: bd.currentStopIndex,
+      stateUpdatedAt: bd.stateUpdatedAt,
+      lastLocationAt: loc?.updatedAt,
+      phoneNumber: info?.phoneNumber ?? '',
+      avatarUrl: avatar,
+      latitude:
+          loc == null ||
+                  (loc.latitude == 0 &&
+                      loc.longitude == 0)
+              ? null
+              : loc.latitude,
+      longitude:
+          loc == null ||
+                  (loc.latitude == 0 &&
+                      loc.longitude == 0)
+              ? null
+              : loc.longitude,
+      heading: loc?.heading ?? 0,
+      todaName: info?.details?.todaName ?? '',
+      rating:
+          info?.profile?.averageRating ?? 0,
+      assignedPassengers:
+          bd.assignedPassengers,
+    );
+  }).toList(growable: false);
+}
+
+Future<Map<String, dynamic>> advanceDriverJourneyState({
+  required String bookingId,
+  required ConvoyJourneyState targetState,
+}) async {
+  try {
+    final result = await _client.rpc(
+      'advance_driver_journey_state',
+      params: {
+        'p_booking_id': bookingId,
+        'p_target_state': targetState.dbValue,
+      },
+    );
+
+    if (result is Map) {
+      return Map<String, dynamic>.from(result);
+    }
+
+    return const {
+      'success': true,
+    };
+  } on PostgrestException catch (e) {
+    if (e.message.contains('BARRIER_NOT_MET')) {
+      throw const ConvoyBarrierNotMetException();
+    }
+
+    rethrow;
+  }
+}
+
+Future<Map<String, dynamic>> cancelDriverSlot(
+  String bookingId,
+) async {
+  final result = await _client.rpc(
+    'cancel_driver_slot',
+    params: {
+      'p_booking_id': bookingId,
+    },
+  );
+
+  if (result is Map) {
+    return Map<String, dynamic>.from(result);
+  }
+
+  return const {
+    'success': true,
+  };
+}
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────
 
