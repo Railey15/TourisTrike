@@ -73,26 +73,53 @@ class EmergencyService {
 
     final alertId = alertRow['id'] as String;
 
-    // 3. In-app notification for the assigned driver
-    if (driverId != null && driverId.isNotEmpty) {
-      try {
-        await _supabase.from('notifications').insert({
-          'user_id': driverId,
-          'title': '🚨 Emergency Alert',
-          'body': '${touristName?.isNotEmpty == true ? touristName : 'Your tourist'} '
-              'has triggered an emergency alert during the tour!'
-              '${mapsLink != null ? '\n📍 Location: $mapsLink' : ''}',
-          'type': 'emergency',
-        });
-      } catch (_) {}
-    }
+    // 3. In-app notification for every accepted driver in the convoy.
+    // Falls back to the single legacy driverId for non-package / solo rides.
+    try {
+      final driverIds = <String>{};
+
+      if (bookingId.isNotEmpty) {
+        final convoyRows = await _supabase
+            .from('booking_drivers')
+            .select('driver_id')
+            .eq('booking_id', bookingId)
+            .eq('status', 'accepted');
+
+        for (final row in convoyRows as List) {
+          final id = (row as Map)['driver_id']?.toString();
+
+          if (id != null && id.isNotEmpty) {
+            driverIds.add(id);
+          }
+        }
+      }
+
+      if (driverId != null && driverId.isNotEmpty) {
+        driverIds.add(driverId);
+      }
+
+      if (driverIds.isNotEmpty) {
+        await _supabase.from('notifications').insert([
+          for (final id in driverIds)
+            {
+              'user_id': id,
+              'title': '🚨 Emergency Alert',
+              'body':
+                  '${touristName?.isNotEmpty == true ? touristName : 'Your tourist'} '
+                  'has triggered an emergency alert during the tour!'
+                  '${mapsLink != null ? '\n📍 Location: $mapsLink' : ''}',
+              'type': 'emergency',
+            },
+        ]);
+      }
+    } catch (_) {}
 
     // 4. In-app notifications for subtenant admins
     try {
-      final subtenants = await _supabase
-          .from('profiles')
-          .select('id')
-          .inFilter('role', ['admin', 'subtenant']);
+      final subtenants = await _supabase.from('profiles').select('id').inFilter(
+        'role',
+        ['admin', 'subtenant'],
+      );
 
       final notifRows = <Map<String, dynamic>>[];
       for (final s in subtenants as List) {
@@ -101,7 +128,8 @@ class EmergencyService {
         notifRows.add({
           'user_id': uid,
           'title': '🚨 Emergency Alert',
-          'body': '${touristName?.isNotEmpty == true ? touristName : 'A tourist'} '
+          'body':
+              '${touristName?.isNotEmpty == true ? touristName : 'A tourist'} '
               'triggered an emergency during a tour.'
               '${bookingId.isNotEmpty ? '\nBooking: $bookingId' : ''}'
               '${mapsLink != null ? '\n📍 $mapsLink' : ''}',
@@ -120,7 +148,7 @@ class EmergencyService {
         'send-emergency-email',
         body: {'alert_id': alertId},
       );
-      emailSent = (resp.status ?? 0) >= 200 && (resp.status ?? 0) < 300;
+      emailSent = resp.status >= 200 && resp.status < 300;
     } catch (_) {}
 
     return EmergencyAlertResult(
