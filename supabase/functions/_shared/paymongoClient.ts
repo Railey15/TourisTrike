@@ -67,6 +67,63 @@ export async function createTransfer(
   return MODE === "live" ? createLiveTransfer(input) : createStubTransfer(input);
 }
 
+// ── Checkout (Collection leg) ────────────────────────────────────────────
+// Same "one boundary" shape as createTransfer() above, for the tourist-pays
+// side. Stub mode has no hosted page to redirect to (checkoutUrl is null) —
+// paymongo-create-checkout's caller shows a local stand-in screen instead
+// and calls back through the "resolve" action, which only that Edge
+// Function's stub branch allows (see getMode() below).
+
+export interface CreateCheckoutInput {
+  bookingId: string;
+  paymentStage: "down_payment" | "remaining_balance" | "full";
+  amount: number;
+  description: string;
+}
+
+export interface CreateCheckoutResult {
+  checkoutId: string;
+  checkoutUrl: string | null;
+  mode: "live" | "stub";
+}
+
+export function getMode(): "live" | "stub" {
+  return MODE === "live" ? "live" : "stub";
+}
+
+export async function createCheckoutSession(
+  input: CreateCheckoutInput,
+): Promise<CreateCheckoutResult> {
+  return MODE === "live" ? createLiveCheckout(input) : createStubCheckout(input);
+}
+
+async function createLiveCheckout(
+  _input: CreateCheckoutInput,
+): Promise<CreateCheckoutResult> {
+  if (!SECRET_KEY) {
+    throw new Error("PAYMONGO_MODE=live but PAYMONGO_SECRET_KEY is not set");
+  }
+  // NOT WIRED UP YET: PayMongo Checkout Session creation
+  // (POST /v1/checkout_sessions) isn't implemented. Left unimplemented on
+  // purpose until PayMongo support confirms test-mode Checkout availability
+  // for this account (see docs/payment-architecture.md open questions).
+  // Flipping PAYMONGO_MODE=live before then fails loudly here, not silently.
+  throw new Error(
+    "PAYMONGO_MODE=live is not implemented yet — Checkout API integration " +
+      "is unresolved. Use PAYMONGO_MODE=stub.",
+  );
+}
+
+async function createStubCheckout(
+  input: CreateCheckoutInput,
+): Promise<CreateCheckoutResult> {
+  const checkoutId = `stub_chk_${crypto.randomUUID()}`;
+  void input; // nothing to fabricate beyond the id — the amount/stage are
+  // echoed back by the caller when it resolves the checkout, same as a real
+  // Checkout Session would be looked up by id.
+  return { checkoutId, checkoutUrl: null, mode: "stub" };
+}
+
 async function createLiveTransfer(
   _input: CreateTransferInput,
 ): Promise<CreateTransferResult> {

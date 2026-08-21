@@ -518,6 +518,14 @@ class TourisTrikeRepository {
     String municipality = '',
     String province = '',
     int totalPassengers = 0,
+    // 'waiting_for_drivers' (default) makes the booking immediately
+    // visible to drivers. Pass 'pending_payment' for the advanced+GCash
+    // down-payment gate (see docs/payment-architecture.md Phase C3) —
+    // driver_package_jobs_screen and accept_package_booking both already
+    // only recognize 'pending'/'waiting_for_drivers' as acceptable, so
+    // 'pending_payment' is invisible to drivers with no query changes
+    // needed anywhere else.
+    String initialBookingStatus = 'waiting_for_drivers',
   }) async {
     final hasActive = await hasActiveTour();
     if (hasActive) {
@@ -570,7 +578,7 @@ class TourisTrikeRepository {
       'total_passengers': totalPassengers > 0
           ? totalPassengers
           : (adults + children),
-      'booking_status': 'waiting_for_drivers',
+      'booking_status': initialBookingStatus,
       'status': 'pending',
     });
     if (customizedSpots.isNotEmpty) {
@@ -962,6 +970,75 @@ class TourisTrikeRepository {
     if (res.status != 200) {
       throw Exception('Retry failed: ${res.data}');
     }
+  }
+
+  /// Phase 1 of the Collection-leg Checkout integration (see
+  /// docs/payment-architecture.md Phase C3). Always calls the same Edge
+  /// Function regardless of stub/live — the function itself decides via
+  /// PAYMONGO_MODE. Returns `mode: 'stub'` today; the caller (PaymentCheckoutScreen)
+  /// shows a local stand-in UI when it gets that back, since stub mode has
+  /// no real hosted page to redirect to.
+  Future<Map<String, dynamic>> createCheckoutSession({
+    required dynamic bookingId,
+    required String paymentStage,
+    required double amount,
+    String? description,
+  }) async {
+    final res = await _client.functions.invoke(
+      'paymongo-create-checkout',
+      body: {
+        'action': 'create',
+        'booking_id': bookingId,
+        'payment_stage': paymentStage,
+        'amount': amount,
+        if (description != null) 'description': description,
+      },
+    );
+    if (res.status != 200) {
+      throw Exception('Unable to start checkout: ${res.data}');
+    }
+    return Json.from(res.data as Map);
+  }
+
+  /// Stub-mode-only stand-in for the real hosted Checkout page + webhook.
+  /// The Edge Function itself rejects this call when PAYMONGO_MODE=live —
+  /// a real integration only ever resolves via paymongo-payment-webhook.
+  Future<Map<String, dynamic>> resolveStubCheckout({
+    required String checkoutId,
+    required dynamic bookingId,
+    required String paymentStage,
+    required double amount,
+    required bool success,
+  }) async {
+    final res = await _client.functions.invoke(
+      'paymongo-create-checkout',
+      body: {
+        'action': 'resolve',
+        'checkout_id': checkoutId,
+        'booking_id': bookingId,
+        'payment_stage': paymentStage,
+        'amount': amount,
+        'outcome': success ? 'success' : 'failure',
+      },
+    );
+    if (res.status != 200) {
+      throw Exception('Unable to resolve checkout: ${res.data}');
+    }
+    return Json.from(res.data as Map);
+  }
+
+  /// Lets a tourist abandon a booking that's still waiting on its down
+  /// payment — invisible to drivers already (see initialBookingStatus on
+  /// createPackageBooking), so this is a plain client-side update rather
+  /// than an RPC. The `.eq('booking_status', 'pending_payment')` guard
+  /// makes it a no-op if the payment resolved in the meantime, instead of
+  /// cancelling a booking a driver may already be matched to.
+  Future<void> cancelPendingPaymentBooking(dynamic bookingId) async {
+    await _client
+        .from(TourisTrikeTables.packageBookings)
+        .update({'booking_status': 'cancelled'})
+        .eq('id', bookingId)
+        .eq('booking_status', 'pending_payment');
   }
 
   /// Tricycle single-ride flow only — see `record_ride_payment` in the

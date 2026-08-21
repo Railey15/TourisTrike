@@ -17,6 +17,7 @@ import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
+import 'package:touristrike/screens/tourist/payment_checkout_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:touristrike/widgets/convoy/convoy_overall_status_banner.dart';
 import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
@@ -131,6 +132,29 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       paymentStage: stage,
     );
     if (record != null && mounted) {
+      _load();
+    }
+  }
+
+  // Additive beta entry point — see docs/payment-architecture.md Phase C3.
+  // Does not touch the GCash sheet path above; both remain usable side by
+  // side while the Checkout integration is still stub-only.
+  Future<void> _openPayMongoCheckout({
+    required String stage,
+    required double amount,
+    required String description,
+  }) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => PaymentCheckoutScreen(
+          bookingId: _bookingIdForQueries,
+          paymentStage: stage,
+          amount: amount,
+          description: description,
+        ),
+      ),
+    );
+    if (result == true && mounted) {
       _load();
     }
   }
@@ -1563,13 +1587,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                       title: 'Down Payment',
                       amount: booking!.downpaymentAmount,
                       record: _paymentRecordForStage('down_payment'),
-                      onPay: () => _openPaymentSheet(
-                        stage: 'down_payment',
-                        amount: booking.downpaymentAmount,
-                        description:
-                            'Down payment for package booking #${widget.bookingId}',
-                      ),
                       onViewReceipt: _openReceipt,
+                      // No onPay/onPayMongoCheckout — this is now paid
+                      // upfront during booking confirm (see
+                      // package_booking_screen.dart), before a driver is
+                      // ever matched and before this screen is reachable.
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -1586,6 +1608,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                             'Remaining balance for package booking #${widget.bookingId}',
                       ),
                       onViewReceipt: _openReceipt,
+                      onPayMongoCheckout: () => _openPayMongoCheckout(
+                        stage: 'remaining_balance',
+                        amount: booking.remainingBalance,
+                        description:
+                            'Remaining balance for package booking #${widget.bookingId}',
+                      ),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -1990,15 +2018,21 @@ class _PaymentStageCard extends StatelessWidget {
     required this.title,
     required this.amount,
     required this.record,
-    required this.onPay,
     required this.onViewReceipt,
+    this.onPay,
+    this.onPayMongoCheckout,
   });
 
   final String title;
   final double amount;
   final PaymentRecord? record;
-  final VoidCallback onPay;
   final ValueChanged<PaymentRecord> onViewReceipt;
+  // Null on the Down Payment card (advanced+GCash) — that payment already
+  // happened via PayMongo Checkout before this screen is ever reached
+  // (see package_booking_screen.dart), so there's nothing left to pay
+  // here. Still used on Remaining Balance for the legacy manual GCash path.
+  final VoidCallback? onPay;
+  final VoidCallback? onPayMongoCheckout;
 
   @override
   Widget build(BuildContext context) {
@@ -2083,13 +2117,27 @@ class _PaymentStageCard extends StatelessWidget {
                       style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700),
                     ),
                   )
-                : FilledButton.icon(
+                : onPay != null
+                ? FilledButton.icon(
                     onPressed: onPay,
                     icon: const Icon(Icons.qr_code_2_rounded),
                     label: const Text('Pay Now'),
                     style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2A86FF)),
-                  ),
+                  )
+                : const SizedBox.shrink(),
           ),
+          if (status == null && onPayMongoCheckout != null) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: onPayMongoCheckout,
+                icon: const Icon(Icons.science_outlined, size: 18),
+                label: const Text('Try PayMongo Checkout (beta)'),
+                style: TextButton.styleFrom(foregroundColor: const Color(0xFF64748B)),
+              ),
+            ),
+          ],
         ],
       ),
     );

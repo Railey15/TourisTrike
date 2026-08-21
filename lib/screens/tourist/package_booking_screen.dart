@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/screens/tourist/payment_checkout_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_tracking_screen.dart';
 
@@ -843,6 +844,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       final remaining = _remainingBalance(package);
       final method = _payment == _PaymentMethod.cashPickup ? 'cash' : 'gcash';
 
+      // Advanced + GCash bookings pay the down payment via PayMongo
+      // Checkout before a driver is ever matched — the booking is created
+      // hidden ('pending_payment') and only becomes visible to drivers
+      // once that checkout resolves. Same-day bookings (cash or GCash,
+      // full amount at pickup) are unaffected — see
+      // docs/payment-architecture.md Phase C3 for why cash can't follow
+      // this path (no digital trail until the driver is physically there).
+      final needsUpfrontCheckout = method == 'gcash' && downpayment > 0;
+
       final booking = await _repo.createPackageBooking(
         packageId: package.id,
         travelDate: _selectedDate!,
@@ -872,9 +882,33 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         municipality: package.city,
         province: _packageProvince(package),
         totalPassengers: _totalParticipants,
+        initialBookingStatus: needsUpfrontCheckout ? 'pending_payment' : 'waiting_for_drivers',
       );
 
       if (!mounted) return;
+
+      if (needsUpfrontCheckout) {
+        final paid = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => PaymentCheckoutScreen(
+              bookingId: booking.id,
+              paymentStage: 'down_payment',
+              amount: downpayment,
+              description: 'Down payment for package booking #${booking.id}',
+              allowCancelBooking: true,
+            ),
+          ),
+        );
+        if (!mounted) return;
+        if (paid == true) {
+          _navigateToActivityTracking(booking.id.toString());
+        }
+        // paid != true: tourist cancelled or backed out — stay on this
+        // screen so they can adjust and retry. The booking itself was
+        // already cancelled by PaymentCheckoutScreen if they chose to.
+        return;
+      }
+
       _navigateToActivityTracking(booking.id.toString());
     } catch (e) {
       if (!mounted) return;
