@@ -83,6 +83,111 @@ class _DriverPackageTrackingScreenState
 
   bool get _appearsOffline => _convoyConsecutiveFailures >= 2;
 
+  Widget _buildConvoyOverview() {
+    // -------------------------------------------------------------------------
+    // LOADING
+    // -------------------------------------------------------------------------
+
+    if (_convoyLoading && _convoy.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                color: _primary,
+              ),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Loading convoy',
+                    style: TextStyle(
+                      color: _ink,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Checking the other drivers assigned to this tour.',
+                    style: TextStyle(
+                      color: _muted,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 9.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // ERROR
+    // -------------------------------------------------------------------------
+
+    if (_convoyError != null && _convoy.isEmpty) {
+      return ConvoyRosterErrorCard(
+        message: _convoyError!,
+        onRetry: _loadConvoy,
+      );
+    }
+
+    final me = _myConvoyStatus;
+
+    if (me == null) {
+      return ConvoyRosterErrorCard(
+        message: 'You are not recorded as an accepted driver for this booking.',
+        onRetry: _loadConvoy,
+      );
+    }
+
+    final blockingDrivers = _blockingDriversFor(me);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Only display the roster for actual group/convoy bookings.
+        if (_convoy.length > 1) ...[
+          ConvoyRosterStrip(
+            convoy: _convoy,
+            selfDriverId: _repo.currentUserId ?? '',
+            onCall: _callConvoyDriver,
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Show barrier waiting information only when this driver
+        // is currently waiting on other convoy members.
+        if (blockingDrivers.isNotEmpty)
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            child: ConvoyWaitingCard(
+              key: ValueKey(
+                'convoy-wait-${me.journeyState.name}-${me.currentStopIndex}',
+              ),
+              blockingDrivers: blockingDrivers,
+            ),
+          ),
+      ],
+    );
+  }
+
   // =========================================================================
   // CORE SERVICES / STATE
   // =========================================================================
@@ -506,12 +611,6 @@ class _DriverPackageTrackingScreenState
     }
   }
 
-  Future<void> _advanceConvoyState(ConvoyJourneyState target) {
-    return _doAction(() async {
-      await _advanceConvoyStateCore(target);
-    });
-  }
-
   // =========================================================================
   // REALTIME
   // =========================================================================
@@ -604,19 +703,16 @@ class _DriverPackageTrackingScreenState
     _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen((
       position,
     ) async {
-      if (_activity == null) {
+      final activity = _activity;
+
+      if (activity == null || _isBookingCancelled) {
         return;
       }
 
       _currentPosition = position;
 
       try {
-        await _repo.updateDriverLocation(
-          activityId: widget.activityId,
-          latitude: position.latitude,
-          longitude: position.longitude,
-        );
-
+        // Each driver always writes to their own live-location row.
         await _repo.upsertDriverLiveLocation(
           activityId: widget.activityId,
           latitude: position.latitude,
@@ -625,16 +721,33 @@ class _DriverPackageTrackingScreenState
           speed: position.speed,
         );
 
+        // package_activities has only one legacy driver_latitude/longitude
+        // pair. On a convoy booking, only the legacy assigned driver writes
+        // those columns so convoy drivers do not overwrite one another.
+        final isLegacyWriter =
+            _convoy.length <= 1 ||
+            _booking?.assignedDriverId == _repo.currentUserId;
+
+        if (isLegacyWriter) {
+          await _repo.updateDriverLocation(
+            activityId: widget.activityId,
+            latitude: position.latitude,
+            longitude: position.longitude,
+          );
+        }
+
         if (!mounted) return;
 
-        setState(() {
-          _activity = PackageActivity({
-            ..._activity!.row,
-            'driver_latitude': position.latitude,
-            'driver_longitude': position.longitude,
-            'driver_last_seen': DateTime.now().toIso8601String(),
+        if (isLegacyWriter) {
+          setState(() {
+            _activity = PackageActivity({
+              ...activity.row,
+              'driver_latitude': position.latitude,
+              'driver_longitude': position.longitude,
+              'driver_last_seen': DateTime.now().toIso8601String(),
+            });
           });
-        });
+        }
 
         _buildMarkers();
 
@@ -644,8 +757,14 @@ class _DriverPackageTrackingScreenState
             position.speed,
           );
         }
-      } catch (_) {
-        // Continue showing GPS even if backend update fails.
+      } catch (e) {
+        debugPrint('[DriverTracking:gps] Location sync failed: $e');
+
+        // Keep the local driver marker responsive even if the backend write
+        // temporarily fails.
+        if (mounted) {
+          _buildMarkers();
+        }
       }
     });
   }
@@ -728,9 +847,6 @@ class _DriverPackageTrackingScreenState
 
   BookingItineraryItem? get _currentItineraryItem =>
       _spots.where((spot) => spot.spotStatus != 'completed').firstOrNull;
-
-  String get _currentSpotName =>
-      _currentItineraryItem?.destinationName ?? 'Spot';
 
   String get _selectedCurrentActionLabel {
     final status = _activity?.tourStatus ?? '';
@@ -849,7 +965,7 @@ class _DriverPackageTrackingScreenState
 
       // Refresh convoy state as part of a tracking refresh.
       if (_bookingId.isNotEmpty) {
-        _loadConvoy();
+        await _loadConvoy();
       }
     }
   }
@@ -900,10 +1016,12 @@ class _DriverPackageTrackingScreenState
     final markers = <Marker>{};
 
     final pickup = _pickupLatLng();
-
     final dropoff = _dropoffLatLng();
-
     final driverPosition = _driverLatLng();
+
+    // -------------------------------------------------------------------------
+    // PICKUP
+    // -------------------------------------------------------------------------
 
     if (pickup != null) {
       markers.add(
@@ -921,6 +1039,10 @@ class _DriverPackageTrackingScreenState
       );
     }
 
+    // -------------------------------------------------------------------------
+    // DROP-OFF
+    // -------------------------------------------------------------------------
+
     if (dropoff != null) {
       markers.add(
         Marker(
@@ -934,6 +1056,10 @@ class _DriverPackageTrackingScreenState
         ),
       );
     }
+
+    // -------------------------------------------------------------------------
+    // ITINERARY SPOTS
+    // -------------------------------------------------------------------------
 
     for (var index = 0; index < _spots.length; index++) {
       final spot = _spots[index];
@@ -967,6 +1093,10 @@ class _DriverPackageTrackingScreenState
       );
     }
 
+    // -------------------------------------------------------------------------
+    // CURRENT DRIVER
+    // -------------------------------------------------------------------------
+
     if (driverPosition != null) {
       markers.add(
         Marker(
@@ -983,11 +1113,50 @@ class _DriverPackageTrackingScreenState
       );
     }
 
-    if (mounted) {
-      setState(() {
-        _markers = markers;
-      });
+    // -------------------------------------------------------------------------
+    // OTHER CONVOY DRIVERS
+    // -------------------------------------------------------------------------
+
+    final myId = _repo.currentUserId;
+
+    for (final driver in _convoy) {
+      // Your own marker is already shown above.
+      if (driver.driverId == myId) {
+        continue;
+      }
+
+      final lat = driver.latitude;
+      final lng = driver.longitude;
+
+      if (lat == null || lng == null) {
+        continue;
+      }
+
+      markers.add(
+        Marker(
+          markerId: MarkerId('convoy_${driver.driverId}'),
+          position: LatLng(lat, lng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueViolet,
+          ),
+          rotation: driver.heading,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          infoWindow: InfoWindow(
+            title: driver.plateNumber.isNotEmpty
+                ? driver.plateNumber
+                : driver.driverName,
+            snippet: driver.journeyState.label,
+          ),
+        ),
+      );
     }
+
+    if (!mounted) return;
+
+    setState(() {
+      _markers = markers;
+    });
   }
 
   Future<void> _fetchCurrentRoute() async {
@@ -1074,8 +1243,13 @@ class _DriverPackageTrackingScreenState
   }
 
   LatLng? _driverLatLng() {
-    final lat = _activity?.driverLatitude;
+    final position = _currentPosition;
 
+    if (position != null) {
+      return LatLng(position.latitude, position.longitude);
+    }
+
+    final lat = _activity?.driverLatitude;
     final lng = _activity?.driverLongitude;
 
     if (lat == null || lng == null) {
@@ -1153,6 +1327,77 @@ class _DriverPackageTrackingScreenState
     return 12;
   }
 
+  void _fitConvoyBounds() {
+    final points = <LatLng>[];
+
+    // Add every convoy driver's latest position.
+    for (final driver in _convoy) {
+      if (driver.latitude != null && driver.longitude != null) {
+        points.add(LatLng(driver.latitude!, driver.longitude!));
+      }
+    }
+
+    // Ensure our own freshest position is included.
+    final ownPosition = _driverLatLng();
+
+    if (ownPosition != null &&
+        !points.any(
+          (point) =>
+              point.latitude == ownPosition.latitude &&
+              point.longitude == ownPosition.longitude,
+        )) {
+      points.add(ownPosition);
+    }
+
+    if (points.isEmpty) {
+      _showSnack('Convoy locations are not available yet.');
+      return;
+    }
+
+    if (points.length == 1) {
+      setState(() {
+        _isFollowingDriver = false;
+      });
+
+      _isProgrammaticMove = true;
+
+      _mapCtrl?.animateCamera(CameraUpdate.newLatLngZoom(points.first, 16));
+
+      return;
+    }
+
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+
+    for (final point in points.skip(1)) {
+      minLat = math.min(minLat, point.latitude);
+
+      maxLat = math.max(maxLat, point.latitude);
+
+      minLng = math.min(minLng, point.longitude);
+
+      maxLng = math.max(maxLng, point.longitude);
+    }
+
+    setState(() {
+      _isFollowingDriver = false;
+    });
+
+    _isProgrammaticMove = true;
+
+    _mapCtrl?.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        70,
+      ),
+    );
+  }
   // =========================================================================
   // ACTION WRAPPER
   // =========================================================================
@@ -1182,23 +1427,20 @@ class _DriverPackageTrackingScreenState
   }
 
   // =========================================================================
-  // TOUR ACTIONS
+  // TOUR ACTIONS — CONVOY JOURNEY STATE
   // =========================================================================
 
-  Future<void> _markEnRoute() => _doAction(() async {
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'driver_en_route',
+  Future<void> _markEnRoutePickup() => _doAction(() async {
+    final advanced = await _advanceConvoyStateCore(
+      ConvoyJourneyState.enRoutePickup,
     );
+    if (!advanced) return;
 
     _logStatus('driver_en_route');
-
-    await _refreshTrackingState(logTag: 'driver-en-route');
-
     _showSnack('Status: En route to pickup.');
   });
 
-  Future<void> _markArrived() => _doAction(() async {
+  Future<void> _markAtPickup() => _doAction(() async {
     final pickup = _pickupLatLng();
 
     if (!kDriverActionTestMode && pickup != null && !_isNearTarget(pickup)) {
@@ -1206,86 +1448,72 @@ class _DriverPackageTrackingScreenState
         'You must be within 150 m of the pickup point to mark arrival.',
         error: true,
       );
-
       return;
     }
 
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'driver_arrived',
-      extra: {'arrived_at': DateTime.now().toIso8601String()},
-    );
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atPickup);
+
+    if (!advanced) return;
 
     _logStatus('driver_arrived');
-
-    await _refreshTrackingState(logTag: 'driver-arrived');
-
     _showSnack('Status: Arrived at pickup.');
   });
 
-  Future<void> _markPickedUp() => _doAction(() async {
+  Future<void> _markBoarded() => _doAction(() async {
     final pickup = _pickupLatLng();
 
     if (!kDriverActionTestMode && pickup != null && !_isNearTarget(pickup)) {
       _showSnack(
-        'You must be at the pickup location to mark tourist as picked up.',
+        'You must be at the pickup location to mark passengers as boarded.',
         error: true,
       );
-
       return;
     }
 
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'on_tour',
-      activityStatus: 'ongoing',
-      bookingStatus: 'on_tour',
-      extra: {'picked_up_at': DateTime.now().toIso8601String()},
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.boarded);
+
+    if (!advanced) return;
+
+    _logStatus('boarded');
+
+    final blockers = _myConvoyStatus == null
+        ? const <ConvoyDriverSnapshot>[]
+        : _blockingDriversFor(_myConvoyStatus!);
+
+    _showSnack(
+      blockers.isEmpty
+          ? 'Passengers boarded. The convoy is ready to depart.'
+          : 'Passengers boarded. Waiting for the rest of the convoy.',
     );
+  });
 
-    final currentItem = _currentItineraryItem;
+  Future<void> _departPickup() => _doAction(() async {
+    final target = _spots.isEmpty
+        ? ConvoyJourneyState.enRouteDropoff
+        : ConvoyJourneyState.enRouteStop;
 
-    if (_bookingId.isNotEmpty && currentItem != null) {
+    final advanced = await _advanceConvoyStateCore(target);
+    if (!advanced) return;
+
+    final firstItem = _spots.isEmpty ? null : _spots.first;
+
+    if (_bookingId.isNotEmpty && firstItem != null) {
       await _repo.markSpotTravelling(
         bookingId: _bookingId,
-        itineraryItemId: currentItem.id.toString(),
+        itineraryItemId: firstItem.id.toString(),
       );
     }
 
-    _logStatus('picked_up');
+    _logStatus(_spots.isEmpty ? 'en_route_to_dropoff' : 'picked_up');
 
-    await _refreshTrackingState(logTag: 'picked-up');
-
-    _showSnack('Status: Tourist picked up.');
-  });
-
-  Future<void> _markEnRouteToSpot() => _doAction(() async {
-    final bookingId = _bookingId;
-
-    final currentItem = _currentItineraryItem;
-
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'on_tour',
-      activityStatus: 'ongoing',
-      bookingStatus: 'on_tour',
+    _showSnack(
+      _spots.isEmpty
+          ? 'Convoy departing pickup for drop-off.'
+          : 'Convoy departing pickup for the first tour stop.',
     );
-
-    if (bookingId.isNotEmpty && currentItem != null) {
-      await _repo.markSpotTravelling(
-        bookingId: bookingId,
-        itineraryItemId: currentItem.id.toString(),
-      );
-    }
-
-    _logStatus('en_route_to_spot');
-
-    await _refreshTrackingState(logTag: 'en-route-to-spot');
-
-    _showSnack('Status: En route to next spot.');
   });
 
-  Future<void> _markAtSpot() => _doAction(() async {
+  Future<void> _markAtStop() => _doAction(() async {
     final spotPosition = _currentSpotLatLng();
 
     if (!kDriverActionTestMode &&
@@ -1295,15 +1523,21 @@ class _DriverPackageTrackingScreenState
         'You must be within 150 m of the spot to mark arrival.',
         error: true,
       );
-
       return;
     }
 
     final currentItem = _currentItineraryItem;
-
     final bookingId = _bookingId;
 
-    if (currentItem != null && mounted) {
+    if (currentItem == null) {
+      _showSnack('No current itinerary stop is available.', error: true);
+      return;
+    }
+
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atStop);
+    if (!advanced) return;
+
+    if (mounted) {
       setState(() {
         _spots = _spots.map((spot) {
           if (spot.id == currentItem.id) {
@@ -1313,20 +1547,12 @@ class _DriverPackageTrackingScreenState
               'actual_arrival_time': DateTime.now().toIso8601String(),
             });
           }
-
           return spot;
         }).toList();
       });
     }
 
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'on_tour',
-      activityStatus: 'ongoing',
-      bookingStatus: 'on_tour',
-    );
-
-    if (bookingId.isNotEmpty && currentItem != null) {
+    if (bookingId.isNotEmpty) {
       await _repo.markSpotActualArrival(
         bookingId: bookingId,
         itineraryItemId: currentItem.id.toString(),
@@ -1334,13 +1560,10 @@ class _DriverPackageTrackingScreenState
     }
 
     _logStatus('at_spot');
-
-    await _refreshTrackingState(logTag: 'at-spot');
-
-    _showSnack('Arrived at ${currentItem?.destinationName ?? 'spot'}.');
+    _showSnack('Arrived at ${currentItem.destinationName}.');
   });
 
-  Future<void> _markSpotComplete() => _doAction(() async {
+  Future<void> _markStopDone() => _doAction(() async {
     BookingItineraryItem? currentItem = _currentItineraryItem;
 
     if (currentItem == null) {
@@ -1360,15 +1583,12 @@ class _DriverPackageTrackingScreenState
 
       if (currentItem == null) {
         await _refreshTrackingState(logTag: 'spot-complete-null');
-
         _showSnack('Refreshed. Please try again.');
-
         return;
       }
     }
 
     final spotName = currentItem.destinationName;
-
     final totalItems = _spots.length;
 
     final completedBefore = _spots
@@ -1377,24 +1597,12 @@ class _DriverPackageTrackingScreenState
 
     final itemId = currentItem.id?.toString() ?? '';
 
-    debugPrint(
-      '[SpotComplete] BEFORE: '
-      'id=$itemId '
-      'name=$spotName '
-      'status=${currentItem.spotStatus} '
-      'total=$totalItems '
-      'completedBefore=$completedBefore '
-      'bookingId=$_bookingId',
-    );
-
     if (itemId.isEmpty || itemId == 'null') {
       _showSnack(
         'Cannot complete spot: item ID is missing. Try refreshing.',
         error: true,
       );
-
       await _refreshTrackingState(logTag: 'spot-complete-no-id');
-
       return;
     }
 
@@ -1408,7 +1616,6 @@ class _DriverPackageTrackingScreenState
               'actual_departure_time': DateTime.now().toIso8601String(),
             });
           }
-
           return spot;
         }).toList();
       });
@@ -1423,9 +1630,7 @@ class _DriverPackageTrackingScreenState
       );
     } catch (e) {
       await _refreshTrackingState(logTag: 'spot-complete-error');
-
       _showSnack('Error completing spot: $e', error: true);
-
       return;
     }
 
@@ -1433,10 +1638,8 @@ class _DriverPackageTrackingScreenState
 
     final completedNow =
         (rpcResult['completed_items'] as num?)?.toInt() ?? completedBefore + 1;
-
     final rpcTotal = (rpcResult['total_items'] as num?)?.toInt() ?? totalItems;
-
-    final allCompleted = completedNow >= rpcTotal && rpcTotal > 0;
+    final allCompletedNow = completedNow >= rpcTotal && rpcTotal > 0;
 
     final rawList = rpcResult['spot_status_list'];
 
@@ -1446,9 +1649,7 @@ class _DriverPackageTrackingScreenState
       for (final item in rawList) {
         if (item is Map) {
           final id = item['id']?.toString();
-
           final status = item['spot_status']?.toString();
-
           if (id != null && id.isNotEmpty && status != null) {
             statusMap[id] = status;
           }
@@ -1459,37 +1660,28 @@ class _DriverPackageTrackingScreenState
         setState(() {
           _spots = _spots.map((spot) {
             final newStatus = statusMap[spot.id?.toString()];
-
             if (newStatus != null) {
               return BookingItineraryItem({
                 ...spot.row,
                 'spot_status': newStatus,
               });
             }
-
             return spot;
           }).toList();
         });
       }
     }
 
-    if (allCompleted) {
-      await _repo.updateActivityTourStatus(
-        activityId: widget.activityId,
-        tourStatus: 'en_route_to_dropoff',
-        bookingStatus: 'on_tour',
+    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.stopDone);
+    if (!advanced) return;
+
+    _logStatus('stop_done');
+
+    if (allCompletedNow) {
+      _showSnack(
+        'All $rpcTotal spots done. Depart once the rest of the convoy is ready.',
       );
-
-      await _refreshTrackingState(logTag: 'all-spots-done');
-
-      _logStatus('en_route_to_dropoff');
-
-      _showSnack('All $rpcTotal spots done! Head to the drop-off point.');
     } else {
-      await _refreshTrackingState(logTag: 'spot-complete');
-
-      _logStatus('on_tour');
-
       final nextItem = _spots
           .where((spot) => spot.spotStatus.trim().toLowerCase() != 'completed')
           .firstOrNull;
@@ -1497,12 +1689,41 @@ class _DriverPackageTrackingScreenState
       _showSnack(
         '$spotName completed. '
         '$completedNow of $rpcTotal spots done.'
-        '${nextItem != null ? ' Next: ${nextItem.destinationName}' : ''}',
+        '${nextItem != null ? ' Next: ${nextItem.destinationName}' : ''} '
+        'Wait for the convoy before departing.',
       );
     }
   });
 
-  Future<void> _markArrivedAtDropoff() => _doAction(() async {
+  Future<void> _departStop() => _doAction(() async {
+    final hasMoreStops = !_allItineraryItemsCompleted;
+
+    final target = hasMoreStops
+        ? ConvoyJourneyState.enRouteStop
+        : ConvoyJourneyState.enRouteDropoff;
+
+    final advanced = await _advanceConvoyStateCore(target);
+    if (!advanced) return;
+
+    final nextItem = _currentItineraryItem;
+
+    if (_bookingId.isNotEmpty && hasMoreStops && nextItem != null) {
+      await _repo.markSpotTravelling(
+        bookingId: _bookingId,
+        itineraryItemId: nextItem.id.toString(),
+      );
+    }
+
+    _logStatus(hasMoreStops ? 'en_route_to_spot' : 'en_route_to_dropoff');
+
+    _showSnack(
+      hasMoreStops
+          ? 'Convoy departing to the next stop.'
+          : 'Convoy departing to drop-off.',
+    );
+  });
+
+  Future<void> _markAtDropoff() => _doAction(() async {
     final dropoff = _dropoffLatLng();
 
     if (!kDriverActionTestMode && dropoff != null && !_isNearTarget(dropoff)) {
@@ -1510,38 +1731,38 @@ class _DriverPackageTrackingScreenState
         'You must be within 150 m of the drop-off point.',
         error: true,
       );
-
       return;
     }
 
-    await _repo.updateActivityTourStatus(
-      activityId: widget.activityId,
-      tourStatus: 'ready_to_complete',
-      bookingStatus: 'on_tour',
-      extra: {'dropped_off_at': DateTime.now().toIso8601String()},
+    final advanced = await _advanceConvoyStateCore(
+      ConvoyJourneyState.atDropoff,
     );
+    if (!advanced) return;
 
     _logStatus('dropped_off');
 
-    await _refreshTrackingState(logTag: 'arrived-dropoff');
+    final blockers = _myConvoyStatus == null
+        ? const <ConvoyDriverSnapshot>[]
+        : _blockingDriversFor(_myConvoyStatus!);
 
-    _showSnack('Arrived at drop-off. Tap Complete Trip when ready.');
+    _showSnack(
+      blockers.isEmpty
+          ? 'Arrived at drop-off. The convoy is ready to complete the tour.'
+          : 'Arrived at drop-off. Waiting for the rest of the convoy.',
+    );
   });
 
-  Future<void> _markCompleteTour() => _doAction(() async {
+  Future<void> _completeTour() => _doAction(() async {
     if (!_allItineraryItemsCompleted) {
       _showSnack(
         'Complete all itinerary spots before finishing the tour.',
         error: true,
       );
-
       return;
     }
 
     final booking = _booking;
-
     final isAdvanced = (booking?.bookingType ?? 'same_day') == 'advanced';
-
     final remainingBalance = booking?.remainingBalance ?? 0;
 
     if (isAdvanced && remainingBalance > 0 && !_hasConfirmedRemainingBalance) {
@@ -1549,9 +1770,13 @@ class _DriverPackageTrackingScreenState
         'Confirm the remaining balance payment before completing the tour.',
         error: true,
       );
-
       return;
     }
+
+    final advanced = await _advanceConvoyStateCore(
+      ConvoyJourneyState.completed,
+    );
+    if (!advanced) return;
 
     try {
       await _repo.completePackageActivity(widget.activityId);
@@ -1561,17 +1786,13 @@ class _DriverPackageTrackingScreenState
           'Confirm the remaining balance payment before completing the tour.',
           error: true,
         );
-
         return;
       }
-
       rethrow;
     }
 
     await _refreshTrackingState(logTag: 'complete-tour');
-
     _logStatus('completed');
-
     _showSnack('Tour completed successfully.');
   });
 
@@ -1873,96 +2094,130 @@ class _DriverPackageTrackingScreenState
     }
   }
 
+  Future<void> _callConvoyDriver(ConvoyDriverSnapshot driver) async {
+    final phone = driver.phoneNumber.trim();
+
+    if (phone.isEmpty) {
+      _showSnack(
+        '${driver.driverName}\'s phone number is not available.',
+        error: true,
+      );
+
+      return;
+    }
+
+    final uri = Uri.parse('tel:$phone');
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      _showSnack('Unable to launch phone dialer.', error: true);
+    }
+  }
+
   // =========================================================================
   // BOTTOM PRIMARY ACTION
   // =========================================================================
 
   _PrimaryTourAction? _currentPrimaryAction() {
-    final status = _activity?.tourStatus ?? '';
+    final me = _myConvoyStatus;
 
-    switch (status) {
-      case 'driver_accepted':
+    if (me == null) {
+      return null;
+    }
+
+    final blockingDrivers = _blockingDriversFor(me);
+
+    // At synchronized barrier states, the waiting card is the action UI until
+    // every required convoy driver is ready. The server still re-validates the
+    // barrier when the action is eventually pressed.
+    if (blockingDrivers.isNotEmpty) {
+      return null;
+    }
+
+    switch (me.journeyState) {
+      case ConvoyJourneyState.assigned:
         return _PrimaryTourAction(
           label: 'Start Navigation to Pickup',
           description: 'Begin heading to the tourist pickup location.',
           icon: Icons.navigation_rounded,
-          onTap: _markEnRoute,
+          onTap: _markEnRoutePickup,
         );
 
-      case 'driver_en_route':
+      case ConvoyJourneyState.enRoutePickup:
         return _PrimaryTourAction(
           label: 'Arrived at Pickup',
-          description: 'Confirm once you reach the tourist.',
+          description: 'Confirm once you reach the tourist pickup point.',
           icon: Icons.location_on_rounded,
-          onTap: _markArrived,
+          onTap: _markAtPickup,
         );
 
-      case 'driver_arrived':
+      case ConvoyJourneyState.atPickup:
         return _PrimaryTourAction(
-          label: 'Mark Tourist Picked Up',
-          description: 'Confirm the tourist is onboard.',
+          label: 'Passengers Boarded',
+          description: 'Confirm that your assigned passengers are onboard.',
           icon: Icons.groups_rounded,
-          onTap: _markPickedUp,
+          onTap: _markBoarded,
         );
 
-      case 'picked_up':
-      case 'on_tour':
-      case 'en_route_to_spot':
-      case 'at_spot':
-      case 'en_route_to_dropoff':
-      case 'ready_to_complete':
-        if (!kDriverActionTestMode && !_hasPickedUp) {
-          return _PrimaryTourAction(
-            label: 'Mark Tourist Picked Up',
-            description: 'Confirm the tourist is onboard first.',
-            icon: Icons.groups_rounded,
-            onTap: _markPickedUp,
-          );
-        }
+      case ConvoyJourneyState.boarded:
+        return _PrimaryTourAction(
+          label: 'Depart from Pickup',
+          description: 'All convoy drivers are ready. Depart together.',
+          icon: Icons.route_rounded,
+          onTap: _departPickup,
+        );
 
-        if (_allItineraryItemsCompleted) {
-          if (status == 'ready_to_complete') {
-            return _PrimaryTourAction(
-              label: 'Complete Trip',
-              description: 'Finish this tour assignment.',
-              icon: Icons.task_alt_rounded,
-              onTap: _markCompleteTour,
-            );
-          }
-
-          return _PrimaryTourAction(
-            label: 'Arrived at Drop-off',
-            description: 'Confirm once the tourist reaches the final drop-off.',
-            icon: Icons.flag_rounded,
-            onTap: _markArrivedAtDropoff,
-          );
-        }
-
+      case ConvoyJourneyState.enRouteStop:
         final currentItem = _currentItineraryItem;
-
-        if (!kDriverActionTestMode && currentItem == null) {
+        if (currentItem == null) {
           return null;
         }
-
-        if (currentItem?.spotStatus == 'at_spot') {
-          return _PrimaryTourAction(
-            label: 'Complete ${currentItem?.destinationName ?? 'Current Spot'}',
-            description:
-                'Mark this destination complete when the tourist is ready to leave.',
-            icon: Icons.check_circle_rounded,
-            onTap: _markSpotComplete,
-          );
-        }
-
         return _PrimaryTourAction(
-          label: 'Arrived at ${currentItem?.destinationName ?? 'Current Spot'}',
-          description:
-              'Confirm once you are at the next itinerary destination.',
+          label: 'Arrived at ${currentItem.destinationName}',
+          description: 'Confirm once you reach the current tour destination.',
           icon: Icons.place_rounded,
-          onTap: _markAtSpot,
+          onTap: _markAtStop,
         );
 
-      default:
+      case ConvoyJourneyState.atStop:
+        final currentItem = _currentItineraryItem;
+        return _PrimaryTourAction(
+          label: 'Complete ${currentItem?.destinationName ?? 'Current Stop'}',
+          description: 'Mark this stop done when your passengers are ready.',
+          icon: Icons.check_circle_rounded,
+          onTap: _markStopDone,
+        );
+
+      case ConvoyJourneyState.stopDone:
+        return _PrimaryTourAction(
+          label: _allItineraryItemsCompleted
+              ? 'Depart for Drop-off'
+              : 'Depart for Next Stop',
+          description: _allItineraryItemsCompleted
+              ? 'All convoy drivers are ready. Continue to drop-off.'
+              : 'All convoy drivers are ready. Continue to the next stop.',
+          icon: Icons.directions_rounded,
+          onTap: _departStop,
+        );
+
+      case ConvoyJourneyState.enRouteDropoff:
+        return _PrimaryTourAction(
+          label: 'Arrived at Drop-off',
+          description: 'Confirm once your passengers reach the final drop-off.',
+          icon: Icons.flag_rounded,
+          onTap: _markAtDropoff,
+        );
+
+      case ConvoyJourneyState.atDropoff:
+        return _PrimaryTourAction(
+          label: 'Complete Trip',
+          description: 'All convoy drivers are at drop-off. Finish the tour.',
+          icon: Icons.task_alt_rounded,
+          onTap: _completeTour,
+        );
+
+      case ConvoyJourneyState.completed:
         return null;
     }
   }
@@ -2014,7 +2269,9 @@ class _DriverPackageTrackingScreenState
 
     final status = activity.tourStatus;
 
-    final completed = status == 'completed';
+    final completed =
+        _myConvoyStatus?.journeyState == ConvoyJourneyState.completed ||
+        status == 'completed';
 
     final pendingPayments = _paymentRecords
         .where((record) => record.status == 'pending_confirmation')
@@ -2044,13 +2301,25 @@ class _DriverPackageTrackingScreenState
                   completedCount: _completedItineraryItemsCount,
                   totalCount: _spots.length,
                 ),
+
                 const SizedBox(height: 12),
+
+                // Convoy information only becomes visually substantial
+                // for multi-driver bookings.
+                if (_convoy.length > 1 ||
+                    _convoyLoading ||
+                    _convoyError != null) ...[
+                  _buildConvoyOverview(),
+                  const SizedBox(height: 12),
+                ],
+
                 _NavigationMapCard(
                   markers: _markers,
                   polylines: _polylines,
                   initialTarget:
                       _driverLatLng() ?? _pickupLatLng() ?? _defaultCenter,
                   isFollowing: _isFollowingDriver,
+                  showConvoyControl: _convoy.length > 1,
                   status: status,
                   onMapCreated: (controller) {
                     _mapCtrl = controller;
@@ -2074,7 +2343,6 @@ class _DriverPackageTrackingScreenState
 
                     if (pickup == null) {
                       _showSnack('Pickup location unavailable.', error: true);
-
                       return;
                     }
 
@@ -2096,7 +2364,6 @@ class _DriverPackageTrackingScreenState
                         LatLng(position.latitude, position.longitude),
                         position.speed,
                       );
-
                       return;
                     }
 
@@ -2110,6 +2377,7 @@ class _DriverPackageTrackingScreenState
                       );
                     }
                   },
+                  onConvoyTap: _fitConvoyBounds,
                 ),
                 const SizedBox(height: 14),
                 if (!completed && _spots.isNotEmpty)
@@ -2531,12 +2799,14 @@ class _NavigationMapCard extends StatelessWidget {
     required this.polylines,
     required this.initialTarget,
     required this.isFollowing,
+    required this.showConvoyControl,
     required this.status,
     required this.onMapCreated,
     required this.onCameraMoveStarted,
     required this.onCameraIdle,
     required this.onPickupTap,
     required this.onDriverTap,
+    required this.onConvoyTap,
   });
 
   final Set<Marker> markers;
@@ -2545,6 +2815,7 @@ class _NavigationMapCard extends StatelessWidget {
   final LatLng initialTarget;
 
   final bool isFollowing;
+  final bool showConvoyControl;
   final String status;
 
   final ValueChanged<GoogleMapController> onMapCreated;
@@ -2554,6 +2825,7 @@ class _NavigationMapCard extends StatelessWidget {
   final VoidCallback onCameraIdle;
   final VoidCallback onPickupTap;
   final VoidCallback onDriverTap;
+  final VoidCallback onConvoyTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2653,6 +2925,15 @@ class _NavigationMapCard extends StatelessWidget {
               bottom: 12,
               child: Column(
                 children: [
+                  if (showConvoyControl) ...[
+                    _MapRoundButton(
+                      icon: Icons.groups_2_outlined,
+                      tooltip: 'Show entire convoy',
+                      color: const Color(0xFF7C3AED),
+                      onTap: onConvoyTap,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   _MapRoundButton(
                     icon: Icons.hail_rounded,
                     tooltip: 'Pickup point',
@@ -2674,7 +2955,10 @@ class _NavigationMapCard extends StatelessWidget {
               left: 12,
               bottom: 12,
               right: 70,
-              child: _MapLegendBar(status: status),
+              child: _MapLegendBar(
+                status: status,
+                showConvoy: showConvoyControl,
+              ),
             ),
           ],
         ),
@@ -2721,9 +3005,10 @@ class _MapRoundButton extends StatelessWidget {
 }
 
 class _MapLegendBar extends StatelessWidget {
-  const _MapLegendBar({required this.status});
+  const _MapLegendBar({required this.status, required this.showConvoy});
 
   final String status;
+  final bool showConvoy;
 
   @override
   Widget build(BuildContext context) {
@@ -2733,14 +3018,18 @@ class _MapLegendBar extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _LegendItem(color: _primary, text: 'You'),
-          SizedBox(width: 10),
-          _LegendItem(color: Color(0xFFF59E0B), text: 'Current'),
-          SizedBox(width: 10),
-          Flexible(
+          const _LegendItem(color: _primary, text: 'You'),
+          if (showConvoy) ...[
+            const SizedBox(width: 10),
+            const _LegendItem(color: Color(0xFF7C3AED), text: 'Convoy'),
+          ],
+          const SizedBox(width: 10),
+          const _LegendItem(color: Color(0xFFF59E0B), text: 'Current'),
+          const SizedBox(width: 10),
+          const Flexible(
             child: _LegendItem(color: _success, text: 'Done'),
           ),
         ],
