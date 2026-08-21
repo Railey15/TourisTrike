@@ -43,9 +43,12 @@ class AppBottomNavDriver extends StatelessWidget {
         page = const DriverHomeScreen();
     }
 
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => page));
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => page,
+        transitionDuration: Duration.zero,
+      ),
+    );
   }
 
   @override

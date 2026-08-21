@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
 import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/province_reports_screen.dart';
@@ -93,6 +94,10 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
           return LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth >= 900;
+              final profileWidth = (constraints.maxWidth * 0.32).clamp(
+                280.0,
+                380.0,
+              );
 
               final pageHeader = AdminPageHeader(
                 eyebrow: 'City Tenant Profile',
@@ -192,7 +197,7 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          SizedBox(width: 360, child: profileCard),
+                          SizedBox(width: profileWidth, child: profileCard),
                           const SizedBox(width: 16),
                           Expanded(
                             child: _RecentPanel(
@@ -546,7 +551,12 @@ class _InfoRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                width: 96,
+                width: Responsive.responsiveValue<double>(
+                  context,
+                  mobile: 88,
+                  tablet: 92,
+                  desktop: 96,
+                ),
                 child: Text(
                   label,
                   style: const TextStyle(
