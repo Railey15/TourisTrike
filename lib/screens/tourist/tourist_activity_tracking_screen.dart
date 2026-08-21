@@ -1175,6 +1175,22 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     return values.any((value) => value?.toLowerCase() == 'cancelled');
   }
 
+  bool get _canOfferCancellation {
+    final tourStatus = _activity?.tourStatus.toLowerCase() ?? 'waiting_driver';
+    return !_isCancelled &&
+        !{
+          'driver_arrived',
+          'picked_up',
+          'on_tour',
+          'en_route_to_spot',
+          'at_spot',
+          'en_route_to_dropoff',
+          'ready_to_complete',
+          'dropped_off',
+          'completed',
+        }.contains(tourStatus);
+  }
+
   Future<void> _manageCancellation() async {
     final booking = _booking;
     if (booking == null) return;
@@ -1305,7 +1321,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
             );
           },
           onRefresh: _load,
-          onManage: _manageCancellation,
+          onManage: _canOfferCancellation ? _manageCancellation : null,
         ),
 
         Expanded(

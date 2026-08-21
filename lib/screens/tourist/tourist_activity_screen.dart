@@ -758,6 +758,7 @@ class _ActivityCard extends StatelessWidget {
                               ),
                               if ((activity.lifecycleStatus == 'pending' ||
                                       activity.lifecycleStatus == 'accepted') &&
+                                  activity.tourStatus != 'driver_arrived' &&
                                   onCancel != null) ...[
                                 const SizedBox(width: 2),
                                 PopupMenuButton<String>(

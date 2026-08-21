@@ -89,7 +89,7 @@ create policy refund_requests_read_involved on public.refund_requests
   for select to authenticated using (
     requested_by = auth.uid()
     or payee_id = auth.uid()
-    or public.current_profile_role() in ('admin', 'subtenant')
+    or public.current_profile_role() = 'admin'
   );
 
 -- Refund rows contain immutable financial evidence. They are resolved through
@@ -254,15 +254,21 @@ begin
   elsif v_hours_before > v_policy.free_cancellation_hours then
     v_type := 'free_cancellation';
     v_refund_rate := 100;
-    v_message := 'You are cancelling more than 24 hours before the tour. Confirmed payments are eligible for a full refund request.';
+    v_message := 'You are cancelling more than ' ||
+      v_policy.free_cancellation_hours ||
+      ' hours before the tour. Confirmed payments are eligible for a full refund request.';
   elsif v_hours_before >= v_policy.late_cancellation_hours then
     v_type := 'standard_cancellation';
     v_refund_rate := v_policy.standard_refund_percent;
     v_message := 'This is a late cancellation. A partial refund may apply to confirmed payments.';
   else
-    v_type := 'non_refundable_cancellation';
     v_refund_rate := v_policy.late_refund_percent;
-    v_message := 'This booking is within 6 hours of the tour and confirmed payments are non-refundable.';
+    v_type := case when v_refund_rate > 0
+      then 'late_cancellation' else 'non_refundable_cancellation' end;
+    v_message := 'This booking is within ' || v_policy.late_cancellation_hours ||
+      ' hours of the tour. ' || case when v_refund_rate > 0
+        then 'Only a limited refund applies to confirmed payments.'
+        else 'Confirmed payments are non-refundable.' end;
   end if;
 
   v_refundable := round(v_amount_paid * v_refund_rate / 100, 2);
@@ -303,6 +309,8 @@ as $$
   select public.package_booking_cancellation_eligibility(p_booking_id, auth.uid());
 $$;
 
+revoke all on function public.get_package_booking_cancellation_eligibility(uuid)
+  from public;
 grant execute on function public.get_package_booking_cancellation_eligibility(uuid) to authenticated;
 
 create or replace function public.cancel_package_booking(
@@ -327,6 +335,7 @@ declare
   v_refund_status text;
   v_driver_ids uuid[] := array[]::uuid[];
   v_activity_ids uuid[] := array[]::uuid[];
+  v_activity_driver_id uuid;
   v_package_title text := 'Tour package';
   v_refund_count integer := 0;
 begin
@@ -400,6 +409,12 @@ begin
   from public.package_activities
   where booking_id = p_booking_id;
 
+  select driver_id into v_activity_driver_id
+  from public.package_activities
+  where booking_id = p_booking_id
+  order by created_at
+  limit 1;
+
   select coalesce(tp.title, 'Tour package') into v_package_title
   from public.tour_packages tp where tp.id = v_booking.package_id;
 
@@ -438,6 +453,14 @@ begin
   update public.booking_driver_assignments
   set status = 'cancelled'
   where booking_id = p_booking_id and status not in ('completed', 'cancelled');
+
+  -- The legacy assignment table has a driver-sync trigger. Restore the
+  -- activity's historical driver link after cancelling legacy rows so the
+  -- cancelled detail remains visible to the driver who handled it.
+  update public.package_activities
+  set driver_id = v_activity_driver_id,
+      updated_at = now()
+  where booking_id = p_booking_id;
 
   update public.payment_records
   set status = 'cancelled',
@@ -533,7 +556,15 @@ begin
       'cancellation_review',
       false
     from public.profiles p
-    where p.role in ('admin', 'subtenant');
+    where p.role = 'admin'
+       or (
+         p.role = 'subtenant'
+         and exists (
+           select 1 from public.subtenant_details sd
+           where sd.id = p.id
+             and lower(sd.city) = lower(coalesce(v_booking.municipality, ''))
+         )
+       );
   end if;
 
   insert into public.audit_logs (
@@ -560,6 +591,8 @@ begin
 end;
 $$;
 
+revoke all on function public.cancel_package_booking(uuid, text, text, text)
+  from public;
 grant execute on function public.cancel_package_booking(uuid, text, text, text)
   to authenticated;
 
@@ -578,6 +611,7 @@ declare
   v_actor uuid := auth.uid();
   v_request public.refund_requests%rowtype;
 begin
+  if v_actor is null then raise exception 'UNAUTHENTICATED'; end if;
   if lower(trim(p_status)) not in ('approved', 'completed', 'rejected') then
     raise exception 'INVALID_REFUND_STATUS';
   end if;
@@ -589,7 +623,7 @@ begin
 
   if not found then raise exception 'REFUND_REQUEST_NOT_FOUND'; end if;
   if v_request.payee_id <> v_actor
-     and public.current_profile_role() not in ('admin', 'subtenant') then
+     and public.current_profile_role() is distinct from 'admin' then
     raise exception 'REFUND_REQUEST_NOT_AUTHORIZED';
   end if;
   if v_request.status in ('completed', 'rejected') then
@@ -659,6 +693,8 @@ begin
 end;
 $$;
 
+revoke all on function public.resolve_package_refund_request(uuid, text, text, text)
+  from public;
 grant execute on function public.resolve_package_refund_request(uuid, text, text, text)
   to authenticated;
 

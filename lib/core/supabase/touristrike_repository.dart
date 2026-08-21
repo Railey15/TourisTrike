@@ -787,6 +787,24 @@ class TourisTrikeRepository {
     return _rows(rows).map(RefundRequest.new).toList(growable: false);
   }
 
+  Future<RefundRequest> resolvePackageRefundRequest({
+    required String refundRequestId,
+    required String status,
+    String? referenceNo,
+    String? note,
+  }) async {
+    final result = await _client.rpc(
+      'resolve_package_refund_request',
+      params: {
+        'p_refund_request_id': refundRequestId,
+        'p_status': status,
+        'p_reference_no': referenceNo,
+        'p_note': note,
+      },
+    );
+    return RefundRequest(Json.from(result as Map));
+  }
+
   Future<List<BookingItineraryItem>> fetchBookingItinerary(
     String bookingId,
   ) async {

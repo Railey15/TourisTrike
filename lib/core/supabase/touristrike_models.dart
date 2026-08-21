@@ -869,6 +869,7 @@ class PackageActivity extends TourisTrikeRow {
   DateTime? get arrivedAt => dbDate(row['arrived_at']);
   DateTime? get pickedUpAt => dbDate(row['picked_up_at']);
   DateTime? get droppedOffAt => dbDate(row['dropped_off_at']);
+  DateTime? get cancelledAt => dbDate(row['cancelled_at']);
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
   String get bookingStatus => dbString(

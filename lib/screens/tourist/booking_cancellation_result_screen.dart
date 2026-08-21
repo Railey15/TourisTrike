@@ -86,9 +86,12 @@ class BookingCancellationResultScreen extends StatelessWidget {
                     _ResultRow(label: 'Booking', value: packageTitle),
                     _ResultRow(
                       label: 'Tour date',
-                      value: travelDate == null
+                      value:
+                          (result.eligibility.scheduledAt ?? travelDate) == null
                           ? 'Schedule unavailable'
-                          : DateFormat('MMM d, yyyy').format(travelDate!),
+                          : DateFormat('MMM d, yyyy • h:mm a').format(
+                              result.eligibility.scheduledAt ?? travelDate!,
+                            ),
                     ),
                     _ResultRow(label: 'Reason', value: result.reason),
                     _ResultRow(

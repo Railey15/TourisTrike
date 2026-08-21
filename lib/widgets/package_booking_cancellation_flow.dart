@@ -250,9 +250,10 @@ Future<bool> _showConfirmationSheet(
   required DateTime? travelDate,
   required String reason,
 }) async {
-  final dateText = travelDate == null
+  final scheduledAt = eligibility.scheduledAt ?? travelDate;
+  final dateText = scheduledAt == null
       ? 'Schedule unavailable'
-      : DateFormat('MMM d, yyyy • h:mm a').format(travelDate);
+      : DateFormat('MMM d, yyyy • h:mm a').format(scheduledAt);
   return await showModalBottomSheet<bool>(
         context: context,
         isScrollControlled: true,

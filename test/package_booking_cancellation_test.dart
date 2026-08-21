@@ -45,7 +45,10 @@ void main() {
   test('2 cancellation result records an accepted driver release', () {
     final value = eligibility(hasDrivers: true);
     expect(value.hasAssignedDrivers, isTrue);
-    expect(migration, contains('where booking_id = p_booking_id and status = \'accepted\''));
+    expect(
+      migration,
+      contains('where booking_id = p_booking_id and status = \'accepted\''),
+    );
   });
 
   test('3 group cancellation releases every connected driver', () {
@@ -54,7 +57,10 @@ void main() {
   });
 
   test('4 more than 24 hours is full refund policy', () {
-    expect(migration, contains('v_hours_before > v_policy.free_cancellation_hours'));
+    expect(
+      migration,
+      contains('v_hours_before > v_policy.free_cancellation_hours'),
+    );
     expect(migration, contains('v_refund_rate := 100'));
   });
 
@@ -127,7 +133,7 @@ void main() {
 
   test('14 confirmed non-refundable payment has zero refund', () {
     final value = eligibility(paid: 700, fee: 700);
-    expect(value.refundableAmount, zero);
+    expect(value.refundableAmount, 0);
     expect(value.nonRefundableAmount, 700);
   });
 
@@ -146,7 +152,12 @@ void main() {
 
   test('17 driver acceptance race is serialized with row locks', () {
     expect(migration, contains('where id = p_booking_id\n  for update'));
-    expect(migration, contains('from public.booking_drivers\n  where booking_id = p_booking_id for update'));
+    expect(
+      migration,
+      contains(
+        'from public.booking_drivers\n  where booking_id = p_booking_id for update',
+      ),
+    );
   });
 
   test('18 driver arrival and payment races have database guards', () {
