@@ -1,3 +1,5 @@
+import 'package:touristrike/core/models/convoy_state.dart';
+
 typedef Json = Map<String, dynamic>;
 
 String dbString(dynamic value, {String fallback = ''}) {
@@ -981,6 +983,20 @@ class TouristSpot extends TourisTrikeRow {
 
 class BookingDriver extends TourisTrikeRow {
   const BookingDriver(super.row);
+
+  // Convoy sync fields
+ConvoyJourneyState get journeyState =>
+    ConvoyJourneyState.fromDb(row['journey_state'] as String?);
+
+int get currentStopIndex => dbInt(row['current_stop_index']);
+
+int get assignedPassengers => dbInt(row['assigned_passengers']);
+
+DateTime get stateUpdatedAt =>
+    dbDate(row['state_updated_at']) ??
+    acceptedAt ??
+    createdAt ??
+    DateTime.now();
 
   dynamic get bookingId => row['booking_id'];
   String get driverId => dbString(row['driver_id']);
