@@ -24,6 +24,7 @@ class TourisTrikeTables {
   static const packageActivities = 'package_activities';
   static const paymentRecords = 'payment_records';
   static const paymentDisputes = 'payment_disputes';
+  static const refundRequests = 'refund_requests';
   static const rides = 'rides';
   static const rideFeedback = 'ride_feedback';
   static const rideReviews = 'ride_reviews';
@@ -747,6 +748,45 @@ class TourisTrikeRepository {
     return PackageBooking(bookingRow);
   }
 
+  Future<CancellationEligibility> getPackageBookingCancellationEligibility(
+    String bookingId,
+  ) async {
+    final result = await _client.rpc(
+      'get_package_booking_cancellation_eligibility',
+      params: {'p_booking_id': bookingId},
+    );
+    return CancellationEligibility.fromJson(Json.from(result as Map));
+  }
+
+  Future<BookingCancellationResult> cancelPackageBooking({
+    required String bookingId,
+    required String reason,
+    String? note,
+    String category = 'general',
+  }) async {
+    final result = await _client.rpc(
+      'cancel_package_booking',
+      params: {
+        'p_booking_id': bookingId,
+        'p_reason': reason,
+        'p_note': note,
+        'p_category': category,
+      },
+    );
+    return BookingCancellationResult.fromJson(Json.from(result as Map));
+  }
+
+  Future<List<RefundRequest>> fetchBookingRefundRequests(
+    String bookingId,
+  ) async {
+    final rows = await _client
+        .from(TourisTrikeTables.refundRequests)
+        .select()
+        .eq('booking_id', bookingId)
+        .order('created_at', ascending: false);
+    return _rows(rows).map(RefundRequest.new).toList(growable: false);
+  }
+
   Future<List<BookingItineraryItem>> fetchBookingItinerary(
     String bookingId,
   ) async {
@@ -975,9 +1015,7 @@ class TourisTrikeRepository {
     if (statuses != null && statuses.isNotEmpty) {
       query = query.inFilter('status', statuses);
     }
-    final rows = await query
-        .order('created_at', ascending: false)
-        .limit(limit);
+    final rows = await query.order('created_at', ascending: false).limit(limit);
     return _rows(rows).map(PaymentDispute.new).toList(growable: false);
   }
 
@@ -1320,7 +1358,9 @@ class TourisTrikeRepository {
           '  travel_date, adults, children, payment_method, booking_type, '
           '  total_amount, assigned_driver_id, status, booking_status, '
           '  pickup_address, dropoff_address, required_drivers, accepted_drivers_count, '
-          '  municipality, province, total_passengers'
+          '  municipality, province, total_passengers, cancelled_at, cancelled_by, '
+          '  cancelled_reason, cancellation_note, cancellation_category, '
+          '  cancellation_type, cancellation_fee, refundable_amount, refund_status'
           ')',
         )
         .eq('tourist_id', requireUserId())
@@ -1341,7 +1381,9 @@ class TourisTrikeRepository {
           '  total_amount, assigned_driver_id, status, booking_status, '
           '  pickup_address, dropoff_address, completed_at, '
           '  municipality, province, total_passengers, '
-          '  required_drivers, accepted_drivers_count'
+          '  required_drivers, accepted_drivers_count, cancelled_at, cancelled_by, '
+          '  cancelled_reason, cancellation_note, cancellation_category, '
+          '  cancellation_type, cancellation_fee, refundable_amount, refund_status'
           ')',
         )
         .eq('driver_id', requireUserId())
@@ -1388,7 +1430,10 @@ class TourisTrikeRepository {
           '  payment_method, assigned_driver_id, status, booking_status, '
           '  current_spot_index, driver_latitude, driver_longitude, '
           '  accepted_at, arrived_at, picked_up_at, completed_at, '
-          '  municipality, province, total_passengers, notes'
+          '  municipality, province, total_passengers, notes, '
+          '  cancelled_at, cancelled_by, cancelled_reason, cancellation_note, '
+          '  cancellation_category, cancellation_type, cancellation_fee, '
+          '  refundable_amount, refund_status'
           ')',
         )
         .eq('booking_id', bookingId)
@@ -2290,7 +2335,8 @@ class TourisTrikeRepository {
           .eq('visibility_status', 'visible');
       return {
         for (final row in _rows(rows))
-          if (row['city'] is String && (row['city'] as String).trim().isNotEmpty)
+          if (row['city'] is String &&
+              (row['city'] as String).trim().isNotEmpty)
             (row['city'] as String).trim(),
       };
     } catch (_) {

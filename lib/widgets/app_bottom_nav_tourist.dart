@@ -7,11 +7,7 @@ import 'package:touristrike/screens/tourist/tourist_home_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 
 class AppBottomNav extends StatelessWidget {
-  const AppBottomNav({
-    super.key,
-    required this.selectedIndex,
-    this.onSelect,
-  });
+  const AppBottomNav({super.key, required this.selectedIndex, this.onSelect});
 
   final int selectedIndex;
   final ValueChanged<int>? onSelect;
@@ -30,8 +26,14 @@ class AppBottomNav extends StatelessWidget {
       _ => const TouristHomeScreen(),
     };
 
+    // Bottom-nav destinations are peers, so switching between them should be
+    // immediate instead of using Material's page-push transition.
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => target),
+      PageRouteBuilder<void>(
+        pageBuilder: (_, __, ___) => target,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
     );
   }
 
@@ -115,8 +117,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        selected ? const Color(0xFF2A86FF) : const Color(0xFF475569);
+    final color = selected ? const Color(0xFF2A86FF) : const Color(0xFF475569);
 
     return Material(
       color: Colors.transparent,

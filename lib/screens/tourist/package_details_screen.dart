@@ -1,15 +1,16 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:touristrike/core/places/city_spot_suggestions.dart';
+
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/package_booking_screen.dart';
 
 class PackageDetailsScreen extends StatefulWidget {
-  const PackageDetailsScreen({super.key, this.packageId});
+  const PackageDetailsScreen({
+    super.key,
+    this.packageId,
+  });
 
   final dynamic packageId;
 
@@ -18,15 +19,16 @@ class PackageDetailsScreen extends StatefulWidget {
 }
 
 class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
-  static const double additionalSpotFee = 250;
+  static const Color _primary = Color(0xFF2A86FF);
+  static const Color _ink = Color(0xFF0F172A);
+  static const Color _muted = Color(0xFF64748B);
+  static const Color _border = Color(0xFFE7EEF7);
+  static const Color _surface = Color(0xFFF8FAFF);
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
+
   late Future<_PackageDetailsData> _future;
 
-  final List<_EditablePackageSpot> _selectedSpots = [];
-  final Set<String> _removedOriginalKeys = <String>{};
-
-  dynamic _initializedPackageId;
   bool _isSaved = false;
 
   @override
@@ -41,203 +43,67 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
     }
 
     await _repo.trackTourPackageView(widget.packageId);
+
     final package = await _repo.fetchTourPackage(widget.packageId);
-    if (package == null) throw StateError('Package not found.');
 
-    final originalSpotsFuture = _repo.fetchPackageSpots(widget.packageId);
-    final googleSuggestionsFuture = CitySpotSuggestionService()
-        .fetchSuggestions(
-          city: package.city,
-          province: package.city.isEmpty ? 'Bulacan' : package.provinceFallback,
-          limit: 16,
-        );
+    if (package == null) {
+      throw StateError('Package not found.');
+    }
 
-    final originalSpots = await originalSpotsFuture;
-    final googleSuggestions = await googleSuggestionsFuture;
+    final spots = await _repo.fetchPackageSpots(widget.packageId);
 
     return _PackageDetailsData(
       package: package,
-      originalSpots: originalSpots,
-      googleSuggestions: googleSuggestions
-          .where((spot) => _sameMunicipality(spot.city, package.city))
-          .toList(growable: false),
+      originalSpots: spots,
     );
   }
 
   void _reload() {
     setState(() {
-      _initializedPackageId = null;
-      _selectedSpots.clear();
-      _removedOriginalKeys.clear();
       _future = _load();
     });
   }
 
-  void _initializeSelection(_PackageDetailsData data) {
-    if (_initializedPackageId == data.package.id) return;
-
-    _initializedPackageId = data.package.id;
-    _selectedSpots
-      ..clear()
-      ..addAll(
-        data.originalSpots.map(
-          (spot) =>
-              _EditablePackageSpot.fromTouristSpot(spot, isOriginal: true),
-        ),
-      );
-    _removedOriginalKeys.clear();
-  }
-
-  double _unitPrice(TourPackage package, int originalCount) {
-    final basePrice = package.numericPrice;
-    final extraSpots = math.max(0, _selectedSpots.length - originalCount);
-    return basePrice + (extraSpots * additionalSpotFee);
-  }
-
-  void _addGoogleSuggestion(CitySpotSuggestion suggestion) {
-    final candidate = _EditablePackageSpot.fromSuggestion(suggestion);
-    if (_containsSpot(candidate)) return;
-    setState(() => _selectedSpots.add(candidate));
-  }
-
-  void _removeSelectedSpot(_EditablePackageSpot spot) {
-    setState(() {
-      _selectedSpots.removeWhere((item) => item.key == spot.key);
-      if (spot.isOriginal) _removedOriginalKeys.add(spot.key);
-    });
-  }
-
-  void _moveSpot(int index, int delta) {
-    final nextIndex = index + delta;
-    if (nextIndex < 0 || nextIndex >= _selectedSpots.length) return;
-
-    setState(() {
-      final item = _selectedSpots.removeAt(index);
-      _selectedSpots.insert(nextIndex, item);
-    });
-  }
-
-  bool _containsSpot(_EditablePackageSpot spot) {
-    return _selectedSpots.any((item) => item.key == spot.key);
-  }
-
   Future<void> _sharePackage(TourPackage package) async {
-    final text = '${package.title}\n${package.city}, Bulacan\n${package.priceText}';
-    await Clipboard.setData(ClipboardData(text: text));
+    final province = dbString(
+      package.row['province'],
+      fallback: 'Bulacan',
+    );
+
+    final text = [
+      package.title,
+      '${package.city}, $province',
+      package.priceText,
+    ].join('\n');
+
+    await Clipboard.setData(
+      ClipboardData(text: text),
+    );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Package details copied for sharing'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
 
-  List<Map<String, dynamic>> _buildCustomizationRows(
-    TourPackage package,
-    int originalCount,
-    List<TouristSpot> originalSpots,
-  ) {
-    final rows = <Map<String, dynamic>>[];
-    final selectedKeys = _selectedSpots.map((spot) => spot.key).toSet();
-
-    for (var i = 0; i < _selectedSpots.length; i++) {
-      final spot = _selectedSpots[i];
-      rows.add({
-        'spot_id': spot.spotId,
-        'action_type': spot.isOriginal ? 'kept' : 'added',
-        'source_type': spot.sourceType,
-        'google_place_id': spot.googlePlaceId,
-        'spot_title': spot.title,
-        'spot_address': spot.address,
-        'municipality': package.city,
-        'barangay': spot.barangay,
-        'latitude': spot.latitude,
-        'longitude': spot.longitude,
-        'image_url': spot.imageUrl,
-        'additional_fee': i >= originalCount ? additionalSpotFee : 0,
-        'sort_order': i,
-        'opening_time': spot.openingTime.isEmpty ? null : spot.openingTime,
-        'closing_time': spot.closingTime.isEmpty ? null : spot.closingTime,
-        'estimated_arrival_time': spot.estimatedArrivalTime.isEmpty
-            ? null
-            : spot.estimatedArrivalTime,
-        'estimated_duration_minutes': spot.estimatedDurationMinutes > 0
-            ? spot.estimatedDurationMinutes
-            : null,
-        'recommended_visit_duration_minutes':
-            spot.recommendedVisitDurationMinutes > 0
-                ? spot.recommendedVisitDurationMinutes
-                : null,
-      });
-    }
-
-    for (final original in originalSpots) {
-      final originalSpot = _EditablePackageSpot.fromTouristSpot(
-        original,
-        isOriginal: true,
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Package details copied for sharing'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
-      if (selectedKeys.contains(originalSpot.key)) continue;
-
-      rows.add({
-        'spot_id': originalSpot.spotId,
-        'action_type': 'removed',
-        'source_type': originalSpot.sourceType,
-        'google_place_id': originalSpot.googlePlaceId,
-        'spot_title': originalSpot.title,
-        'spot_address': originalSpot.address,
-        'municipality': package.city,
-        'barangay': originalSpot.barangay,
-        'latitude': originalSpot.latitude,
-        'longitude': originalSpot.longitude,
-        'image_url': originalSpot.imageUrl,
-        'additional_fee': 0,
-        'opening_time': originalSpot.openingTime.isEmpty
-            ? null
-            : originalSpot.openingTime,
-        'closing_time': originalSpot.closingTime.isEmpty
-            ? null
-            : originalSpot.closingTime,
-        'estimated_arrival_time': originalSpot.estimatedArrivalTime.isEmpty
-            ? null
-            : originalSpot.estimatedArrivalTime,
-        'estimated_duration_minutes': originalSpot.estimatedDurationMinutes > 0
-            ? originalSpot.estimatedDurationMinutes
-            : null,
-        'recommended_visit_duration_minutes':
-            originalSpot.recommendedVisitDurationMinutes > 0
-                ? originalSpot.recommendedVisitDurationMinutes
-                : null,
-      });
-    }
-
-    return rows;
   }
 
   Future<void> _book(_PackageDetailsData data) async {
-    final validationError = _selectedSpotValidationMessage(
-      _selectedSpots.length,
-    );
-
-    if (validationError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(validationError),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFFDC2626),
-        ),
-      );
-      return;
-    }
-
     final messenger = ScaffoldMessenger.of(context);
+
     try {
       final hasActiveTour = await _repo.hasActiveTour();
+
       if (hasActiveTour) {
         messenger.showSnackBar(
           const SnackBar(
-            content: Text(TourisTrikeRepository.activeTourErrorMessage),
+            content: Text(
+              TourisTrikeRepository.activeTourErrorMessage,
+            ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Color(0xFFDC2626),
           ),
@@ -257,7 +123,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       return;
     }
 
-    final originalCount = data.originalSpots.length;
     if (!mounted) return;
 
     Navigator.push(
@@ -266,12 +131,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         builder: (_) => PackageBookingScreen(
           packageId: data.package.id,
           initialPackage: data.package,
-          customizedUnitPrice: _unitPrice(data.package, originalCount),
-          customizedSpots: _buildCustomizationRows(
-            data.package,
-            originalCount,
-            data.originalSpots,
-          ),
         ),
       ),
     );
@@ -296,10 +155,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           }
 
           final data = snapshot.data!;
-          _initializeSelection(data);
-
-          final originalCount = data.originalSpots.length;
-          final currentUnitPrice = _unitPrice(data.package, originalCount);
+          final package = data.package;
 
           return Stack(
             children: [
@@ -310,76 +166,86 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        _PackageHeroImage(imageUrl: data.package.displayImageUrl),
+                        _PackageHeroImage(
+                          imageUrl: package.displayImageUrl,
+                        ),
                         Positioned(
                           left: 0,
                           right: 0,
                           top: 355,
                           child: _PackageHeaderCard(
-                            package: data.package,
-                            currentUnitPrice: currentUnitPrice,
-                            spotCount: _selectedSpots.length,
+                            package: package,
+                            spotCount: data.originalSpots.length,
                           ),
                         ),
                       ],
                     ),
                   ),
+
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 30, 24, 142),
+                      padding: const EdgeInsets.fromLTRB(
+                        22,
+                        32,
+                        22,
+                        150,
+                      ),
                       child: _PackageDetailsBody(
                         data: data,
-                        selectedSpots: _selectedSpots,
-                        removedOriginalKeys: _removedOriginalKeys,
-                        currentUnitPrice: currentUnitPrice,
-                        additionalSpotFee: additionalSpotFee,
-                        googleSuggestions: data.googleSuggestions,
-                        onRemoveSpot: _removeSelectedSpot,
-                        onMoveUp: (index) => _moveSpot(index, -1),
-                        onMoveDown: (index) => _moveSpot(index, 1),
-                        onAddGoogleSpot: _addGoogleSuggestion,
                       ),
                     ),
                   ),
                 ],
               ),
+
               SafeArea(
                 bottom: false,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    18,
+                    14,
+                    18,
+                    0,
+                  ),
                   child: Row(
                     children: [
                       _FloatingActionButton(
                         icon: Icons.arrow_back_rounded,
                         onTap: () => Navigator.pop(context),
                       ),
+
                       const Spacer(),
+
                       _FloatingActionButton(
                         icon: _isSaved
                             ? Icons.favorite_rounded
                             : Icons.favorite_border_rounded,
                         iconColor: _isSaved
                             ? const Color(0xFFEF4444)
-                            : const Color(0xFF0F172A),
-                        onTap: () => setState(() => _isSaved = !_isSaved),
+                            : _ink,
+                        onTap: () {
+                          setState(() {
+                            _isSaved = !_isSaved;
+                          });
+                        },
                       ),
-                      const SizedBox(width: 12),
+
+                      const SizedBox(width: 10),
+
                       _FloatingActionButton(
                         icon: Icons.ios_share_rounded,
-                        onTap: () => _sharePackage(data.package),
+                        onTap: () => _sharePackage(package),
                       ),
                     ],
                   ),
                 ),
               ),
+
               Align(
                 alignment: Alignment.bottomCenter,
                 child: _BottomBookBar(
-                  package: data.package,
-                  currentUnitPrice: currentUnitPrice,
-                  validationMessage: _selectedSpotValidationMessage(
-                    _selectedSpots.length,
-                  ),
+                  package: package,
+                  spotCount: data.originalSpots.length,
                   onBook: () => _book(data),
                 ),
               ),
@@ -391,119 +257,28 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   }
 }
 
+// =============================================================================
+// DATA
+// =============================================================================
+
 class _PackageDetailsData {
   const _PackageDetailsData({
     required this.package,
     required this.originalSpots,
-    required this.googleSuggestions,
   });
 
   final TourPackage package;
   final List<TouristSpot> originalSpots;
-  final List<CitySpotSuggestion> googleSuggestions;
 }
 
-class _EditablePackageSpot {
-  const _EditablePackageSpot({
-    required this.key,
-    required this.spotId,
-    required this.title,
-    required this.address,
-    required this.barangay,
-    required this.municipality,
-    required this.imageUrl,
-    required this.latitude,
-    required this.longitude,
-    required this.sourceType,
-    required this.googlePlaceId,
-    required this.isOriginal,
-    required this.category,
-    required this.openingTime,
-    required this.closingTime,
-    required this.estimatedArrivalTime,
-    required this.estimatedDurationMinutes,
-    required this.recommendedVisitDurationMinutes,
-  });
-
-  final String key;
-  final dynamic spotId;
-  final String title;
-  final String address;
-  final String barangay;
-  final String municipality;
-  final String imageUrl;
-  final double latitude;
-  final double longitude;
-  final String sourceType;
-  final String googlePlaceId;
-  final bool isOriginal;
-  final String category;
-  final String openingTime;
-  final String closingTime;
-  final String estimatedArrivalTime;
-  final int estimatedDurationMinutes;
-  final int recommendedVisitDurationMinutes;
-
-  factory _EditablePackageSpot.fromTouristSpot(
-    TouristSpot spot, {
-    required bool isOriginal,
-  }) {
-    final sourceType = spot.sourceType.isEmpty ? 'manual' : spot.sourceType;
-    final googlePlaceId = spot.googlePlaceId;
-    final baseKey = googlePlaceId.isNotEmpty
-        ? 'google:$googlePlaceId'
-        : spot.id != null
-            ? 'db:${spot.id}'
-            : 'title:${_normalizeText(spot.title)}';
-
-    return _EditablePackageSpot(
-      key: baseKey,
-      spotId: spot.id,
-      title: spot.title,
-      address: spot.address,
-      barangay: spot.barangay,
-      municipality: spot.municipality,
-      imageUrl: spot.imageUrl,
-      latitude: spot.latitude,
-      longitude: spot.longitude,
-      sourceType: sourceType,
-      googlePlaceId: googlePlaceId,
-      isOriginal: isOriginal,
-      category: _inferCategoryFromTitle(spot.title),
-      openingTime: spot.openingTime,
-      closingTime: spot.closingTime,
-      estimatedArrivalTime: spot.estimatedArrivalTime,
-      estimatedDurationMinutes: spot.estimatedDurationMinutes,
-      recommendedVisitDurationMinutes: spot.recommendedVisitDurationMinutes,
-    );
-  }
-
-  factory _EditablePackageSpot.fromSuggestion(CitySpotSuggestion suggestion) {
-    return _EditablePackageSpot(
-      key: 'google:${suggestion.id}',
-      spotId: null,
-      title: suggestion.title,
-      address: suggestion.address,
-      barangay: suggestion.barangayHint,
-      municipality: suggestion.city,
-      imageUrl: suggestion.imageForCard,
-      latitude: suggestion.latitude,
-      longitude: suggestion.longitude,
-      sourceType: 'google_places',
-      googlePlaceId: suggestion.id,
-      isOriginal: false,
-      category: suggestion.category,
-      openingTime: '',
-      closingTime: '',
-      estimatedArrivalTime: '',
-      estimatedDurationMinutes: 0,
-      recommendedVisitDurationMinutes: 0,
-    );
-  }
-}
+// =============================================================================
+// HERO
+// =============================================================================
 
 class _PackageHeroImage extends StatelessWidget {
-  const _PackageHeroImage({required this.imageUrl});
+  const _PackageHeroImage({
+    required this.imageUrl,
+  });
 
   final String imageUrl;
 
@@ -524,6 +299,7 @@ class _PackageHeroImage extends StatelessWidget {
             )
           else
             const _ImageFallback(),
+
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -531,11 +307,15 @@ class _PackageHeroImage extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.30),
+                    Colors.black.withValues(alpha: 0.36),
                     Colors.black.withValues(alpha: 0.02),
-                    Colors.black.withValues(alpha: 0.04),
+                    Colors.black.withValues(alpha: 0.05),
                   ],
-                  stops: const [0, 0.45, 1],
+                  stops: const [
+                    0,
+                    0.46,
+                    1,
+                  ],
                 ),
               ),
             ),
@@ -546,33 +326,52 @@ class _PackageHeroImage extends StatelessWidget {
   }
 }
 
+// =============================================================================
+// HEADER
+// =============================================================================
+
 class _PackageHeaderCard extends StatelessWidget {
   const _PackageHeaderCard({
     required this.package,
-    required this.currentUnitPrice,
     required this.spotCount,
   });
 
   final TourPackage package;
-  final double currentUnitPrice;
   final int spotCount;
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
-    final priceText = currentUnitPrice > 0
-        ? money.format(currentUnitPrice)
+    final province = dbString(
+      package.row['province'],
+      fallback: 'Bulacan',
+    );
+
+    final duration = package.durationText.trim().isEmpty
+        ? 'Flexible'
+        : package.durationText;
+
+    final price = package.numericPrice > 0
+        ? NumberFormat.currency(
+            symbol: '₱',
+            decimalDigits: 0,
+          ).format(package.numericPrice)
         : package.priceText.isNotEmpty
-            ? package.priceText
+            ? package.priceText.replaceAll('PHP ', '₱')
             : 'Ask office';
-    final duration = package.durationText.isEmpty ? 'Flexible' : package.durationText;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(30, 28, 30, 24),
+      padding: const EdgeInsets.fromLTRB(
+        26,
+        26,
+        26,
+        24,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(34)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(32),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -588,44 +387,52 @@ class _PackageHeaderCard extends StatelessWidget {
                   style: const TextStyle(
                     color: Color(0xFF182433),
                     fontSize: 24,
-                    height: 1.15,
+                    height: 1.12,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
+                    letterSpacing: -0.6,
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              _HeaderStatusBadge(text: package.status),
+
+              const SizedBox(width: 12),
+
+              _HeaderStatusBadge(
+                text: package.status,
+              ),
             ],
           ),
-          const SizedBox(height: 18),
+
+          const SizedBox(height: 14),
+
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(
                 Icons.location_on_outlined,
-                color: Color(0xFF4A77A6),
-                size: 20,
+                color: Color(0xFF2A86FF),
+                size: 19,
               ),
-              const SizedBox(width: 12),
+
+              const SizedBox(width: 8),
+
               Expanded(
                 child: Text(
-                  '${package.city}, Bulacan',
-                  maxLines: 2,
+                  '${package.city}, $province',
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Color(0xFF4A77A6),
-                    fontSize: 15,
-                    height: 1.25,
-                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF536B87),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 26),
+
+          const SizedBox(height: 22),
+
           _PackageStatsRow(
-            priceText: priceText,
+            priceText: price,
             durationText: duration,
             spotCount: spotCount,
           ),
@@ -636,24 +443,34 @@ class _PackageHeaderCard extends StatelessWidget {
 }
 
 class _HeaderStatusBadge extends StatelessWidget {
-  const _HeaderStatusBadge({required this.text});
+  const _HeaderStatusBadge({
+    required this.text,
+  });
 
   final String text;
 
   @override
   Widget build(BuildContext context) {
+    final display = text.trim().isEmpty
+        ? 'AVAILABLE'
+        : text.toUpperCase();
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 11,
+        vertical: 7,
+      ),
       decoration: BoxDecoration(
-        color: const Color(0xFFDDFBEA),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFFDCFCE7),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        text.isEmpty ? 'LISTED' : text.toUpperCase(),
+        display,
         style: const TextStyle(
-          color: Color(0xFF00A95A),
-          fontSize: 12,
+          color: Color(0xFF15803D),
+          fontSize: 9.5,
           fontWeight: FontWeight.w900,
+          letterSpacing: 0.4,
         ),
       ),
     );
@@ -673,68 +490,95 @@ class _PackageStatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _DetailStat(
-            value: priceText.replaceAll('PHP ', '₱'),
-            label: 'Price',
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        vertical: 14,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FC),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _DetailStat(
+              icon: Icons.payments_outlined,
+              value: priceText,
+              label: 'Starting Price',
+            ),
           ),
-        ),
-        const _StatDivider(),
-        Expanded(
-          child: _DetailStat(
-            value: durationText,
-            label: 'Duration',
+
+          const _StatDivider(),
+
+          Expanded(
+            child: _DetailStat(
+              icon: Icons.schedule_outlined,
+              value: durationText,
+              label: 'Duration',
+            ),
           ),
-        ),
-        const _StatDivider(),
-        Expanded(
-          child: _DetailStat(
-            value: '$spotCount',
-            label: spotCount == 1 ? 'Spot' : 'Spots',
-            valueColor: const Color(0xFF2A86FF),
+
+          const _StatDivider(),
+
+          Expanded(
+            child: _DetailStat(
+              icon: Icons.place_outlined,
+              value: '$spotCount',
+              label: spotCount == 1 ? 'Included Spot' : 'Included Spots',
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _DetailStat extends StatelessWidget {
   const _DetailStat({
+    required this.icon,
     required this.value,
     required this.label,
-    this.valueColor,
   });
 
+  final IconData icon;
   final String value;
   final String label;
-  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        Icon(
+          icon,
+          color: const Color(0xFF2A86FF),
+          size: 18,
+        ),
+
+        const SizedBox(height: 7),
+
         Text(
           value,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: valueColor ?? const Color(0xFF0F172A),
-            fontSize: 20,
+          style: const TextStyle(
+            color: Color(0xFF0F172A),
+            fontSize: 14.5,
             fontWeight: FontWeight.w900,
-            letterSpacing: -0.2,
           ),
         ),
-        const SizedBox(height: 6),
+
+        const SizedBox(height: 3),
+
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: const TextStyle(
-            color: Color(0xFF64748B),
-            fontWeight: FontWeight.w800,
-            fontSize: 13,
+            color: Color(0xFF8492A6),
+            fontWeight: FontWeight.w700,
+            fontSize: 9.5,
           ),
         ),
       ],
@@ -742,243 +586,236 @@ class _DetailStat extends StatelessWidget {
   }
 }
 
-class _PackageDetailsBody extends StatefulWidget {
-  const _PackageDetailsBody({
-    required this.data,
-    required this.selectedSpots,
-    required this.removedOriginalKeys,
-    required this.currentUnitPrice,
-    required this.additionalSpotFee,
-    required this.googleSuggestions,
-    required this.onRemoveSpot,
-    required this.onMoveUp,
-    required this.onMoveDown,
-    required this.onAddGoogleSpot,
-  });
-
-  final _PackageDetailsData data;
-  final List<_EditablePackageSpot> selectedSpots;
-  final Set<String> removedOriginalKeys;
-  final double currentUnitPrice;
-  final double additionalSpotFee;
-  final List<CitySpotSuggestion> googleSuggestions;
-  final void Function(_EditablePackageSpot spot) onRemoveSpot;
-  final void Function(int index) onMoveUp;
-  final void Function(int index) onMoveDown;
-  final void Function(CitySpotSuggestion spot) onAddGoogleSpot;
-
-  @override
-  State<_PackageDetailsBody> createState() => _PackageDetailsBodyState();
-}
-
-class _PackageDetailsBodyState extends State<_PackageDetailsBody> {
-  static const _allCategories = [
-    'All',
-    'Cafe',
-    'Historical',
-    'Nature',
-    'Religious',
-    'Food',
-    'Adventure',
-    'Cultural',
-  ];
-
-  String _selectedCategory = 'All';
-
-  List<CitySpotSuggestion> get _filteredSuggestions {
-    final selectedKeys = widget.selectedSpots.map((s) => s.key).toSet();
-    final selectedTitles = widget.selectedSpots
-        .map((s) => _normalizeText(s.title))
-        .toSet();
-
-    return widget.googleSuggestions.where((s) {
-      if (selectedKeys.contains('google:${s.id}')) return false;
-      if (selectedTitles.contains(_normalizeText(s.title))) return false;
-      if (_selectedCategory != 'All' && s.category != _selectedCategory) {
-        return false;
-      }
-      return true;
-    }).toList(growable: false);
-  }
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
 
   @override
   Widget build(BuildContext context) {
-    final package = widget.data.package;
-    final filteredSuggestions = _filteredSuggestions;
+    return Container(
+      width: 1,
+      height: 48,
+      color: const Color(0xFFE3E9F1),
+    );
+  }
+}
+
+// =============================================================================
+// BODY
+// =============================================================================
+
+class _PackageDetailsBody extends StatelessWidget {
+  const _PackageDetailsBody({
+    required this.data,
+  });
+
+  final _PackageDetailsData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final package = data.package;
+
+    final description = package.description.trim().isNotEmpty
+        ? package.description
+        : package.subtitle.trim().isNotEmpty
+            ? package.subtitle
+            : 'No description has been added for this package yet.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SoftDivider(),
-        const SizedBox(height: 24),
-        const _DetailsSectionTitle('About the Tour'),
-        const SizedBox(height: 12),
-        Text(
-          package.description.isEmpty
-              ? (package.subtitle.isEmpty
-                  ? 'No description has been added yet.'
-                  : package.subtitle)
-              : package.description,
-          style: const TextStyle(
-            color: Color(0xFF64748B),
-            fontSize: 15.8,
-            height: 1.58,
-            fontWeight: FontWeight.w700,
-          ),
+        const _DetailsSectionTitle(
+          title: 'About this tour',
+          subtitle: 'Know what to expect before booking.',
+          icon: Icons.info_outline_rounded,
         ),
-        const SizedBox(height: 28),
-        const _DetailsSectionTitle('Spots Preview'),
+
         const SizedBox(height: 12),
-        _InfoBlock(
-          icon: Icons.map_outlined,
-          message:
-              'The itinerary is now handled in the booking screen. Review the package spots here, then tap Book Now to continue to itinerary selection.',
-        ),
-        const SizedBox(height: 28),
-        const _DetailsSectionTitle('Original Package'),
-        const SizedBox(height: 6),
-        const Text(
-          'These are the package spots included by the tour operator.',
-          style: TextStyle(
-            color: Color(0xFF64748B),
-            fontWeight: FontWeight.w700,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (widget.data.originalSpots.isEmpty)
-          const _EmptyBlock(
-            message: 'No tourist spots have been linked to this package yet.',
-          )
-        else
-          ...widget.data.originalSpots.map((spot) {
-            final item = _EditablePackageSpot.fromTouristSpot(
-              spot,
-              isOriginal: true,
-            );
-            return _OriginalSpotTile(spot: item, removed: false);
-          }),
-        const SizedBox(height: 24),
-        const _DetailsSectionTitle('Your Selected Spots'),
-        const SizedBox(height: 12),
-        if (widget.selectedSpots.isEmpty)
-          const _EmptyBlock(
-            message:
-                'You removed all spots. Add new ones from Google Places below before booking.',
-          )
-        else
-          ...widget.selectedSpots.asMap().entries.map(
-                (entry) => _SelectedSpotTile(
-                  spot: entry.value,
-                  index: entry.key,
-                  total: widget.selectedSpots.length,
-                  onMoveUp: entry.key == 0
-                      ? null
-                      : () => widget.onMoveUp(entry.key),
-                  onMoveDown: entry.key == widget.selectedSpots.length - 1
-                      ? null
-                      : () => widget.onMoveDown(entry.key),
-                  onRemove: () => widget.onRemoveSpot(entry.value),
-                ),
-              ),
-        const SizedBox(height: 24),
-        const _DetailsSectionTitle('Google Places Suggestions'),
-        const SizedBox(height: 12),
-        _CategoryFilterBar(
-          categories: _allCategories,
-          selected: _selectedCategory,
-          onSelect: (cat) => setState(() => _selectedCategory = cat),
-        ),
-        const SizedBox(height: 12),
-        if (filteredSuggestions.isEmpty)
-          _EmptyBlock(
-            message: _selectedCategory == 'All'
-                ? 'No additional Google Places suggestions are available for this area right now.'
-                : 'No $_selectedCategory spots found nearby. Try a different category.',
-          )
-        else
-          ...filteredSuggestions.map(
-            (spot) => _GoogleSuggestionTile(
-              spot: spot,
-              onAdd: () => widget.onAddGoogleSpot(spot),
+
+        _ContentCard(
+          child: Text(
+            description,
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontSize: 14,
+              height: 1.55,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        const SizedBox(height: 24),
+        ),
+
+        const SizedBox(height: 26),
+
+        const _DetailsSectionTitle(
+          title: 'Included destinations',
+          subtitle:
+              'These are the original tourist spots included by the tour operator.',
+          icon: Icons.map_outlined,
+        ),
+
+        const SizedBox(height: 12),
+
+        if (data.originalSpots.isEmpty)
+          const _EmptyBlock(
+            icon: Icons.place_outlined,
+            title: 'No destinations yet',
+            message:
+                'The tour operator has not linked tourist destinations to this package yet.',
+          )
+        else
+          _IncludedSpotsCard(
+            spots: data.originalSpots,
+          ),
+
+        const SizedBox(height: 20),
+
+        const _BookingCustomizationNotice(),
+
+        const SizedBox(height: 26),
+
+        const _DetailsSectionTitle(
+          title: 'How booking works',
+          subtitle: 'You can personalize the trip after tapping Book Now.',
+          icon: Icons.auto_awesome_outlined,
+        ),
+
+        const SizedBox(height: 12),
+
+        const _BookingProcessCard(),
       ],
     );
   }
 }
 
-class _CategoryFilterBar extends StatelessWidget {
-  const _CategoryFilterBar({
-    required this.categories,
-    required this.selected,
-    required this.onSelect,
+class _DetailsSectionTitle extends StatelessWidget {
+  const _DetailsSectionTitle({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
   });
 
-  final List<String> categories;
-  final String selected;
-  final void Function(String) onSelect;
-
-  static const _icons = <String, IconData>{
-    'All': Icons.apps_rounded,
-    'Cafe': Icons.coffee_rounded,
-    'Historical': Icons.account_balance_rounded,
-    'Nature': Icons.park_rounded,
-    'Religious': Icons.church_rounded,
-    'Food': Icons.restaurant_rounded,
-    'Adventure': Icons.terrain_rounded,
-    'Cultural': Icons.museum_rounded,
-  };
+  final String title;
+  final String subtitle;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: categories.map((cat) {
-          final isSelected = cat == selected;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => onSelect(cat),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? const Color(0xFF2A86FF)
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: isSelected
-                        ? const Color(0xFF2A86FF)
-                        : const Color(0xFFE2E8F0),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _icons[cat] ?? Icons.place_rounded,
-                      size: 15,
-                      color:
-                          isSelected ? Colors.white : const Color(0xFF64748B),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      cat,
-                      style: TextStyle(
-                        color: isSelected
-                            ? Colors.white
-                            : const Color(0xFF334155),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ],
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF3FF),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Icon(
+            icon,
+            color: const Color(0xFF2A86FF),
+            size: 19,
+          ),
+        ),
+
+        const SizedBox(width: 11),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  letterSpacing: -0.25,
                 ),
               ),
+
+              const SizedBox(height: 3),
+
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: Color(0xFF8492A6),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ContentCard extends StatelessWidget {
+  const _ContentCard({
+    required this.child,
+  });
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE7EEF7),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+// =============================================================================
+// INCLUDED SPOTS
+// =============================================================================
+
+class _IncludedSpotsCard extends StatelessWidget {
+  const _IncludedSpotsCard({
+    required this.spots,
+  });
+
+  final List<TouristSpot> spots;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xFFE7EEF7),
+        ),
+      ),
+      child: Column(
+        children: spots.asMap().entries.map((entry) {
+          final index = entry.key;
+          final spot = entry.value;
+
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: index == spots.length - 1 ? 0 : 8,
+            ),
+            child: _IncludedSpotTile(
+              index: index + 1,
+              spot: spot,
             ),
           );
         }).toList(),
@@ -987,384 +824,125 @@ class _CategoryFilterBar extends StatelessWidget {
   }
 }
 
-class _OriginalSpotTile extends StatelessWidget {
-  const _OriginalSpotTile({required this.spot, required this.removed});
-
-  final _EditablePackageSpot spot;
-  final bool removed;
-
-  @override
-  Widget build(BuildContext context) {
-    return _BaseSpotTile(
-      title: spot.title,
-      subtitle: _spotSubtitle(spot),
-      imageUrl: spot.imageUrl,
-      trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: removed ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          removed ? 'Removed' : 'Included',
-          style: TextStyle(
-            color: removed ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
-            fontWeight: FontWeight.w900,
-            fontSize: 11,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SelectedSpotTile extends StatelessWidget {
-  const _SelectedSpotTile({
-    required this.spot,
+class _IncludedSpotTile extends StatelessWidget {
+  const _IncludedSpotTile({
     required this.index,
-    required this.total,
-    required this.onRemove,
-    required this.onMoveUp,
-    required this.onMoveDown,
+    required this.spot,
   });
 
-  final _EditablePackageSpot spot;
   final int index;
-  final int total;
-  final VoidCallback onRemove;
-  final VoidCallback? onMoveUp;
-  final VoidCallback? onMoveDown;
+  final TouristSpot spot;
 
   @override
   Widget build(BuildContext context) {
-    return _BaseSpotTile(
-      title: '${index + 1}. ${spot.title}',
-      subtitle: _spotSubtitle(spot),
-      imageUrl: spot.imageUrl,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _IconActionButton(
-            icon: Icons.keyboard_arrow_up_rounded,
-            enabled: onMoveUp != null,
-            onTap: onMoveUp,
-          ),
-          const SizedBox(width: 4),
-          _IconActionButton(
-            icon: Icons.keyboard_arrow_down_rounded,
-            enabled: onMoveDown != null,
-            onTap: onMoveDown,
-          ),
-          const SizedBox(width: 4),
-          _IconActionButton(
-            icon: Icons.remove_circle_outline_rounded,
-            enabled: true,
-            accent: const Color(0xFFDC2626),
-            onTap: onRemove,
-          ),
-        ],
-      ),
-      footer: total > 1
-          ? const Text(
-              'Use the arrows to customize the package route order.',
-              style: TextStyle(
-                color: Color(0xFF94A3B8),
-                fontWeight: FontWeight.w700,
-                fontSize: 11.5,
-              ),
-            )
-          : null,
-    );
-  }
-}
+    final subtitle = [
+      spot.barangay,
+      spot.municipality,
+      if (spot.address.trim().isNotEmpty) spot.address,
+    ].where((value) => value.trim().isNotEmpty).join(' • ');
 
-class _GoogleSuggestionTile extends StatelessWidget {
-  const _GoogleSuggestionTile({required this.spot, required this.onAdd});
-
-  final CitySpotSuggestion spot;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return _BaseSpotTile(
-      title: spot.title,
-      subtitle: [
-        spot.barangayHint,
-        spot.address,
-      ].where((value) => value.trim().isNotEmpty).join(' • '),
-      imageUrl: spot.imageForCard,
-      footer: Text(
-        'Google Places • ${spot.category}',
-        style: const TextStyle(
-          color: Color(0xFF64748B),
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-        ),
-      ),
-      trailing: _AddButton(onTap: onAdd),
-    );
-  }
-}
-
-class _BaseSpotTile extends StatelessWidget {
-  const _BaseSpotTile({
-    required this.title,
-    required this.subtitle,
-    required this.imageUrl,
-    required this.trailing,
-    this.footer,
-  });
-
-  final String title;
-  final String subtitle;
-  final String imageUrl;
-  final Widget trailing;
-  final Widget? footer;
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFF),
+        color: const Color(0xFFF8FAFD),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7EEF7)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(13),
-                child: SizedBox(
-                  width: 58,
-                  height: 58,
-                  child: imageUrl.isEmpty
-                      ? const _ImageFallback()
-                      : Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const _ImageFallback(),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle.isEmpty ? 'Municipality spot' : subtitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF64748B),
-                        fontWeight: FontWeight.w700,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              trailing,
-            ],
-          ),
-          if (footer != null) ...[
-            const SizedBox(height: 10),
-            Align(alignment: Alignment.centerLeft, child: footer!),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _AddButton extends StatelessWidget {
-  const _AddButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      onPressed: onTap,
-      icon: const Icon(Icons.add_rounded, size: 16),
-      label: const Text('Add'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF2A86FF),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        textStyle: const TextStyle(fontWeight: FontWeight.w900),
-      ),
-    );
-  }
-}
-
-class _InfoBlock extends StatelessWidget {
-  const _InfoBlock({required this.icon, required this.message});
-
-  final IconData icon;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFBBD7FF)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: const Color(0xFF2A86FF)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: Color(0xFF334155),
-                fontWeight: FontWeight.w800,
-                height: 1.4,
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(13),
+                child: SizedBox(
+                  width: 62,
+                  height: 62,
+                  child: spot.imageUrl.trim().isEmpty
+                      ? const _ImageFallback()
+                      : Image.network(
+                          spot.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              const _ImageFallback(),
+                        ),
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
-class _BottomBookBar extends StatelessWidget {
-  const _BottomBookBar({
-    required this.package,
-    required this.currentUnitPrice,
-    required this.validationMessage,
-    required this.onBook,
-  });
-
-  final TourPackage package;
-  final double currentUnitPrice;
-  final String? validationMessage;
-  final VoidCallback onBook;
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).padding.bottom;
-    final price = currentUnitPrice > 0
-        ? 'PHP ${currentUnitPrice.toStringAsFixed(0)}'
-        : package.priceText.isNotEmpty
-            ? package.priceText
-            : 'Ask office';
-
-    final blocked = validationMessage != null;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 22,
-            offset: const Offset(0, -10),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (blocked)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              color: const Color(0xFFFFF3CD),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    color: Color(0xFFB45309),
-                    size: 18,
+              Positioned(
+                top: 5,
+                left: 5,
+                child: Container(
+                  width: 23,
+                  height: 23,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.94),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      validationMessage!,
-                      style: const TextStyle(
-                        color: Color(0xFF92400E),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
+                  child: Text(
+                    '$index',
+                    style: const TextStyle(
+                      color: Color(0xFF2A86FF),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(width: 11),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  spot.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13.5,
+                    height: 1.2,
+                  ),
+                ),
+
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF718096),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10.5,
+                      height: 1.35,
                     ),
                   ),
                 ],
-              ),
-            ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(18, 12, 18, bottom + 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Customized Price',
-                        style: TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        price,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                    ],
+
+                const SizedBox(height: 7),
+
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
                   ),
-                ),
-                const SizedBox(width: 14),
-                SizedBox(
-                  height: 54,
-                  width: 170,
-                  child: ElevatedButton.icon(
-                    onPressed: package.status == 'published' && !blocked
-                        ? onBook
-                        : null,
-                    icon: const Icon(Icons.arrow_forward_rounded),
-                    label: const Text('Book Now'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2A86FF),
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFBBD7FF),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDCFCE7),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'Included in package',
+                    style: TextStyle(
+                      color: Color(0xFF15803D),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 9.5,
                     ),
                   ),
                 ),
@@ -1377,103 +955,411 @@ class _BottomBookBar extends StatelessWidget {
   }
 }
 
-class _IconActionButton extends StatelessWidget {
-  const _IconActionButton({
+// =============================================================================
+// CUSTOMIZATION NOTICE
+// =============================================================================
+
+class _BookingCustomizationNotice extends StatelessWidget {
+  const _BookingCustomizationNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFFF0F7FF),
+            Color(0xFFF7FBFF),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(
+          color: const Color(0xFFCFE3FF),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE0EEFF),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: const Icon(
+              Icons.tune_rounded,
+              color: Color(0xFF2A86FF),
+              size: 19,
+            ),
+          ),
+
+          const SizedBox(width: 11),
+
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Customize during booking',
+                  style: TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13.5,
+                  ),
+                ),
+
+                SizedBox(height: 4),
+
+                Text(
+                  'After tapping Book Now, you can choose which destinations to keep, reorder them, and add nearby Google Places suggestions before planning your final schedule.',
+                  style: TextStyle(
+                    color: Color(0xFF58708E),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10.8,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// BOOKING PROCESS
+// =============================================================================
+
+class _BookingProcessCard extends StatelessWidget {
+  const _BookingProcessCard();
+
+  static const _steps = [
+    (
+      Icons.calendar_month_outlined,
+      'Trip Details',
+      'Choose your date and participants.',
+    ),
+    (
+      Icons.route_outlined,
+      'Pickup & Drop-off',
+      'Choose where the driver meets and leaves you.',
+    ),
+    (
+      Icons.place_outlined,
+      'Choose Spots',
+      'Keep package spots or add nearby places.',
+    ),
+    (
+      Icons.schedule_outlined,
+      'Plan Schedule',
+      'Organize the final order and timing.',
+    ),
+    (
+      Icons.payments_outlined,
+      'Payment',
+      'Choose the available payment method.',
+    ),
+    (
+      Icons.task_alt_rounded,
+      'Review',
+      'Confirm your final booking request.',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xFFE7EEF7),
+        ),
+      ),
+      child: Column(
+        children: List.generate(
+          _steps.length,
+          (index) {
+            final step = _steps[index];
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: index == _steps.length - 1 ? 0 : 14,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF3FF),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      step.$1,
+                      color: const Color(0xFF2A86FF),
+                      size: 17,
+                    ),
+                  ),
+
+                  const SizedBox(width: 10),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${index + 1}. ${step.$2}',
+                          style: const TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12.5,
+                          ),
+                        ),
+
+                        const SizedBox(height: 3),
+
+                        Text(
+                          step.$3,
+                          style: const TextStyle(
+                            color: Color(0xFF7D8A9D),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 10.5,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// BOTTOM BAR
+// =============================================================================
+
+class _BottomBookBar extends StatelessWidget {
+  const _BottomBookBar({
+    required this.package,
+    required this.spotCount,
+    required this.onBook,
+  });
+
+  final TourPackage package;
+  final int spotCount;
+  final VoidCallback onBook;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).padding.bottom;
+
+    final price = package.numericPrice > 0
+        ? NumberFormat.currency(
+            symbol: '₱',
+            decimalDigits: 0,
+          ).format(package.numericPrice)
+        : package.priceText.isNotEmpty
+            ? package.priceText
+            : 'Ask office';
+
+    final canBook = package.status == 'published';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: const Border(
+          top: BorderSide(
+            color: Color(0xFFE8EDF4),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, -8),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.fromLTRB(
+        18,
+        12,
+        18,
+        bottom + 12,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Starts at',
+                  style: TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10.5,
+                  ),
+                ),
+
+                const SizedBox(height: 2),
+
+                Text(
+                  price,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                  ),
+                ),
+
+                const SizedBox(height: 2),
+
+                Text(
+                  '$spotCount included ${spotCount == 1 ? 'spot' : 'spots'}',
+                  style: const TextStyle(
+                    color: Color(0xFF718096),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 9.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 14),
+
+          SizedBox(
+            height: 52,
+            width: 165,
+            child: ElevatedButton(
+              onPressed: canBook ? onBook : null,
+              style: ElevatedButton.styleFrom(
+                elevation: 0,
+                backgroundColor: const Color(0xFF2A86FF),
+                disabledBackgroundColor: const Color(0xFFBBD7FF),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Book Now',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// SMALL UI
+// =============================================================================
+
+class _EmptyBlock extends StatelessWidget {
+  const _EmptyBlock({
     required this.icon,
-    required this.enabled,
-    this.accent = const Color(0xFF2A86FF),
-    this.onTap,
+    required this.title,
+    required this.message,
   });
 
   final IconData icon;
-  final bool enabled;
-  final Color accent;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: enabled
-              ? accent.withValues(alpha: 0.10)
-              : const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: enabled ? accent : const Color(0xFFCBD5E1),
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailsSectionTitle extends StatelessWidget {
-  const _DetailsSectionTitle(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: Color(0xFF0F172A),
-        fontWeight: FontWeight.w900,
-        fontSize: 21,
-        letterSpacing: -0.3,
-      ),
-    );
-  }
-}
-
-class _EmptyBlock extends StatelessWidget {
-  const _EmptyBlock({required this.message});
-
+  final String title;
   final String message;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7EEF7)),
-      ),
-      child: Text(
-        message,
-        style: const TextStyle(
-          color: Color(0xFF64748B),
-          fontWeight: FontWeight.w800,
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(
+          color: const Color(0xFFE7EEF7),
         ),
       ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF3FF),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              icon,
+              color: const Color(0xFF2A86FF),
+              size: 19,
+            ),
+          ),
+
+          const SizedBox(width: 11),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  message,
+                  style: const TextStyle(
+                    color: Color(0xFF718096),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10.5,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
-  }
-}
-
-class _StatDivider extends StatelessWidget {
-  const _StatDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(width: 1, height: 58, color: const Color(0xFFE7EEF7));
-  }
-}
-
-class _SoftDivider extends StatelessWidget {
-  const _SoftDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(height: 1, color: const Color(0xFFE7EEF7));
   }
 }
 
@@ -1490,24 +1376,22 @@ class _FloatingActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.94),
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.13),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
+    return Material(
+      color: Colors.white.withValues(alpha: 0.95),
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(
+            icon,
+            color: iconColor,
+            size: 23,
+          ),
         ),
-        child: Icon(icon, color: iconColor, size: 25),
       ),
     );
   }
@@ -1520,12 +1404,11 @@ class _ImageFallback extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: const Color(0xFFEAF2FF),
-      child: const Center(
-        child: Icon(
-          Icons.map_rounded,
-          color: Color(0xFF2A86FF),
-          size: 42,
-        ),
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.map_rounded,
+        color: Color(0xFF2A86FF),
+        size: 36,
       ),
     );
   }
@@ -1537,13 +1420,18 @@ class _LoadingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(
-      child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
+      child: CircularProgressIndicator(
+        color: Color(0xFF2A86FF),
+      ),
     );
   }
 }
 
 class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
+  const _ErrorView({
+    required this.message,
+    required this.onRetry,
+  });
 
   final String message;
   final VoidCallback onRetry;
@@ -1553,120 +1441,65 @@ class _ErrorView extends StatelessWidget {
     return SafeArea(
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626)),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w800,
-                ),
+          padding: const EdgeInsets.all(22),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: const Color(0xFFE7EEF7),
               ),
-              const SizedBox(height: 14),
-              ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
-            ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: Color(0xFFDC2626),
+                  size: 36,
+                ),
+
+                const SizedBox(height: 12),
+
+                const Text(
+                  'Unable to load package',
+                  style: TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  ),
+                ),
+
+                const SizedBox(height: 7),
+
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Try Again'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-}
-
-bool _sameMunicipality(String a, String b) {
-  return _normalizeText(a) == _normalizeText(b);
-}
-
-String? _selectedSpotValidationMessage(int count) {
-  if (count < 3) {
-    return 'Please select at least 3 spots for your tour package.';
-  }
-  if (count > 6) {
-    return 'You can only select up to 6 spots per package.';
-  }
-  return null;
-}
-
-String _normalizeText(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll('Ã±', 'n')
-      .replaceAll('ñ', 'n')
-      .replaceAll('-', '')
-      .replaceAll(' ', '')
-      .replaceAll(',', '')
-      .replaceAll('.', '');
-}
-
-String _spotSubtitle(_EditablePackageSpot spot) {
-  final parts = [
-    spot.barangay,
-    spot.municipality,
-    if (spot.address.isNotEmpty) spot.address,
-  ].where((value) => value.trim().isNotEmpty).toList(growable: false);
-  return parts.join(' • ');
-}
-
-String _inferCategoryFromTitle(String title) {
-  final t = title.toLowerCase();
-  if (t.contains('church') ||
-      t.contains('chapel') ||
-      t.contains('cathedral') ||
-      t.contains('basilica') ||
-      t.contains('shrine') ||
-      t.contains('mosque') ||
-      t.contains('temple') ||
-      t.contains('parish')) {
-    return 'Religious';
-  }
-  if (t.contains('museum') ||
-      t.contains('gallery') ||
-      t.contains('cultural') ||
-      t.contains('heritage') ||
-      t.contains('arts center')) {
-    return 'Cultural';
-  }
-  if (t.contains('cafe') ||
-      t.contains('café') ||
-      t.contains('coffee') ||
-      t.contains('bakery') ||
-      t.contains('pastry')) {
-    return 'Cafe';
-  }
-  if (t.contains('restaurant') ||
-      t.contains('eatery') ||
-      t.contains('food') ||
-      t.contains('carinderia') ||
-      t.contains('diner') ||
-      t.contains('grill')) {
-    return 'Food';
-  }
-  if (t.contains('park') ||
-      t.contains('garden') ||
-      t.contains('falls') ||
-      t.contains('lake') ||
-      t.contains('mountain') ||
-      t.contains('forest') ||
-      t.contains('river') ||
-      t.contains('nature')) {
-    return 'Nature';
-  }
-  if (t.contains('resort') ||
-      t.contains('adventure') ||
-      t.contains('zipline') ||
-      t.contains('hiking') ||
-      t.contains('trail') ||
-      t.contains('camp') ||
-      t.contains('sports')) {
-    return 'Adventure';
-  }
-  return 'Historical';
-}
-
-extension on TourPackage {
-  String get provinceFallback => 'Bulacan';
 }

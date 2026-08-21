@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/screens/guest/guest_trip_access_screen.dart';
+import 'package:touristrike/screens/tourist/tourist_spots_screen.dart';
+import 'package:touristrike/screens/driver/driver_home_screen.dart';
 import 'screens/auth/loading_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -35,6 +37,33 @@ class TourisTrikeApp extends StatelessWidget {
           home: GuestTripAccessScreen(publicToken: segments[1]),
         );
       }
+    }
+
+    // Debug override: allow forcing a role when running on web for quick UI checks.
+    // Use query param `?force_role=tourist` or dart define `--dart-define=FORCE_ROLE=tourist`.
+    final _forceRoleQuery = Uri.base.queryParameters['force_role']?.toLowerCase();
+    final _forceRoleEnv = const String.fromEnvironment('FORCE_ROLE');
+    final _forceRole = (_forceRoleQuery ?? (_forceRoleEnv.isNotEmpty ? _forceRoleEnv : null))?.toLowerCase();
+    // Log for debugging when running on web so we can see why override may not apply.
+    if (kIsWeb) {
+      debugPrint('WEB DEBUG: Uri.base: ${Uri.base}');
+      debugPrint('WEB DEBUG: force_role query="${_forceRoleQuery}" env="${_forceRoleEnv}" resolved="${_forceRole}"');
+    }
+
+    if (_forceRole == 'tourist') {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light(),
+        home: const TouristSpotsScreen(),
+      );
+    }
+
+    if (_forceRole == 'driver') {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light(),
+        home: const DriverHomeScreen(),
+      );
     }
 
     return MaterialApp(

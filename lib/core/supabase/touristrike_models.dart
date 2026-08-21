@@ -388,6 +388,15 @@ class PackageBooking extends TourisTrikeRow {
   String get confirmedBy => dbString(row['confirmed_by']);
   DateTime? get confirmedAt => dbDate(row['confirmed_at']);
   String get cancelledReason => dbString(row['cancelled_reason']);
+  DateTime? get cancelledAt => dbDate(row['cancelled_at']);
+  String get cancelledBy => dbString(row['cancelled_by']);
+  String get cancellationNote => dbString(row['cancellation_note']);
+  String get cancellationCategory => dbString(row['cancellation_category']);
+  String get cancellationType => dbString(row['cancellation_type']);
+  double get cancellationFee => dbDouble(row['cancellation_fee']);
+  double get refundableAmount => dbDouble(row['refundable_amount']);
+  String get refundStatus =>
+      dbString(row['refund_status'], fallback: 'not_required');
   DateTime? get completedAt => dbDate(row['completed_at']);
   Json? get packageRow => row['tour_packages'] is Map
       ? Json.from(row['tour_packages'] as Map)
@@ -402,6 +411,109 @@ class PackageBooking extends TourisTrikeRow {
 }
 
 // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+class CancellationEligibility {
+  const CancellationEligibility({
+    required this.canCancel,
+    required this.reasonCode,
+    required this.displayMessage,
+    required this.cancellationType,
+    required this.amountPaid,
+    required this.cancellationFee,
+    required this.refundableAmount,
+    required this.nonRefundableAmount,
+    required this.refundRate,
+    required this.refundType,
+    required this.hasAssignedDrivers,
+    this.scheduledAt,
+  });
+
+  factory CancellationEligibility.fromJson(Map<String, dynamic> json) {
+    return CancellationEligibility(
+      canCancel: dbBool(json['can_cancel']),
+      reasonCode: dbString(
+        json['reason_code'],
+        fallback: 'CANCELLATION_NOT_ALLOWED',
+      ),
+      displayMessage: dbString(
+        json['display_message'],
+        fallback: 'This booking cannot be cancelled right now.',
+      ),
+      cancellationType: dbString(json['cancellation_type']),
+      amountPaid: dbDouble(json['amount_paid']),
+      cancellationFee: dbDouble(json['cancellation_fee']),
+      refundableAmount: dbDouble(json['refundable_amount']),
+      nonRefundableAmount: dbDouble(json['non_refundable_amount']),
+      refundRate: dbDouble(json['refund_rate']),
+      refundType: dbString(json['refund_type'], fallback: 'no_payment'),
+      hasAssignedDrivers: dbBool(json['has_assigned_drivers']),
+      scheduledAt: dbDate(json['scheduled_at']),
+    );
+  }
+
+  final bool canCancel;
+  final String reasonCode;
+  final String displayMessage;
+  final String cancellationType;
+  final double amountPaid;
+  final double cancellationFee;
+  final double refundableAmount;
+  final double nonRefundableAmount;
+  final double refundRate;
+  final String refundType;
+  final bool hasAssignedDrivers;
+  final DateTime? scheduledAt;
+}
+
+class BookingCancellationResult {
+  const BookingCancellationResult({
+    required this.eligibility,
+    required this.bookingId,
+    required this.reason,
+    required this.refundStatus,
+    required this.refundRequestCount,
+    required this.releasedDriverCount,
+    this.note,
+    this.cancelledAt,
+  });
+
+  factory BookingCancellationResult.fromJson(Map<String, dynamic> json) {
+    return BookingCancellationResult(
+      eligibility: CancellationEligibility.fromJson(json),
+      bookingId: dbString(json['booking_id']),
+      reason: dbString(json['cancellation_reason']),
+      note: dbString(json['cancellation_note']),
+      refundStatus: dbString(json['refund_status'], fallback: 'not_required'),
+      refundRequestCount: dbInt(json['refund_request_count']),
+      releasedDriverCount: dbInt(json['released_driver_count']),
+      cancelledAt: dbDate(json['cancelled_at']),
+    );
+  }
+
+  final CancellationEligibility eligibility;
+  final String bookingId;
+  final String reason;
+  final String? note;
+  final String refundStatus;
+  final int refundRequestCount;
+  final int releasedDriverCount;
+  final DateTime? cancelledAt;
+}
+
+class RefundRequest extends TourisTrikeRow {
+  const RefundRequest(super.row);
+
+  String get bookingId => dbString(row['booking_id']);
+  String get paymentRecordId => dbString(row['payment_record_id']);
+  String get requestedBy => dbString(row['requested_by']);
+  String get payeeId => dbString(row['payee_id']);
+  double get amount => dbDouble(row['amount']);
+  String get reason => dbString(row['reason']);
+  String get status => dbString(row['status'], fallback: 'pending');
+  DateTime? get requestedAt => dbDate(row['requested_at']);
+  DateTime? get completedAt => dbDate(row['completed_at']);
+  String get referenceNo => dbString(row['reference_no']);
+}
+
 class PaymentRecord extends TourisTrikeRow {
   const PaymentRecord(super.row);
 
@@ -426,6 +538,7 @@ class PaymentRecord extends TourisTrikeRow {
   bool get isConfirmed => status == 'confirmed';
   bool get isPending => status == 'pending_confirmation';
   bool get isDisputed => status == 'disputed';
+  bool get isCancelled => status == 'cancelled';
 }
 
 class PaymentDispute extends TourisTrikeRow {
