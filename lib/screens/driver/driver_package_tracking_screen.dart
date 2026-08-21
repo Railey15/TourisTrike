@@ -4,17 +4,23 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/convoy_barrier_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/payment_dispute_screen.dart'
     show paymentDisputeReasons;
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
+import 'package:touristrike/widgets/convoy/convoy_roster_error_card.dart';
+import 'package:touristrike/widgets/convoy/convoy_roster_strip.dart';
+import 'package:touristrike/widgets/convoy/convoy_waiting_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ============================================================================
@@ -59,6 +65,28 @@ class DriverPackageTrackingScreen extends StatefulWidget {
 
 class _DriverPackageTrackingScreenState
     extends State<DriverPackageTrackingScreen> {
+  // =========================================================================
+  // CONVOY STATE
+  // =========================================================================
+
+  List<ConvoyDriverSnapshot> _convoy = [];
+
+  bool _convoyLoading = true;
+  String? _convoyError;
+
+  RealtimeChannel? _bookingDriversChannel;
+
+  Timer? _convoyPollTimer;
+  Timer? _convoyTicker;
+
+  int _convoyConsecutiveFailures = 0;
+
+  bool get _appearsOffline => _convoyConsecutiveFailures >= 2;
+
+  // =========================================================================
+  // CORE SERVICES / STATE
+  // =========================================================================
+
   static final _apiKey = CitySpotSuggestionService.resolveApiKey();
 
   static const LatLng _defaultCenter = LatLng(14.9597, 120.9206);
@@ -114,6 +142,7 @@ class _DriverPackageTrackingScreenState
       _activity?.status,
       _activity?.tourStatus,
     ];
+
     return values.any((value) => value?.toLowerCase() == 'cancelled');
   }
 
@@ -135,8 +164,11 @@ class _DriverPackageTrackingScreenState
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
 
-    _gpsSub?.cancel();
+    _bookingDriversChannel?.unsubscribe();
+    _convoyPollTimer?.cancel();
+    _convoyTicker?.cancel();
 
+    _gpsSub?.cancel();
     _mapCtrl?.dispose();
 
     super.dispose();
@@ -233,6 +265,7 @@ class _DriverPackageTrackingScreenState
 
       _buildMarkers();
       _subscribeRealtime();
+
       if (_isBookingCancelled) {
         await _gpsSub?.cancel();
         _gpsSub = null;
@@ -315,6 +348,7 @@ class _DriverPackageTrackingScreenState
 
   Future<void> _startGpsStreaming() async {
     if (_isBookingCancelled) return;
+
     final ok = await _checkLocationPermission();
 
     if (!ok) {
@@ -372,7 +406,7 @@ class _DriverPackageTrackingScreenState
           );
         }
       } catch (_) {
-        // Continue showing GPS even if a backend update fails.
+        // Continue showing GPS even if backend update fails.
       }
     });
   }
@@ -549,6 +583,7 @@ class _DriverPackageTrackingScreenState
     if (_isBookingCancelled) {
       await _gpsSub?.cancel();
       _gpsSub = null;
+
       if (mounted) {
         setState(() {
           _markers = {};
@@ -1166,6 +1201,7 @@ class _DriverPackageTrackingScreenState
         setState(() {
           _spots = _spots.map((spot) {
             final newStatus = statusMap[spot.id?.toString()];
+
             if (newStatus != null) {
               return BookingItineraryItem({
                 ...spot.row,
@@ -1360,9 +1396,7 @@ class _DriverPackageTrackingScreenState
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
                 const Row(
                   children: [
                     CircleAvatar(
@@ -1401,9 +1435,7 @@ class _DriverPackageTrackingScreenState
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 14),
-
                 ...paymentDisputeReasons.entries.map((entry) {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 7),
@@ -1716,7 +1748,9 @@ class _DriverPackageTrackingScreenState
   }
 
   Widget _buildContent() {
-    if (_isBookingCancelled) return _buildCancelledContent();
+    if (_isBookingCancelled) {
+      return _buildCancelledContent();
+    }
 
     final activity = _activity!;
 
@@ -1732,18 +1766,11 @@ class _DriverPackageTrackingScreenState
 
     return Column(
       children: [
-        // ===================================================================
-        // CONSISTENT TOP BAR
-        // ===================================================================
         _DriverTrackingTopBar(
           title: 'Tour Navigation',
           eta: _eta,
           onBack: () => Navigator.of(context).pop(),
         ),
-
-        // ===================================================================
-        // SCROLLABLE BODY
-        // ===================================================================
         Expanded(
           child: RefreshIndicator(
             onRefresh: () => _refreshTrackingState(logTag: 'manual-refresh'),
@@ -1754,20 +1781,12 @@ class _DriverPackageTrackingScreenState
               ),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
               children: [
-                // ===========================================================
-                // STATUS
-                // ===========================================================
                 _ModernStatusCard(
                   status: status,
                   completedCount: _completedItineraryItemsCount,
                   totalCount: _spots.length,
                 ),
-
                 const SizedBox(height: 12),
-
-                // ===========================================================
-                // MAP
-                // ===========================================================
                 _NavigationMapCard(
                   markers: _markers,
                   polylines: _polylines,
@@ -1834,12 +1853,7 @@ class _DriverPackageTrackingScreenState
                     }
                   },
                 ),
-
                 const SizedBox(height: 14),
-
-                // ===========================================================
-                // CURRENT DESTINATION / PROGRESS
-                // ===========================================================
                 if (!completed && _spots.isNotEmpty)
                   _CurrentDestinationCard(
                     currentItem: _currentItineraryItem,
@@ -1848,47 +1862,23 @@ class _DriverPackageTrackingScreenState
                     eta: _eta,
                     status: status,
                   ),
-
                 if (!completed && _spots.isNotEmpty) const SizedBox(height: 14),
-
-                // ===========================================================
-                // ITINERARY
-                // ===========================================================
                 if (_spots.isNotEmpty)
                   _ModernSpotProgressCard(
                     spots: _spots,
                     currentItemId: _currentItineraryItem?.id.toString(),
                     status: status,
                   ),
-
                 if (_spots.isNotEmpty) const SizedBox(height: 14),
-
-                // ===========================================================
-                // TOURIST
-                // ===========================================================
                 _ModernTouristCard(
                   activity: activity,
                   onMessage: _openTouristChat,
                   onCall: _callTourist,
                 ),
-
                 const SizedBox(height: 14),
-
-                // ===========================================================
-                // ROUTE
-                // ===========================================================
                 _ModernLocationsCard(booking: _booking, status: status),
-
                 const SizedBox(height: 14),
-
-                // ===========================================================
-                // BOOKING SUMMARY
-                // ===========================================================
                 _ModernBookingCard(booking: _booking, activity: activity),
-
-                // ===========================================================
-                // PAYMENTS
-                // ===========================================================
                 if (pendingPayments.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   _ModernPaymentsCard(
@@ -1897,24 +1887,15 @@ class _DriverPackageTrackingScreenState
                     onDispute: _disputePayment,
                   ),
                 ],
-
-                // ===========================================================
-                // TEST MODE
-                // ===========================================================
                 if (kDriverActionTestMode && !completed) ...[
                   const SizedBox(height: 14),
                   const _TestModeNotice(),
                 ],
-
                 const SizedBox(height: 4),
               ],
             ),
           ),
         ),
-
-        // ===================================================================
-        // PERSISTENT ACTION
-        // ===================================================================
         _PersistentDriverActionBar(
           completed: completed,
           busy: _actionBusy,
@@ -1926,7 +1907,9 @@ class _DriverPackageTrackingScreenState
 
   Widget _buildCancelledContent() {
     final booking = _booking;
+
     final reason = booking?.cancelledReason.trim();
+
     return Column(
       children: [
         _DriverTrackingTopBar(
@@ -2073,11 +2056,8 @@ class _DriverTrackingTopBar extends StatelessWidget {
               ),
             ),
           ),
-
           const SizedBox(width: 11),
-
           const ContainerTitle(),
-
           if (eta != null && eta!.trim().isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2194,9 +2174,7 @@ class _ModernStatusCard extends StatelessWidget {
                 ),
                 child: Icon(info.icon, color: Colors.white, size: 21),
               ),
-
               const SizedBox(width: 11),
-
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2220,9 +2198,7 @@ class _ModernStatusCard extends StatelessWidget {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 7),
-
                     Text(
                       info.title,
                       style: const TextStyle(
@@ -2232,9 +2208,7 @@ class _ModernStatusCard extends StatelessWidget {
                         letterSpacing: -0.2,
                       ),
                     ),
-
                     const SizedBox(height: 3),
-
                     Text(
                       info.description,
                       style: TextStyle(
@@ -2249,10 +2223,8 @@ class _ModernStatusCard extends StatelessWidget {
               ),
             ],
           ),
-
           if (totalCount > 0) ...[
             const SizedBox(height: 14),
-
             Row(
               children: [
                 Text(
@@ -2263,9 +2235,7 @@ class _ModernStatusCard extends StatelessWidget {
                     fontSize: 9.5,
                   ),
                 ),
-
                 const Spacer(),
-
                 Text(
                   '${(progress * 100).round()}%',
                   style: const TextStyle(
@@ -2276,9 +2246,7 @@ class _ModernStatusCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 6),
-
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
               child: LinearProgressIndicator(
@@ -2326,9 +2294,7 @@ class _NavigationMapCard extends StatelessWidget {
   final VoidCallback onCameraMoveStarted;
 
   final VoidCallback onCameraIdle;
-
   final VoidCallback onPickupTap;
-
   final VoidCallback onDriverTap;
 
   @override
@@ -2382,8 +2348,6 @@ class _NavigationMapCard extends StatelessWidget {
                 },
               ),
             ),
-
-            // Map mode label
             Positioned(
               top: 12,
               left: 12,
@@ -2426,8 +2390,6 @@ class _NavigationMapCard extends StatelessWidget {
                 ),
               ),
             ),
-
-            // Map controls
             Positioned(
               right: 12,
               bottom: 12,
@@ -2439,9 +2401,7 @@ class _NavigationMapCard extends StatelessWidget {
                     color: _success,
                     onTap: onPickupTap,
                   ),
-
                   const SizedBox(height: 8),
-
                   _MapRoundButton(
                     icon: Icons.my_location_rounded,
                     tooltip: 'Follow driver',
@@ -2452,8 +2412,6 @@ class _NavigationMapCard extends StatelessWidget {
                 ],
               ),
             ),
-
-            // Legend
             Positioned(
               left: 12,
               bottom: 12,
@@ -2478,11 +2436,8 @@ class _MapRoundButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
-
   final Color color;
-
   final VoidCallback onTap;
-
   final bool active;
 
   @override
@@ -2621,9 +2576,7 @@ class _CurrentDestinationCard extends StatelessWidget {
               size: 20,
             ),
           ),
-
           const SizedBox(width: 11),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2637,9 +2590,7 @@ class _CurrentDestinationCard extends StatelessWidget {
                     letterSpacing: 0.5,
                   ),
                 ),
-
                 const SizedBox(height: 4),
-
                 Text(
                   currentItem!.destinationName,
                   maxLines: 2,
@@ -2651,7 +2602,6 @@ class _CurrentDestinationCard extends StatelessWidget {
                     height: 1.2,
                   ),
                 ),
-
                 if (currentItem!.destinationAddress.trim().isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -2666,9 +2616,7 @@ class _CurrentDestinationCard extends StatelessWidget {
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 8),
-
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -2769,9 +2717,7 @@ class _ModernSpotProgressCard extends StatelessWidget {
                   size: 18,
                 ),
               ),
-
               const SizedBox(width: 9),
-
               const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2796,7 +2742,6 @@ class _ModernSpotProgressCard extends StatelessWidget {
                   ],
                 ),
               ),
-
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
                 decoration: BoxDecoration(
@@ -2814,9 +2759,7 @@ class _ModernSpotProgressCard extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 11),
-
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
@@ -2826,9 +2769,7 @@ class _ModernSpotProgressCard extends StatelessWidget {
               color: _primary,
             ),
           ),
-
           const SizedBox(height: 15),
-
           ...List.generate(spots.length, (index) {
             final spot = spots[index];
 
@@ -2870,9 +2811,7 @@ class _ModernSpotRow extends StatelessWidget {
   });
 
   final int number;
-
   final BookingItineraryItem spot;
-
   final bool isDone;
   final bool isCurrent;
   final bool isLast;
@@ -2922,7 +2861,6 @@ class _ModernSpotRow extends StatelessWidget {
                         ),
                       ),
               ),
-
               if (!isLast)
                 Container(
                   width: 2,
@@ -2932,9 +2870,7 @@ class _ModernSpotRow extends StatelessWidget {
             ],
           ),
         ),
-
         const SizedBox(width: 9),
-
         Expanded(
           child: Container(
             margin: EdgeInsets.only(bottom: isLast ? 0 : 9),
@@ -2966,7 +2902,6 @@ class _ModernSpotRow extends StatelessWidget {
                         ),
                       ),
                     ),
-
                     if (isCurrent)
                       Container(
                         margin: const EdgeInsets.only(left: 6),
@@ -2990,10 +2925,8 @@ class _ModernSpotRow extends StatelessWidget {
                       ),
                   ],
                 ),
-
                 if (spot.destinationAddress.trim().isNotEmpty) ...[
                   const SizedBox(height: 4),
-
                   Text(
                     spot.destinationAddress,
                     maxLines: 2,
@@ -3006,9 +2939,7 @@ class _ModernSpotRow extends StatelessWidget {
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 7),
-
                 Wrap(
                   spacing: 6,
                   runSpacing: 5,
@@ -3022,7 +2953,6 @@ class _ModernSpotRow extends StatelessWidget {
                           spot.departureTime,
                         ),
                       ),
-
                     if (spot.estimatedStayDurationMinutes > 0)
                       _SmallTimingChip(
                         icon: Icons.hourglass_bottom_rounded,
@@ -3030,7 +2960,6 @@ class _ModernSpotRow extends StatelessWidget {
                       ),
                   ],
                 ),
-
                 if (spot.actualArrivalTime != null) ...[
                   const SizedBox(height: 6),
                   _ActualTimeBadge(
@@ -3040,7 +2969,6 @@ class _ModernSpotRow extends StatelessWidget {
                     color: _primary,
                   ),
                 ],
-
                 if (spot.actualDepartureTime != null) ...[
                   const SizedBox(height: 4),
                   _ActualTimeBadge(
@@ -3123,10 +3051,8 @@ class _ActualTimeBadge extends StatelessWidget {
   });
 
   final IconData icon;
-
   final String label;
   final String time;
-
   final Color color;
 
   @override
@@ -3204,9 +3130,7 @@ class _ModernTouristCard extends StatelessWidget {
                   : const _TouristAvatarFallback(),
             ),
           ),
-
           const SizedBox(width: 11),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3220,9 +3144,7 @@ class _ModernTouristCard extends StatelessWidget {
                     letterSpacing: 0.55,
                   ),
                 ),
-
                 const SizedBox(height: 3),
-
                 Text(
                   name,
                   maxLines: 1,
@@ -3233,9 +3155,7 @@ class _ModernTouristCard extends StatelessWidget {
                     fontSize: 14,
                   ),
                 ),
-
                 const SizedBox(height: 3),
-
                 Text(
                   phone.isEmpty ? 'Phone number unavailable' : phone,
                   maxLines: 1,
@@ -3249,18 +3169,14 @@ class _ModernTouristCard extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(width: 8),
-
           _ContactButton(
             icon: Icons.call_outlined,
             tooltip: 'Call tourist',
             color: _success,
             onTap: onCall,
           ),
-
           const SizedBox(width: 7),
-
           _ContactButton(
             icon: Icons.chat_bubble_outline_rounded,
             tooltip: 'Message tourist',
@@ -3315,11 +3231,8 @@ class _ContactButton extends StatelessWidget {
   });
 
   final IconData icon;
-
   final String tooltip;
-
   final Color color;
-
   final VoidCallback onTap;
 
   @override
@@ -3385,9 +3298,7 @@ class _ModernLocationsCard extends StatelessWidget {
             title: 'Pickup & Drop-off',
             subtitle: 'Main route for this tour',
           ),
-
           const SizedBox(height: 14),
-
           if (pickup.isNotEmpty)
             _LocationTimelineItem(
               color: _success,
@@ -3400,7 +3311,6 @@ class _ModernLocationsCard extends StatelessWidget {
               complete: pickupComplete,
               hasLine: dropoff.isNotEmpty,
             ),
-
           if (dropoff.isNotEmpty)
             _LocationTimelineItem(
               color: _danger,
@@ -3431,13 +3341,10 @@ class _LocationTimelineItem extends StatelessWidget {
   });
 
   final Color color;
-
   final IconData icon;
-
   final String label;
   final String address;
   final String status;
-
   final bool complete;
   final bool hasLine;
 
@@ -3459,15 +3366,12 @@ class _LocationTimelineItem extends StatelessWidget {
                 ),
                 child: Icon(icon, color: color, size: 15),
               ),
-
               if (hasLine)
                 Container(width: 2, height: 34, color: const Color(0xFFDCE5F0)),
             ],
           ),
         ),
-
         const SizedBox(width: 9),
-
         Expanded(
           child: Padding(
             padding: EdgeInsets.only(bottom: hasLine ? 11 : 0),
@@ -3483,9 +3387,7 @@ class _LocationTimelineItem extends StatelessWidget {
                     letterSpacing: 0.5,
                   ),
                 ),
-
                 const SizedBox(height: 3),
-
                 Text(
                   address,
                   style: const TextStyle(
@@ -3495,9 +3397,7 @@ class _LocationTimelineItem extends StatelessWidget {
                     height: 1.3,
                   ),
                 ),
-
                 const SizedBox(height: 3),
-
                 Text(
                   status,
                   style: TextStyle(
@@ -3523,7 +3423,6 @@ class _ModernBookingCard extends StatelessWidget {
   const _ModernBookingCard({required this.booking, required this.activity});
 
   final PackageBooking? booking;
-
   final PackageActivity activity;
 
   @override
@@ -3559,9 +3458,7 @@ class _ModernBookingCard extends StatelessWidget {
             title: 'Booking Summary',
             subtitle: 'Important trip and payment information',
           ),
-
           const SizedBox(height: 14),
-
           Row(
             children: [
               Expanded(
@@ -3571,9 +3468,7 @@ class _ModernBookingCard extends StatelessWidget {
                   icon: Icons.groups_outlined,
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Expanded(
                 child: _BookingMetric(
                   label: 'TRICYCLES',
@@ -3581,9 +3476,7 @@ class _ModernBookingCard extends StatelessWidget {
                   icon: Icons.electric_rickshaw_outlined,
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Expanded(
                 child: _BookingMetric(
                   label: 'TOTAL',
@@ -3593,13 +3486,9 @@ class _ModernBookingCard extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 13),
-
           const Divider(color: Color(0xFFEDF1F6), height: 1),
-
           const SizedBox(height: 12),
-
           _BookingInfoLine(
             icon: Icons.calendar_today_outlined,
             label: 'Travel Date',
@@ -3609,26 +3498,20 @@ class _ModernBookingCard extends StatelessWidget {
                 ? rawTravelDate
                 : '—',
           ),
-
           const SizedBox(height: 9),
-
           _BookingInfoLine(
             icon: Icons.event_outlined,
             label: 'Booking Type',
             value: type == 'advanced' ? 'Advanced Booking' : 'Same-Day Booking',
           ),
-
           if (type == 'advanced') ...[
             const SizedBox(height: 9),
-
             _BookingInfoLine(
               icon: Icons.price_check_outlined,
               label: 'Down Payment',
               value: '₱${downpayment.toStringAsFixed(2)}',
             ),
-
             const SizedBox(height: 9),
-
             _BookingInfoLine(
               icon: Icons.account_balance_wallet_outlined,
               label: 'Remaining Balance',
@@ -3653,7 +3536,6 @@ class _BookingMetric extends StatelessWidget {
 
   final String label;
   final String value;
-
   final IconData icon;
 
   @override
@@ -3667,9 +3549,7 @@ class _BookingMetric extends StatelessWidget {
       child: Column(
         children: [
           Icon(icon, color: _primary, size: 16),
-
           const SizedBox(height: 5),
-
           Text(
             value,
             maxLines: 1,
@@ -3680,9 +3560,7 @@ class _BookingMetric extends StatelessWidget {
               fontSize: 12.5,
             ),
           ),
-
           const SizedBox(height: 2),
-
           Text(
             label,
             maxLines: 1,
@@ -3709,10 +3587,8 @@ class _BookingInfoLine extends StatelessWidget {
   });
 
   final IconData icon;
-
   final String label;
   final String value;
-
   final Color? valueColor;
 
   @override
@@ -3728,9 +3604,7 @@ class _BookingInfoLine extends StatelessWidget {
           ),
           child: Icon(icon, color: _primary, size: 14),
         ),
-
         const SizedBox(width: 9),
-
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3743,9 +3617,7 @@ class _BookingInfoLine extends StatelessWidget {
                   fontSize: 8.5,
                 ),
               ),
-
               const SizedBox(height: 2),
-
               Text(
                 value,
                 style: TextStyle(
@@ -3810,9 +3682,7 @@ class _ModernPaymentsCard extends StatelessWidget {
                   size: 18,
                 ),
               ),
-
               const SizedBox(width: 9),
-
               const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3839,9 +3709,7 @@ class _ModernPaymentsCard extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 13),
-
           ...records.map(
             (record) => _PendingPaymentItem(
               record: record,
@@ -3865,7 +3733,6 @@ class _PendingPaymentItem extends StatelessWidget {
   final PaymentRecord record;
 
   final VoidCallback onConfirm;
-
   final VoidCallback onDispute;
 
   @override
@@ -3900,9 +3767,7 @@ class _PendingPaymentItem extends StatelessWidget {
                         fontSize: 17,
                       ),
                     ),
-
                     const SizedBox(height: 2),
-
                     Text(
                       '$stage • ${record.paymentMethod.toUpperCase()}',
                       style: const TextStyle(
@@ -3914,7 +3779,6 @@ class _PendingPaymentItem extends StatelessWidget {
                   ],
                 ),
               ),
-
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
@@ -3933,10 +3797,8 @@ class _PendingPaymentItem extends StatelessWidget {
               ),
             ],
           ),
-
           if (record.externalReferenceNo.trim().isNotEmpty) ...[
             const SizedBox(height: 8),
-
             Row(
               children: [
                 const Icon(
@@ -3958,9 +3820,7 @@ class _PendingPaymentItem extends StatelessWidget {
               ],
             ),
           ],
-
           const SizedBox(height: 11),
-
           Row(
             children: [
               Expanded(
@@ -3982,9 +3842,7 @@ class _PendingPaymentItem extends StatelessWidget {
                   ),
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Expanded(
                 child: ElevatedButton(
                   onPressed: onConfirm,
@@ -4131,9 +3989,7 @@ class _PersistentDriverActionBar extends StatelessWidget {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 7),
-
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -4232,7 +4088,6 @@ class _CardHeader extends StatelessWidget {
   });
 
   final IconData icon;
-
   final String title;
   final String subtitle;
 
@@ -4249,9 +4104,7 @@ class _CardHeader extends StatelessWidget {
           ),
           child: Icon(icon, color: _primary, size: 17),
         ),
-
         const SizedBox(width: 9),
-
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -4264,9 +4117,7 @@ class _CardHeader extends StatelessWidget {
                   fontSize: 13.5,
                 ),
               ),
-
               const SizedBox(height: 2),
-
               Text(
                 subtitle,
                 style: const TextStyle(
@@ -4467,9 +4318,7 @@ class _TrackingLoadingView extends StatelessWidget {
             height: 31,
             child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
           ),
-
           SizedBox(height: 13),
-
           Text(
             'Preparing live tour navigation...',
             style: TextStyle(
@@ -4492,7 +4341,6 @@ class _TrackingErrorCard extends StatelessWidget {
   const _TrackingErrorCard({required this.message, required this.onRetry});
 
   final String message;
-
   final VoidCallback onRetry;
 
   @override
@@ -4521,9 +4369,7 @@ class _TrackingErrorCard extends StatelessWidget {
               size: 27,
             ),
           ),
-
           const SizedBox(height: 13),
-
           const Text(
             'Unable to load tour',
             style: TextStyle(
@@ -4532,9 +4378,7 @@ class _TrackingErrorCard extends StatelessWidget {
               fontSize: 16,
             ),
           ),
-
           const SizedBox(height: 6),
-
           Text(
             message,
             textAlign: TextAlign.center,
@@ -4545,9 +4389,7 @@ class _TrackingErrorCard extends StatelessWidget {
               height: 1.4,
             ),
           ),
-
           const SizedBox(height: 15),
-
           SizedBox(
             width: double.infinity,
             height: 46,
