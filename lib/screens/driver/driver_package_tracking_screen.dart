@@ -215,6 +215,7 @@ class _DriverPackageTrackingScreenState
 
   List<BookingItineraryItem> _spots = [];
   List<PaymentRecord> _paymentRecords = [];
+  List<PaymentAllocation> _paymentAllocations = [];
 
   bool _loading = true;
   bool _actionBusy = false;
@@ -232,6 +233,7 @@ class _DriverPackageTrackingScreenState
   RealtimeChannel? _activityChannel;
   RealtimeChannel? _bookingChannel;
   RealtimeChannel? _itineraryChannel;
+  RealtimeChannel? _paymentChannel;
 
   StreamSubscription<Position>? _gpsSub;
 
@@ -268,6 +270,7 @@ class _DriverPackageTrackingScreenState
     _activityChannel?.unsubscribe();
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
+    _paymentChannel?.unsubscribe();
 
     _bookingDriversChannel?.unsubscribe();
 
@@ -347,10 +350,14 @@ class _DriverPackageTrackingScreenState
       }
 
       var paymentRecords = <PaymentRecord>[];
+      var paymentAllocations = <PaymentAllocation>[];
 
       try {
         paymentRecords = await _repo.fetchPaymentRecordsFor(
           bookingId: bookingId,
+        );
+        paymentAllocations = await _repo.fetchPaymentAllocationsForBooking(
+          bookingId,
         );
       } catch (_) {
         // Payment card is non-critical for initial loading.
@@ -364,6 +371,7 @@ class _DriverPackageTrackingScreenState
         _booking = booking;
         _spots = spots;
         _paymentRecords = paymentRecords;
+        _paymentAllocations = paymentAllocations;
         _loading = false;
       });
 
@@ -608,6 +616,31 @@ class _DriverPackageTrackingScreenState
       );
 
       return false;
+    } on PostgrestException catch (error) {
+      final message = error.message;
+      if (message.contains('DOWNPAYMENT_NOT_CONFIRMED')) {
+        _showSnack('Waiting for tourist down payment.', error: true);
+        return false;
+      }
+      if (message.contains('BOOKING_START_TOO_EARLY')) {
+        _showSnack(
+          'This tour cannot start before its scheduled date and time.',
+          error: true,
+        );
+        return false;
+      }
+      if (message.contains('DRIVER_SLOTS_NOT_FILLED')) {
+        _showSnack('Waiting for all required drivers to accept.', error: true);
+        return false;
+      }
+      if (message.contains('REMAINING_BALANCE_NOT_CONFIRMED')) {
+        _showSnack(
+          'Confirm the remaining balance payment before completing the tour.',
+          error: true,
+        );
+        return false;
+      }
+      rethrow;
     }
   }
 
@@ -675,6 +708,37 @@ class _DriverPackageTrackingScreenState
           ),
           callback: (_) {
             _refreshTrackingState(logTag: 'itinerary-update');
+          },
+        )
+        .subscribe();
+
+    _paymentChannel?.unsubscribe();
+    _paymentChannel = _supabase
+        .channel('driver-payments:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payment_records',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) {
+            _refreshTrackingState(logTag: 'payment-update');
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payment_allocations',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (_) {
+            _refreshTrackingState(logTag: 'payment-allocation-update');
           },
         )
         .subscribe();
@@ -916,9 +980,13 @@ class _DriverPackageTrackingScreenState
     }
 
     var paymentRecords = _paymentRecords;
+    var paymentAllocations = _paymentAllocations;
 
     try {
       paymentRecords = await _repo.fetchPaymentRecordsFor(bookingId: bookingId);
+      paymentAllocations = await _repo.fetchPaymentAllocationsForBooking(
+        bookingId,
+      );
     } catch (_) {}
 
     if (!mounted) return;
@@ -931,6 +999,7 @@ class _DriverPackageTrackingScreenState
       _spots = refreshedSpots;
 
       _paymentRecords = paymentRecords;
+      _paymentAllocations = paymentAllocations;
     });
 
     _debugTourState(logTag);
@@ -1779,9 +1848,15 @@ class _DriverPackageTrackingScreenState
     if (!advanced) return;
 
     try {
-      await _repo.completePackageActivity(widget.activityId);
+      final completion = await _repo.completePackageActivity(widget.activityId);
+      if (completion['overall_completed'] != true) {
+        await _refreshTrackingState(logTag: 'convoy-completion-pending');
+        _showSnack('Your leg is complete. Waiting for the rest of the convoy.');
+        return;
+      }
     } on PostgrestException catch (e) {
-      if (e.message.contains('REMAINING_BALANCE_UNPAID')) {
+      if (e.message.contains('REMAINING_BALANCE_UNPAID') ||
+          e.message.contains('REMAINING_BALANCE_NOT_CONFIRMED')) {
         _showSnack(
           'Confirm the remaining balance payment before completing the tour.',
           error: true,
@@ -1823,6 +1898,23 @@ class _DriverPackageTrackingScreenState
       await _refreshTrackingState(logTag: 'payment-confirmed');
     } catch (e) {
       _showSnack('Unable to confirm payment: $e', error: true);
+    }
+  }
+
+  Future<void> _confirmCashShare(_PendingCashShare item) async {
+    try {
+      await _repo.confirmGroupCashShare(item.record.id as String);
+      await _repo.notifyUser(
+        userId: item.record.payerId,
+        title: 'Cash received',
+        body:
+            'A driver confirmed receiving ₱${item.allocation.driverAmount.toStringAsFixed(2)} of the remaining balance.',
+        type: 'cash_payment_confirmed',
+      );
+      _showSnack('Cash receipt confirmed.');
+      await _refreshTrackingState(logTag: 'cash-share-confirmed');
+    } catch (e) {
+      _showSnack('Unable to confirm cash receipt: $e', error: true);
     }
   }
 
@@ -2273,9 +2365,28 @@ class _DriverPackageTrackingScreenState
         _myConvoyStatus?.journeyState == ConvoyJourneyState.completed ||
         status == 'completed';
 
+    final currentDriverId = _repo.currentUserId ?? '';
     final pendingPayments = _paymentRecords
-        .where((record) => record.status == 'pending_confirmation')
+        .where(
+          (record) =>
+              record.status == 'pending_confirmation' &&
+              record.provider == 'manual' &&
+              record.payeeId == currentDriverId,
+        )
         .toList();
+    final pendingCashShares = <_PendingCashShare>[];
+    for (final allocation in _paymentAllocations.where(
+      (item) => item.driverId == currentDriverId && item.isAwaitingCash,
+    )) {
+      final record = _paymentRecords
+          .where((item) => item.id?.toString() == allocation.paymentRecordId)
+          .firstOrNull;
+      if (record != null && record.isGroupCash && record.isPending) {
+        pendingCashShares.add(
+          _PendingCashShare(record: record, allocation: allocation),
+        );
+      }
+    }
 
     final primaryAction = _currentPrimaryAction();
 
@@ -2411,6 +2522,13 @@ class _DriverPackageTrackingScreenState
                     records: pendingPayments,
                     onConfirm: _confirmPayment,
                     onDispute: _disputePayment,
+                  ),
+                ],
+                if (pendingCashShares.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _CashReceiptConfirmationCard(
+                    shares: pendingCashShares,
+                    onConfirm: _confirmCashShare,
                   ),
                 ],
                 if (kDriverActionTestMode && !completed) ...[
@@ -4184,6 +4302,110 @@ class _BookingInfoLine extends StatelessWidget {
 // ============================================================================
 // PAYMENTS
 // ============================================================================
+
+class _PendingCashShare {
+  const _PendingCashShare({required this.record, required this.allocation});
+
+  final PaymentRecord record;
+  final PaymentAllocation allocation;
+}
+
+class _CashReceiptConfirmationCard extends StatelessWidget {
+  const _CashReceiptConfirmationCard({
+    required this.shares,
+    required this.onConfirm,
+  });
+
+  final List<_PendingCashShare> shares;
+  final ValueChanged<_PendingCashShare> onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFFDE3A7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Cash Receipt Confirmation',
+            style: TextStyle(
+              color: _ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 3),
+          const Text(
+            'Confirm only after you physically receive your allocated share.',
+            style: TextStyle(
+              color: _subtle,
+              fontWeight: FontWeight.w600,
+              fontSize: 9.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...shares.map(
+            (item) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _warningSoft,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '₱${item.allocation.driverAmount.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: _ink,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                          ),
+                        ),
+                        const Text(
+                          'Your remaining-balance cash share',
+                          style: TextStyle(
+                            color: _muted,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 9.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => onConfirm(item),
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: _success,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text(
+                      'Confirm Cash Received',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ModernPaymentsCard extends StatelessWidget {
   const _ModernPaymentsCard({

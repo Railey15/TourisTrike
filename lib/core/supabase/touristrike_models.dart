@@ -535,12 +535,58 @@ class PaymentRecord extends TourisTrikeRow {
   String get receiptNo => dbString(row['receipt_no']);
   String get serviceDescription => dbString(row['service_description']);
   String get notes => dbString(row['notes']);
+  String get provider => dbString(row['provider'], fallback: 'manual');
+  String get providerStatus => dbString(row['provider_status']);
+  String get checkoutUrl => dbString(row['checkout_url']);
+  DateTime? get paidAt => dbDate(row['paid_at']);
   DateTime? get createdAt => dbDate(row['created_at']);
 
+  bool get isPayMongo => provider == 'paymongo';
+  bool get isLegacyManualGcash =>
+      provider == 'manual' && paymentMethod == 'gcash';
+  bool get isGroupCash =>
+      provider == 'manual' && paymentMethod == 'cash' && payeeId.isEmpty;
   bool get isConfirmed => status == 'confirmed';
   bool get isPending => status == 'pending_confirmation';
   bool get isDisputed => status == 'disputed';
   bool get isCancelled => status == 'cancelled';
+}
+
+class PaymentAllocation extends TourisTrikeRow {
+  const PaymentAllocation(super.row);
+
+  String get paymentRecordId => dbString(row['payment_record_id']);
+  String get bookingId => dbString(row['booking_id']);
+  String get driverId => dbString(row['driver_id']);
+  double get grossAmount => dbDouble(row['gross_amount']);
+  double get driverAmount => dbDouble(row['driver_amount']);
+  int get splitBasisPoints => dbInt(row['split_basis_points']);
+  String get status => dbString(row['status']);
+  DateTime? get paidAt => dbDate(row['paid_at']);
+
+  bool get isAwaitingCash => status == 'awaiting_cash';
+  bool get isCashConfirmed => status == 'cash_confirmed';
+}
+
+class PayMongoCheckout {
+  const PayMongoCheckout({
+    required this.paymentRecordId,
+    required this.checkoutUrl,
+    required this.reused,
+    required this.livemode,
+  });
+
+  factory PayMongoCheckout.fromJson(Json json) => PayMongoCheckout(
+    paymentRecordId: dbString(json['payment_record_id']),
+    checkoutUrl: dbString(json['checkout_url']),
+    reused: dbBool(json['reused']),
+    livemode: dbBool(json['livemode']),
+  );
+
+  final String paymentRecordId;
+  final String checkoutUrl;
+  final bool reused;
+  final bool livemode;
 }
 
 class PaymentDispute extends TourisTrikeRow {
@@ -985,18 +1031,18 @@ class BookingDriver extends TourisTrikeRow {
   const BookingDriver(super.row);
 
   // Convoy sync fields
-ConvoyJourneyState get journeyState =>
-    ConvoyJourneyState.fromDb(row['journey_state'] as String?);
+  ConvoyJourneyState get journeyState =>
+      ConvoyJourneyState.fromDb(row['journey_state'] as String?);
 
-int get currentStopIndex => dbInt(row['current_stop_index']);
+  int get currentStopIndex => dbInt(row['current_stop_index']);
 
-int get assignedPassengers => dbInt(row['assigned_passengers']);
+  int get assignedPassengers => dbInt(row['assigned_passengers']);
 
-DateTime get stateUpdatedAt =>
-    dbDate(row['state_updated_at']) ??
-    acceptedAt ??
-    createdAt ??
-    DateTime.now();
+  DateTime get stateUpdatedAt =>
+      dbDate(row['state_updated_at']) ??
+      acceptedAt ??
+      createdAt ??
+      DateTime.now();
 
   dynamic get bookingId => row['booking_id'];
   String get driverId => dbString(row['driver_id']);

@@ -1,2 +1,8 @@
 # Supabase project configuration.
 # See https://supabase.com/docs/guides/local-development/cli/config
+
+[functions.paymongo-webhook]
+verify_jwt = false
+
+[functions.paymongo-payment-return]
+verify_jwt = false

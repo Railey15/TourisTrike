@@ -17,7 +17,6 @@ import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/screens/tourist/booking_cancellation_result_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
-import 'package:touristrike/widgets/gcash_payment_sheet.dart';
 import 'package:touristrike/widgets/package_booking_cancellation_flow.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -60,7 +59,8 @@ class ActivityTrackingScreen extends StatefulWidget {
   State<ActivityTrackingScreen> createState() => _ActivityTrackingScreenState();
 }
 
-class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
+class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
+    with WidgetsBindingObserver {
   static final _apiKey = CitySpotSuggestionService.resolveApiKey();
 
   final RoutePolylineService _routeService = RoutePolylineService(
@@ -77,6 +77,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   List<BookingItineraryItem> _spots = [];
   List<EmergencyContactRecord> _emergencyContacts = [];
   List<PaymentRecord> _paymentRecords = [];
+  final Set<String> _busyPaymentStages = <String>{};
 
   bool _loading = true;
   bool _reviewShown = false;
@@ -101,6 +102,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   RealtimeChannel? _locationChannel;
   RealtimeChannel? _bookingChannel;
   RealtimeChannel? _itineraryChannel;
+  RealtimeChannel? _paymentChannel;
 
   GoogleMapController? _mapCtrl;
 
@@ -145,34 +147,103 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     return matches.isEmpty ? null : matches.first;
   }
 
-  Future<void> _openPaymentSheet({
-    required String stage,
-    required double amount,
-    required String description,
-  }) async {
-    final driverInfo = _driverInfo;
+  Future<void> _openPayMongoCheckout({required String stage}) async {
+    if (_busyPaymentStages.contains(stage)) return;
+    setState(() => _busyPaymentStages.add(stage));
+    try {
+      final checkout = await _repo.createPayMongoCheckout(
+        bookingId: widget.bookingId,
+        paymentStage: stage,
+      );
+      final uri = Uri.tryParse(checkout.checkoutUrl);
+      if (uri == null || uri.scheme.toLowerCase() != 'https') {
+        throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+      }
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        throw const PaymentProviderException('CHECKOUT_COULD_NOT_OPEN');
+      }
+      _showSnack(
+        'Complete the secure GCash checkout. Payment updates automatically after confirmation.',
+      );
+      await _refreshPayments();
+    } on PaymentProviderException catch (error) {
+      final configurationErrors = {
+        'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        'PAYMENT_BACKEND_NOT_CONFIGURED',
+        'PAYMENT_REDIRECTS_NOT_CONFIGURED',
+        'PAYMONGO_KEY_ENVIRONMENT_MISMATCH',
+        'INVALID_PAYMONGO_ENVIRONMENT',
+        'INVALID_PAYMONGO_CHECKOUT_API_VERSION',
+      };
+      _showSnack(
+        configurationErrors.contains(error.code)
+            ? 'GCash payment is temporarily unavailable.'
+            : 'Unable to open secure GCash payment. Please try again.',
+      );
+    } catch (error) {
+      debugPrint('[PayMongo] checkout launch failed: $error');
+      _showSnack('Unable to open secure GCash payment. Please try again.');
+    } finally {
+      if (mounted) setState(() => _busyPaymentStages.remove(stage));
+    }
+  }
 
-    if (driverInfo == null || driverInfo.id.isEmpty) {
+  Future<void> _chooseRemainingPayment() async {
+    if (_busyPaymentStages.contains('remaining_balance')) return;
+    final method = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Pay remaining balance',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: const Text('GCash'),
+                subtitle: const Text('Secure payment powered by PayMongo'),
+                onTap: () => Navigator.pop(context, 'gcash'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.payments_outlined),
+                title: const Text('Cash'),
+                subtitle: const Text(
+                  'Each assigned driver confirms their received share',
+                ),
+                onTap: () => Navigator.pop(context, 'cash'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || method == null) return;
+    if (method == 'gcash') {
+      await _openPayMongoCheckout(stage: 'remaining_balance');
       return;
     }
-
-    final details = driverInfo.details;
-
-    final record = await showGcashPaymentSheet(
-      context,
-      payeeId: driverInfo.id,
-      payeeName: driverInfo.name,
-      gcashQrUrl: details?.gcashQrUrl ?? '',
-      gcashNumber: details?.gcashNumber ?? '',
-      gcashName: details?.gcashName ?? '',
-      amount: amount,
-      serviceDescription: description,
-      bookingId: _bookingIdForQueries,
-      paymentStage: stage,
-    );
-
-    if (record != null && mounted) {
-      _load();
+    setState(() => _busyPaymentStages.add('remaining_balance'));
+    try {
+      await _repo.prepareGroupCashRemainingBalance(bookingId: widget.bookingId);
+      await _refreshPayments();
+      _showSnack(
+        'Cash selected. Each driver must confirm their received share.',
+      );
+    } on PostgrestException catch (error) {
+      debugPrint('[CashPayment] preparation failed: ${error.code}');
+      _showSnack('Unable to prepare the cash payment: ${error.message}');
+    } finally {
+      if (mounted) {
+        setState(() => _busyPaymentStages.remove('remaining_balance'));
+      }
     }
   }
 
@@ -195,16 +266,26 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
     _initCustomMarkers();
     _load();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshPayments();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _activityChannel?.unsubscribe();
     _locationChannel?.unsubscribe();
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
+    _paymentChannel?.unsubscribe();
 
     _touristGpsSub?.cancel();
 
@@ -303,6 +384,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
 
       _subscribeToActivity(driverId);
       _subscribeToBooking(widget.bookingId);
+      _subscribeToPayments(widget.bookingId);
 
       _checkAndShowReviewModal();
       _startTouristGpsStreaming();
@@ -482,6 +564,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
         .subscribe();
   }
 
+  void _subscribeToPayments(String bookingId) {
+    _paymentChannel?.unsubscribe();
+    _paymentChannel = _supabase
+        .channel('booking-payments:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payment_records',
+          filter: PostgresChangeFilter(
+            column: 'booking_id',
+            type: PostgresChangeFilterType.eq,
+            value: bookingId,
+          ),
+          callback: (_) => _refreshPayments(),
+        )
+        .subscribe();
+  }
+
   // =========================================================================
   // REVIEW
   // =========================================================================
@@ -573,6 +673,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final booking = await _repo.fetchPackageBookingDetails(widget.bookingId);
 
     final spots = await _repo.fetchBookingItinerary(widget.bookingId);
+    final paymentRecords = await _repo.fetchPaymentRecordsFor(
+      bookingId: widget.bookingId,
+    );
 
     final driverId = booking?.assignedDriverId ?? activity?.driverId ?? '';
 
@@ -587,6 +690,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
       _booking = booking;
       _driverInfo = driverInfo;
       _spots = spots;
+      _paymentRecords = paymentRecords;
     });
 
     _debugTourState(logTag);
@@ -595,6 +699,17 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     _fetchCurrentRoute();
 
     _checkAndShowReviewModal();
+  }
+
+  Future<void> _refreshPayments() async {
+    try {
+      final records = await _repo.fetchPaymentRecordsFor(
+        bookingId: widget.bookingId,
+      );
+      if (mounted) setState(() => _paymentRecords = records);
+    } catch (error) {
+      debugPrint('[Payments] refresh failed: $error');
+    }
   }
 
   void _debugTourState(String tag) {
@@ -1304,6 +1419,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
     final driverReviewCount = _driverInfo?.profile?.totalReviews ?? 0;
 
     final completed = tourStatus == 'completed' || tourStatus == 'dropped_off';
+    final fullyAssigned =
+        requiredDrivers > 0 && acceptedDrivers >= requiredDrivers;
+    final downPaymentRecord = _paymentRecordForStage('down_payment');
+    final downPaymentConfirmed = downPaymentRecord?.isConfirmed == true;
 
     return Column(
       children: [
@@ -1477,36 +1596,32 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen> {
                 // ===========================================================
                 // PAYMENTS
                 // ===========================================================
-                if (driverName.isNotEmpty &&
+                if (fullyAssigned &&
                     bookingType == 'advanced' &&
                     (booking?.downpaymentAmount ?? 0) > 0) ...[
                   _PaymentStageCard(
                     title: 'Down Payment',
                     amount: booking!.downpaymentAmount,
-                    record: _paymentRecordForStage('down_payment'),
-                    onPay: () => _openPaymentSheet(
-                      stage: 'down_payment',
-                      amount: booking.downpaymentAmount,
-                      description:
-                          'Down payment for package booking #${widget.bookingId}',
-                    ),
+                    record: downPaymentRecord,
+                    actionLabel: 'Pay with GCash',
+                    busy: _busyPaymentStages.contains('down_payment'),
+                    onPay: () => _openPayMongoCheckout(stage: 'down_payment'),
                     onViewReceipt: _openReceipt,
                   ),
                   const SizedBox(height: 14),
                 ],
 
-                if (driverName.isNotEmpty &&
+                if (fullyAssigned &&
+                    bookingType == 'advanced' &&
+                    downPaymentConfirmed &&
                     (booking?.remainingBalance ?? 0) > 0) ...[
                   _PaymentStageCard(
                     title: 'Remaining Balance',
                     amount: booking!.remainingBalance,
                     record: _paymentRecordForStage('remaining_balance'),
-                    onPay: () => _openPaymentSheet(
-                      stage: 'remaining_balance',
-                      amount: booking.remainingBalance,
-                      description:
-                          'Remaining balance for package booking #${widget.bookingId}',
-                    ),
+                    actionLabel: 'Choose GCash or Cash',
+                    busy: _busyPaymentStages.contains('remaining_balance'),
+                    onPay: _chooseRemainingPayment,
                     onViewReceipt: _openReceipt,
                   ),
                   const SizedBox(height: 14),
@@ -3200,6 +3315,8 @@ class _PaymentStageCard extends StatelessWidget {
     required this.title,
     required this.amount,
     required this.record,
+    required this.actionLabel,
+    required this.busy,
     required this.onPay,
     required this.onViewReceipt,
   });
@@ -3208,6 +3325,8 @@ class _PaymentStageCard extends StatelessWidget {
   final double amount;
 
   final PaymentRecord? record;
+  final String actionLabel;
+  final bool busy;
 
   final VoidCallback onPay;
   final ValueChanged<PaymentRecord> onViewReceipt;
@@ -3227,11 +3346,15 @@ class _PaymentStageCard extends StatelessWidget {
     if (status == 'confirmed') {
       statusColor = _success;
       statusBackground = _successSoft;
-      statusText = 'Confirmed';
+      statusText = 'Paid';
     } else if (status == 'pending_confirmation') {
       statusColor = _warning;
       statusBackground = _warningSoft;
-      statusText = 'Awaiting confirmation';
+      statusText = payment?.isPayMongo == true
+          ? 'Awaiting payment'
+          : payment?.isGroupCash == true
+          ? 'Cash pending'
+          : 'Awaiting confirmation';
     } else if (status == 'disputed') {
       statusColor = _danger;
       statusBackground = _dangerSoft;
@@ -3309,28 +3432,65 @@ class _PaymentStageCard extends StatelessWidget {
             width: double.infinity,
             height: 45,
             child: status == 'confirmed'
-                ? OutlinedButton.icon(
-                    onPressed: () => onViewReceipt(payment!),
-                    icon: const Icon(Icons.receipt_long_rounded, size: 17),
-                    label: const Text('View Receipt'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _primary,
-                      side: const BorderSide(color: Color(0xFFD5E5FF)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(13),
+                ? payment!.isLegacyManualGcash
+                      ? OutlinedButton.icon(
+                          onPressed: () => onViewReceipt(payment),
+                          icon: const Icon(
+                            Icons.receipt_long_rounded,
+                            size: 17,
+                          ),
+                          label: const Text('View Receipt'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _primary,
+                            side: const BorderSide(color: Color(0xFFD5E5FF)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _successSoft,
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          child: const Text(
+                            'Paid',
+                            style: TextStyle(
+                              color: _success,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        )
+                : status == 'disputed'
+                ? Container(
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: _dangerSoft,
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: const Text(
+                      'Payment is under review',
+                      style: TextStyle(
+                        color: _danger,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
                       ),
                     ),
                   )
-                : status == 'pending_confirmation'
+                : status == 'pending_confirmation' &&
+                      payment?.isPayMongo != true
                 ? Container(
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: _warningSoft,
                       borderRadius: BorderRadius.circular(13),
                     ),
-                    child: const Text(
-                      'Waiting for driver confirmation',
-                      style: TextStyle(
+                    child: Text(
+                      payment?.isGroupCash == true
+                          ? 'Waiting for all drivers to confirm cash'
+                          : 'Waiting for driver confirmation',
+                      style: const TextStyle(
                         color: _warning,
                         fontWeight: FontWeight.w800,
                         fontSize: 10,
@@ -3338,9 +3498,20 @@ class _PaymentStageCard extends StatelessWidget {
                     ),
                   )
                 : ElevatedButton.icon(
-                    onPressed: onPay,
-                    icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                    label: const Text('Pay with GCash'),
+                    onPressed: busy ? null : onPay,
+                    icon: busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.lock_outline_rounded, size: 18),
+                    label: Text(
+                      status == 'pending_confirmation' &&
+                              payment?.isPayMongo == true
+                          ? 'Continue GCash payment'
+                          : actionLabel,
+                    ),
                     style: ElevatedButton.styleFrom(
                       elevation: 0,
                       backgroundColor: _primary,
@@ -3351,6 +3522,20 @@ class _PaymentStageCard extends StatelessWidget {
                     ),
                   ),
           ),
+          if ((payment == null || payment.isPayMongo) &&
+              status != 'confirmed') ...[
+            const SizedBox(height: 8),
+            const Center(
+              child: Text(
+                'Secure payment powered by PayMongo',
+                style: TextStyle(
+                  color: _muted,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 9,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

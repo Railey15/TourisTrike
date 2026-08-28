@@ -400,11 +400,16 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
       return 'You already accepted this booking.';
     }
 
+    if (raw.contains('DRIVER_SCHEDULE_CONFLICT')) {
+      return 'This tour overlaps another booking in your schedule.';
+    }
+
     if (raw.contains('DRIVER_NOT_AVAILABLE')) {
       return 'You must be online/available to accept bookings.';
     }
 
-    if (raw.contains('DRIVER_NOT_VERIFIED')) {
+    if (raw.contains('DRIVER_NOT_VERIFIED') ||
+        raw.contains('DRIVER_NOT_APPROVED')) {
       return 'Only verified drivers can accept bookings.';
     }
 

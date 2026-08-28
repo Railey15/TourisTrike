@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -338,7 +336,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 0;
     }
 
-    return _totalPrice(package) * 0.50;
+    return (_totalPrice(package) * 50).roundToDouble() / 100;
   }
 
   double _remainingBalance(TourPackage package) {
@@ -346,7 +344,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 0;
     }
 
-    return _totalPrice(package) * 0.50;
+    return _totalPrice(package) - _downpaymentAmount(package);
   }
 
   double _amountToPayNow(TourPackage package) {
@@ -354,7 +352,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return _totalPrice(package);
     }
 
-    return _totalPrice(package) * 0.50;
+    return _downpaymentAmount(package);
   }
 
   // =============================================================================

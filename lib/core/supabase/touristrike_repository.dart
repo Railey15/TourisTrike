@@ -23,6 +23,7 @@ class TourisTrikeTables {
   static const packageBookings = 'package_bookings';
   static const packageActivities = 'package_activities';
   static const paymentRecords = 'payment_records';
+  static const paymentAllocationSummaries = 'payment_allocation_summaries';
   static const paymentDisputes = 'payment_disputes';
   static const refundRequests = 'refund_requests';
   static const rides = 'rides';
@@ -48,6 +49,15 @@ class TourisTrikeTables {
   static const driverReviews = 'driver_reviews';
   static const sharedTripLinks = 'shared_trip_links';
   static const sharedTripAccessLogs = 'shared_trip_access_logs';
+}
+
+class PaymentProviderException implements Exception {
+  const PaymentProviderException(this.code);
+
+  final String code;
+
+  @override
+  String toString() => code;
 }
 
 class TourisTrikeRepository {
@@ -523,9 +533,8 @@ class TourisTrikeRepository {
       throw StateError(activeTourErrorMessage);
     }
 
-    final row = await insertRow(TourisTrikeTables.packageBookings, {
+    final bookingPayload = <String, dynamic>{
       'package_id': packageId,
-      'tourist_id': requireUserId(),
       'travel_date': travelDate.toIso8601String().split('T').first,
       'adults': adults,
       'children': children,
@@ -571,33 +580,16 @@ class TourisTrikeRepository {
           : (adults + children),
       'booking_status': 'waiting_for_drivers',
       'status': 'pending',
-    });
-    if (customizedSpots.isNotEmpty) {
-      await _trySaveCustomizedPackageSpots(
-        bookingId: row['id'],
-        packageId: packageId,
-        rows: customizedSpots,
-      );
-    }
-    if (itineraryItems.isNotEmpty) {
-      await replaceBookingItinerary(
-        bookingId: row['id'],
-        items: itineraryItems,
-      );
-    }
-    // Auto-create the activity record so the tourist can track the booking
-    try {
-      await insertRow(TourisTrikeTables.packageActivities, {
-        'booking_id': row['id'],
-        'tourist_id': requireUserId(),
-        'package_id': packageId,
-        'status': 'pending',
-        'price': totalAmount,
-        'payment_status': 'unpaid',
-      });
-    } catch (_) {
-      // Non-fatal: admin can create the activity manually if this fails
-    }
+    };
+    final result = await _client.rpc(
+      'create_package_booking',
+      params: {
+        'p_booking': bookingPayload,
+        'p_customized_spots': customizedSpots,
+        'p_itinerary_items': itineraryItems,
+      },
+    );
+    final row = Json.from(result as Map);
     return PackageBooking(row);
   }
 
@@ -643,51 +635,6 @@ class TourisTrikeRepository {
         .toList(growable: false);
 
     await _client.from(TourisTrikeTables.bookingItineraryItems).insert(payload);
-  }
-
-  Future<void> _trySaveCustomizedPackageSpots({
-    required dynamic bookingId,
-    required dynamic packageId,
-    required List<Json> rows,
-  }) async {
-    final touristId = requireUserId();
-    final payload = rows
-        .map(
-          (row) => <String, dynamic>{
-            'booking_id': bookingId,
-            'tourist_id': touristId,
-            'package_id': packageId,
-            'spot_id': row['spot_id'],
-            'action_type': row['action_type'],
-            'source_type': row['source_type'],
-            'google_place_id': row['google_place_id'],
-            'spot_title': row['spot_title'],
-            'spot_address': row['spot_address'],
-            'municipality': row['municipality'],
-            'barangay': row['barangay'],
-            'latitude': row['latitude'],
-            'longitude': row['longitude'],
-            'image_url': row['image_url'],
-            'additional_fee': row['additional_fee'],
-            'sort_order': row['sort_order'],
-            'opening_time': row['opening_time'],
-            'closing_time': row['closing_time'],
-            'estimated_arrival_time': row['estimated_arrival_time'],
-            'estimated_duration_minutes': row['estimated_duration_minutes'],
-            'recommended_visit_duration_minutes':
-                row['recommended_visit_duration_minutes'],
-          }..removeWhere((_, value) => value == null),
-        )
-        .toList(growable: false);
-
-    try {
-      await _client
-          .from(TourisTrikeTables.customizedPackageSpots)
-          .insert(payload);
-    } on PostgrestException {
-      // Allow bookings to proceed even if the customization snapshot table
-      // has not been migrated yet.
-    }
   }
 
   Future<List<PackageBooking>> fetchTouristPackageBookings({
@@ -919,13 +866,11 @@ class TourisTrikeRepository {
   }
 
   Future<PaymentRecord> confirmPaymentRecord(String id) async {
-    final row = await _client
-        .from(TourisTrikeTables.paymentRecords)
-        .update({'status': 'confirmed'})
-        .eq('id', id)
-        .select()
-        .single();
-    return PaymentRecord(Json.from(row));
+    final result = await _client.rpc(
+      'confirm_payment_record',
+      params: {'p_payment_record_id': id},
+    );
+    return PaymentRecord(Json.from(result as Map));
   }
 
   /// [role]: 'payer' (money sent) or 'payee' (money received) relative to the current user.
@@ -968,6 +913,82 @@ class TourisTrikeRepository {
       ascending: false,
     );
     return rows.map(PaymentRecord.new).toList(growable: false);
+  }
+
+  String _paymentAttemptKey(String bookingId, String stage) {
+    final rng = Random.secure();
+    final nonce = List.generate(
+      24,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    return 'touristrike:$bookingId:$stage:$nonce';
+  }
+
+  Future<PayMongoCheckout> createPayMongoCheckout({
+    required String bookingId,
+    required String paymentStage,
+  }) async {
+    final idempotencyKey = _paymentAttemptKey(bookingId, paymentStage);
+    try {
+      final response = await _client.functions.invoke(
+        'paymongo-create-payment',
+        body: {
+          'booking_id': bookingId,
+          'payment_stage': paymentStage,
+          'idempotency_key': idempotencyKey,
+        },
+      );
+      final data = response.data;
+      if (data is! Map) {
+        throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+      }
+      final checkout = PayMongoCheckout.fromJson(Json.from(data));
+      if (checkout.paymentRecordId.isEmpty || checkout.checkoutUrl.isEmpty) {
+        throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+      }
+      return checkout;
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final code = details is Map
+          ? dbString(details['error'], fallback: 'PAYMENT_PROVIDER_UNAVAILABLE')
+          : 'PAYMENT_PROVIDER_UNAVAILABLE';
+      throw PaymentProviderException(code);
+    }
+  }
+
+  Future<PaymentRecord> prepareGroupCashRemainingBalance({
+    required String bookingId,
+  }) async {
+    final result = await _client.rpc(
+      'prepare_group_cash_remaining_balance',
+      params: {
+        'p_booking_id': bookingId,
+        'p_idempotency_key': _paymentAttemptKey(
+          bookingId,
+          'remaining_balance_cash',
+        ),
+      },
+    );
+    return PaymentRecord(Json.from(result as Map));
+  }
+
+  Future<PaymentRecord> confirmGroupCashShare(String paymentRecordId) async {
+    final result = await _client.rpc(
+      'confirm_group_cash_share',
+      params: {'p_payment_record_id': paymentRecordId},
+    );
+    return PaymentRecord(Json.from(result as Map));
+  }
+
+  Future<List<PaymentAllocation>> fetchPaymentAllocationsForBooking(
+    String bookingId,
+  ) async {
+    final rows = await _client
+        .from(TourisTrikeTables.paymentAllocationSummaries)
+        .select()
+        .eq('booking_id', bookingId)
+        .order('created_at');
+    return _rows(rows).map(PaymentAllocation.new).toList(growable: false);
   }
 
   /// Tricycle single-ride flow only — see `record_ride_payment` in the
@@ -1851,11 +1872,11 @@ class TourisTrikeRepository {
         .eq('id', bookingId);
   }
 
-  Future<void> completePackageActivity(
+  Future<Map<String, dynamic>> completePackageActivity(
     String activityId, {
     String remainingPaymentMethod = '',
   }) async {
-    await _client.rpc(
+    final result = await _client.rpc(
       'complete_package_tour',
       params: {
         'p_activity_id': activityId,
@@ -1864,6 +1885,9 @@ class TourisTrikeRepository {
             : remainingPaymentMethod,
       },
     );
+    return result is Map
+        ? Map<String, dynamic>.from(result)
+        : const {'success': true, 'overall_completed': true};
   }
 
   Future<Map<String, dynamic>> completeCurrentItineraryItem(
@@ -2079,133 +2103,107 @@ class TourisTrikeRepository {
     return rows.map(BookingDriver.new).toList(growable: false);
   }
 
-  Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(
-  String bookingId,
-) async {
-  final bookingDrivers = await fetchBookingDrivers(bookingId);
+  Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(String bookingId) async {
+    final bookingDrivers = await fetchBookingDrivers(bookingId);
 
-  final accepted = bookingDrivers
-      .where((bd) => bd.status == 'accepted')
-      .toList(growable: false);
+    final accepted = bookingDrivers
+        .where((bd) => bd.status == 'accepted')
+        .toList(growable: false);
 
-  if (accepted.isEmpty) {
-    return const [];
+    if (accepted.isEmpty) {
+      return const [];
+    }
+
+    final driverIds = accepted.map((bd) => bd.driverId).toSet().toList();
+
+    final infos = await fetchDriverInfos(driverIds);
+
+    final locations = await Future.wait(driverIds.map(fetchDriverLiveLocation));
+
+    final locationByDriverId = <String, DriverLiveLocation?>{
+      for (var i = 0; i < driverIds.length; i++) driverIds[i]: locations[i],
+    };
+
+    return accepted
+        .map((bd) {
+          final info = infos[bd.driverId];
+
+          final displayName = info?.name.isNotEmpty == true
+              ? info!.name
+              : 'Driver';
+
+          final plate = info?.details?.plateNumber ?? '';
+
+          final avatar = info?.profile?.profileImageUrl.isNotEmpty == true
+              ? info!.profile!.profileImageUrl
+              : (info?.profile?.avatarUrl ?? '');
+
+          final loc = locationByDriverId[bd.driverId];
+
+          return ConvoyDriverSnapshot(
+            driverId: bd.driverId,
+            driverName: displayName,
+            plateNumber: plate,
+            journeyState: bd.journeyState,
+            currentStopIndex: bd.currentStopIndex,
+            stateUpdatedAt: bd.stateUpdatedAt,
+            lastLocationAt: loc?.updatedAt,
+            phoneNumber: info?.phoneNumber ?? '',
+            avatarUrl: avatar,
+            latitude: loc == null || (loc.latitude == 0 && loc.longitude == 0)
+                ? null
+                : loc.latitude,
+            longitude: loc == null || (loc.latitude == 0 && loc.longitude == 0)
+                ? null
+                : loc.longitude,
+            heading: loc?.heading ?? 0,
+            todaName: info?.details?.todaName ?? '',
+            rating: info?.profile?.averageRating ?? 0,
+            assignedPassengers: bd.assignedPassengers,
+          );
+        })
+        .toList(growable: false);
   }
 
-  final driverIds = accepted
-      .map((bd) => bd.driverId)
-      .toSet()
-      .toList();
+  Future<Map<String, dynamic>> advanceDriverJourneyState({
+    required String bookingId,
+    required ConvoyJourneyState targetState,
+  }) async {
+    try {
+      final result = await _client.rpc(
+        'advance_driver_journey_state',
+        params: {
+          'p_booking_id': bookingId,
+          'p_target_state': targetState.dbValue,
+        },
+      );
 
-  final infos = await fetchDriverInfos(driverIds);
+      if (result is Map) {
+        return Map<String, dynamic>.from(result);
+      }
 
-  final locations = await Future.wait(
-    driverIds.map(fetchDriverLiveLocation),
-  );
+      return const {'success': true};
+    } on PostgrestException catch (e) {
+      if (e.message.contains('BARRIER_NOT_MET')) {
+        throw const ConvoyBarrierNotMetException();
+      }
 
-  final locationByDriverId = <String, DriverLiveLocation?>{
-    for (var i = 0; i < driverIds.length; i++)
-      driverIds[i]: locations[i],
-  };
+      rethrow;
+    }
+  }
 
-  return accepted.map((bd) {
-    final info = infos[bd.driverId];
-
-    final displayName =
-        info?.name.isNotEmpty == true
-            ? info!.name
-            : 'Driver';
-
-    final plate =
-        info?.details?.plateNumber ?? '';
-
-    final avatar =
-        info?.profile?.profileImageUrl.isNotEmpty == true
-            ? info!.profile!.profileImageUrl
-            : (info?.profile?.avatarUrl ?? '');
-
-    final loc =
-        locationByDriverId[bd.driverId];
-
-    return ConvoyDriverSnapshot(
-      driverId: bd.driverId,
-      driverName: displayName,
-      plateNumber: plate,
-      journeyState: bd.journeyState,
-      currentStopIndex: bd.currentStopIndex,
-      stateUpdatedAt: bd.stateUpdatedAt,
-      lastLocationAt: loc?.updatedAt,
-      phoneNumber: info?.phoneNumber ?? '',
-      avatarUrl: avatar,
-      latitude:
-          loc == null ||
-                  (loc.latitude == 0 &&
-                      loc.longitude == 0)
-              ? null
-              : loc.latitude,
-      longitude:
-          loc == null ||
-                  (loc.latitude == 0 &&
-                      loc.longitude == 0)
-              ? null
-              : loc.longitude,
-      heading: loc?.heading ?? 0,
-      todaName: info?.details?.todaName ?? '',
-      rating:
-          info?.profile?.averageRating ?? 0,
-      assignedPassengers:
-          bd.assignedPassengers,
-    );
-  }).toList(growable: false);
-}
-
-Future<Map<String, dynamic>> advanceDriverJourneyState({
-  required String bookingId,
-  required ConvoyJourneyState targetState,
-}) async {
-  try {
+  Future<Map<String, dynamic>> cancelDriverSlot(String bookingId) async {
     final result = await _client.rpc(
-      'advance_driver_journey_state',
-      params: {
-        'p_booking_id': bookingId,
-        'p_target_state': targetState.dbValue,
-      },
+      'cancel_driver_slot',
+      params: {'p_booking_id': bookingId},
     );
 
     if (result is Map) {
       return Map<String, dynamic>.from(result);
     }
 
-    return const {
-      'success': true,
-    };
-  } on PostgrestException catch (e) {
-    if (e.message.contains('BARRIER_NOT_MET')) {
-      throw const ConvoyBarrierNotMetException();
-    }
-
-    rethrow;
+    return const {'success': true};
   }
-}
-
-Future<Map<String, dynamic>> cancelDriverSlot(
-  String bookingId,
-) async {
-  final result = await _client.rpc(
-    'cancel_driver_slot',
-    params: {
-      'p_booking_id': bookingId,
-    },
-  );
-
-  if (result is Map) {
-    return Map<String, dynamic>.from(result);
-  }
-
-  return const {
-    'success': true,
-  };
-}
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────
 
