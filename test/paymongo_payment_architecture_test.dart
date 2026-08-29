@@ -21,7 +21,10 @@ void main() {
   late String connection;
   late String createFunction;
   late String webhookFunction;
+  late String webhookAliasFunction;
+  late String webhookHandler;
   late String returnFunction;
+  late String supabaseConfig;
   late String repository;
   late String touristTracking;
   late String driverTracking;
@@ -46,9 +49,16 @@ void main() {
       'supabase/functions/paymongo-create-payment/index.ts',
     );
     webhookFunction = read('supabase/functions/paymongo-webhook/index.ts');
+    webhookAliasFunction = read(
+      'supabase/functions/paymongo-payment-webhook/index.ts',
+    );
+    webhookHandler = read(
+      'supabase/functions/_shared/paymongo_webhook_handler.ts',
+    );
     returnFunction = read(
       'supabase/functions/paymongo-payment-return/index.ts',
     );
+    supabaseConfig = read('supabase/config.toml');
     repository = read('lib/core/supabase/touristrike_repository.dart');
     touristTracking = read(
       'lib/screens/tourist/tourist_activity_tracking_screen.dart',
@@ -88,8 +98,11 @@ void main() {
   });
 
   test('valid paid webhook is the only provider confirmation path', () {
-    expect(webhookFunction, contains('verifyPayMongoSignature'));
-    expect(webhookFunction, contains('process_paymongo_webhook_event'));
+    expect(webhookFunction, contains('handlePayMongoWebhook'));
+    expect(webhookAliasFunction, contains('handlePayMongoWebhook'));
+    expect(supabaseConfig, contains('[functions.paymongo-payment-webhook]'));
+    expect(webhookHandler, contains('verifyPayMongoSignature'));
+    expect(webhookHandler, contains('process_paymongo_webhook_event'));
     expect(workflow, contains("'checkout_session.payment.paid'"));
     expect(workflow, contains("status = 'confirmed'"));
     expect(workflow, contains("raise exception 'PROVIDER_WEBHOOK_REQUIRED'"));

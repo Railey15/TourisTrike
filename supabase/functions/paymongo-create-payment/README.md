@@ -31,5 +31,12 @@ PayMongo redirect URLs should be fully-qualified HTTPS URLs. Deploy the
 
 That HTTPS page opens the registered `touristrike://wallet/payment/...` app
 link and provides a manual return button if the browser blocks automatic app
-opening. It never confirms payment; `paymongo-webhook` remains authoritative
-and Realtime updates Tour Tracking.
+opening. It never confirms payment; the webhook remains authoritative and
+Realtime updates Tour Tracking.
+
+Configure PayMongo webhooks to post to either deployed webhook endpoint:
+
+- `https://PROJECT.supabase.co/functions/v1/paymongo-webhook`
+- `https://PROJECT.supabase.co/functions/v1/paymongo-payment-webhook`
+
+Both endpoints use the same signed webhook handler.

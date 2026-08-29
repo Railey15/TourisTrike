@@ -4,5 +4,8 @@
 [functions.paymongo-webhook]
 verify_jwt = false
 
+[functions.paymongo-payment-webhook]
+verify_jwt = false
+
 [functions.paymongo-payment-return]
 verify_jwt = false

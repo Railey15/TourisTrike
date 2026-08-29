@@ -149,6 +149,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Future<void> _openPayMongoCheckout({required String stage}) async {
     if (_busyPaymentStages.contains(stage)) return;
+    final touristId = _booking?.touristId;
+    final currentUserId = _repo.currentUserId;
+    if (touristId != null &&
+        touristId.isNotEmpty &&
+        currentUserId != touristId) {
+      debugPrint(
+        '[PayMongo] blocked non-owner payment booking_tourist=$touristId '
+        'current_user=${currentUserId ?? 'none'}',
+      );
+      _showSnack('Use the tourist account that created this booking to pay.');
+      return;
+    }
     setState(() => _busyPaymentStages.add(stage));
     try {
       final checkout = await _repo.createPayMongoCheckout(
@@ -176,10 +188,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         'INVALID_PAYMONGO_ENVIRONMENT',
         'INVALID_PAYMONGO_CHECKOUT_API_VERSION',
       };
+      debugPrint('[PayMongo] checkout failed: ${error.code}');
       _showSnack(
         configurationErrors.contains(error.code)
             ? 'GCash payment is temporarily unavailable.'
-            : 'Unable to open secure GCash payment. Please try again.',
+            : 'Unable to open secure GCash payment: ${error.code}',
       );
     } catch (error) {
       debugPrint('[PayMongo] checkout launch failed: $error');

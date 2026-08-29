@@ -8,7 +8,7 @@ void main() {
 
   setUpAll(() {
     migration = File(
-      'supabase/migrations/20260827010000_fix_initial_package_booking_state.sql',
+      'supabase/migrations/20260828000000_harden_package_booking_initial_guard.sql',
     ).readAsStringSync().replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     repository = File(
       'lib/core/supabase/touristrike_repository.dart',
@@ -18,6 +18,7 @@ void main() {
   test('solo booking starts waiting for one driver', () {
     expect(repository, contains("'required_drivers': requiredDrivers"));
     expect(repository, contains("'booking_status': 'waiting_for_drivers'"));
+    expect(migration, contains('new.required_drivers is null'));
     expect(migration, contains('new.required_drivers < 1'));
   });
 
@@ -25,6 +26,8 @@ void main() {
     expect(migration, contains("not in ('pending', 'waiting_for_drivers')"));
     expect(migration, contains("new.booking_status := 'waiting_for_drivers'"));
     expect(migration, contains('new.accepted_drivers_count := 0'));
+    expect(migration, contains("raise exception 'INVALID_INITIAL_STATUS'"));
+    expect(migration, contains("raise exception 'INVALID_REQUIRED_DRIVERS'"));
   });
 
   test(
@@ -34,6 +37,12 @@ void main() {
       expect(migration, isNot(contains('new.required_drivers > 2')));
     },
   );
+
+  test('blank status inputs are normalized before validation', () {
+    expect(migration, contains("nullif(trim(new.status), '')"));
+    expect(migration, contains("nullif(trim(new.booking_status), '')"));
+    expect(migration, contains("new.status := 'pending'"));
+  });
 
   test('initial assignment and nonzero accepted count remain invalid', () {
     expect(migration, contains('new.assigned_driver_id is not null'));
