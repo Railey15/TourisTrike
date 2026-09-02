@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_screen.dart';
 import 'web_portal_landing_screen.dart';
 import '../tourist/tourist_home_screen.dart';
+import '../tourist/tourist_activity_tracking_screen.dart';
 import '../driver/driver_home_screen.dart';
 import '../admin/provincial_admin_dashboard_screen.dart';
 import '../subtenant/subtenant_dashboard_screen.dart';
@@ -27,6 +29,7 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
   int _progress = 0;
   Timer? _timer;
   late final AnimationController _floatController;
+  final AppLinks _appLinks = AppLinks();
 
   @override
   void initState() {
@@ -91,7 +94,11 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
       Widget destination;
       switch (role) {
         case 'tourist':
-          destination = const TouristHomeScreen();
+          final bookingId = await _initialPaymentReturnBookingId();
+          if (!mounted) return;
+          destination = bookingId == null
+              ? const TouristHomeScreen()
+              : ActivityTrackingScreen(bookingId: bookingId);
           break;
         case 'driver':
           destination = const DriverHomeScreen();
@@ -116,6 +123,33 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
     }
   }
 
+  Future<String?> _initialPaymentReturnBookingId() async {
+    try {
+      final uri = await _appLinks.getInitialLink();
+      if (uri == null ||
+          uri.scheme != 'touristrike' ||
+          uri.host != 'wallet' ||
+          uri.pathSegments.length < 2 ||
+          uri.pathSegments[0] != 'payment') {
+        return null;
+      }
+      final bookingId = uri.queryParameters['booking_id'] ?? '';
+      final isUuid = RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        caseSensitive: false,
+      ).hasMatch(bookingId);
+      if (!isUuid) return null;
+      debugPrint(
+        '[PayMongo] payment return deep link received; '
+        'opening booking=$bookingId and refreshing server state',
+      );
+      return bookingId;
+    } catch (error) {
+      debugPrint('[PayMongo] initial payment deep link unavailable: $error');
+      return null;
+    }
+  }
+
   void _goToLogin() {
     Navigator.pushReplacement(
       context,
@@ -135,8 +169,10 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
     final size = MediaQuery.sizeOf(context);
     const horizontalPadding = 28.0;
     final trackWidth = math.max(0.0, size.width - (horizontalPadding * 2));
-    final progressWidth =
-        (trackWidth * (_progress / 100)).clamp(0.0, trackWidth);
+    final progressWidth = (trackWidth * (_progress / 100)).clamp(
+      0.0,
+      trackWidth,
+    );
 
     return Scaffold(
       body: Container(
@@ -146,11 +182,7 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFEAF5FF),
-              Color(0xFFF8FBFF),
-              Color(0xFFEFFAF5),
-            ],
+            colors: [Color(0xFFEAF5FF), Color(0xFFF8FBFF), Color(0xFFEFFAF5)],
           ),
         ),
         child: Stack(
@@ -310,9 +342,7 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
           ),
           const SizedBox(width: 8),
           Text(
-            kIsWeb
-                ? 'Tourism Management Portal'
-                : 'Tourist Mobility Platform',
+            kIsWeb ? 'Tourism Management Portal' : 'Tourist Mobility Platform',
             style: const TextStyle(
               fontSize: 14.5,
               color: Color(0xFF475569),

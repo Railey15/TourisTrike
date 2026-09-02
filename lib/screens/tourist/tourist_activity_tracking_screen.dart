@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
 import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
+import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/emergency_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
@@ -17,6 +18,7 @@ import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/screens/tourist/booking_cancellation_result_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
+import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
 import 'package:touristrike/widgets/package_booking_cancellation_flow.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -73,14 +75,20 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   PackageActivity? _activity;
   PackageBooking? _booking;
   DriverInfo? _driverInfo;
+  List<ConvoyDriverSnapshot> _convoy = const [];
+  String? _selectedDriverId;
+  final Map<String, LatLng> _convoyPositions = <String, LatLng>{};
+  final Map<String, double> _convoyHeadings = <String, double>{};
 
   List<BookingItineraryItem> _spots = [];
   List<EmergencyContactRecord> _emergencyContacts = [];
   List<PaymentRecord> _paymentRecords = [];
+  List<PaymentAllocation> _paymentAllocations = [];
   final Set<String> _busyPaymentStages = <String>{};
 
   bool _loading = true;
   bool _reviewShown = false;
+  bool _serverTestModeEnabled = false;
 
   String? _error;
   String? _eta;
@@ -88,21 +96,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   bool _isFollowingDriver = false;
   bool _isProgrammaticMove = false;
 
-  double _driverSpeed = 0.0;
-  double _driverHeading = 0.0;
-
   BitmapDescriptor? _tricycleMarker;
   BitmapDescriptor? _passengerMarker;
 
   Position? _touristPosition;
 
   StreamSubscription<Position>? _touristGpsSub;
+  Timer? _routeRefreshTimer;
+  int _routeLoadGeneration = 0;
 
   RealtimeChannel? _activityChannel;
   RealtimeChannel? _locationChannel;
   RealtimeChannel? _bookingChannel;
   RealtimeChannel? _itineraryChannel;
   RealtimeChannel? _paymentChannel;
+  RealtimeChannel? _bookingDriversChannel;
 
   GoogleMapController? _mapCtrl;
 
@@ -118,12 +126,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   int get _completedSpotCount =>
       _spots.where((spot) => spot.spotStatus == 'completed').length;
-
-  double get _itineraryProgress {
-    if (_spots.isEmpty) return 0;
-
-    return _completedSpotCount / _spots.length;
-  }
 
   // =========================================================================
   // PAYMENT HELPERS
@@ -149,6 +151,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Future<void> _openPayMongoCheckout({required String stage}) async {
     if (_busyPaymentStages.contains(stage)) return;
+    debugPrint(
+      '[PayMongo] Pay with GCash pressed '
+      'booking=${widget.bookingId} stage=$stage',
+    );
     final touristId = _booking?.touristId;
     final currentUserId = _repo.currentUserId;
     if (touristId != null &&
@@ -172,6 +178,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
       }
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      debugPrint('[PayMongo] launchUrl result=$opened host=${uri.host}');
       if (!opened) {
         throw const PaymentProviderException('CHECKOUT_COULD_NOT_OPEN');
       }
@@ -180,6 +187,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       );
       await _refreshPayments();
     } on PaymentProviderException catch (error) {
+      if (error.code == 'PAYMENT_ALREADY_CONFIRMED') {
+        await _refreshPayments();
+        _showSnack('Payment is already confirmed.');
+        return;
+      }
       final configurationErrors = {
         'PAYMENT_PROVIDER_NOT_CONFIGURED',
         'PAYMENT_BACKEND_NOT_CONFIGURED',
@@ -287,7 +299,25 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      debugPrint('[PayMongo] app resumed; refreshing server payment status');
       _refreshPayments();
+      _refreshServerTestModeState();
+    }
+  }
+
+  Future<void> _refreshServerTestModeState() async {
+    if (!kDebugMode) return;
+    var enabled = false;
+    try {
+      enabled = await _repo.fetchDeveloperTestBookingMode(widget.bookingId);
+    } catch (error) {
+      debugPrint(
+        '[TEST MODE] booking_id=${widget.bookingId} action=read '
+        'server_state_error=$error',
+      );
+    }
+    if (mounted && enabled != _serverTestModeEnabled) {
+      setState(() => _serverTestModeEnabled = enabled);
     }
   }
 
@@ -299,8 +329,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
     _paymentChannel?.unsubscribe();
+    _bookingDriversChannel?.unsubscribe();
 
     _touristGpsSub?.cancel();
+    _routeRefreshTimer?.cancel();
 
     _mapCtrl?.dispose();
 
@@ -357,6 +389,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       final spots = await _repo.fetchBookingItinerary(widget.bookingId);
 
       final emergencyContacts = await _repo.fetchEmergencyContacts();
+      final convoy = await _repo.fetchConvoyRoster(widget.bookingId);
+
+      var serverTestModeEnabled = false;
+      if (kDebugMode) {
+        try {
+          serverTestModeEnabled = await _repo.fetchDeveloperTestBookingMode(
+            widget.bookingId,
+          );
+        } catch (error) {
+          debugPrint(
+            '[TEST MODE] booking_id=${widget.bookingId} action=read '
+            'server_state_error=$error',
+          );
+        }
+      }
 
       DriverInfo? driverInfo;
 
@@ -367,11 +414,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
 
       var paymentRecords = <PaymentRecord>[];
+      var paymentAllocations = <PaymentAllocation>[];
 
       try {
-        paymentRecords = await _repo.fetchPaymentRecordsFor(
-          bookingId: _bookingIdForQueries,
-        );
+        final paymentResults = await Future.wait<dynamic>([
+          _repo.fetchPaymentRecordsFor(bookingId: _bookingIdForQueries),
+          _repo.fetchPaymentAllocationsForBooking(widget.bookingId),
+        ]);
+        paymentRecords = paymentResults[0] as List<PaymentRecord>;
+        paymentAllocations = paymentResults[1] as List<PaymentAllocation>;
       } catch (_) {
         // Payment status is non-critical to screen loading.
       }
@@ -382,10 +433,34 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _activity = activity;
         _booking = booking;
         _driverInfo = driverInfo;
+        _convoy = convoy;
+        _selectedDriverId ??= convoy.firstOrNull?.driverId;
+        _convoyPositions
+          ..clear()
+          ..addEntries(
+            convoy
+                .where(
+                  (driver) =>
+                      driver.latitude != null && driver.longitude != null,
+                )
+                .map(
+                  (driver) => MapEntry(
+                    driver.driverId,
+                    LatLng(driver.latitude!, driver.longitude!),
+                  ),
+                ),
+          );
+        _convoyHeadings
+          ..clear()
+          ..addEntries(
+            convoy.map((driver) => MapEntry(driver.driverId, driver.heading)),
+          );
 
         _spots = spots;
         _emergencyContacts = emergencyContacts;
         _paymentRecords = paymentRecords;
+        _paymentAllocations = paymentAllocations;
+        _serverTestModeEnabled = serverTestModeEnabled;
 
         _loading = false;
       });
@@ -395,7 +470,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _buildMarkers();
       _fetchCurrentRoute();
 
-      _subscribeToActivity(driverId);
+      _subscribeToActivity();
+      _subscribeToConvoyRoster();
       _subscribeToBooking(widget.bookingId);
       _subscribeToPayments(widget.bookingId);
 
@@ -415,7 +491,47 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // REALTIME
   // =========================================================================
 
-  void _subscribeToActivity(String driverId) {
+  void _subscribeToConvoyRoster() {
+    _bookingDriversChannel?.unsubscribe();
+    _bookingDriversChannel = _supabase
+        .channel('tourist-convoy:${widget.bookingId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_drivers',
+          filter: PostgresChangeFilter(
+            column: 'booking_id',
+            type: PostgresChangeFilterType.eq,
+            value: widget.bookingId,
+          ),
+          callback: (_) => _refreshConvoyRoster(),
+        )
+        .subscribe();
+  }
+
+  Future<void> _refreshConvoyRoster() async {
+    final convoy = await _repo.fetchConvoyRoster(widget.bookingId);
+    if (!mounted) return;
+    setState(() {
+      _convoy = convoy;
+      if (!convoy.any((driver) => driver.driverId == _selectedDriverId)) {
+        _selectedDriverId = convoy.firstOrNull?.driverId;
+      }
+      for (final driver in convoy) {
+        if (driver.latitude != null && driver.longitude != null) {
+          _convoyPositions[driver.driverId] = LatLng(
+            driver.latitude!,
+            driver.longitude!,
+          );
+          _convoyHeadings[driver.driverId] = driver.heading;
+        }
+      }
+    });
+    _buildMarkers();
+    _scheduleRouteRefresh();
+  }
+
+  void _subscribeToActivity() {
     _activityChannel?.unsubscribe();
 
     _activityChannel = _supabase
@@ -459,62 +575,37 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         )
         .subscribe();
 
-    if (driverId.isNotEmpty) {
-      _locationChannel?.unsubscribe();
-
-      _locationChannel = _supabase
-          .channel('live-loc:$driverId')
-          .onPostgresChanges(
-            event: PostgresChangeEvent.update,
-            schema: 'public',
-            table: 'driver_live_locations',
-            filter: PostgresChangeFilter(
-              column: 'driver_id',
-              type: PostgresChangeFilterType.eq,
-              value: driverId,
-            ),
-            callback: (payload) {
-              final newRow = payload.newRecord;
-
-              if (!mounted || newRow.isEmpty) {
-                return;
-              }
-
-              final lat = newRow['latitude'] as num?;
-              final lng = newRow['longitude'] as num?;
-
-              final speed = (newRow['speed'] as num?)?.toDouble() ?? 0;
-
-              final heading =
-                  (newRow['heading'] as num?)?.toDouble() ?? _driverHeading;
-
-              if (lat == null || lng == null) {
-                return;
-              }
-
-              if (_activity != null) {
-                setState(() {
-                  _driverSpeed = speed;
-                  _driverHeading = heading;
-
-                  _activity = PackageActivity({
-                    ..._activity!.row,
-                    'driver_latitude': lat.toDouble(),
-                    'driver_longitude': lng.toDouble(),
-                    'driver_last_seen': newRow['updated_at'],
-                  });
-                });
-
-                _buildMarkers();
-
-                if (_isFollowingDriver) {
-                  _animateCameraToDriver();
-                }
-              }
-            },
-          )
-          .subscribe();
-    }
+    _locationChannel?.unsubscribe();
+    _locationChannel = _supabase
+        .channel('convoy-live-loc:${widget.bookingId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_live_locations',
+          callback: (payload) {
+            final row = payload.newRecord;
+            final driverId = row['driver_id']?.toString() ?? '';
+            if (!mounted ||
+                driverId.isEmpty ||
+                !_convoy.any((driver) => driver.driverId == driverId)) {
+              return;
+            }
+            final lat = (row['latitude'] as num?)?.toDouble();
+            final lng = (row['longitude'] as num?)?.toDouble();
+            if (lat == null || lng == null) return;
+            setState(() {
+              _convoyPositions[driverId] = LatLng(lat, lng);
+              _convoyHeadings[driverId] =
+                  (row['heading'] as num?)?.toDouble() ?? 0;
+            });
+            _buildMarkers();
+            _scheduleRouteRefresh();
+            if (_isFollowingDriver && _selectedDriverId == driverId) {
+              _animateCameraToRelevant();
+            }
+          },
+        )
+        .subscribe();
 
     _itineraryChannel?.unsubscribe();
 
@@ -592,6 +683,31 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           ),
           callback: (_) => _refreshPayments(),
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payment_allocations',
+          filter: PostgresChangeFilter(
+            column: 'booking_id',
+            type: PostgresChangeFilterType.eq,
+            value: bookingId,
+          ),
+          callback: (_) => _refreshPayments(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_payment_requirements',
+          filter: PostgresChangeFilter(
+            column: 'booking_id',
+            type: PostgresChangeFilterType.eq,
+            value: bookingId,
+          ),
+          callback: (_) {
+            _refreshPayments();
+            _refreshSpots(logTag: 'payment-requirement-update');
+          },
+        )
         .subscribe();
   }
 
@@ -600,13 +716,13 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // =========================================================================
 
   bool _isTourCompleted() {
-    final bookingStatus = _booking?.bookingStatus ?? '';
-    final tourStatus = _activity?.tourStatus ?? '';
-    final activityStatus = _activity?.status ?? '';
+    final bookingStatus = (_booking?.bookingStatus ?? '').toLowerCase();
+    final tourStatus = (_activity?.tourStatus ?? '').toLowerCase();
+    final activityStatus = (_activity?.status ?? '').toLowerCase();
 
     return bookingStatus == 'completed' ||
+        bookingStatus == 'done' ||
         tourStatus == 'completed' ||
-        tourStatus == 'dropped_off' ||
         activityStatus == 'completed';
   }
 
@@ -686,8 +802,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final booking = await _repo.fetchPackageBookingDetails(widget.bookingId);
 
     final spots = await _repo.fetchBookingItinerary(widget.bookingId);
+    final convoy = await _repo.fetchConvoyRoster(widget.bookingId);
     final paymentRecords = await _repo.fetchPaymentRecordsFor(
       bookingId: widget.bookingId,
+    );
+    final paymentAllocations = await _repo.fetchPaymentAllocationsForBooking(
+      widget.bookingId,
     );
 
     final driverId = booking?.assignedDriverId ?? activity?.driverId ?? '';
@@ -702,8 +822,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _activity = activity;
       _booking = booking;
       _driverInfo = driverInfo;
+      _convoy = convoy;
       _spots = spots;
       _paymentRecords = paymentRecords;
+      _paymentAllocations = paymentAllocations;
     });
 
     _debugTourState(logTag);
@@ -716,10 +838,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Future<void> _refreshPayments() async {
     try {
-      final records = await _repo.fetchPaymentRecordsFor(
-        bookingId: widget.bookingId,
-      );
-      if (mounted) setState(() => _paymentRecords = records);
+      final results = await Future.wait<dynamic>([
+        _repo.fetchPaymentRecordsFor(bookingId: widget.bookingId),
+        _repo.fetchPaymentAllocationsForBooking(widget.bookingId),
+      ]);
+      if (mounted) {
+        setState(() {
+          _paymentRecords = results[0] as List<PaymentRecord>;
+          _paymentAllocations = results[1] as List<PaymentAllocation>;
+        });
+      }
     } catch (error) {
       debugPrint('[Payments] refresh failed: $error');
     }
@@ -749,6 +877,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       'current itinerary item id=${currentItem?.id} '
       'current itinerary item status=${currentItem?.spotStatus} '
       'spot_status list=[$spotStatusList] '
+      'payment allocations=${_paymentAllocations.length} '
       'package_activities.status=${activity?.status} '
       'package_activities.tour_status=${activity?.tourStatus} '
       'package_bookings.status=${booking?.status} '
@@ -884,23 +1013,29 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       );
     }
 
-    final activity = _activity;
-
-    if (activity != null &&
-        activity.driverLatitude != null &&
-        activity.driverLongitude != null) {
+    for (var index = 0; index < _convoy.length; index++) {
+      final driver = _convoy[index];
+      final position = _convoyPositions[driver.driverId];
+      if (position == null) continue;
       markers.add(
         Marker(
-          markerId: const MarkerId('driver'),
-          position: LatLng(activity.driverLatitude!, activity.driverLongitude!),
+          markerId: MarkerId('driver_${driver.driverId}'),
+          position: position,
           icon:
               _tricycleMarker ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
-          rotation: _driverHeading,
+          rotation: _convoyHeadings[driver.driverId] ?? driver.heading,
           anchor: const Offset(0.5, 0.5),
           flat: true,
-          infoWindow: const InfoWindow(title: 'Your Driver'),
-          zIndexInt: 1,
+          infoWindow: InfoWindow(
+            title: 'Tricycle ${index + 1}: ${driver.driverName}',
+            snippet: driver.journeyState.label,
+          ),
+          onTap: () {
+            setState(() => _selectedDriverId = driver.driverId);
+            _scheduleRouteRefresh();
+          },
+          zIndexInt: driver.driverId == _selectedDriverId ? 2 : 1,
         ),
       );
     }
@@ -916,101 +1051,118 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // ROUTE
   // =========================================================================
 
-  Future<void> _fetchCurrentRoute() async {
+  void _scheduleRouteRefresh() {
+    _routeRefreshTimer?.cancel();
+    _routeRefreshTimer = Timer(const Duration(seconds: 2), _fetchCurrentRoute);
+  }
+
+  LatLng? _currentRouteDestination() {
     final activity = _activity;
     final booking = _booking;
-
-    if (activity == null || booking == null) {
-      return;
-    }
-
-    LatLng? origin;
-    LatLng? destination;
+    if (activity == null || booking == null) return null;
 
     final status = activity.tourStatus;
+    if (status == 'awaiting_remaining_payment') return null;
 
     if (status == 'driver_accepted' ||
         status == 'driver_en_route' ||
         status == 'driver_arrived') {
-      if (activity.driverLatitude != null &&
-          activity.driverLongitude != null &&
-          booking.pickupLatitude != null &&
-          booking.pickupLongitude != null) {
-        origin = LatLng(activity.driverLatitude!, activity.driverLongitude!);
-
-        destination = LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
+      if (booking.pickupLatitude == null || booking.pickupLongitude == null) {
+        return null;
       }
-    } else if (status == 'picked_up' ||
-        status == 'on_tour' ||
-        status == 'en_route_to_spot') {
-      final currentItem = _currentItineraryItem;
-
-      if (currentItem != null) {
-        origin =
-            activity.driverLatitude != null && activity.driverLongitude != null
-            ? LatLng(activity.driverLatitude!, activity.driverLongitude!)
-            : booking.pickupLatitude != null && booking.pickupLongitude != null
-            ? LatLng(booking.pickupLatitude!, booking.pickupLongitude!)
-            : null;
-
-        destination = LatLng(currentItem.latitude, currentItem.longitude);
-      }
-    } else if (status == 'at_spot') {
-      final currentItem = _currentItineraryItem;
-
-      if (currentItem != null &&
-          activity.driverLatitude != null &&
-          activity.driverLongitude != null) {
-        origin = LatLng(activity.driverLatitude!, activity.driverLongitude!);
-
-        destination = LatLng(currentItem.latitude, currentItem.longitude);
-      }
-    } else if (status == 'en_route_to_dropoff' ||
-        status == 'ready_to_complete') {
-      if (booking.dropoffLatitude != null && booking.dropoffLongitude != null) {
-        origin =
-            activity.driverLatitude != null && activity.driverLongitude != null
-            ? LatLng(activity.driverLatitude!, activity.driverLongitude!)
-            : _spots.isNotEmpty
-            ? LatLng(_spots.last.latitude, _spots.last.longitude)
-            : null;
-
-        destination = LatLng(
-          booking.dropoffLatitude!,
-          booking.dropoffLongitude!,
-        );
-      }
+      return LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
     }
 
-    if (origin == null || destination == null) {
+    if (status == 'picked_up' ||
+        status == 'on_tour' ||
+        status == 'en_route_to_spot' ||
+        status == 'at_spot') {
+      final current = _currentItineraryItem;
+      if (current != null) return LatLng(current.latitude, current.longitude);
+      if (booking.dropoffLatitude != null && booking.dropoffLongitude != null) {
+        return LatLng(booking.dropoffLatitude!, booking.dropoffLongitude!);
+      }
+      return null;
+    }
+
+    if (status == 'en_route_to_dropoff' || status == 'ready_to_complete') {
+      if (booking.dropoffLatitude == null || booking.dropoffLongitude == null) {
+        return null;
+      }
+      return LatLng(booking.dropoffLatitude!, booking.dropoffLongitude!);
+    }
+
+    return null;
+  }
+
+  Future<void> _fetchCurrentRoute() async {
+    final activity = _activity;
+    final destination = _currentRouteDestination();
+    if (activity == null || destination == null) {
       if (mounted) {
         setState(() {
           _polylines = {};
+          _eta = null;
         });
       }
-
       return;
     }
 
-    final result = await _routeService.fetchRoute(origin, destination);
+    final origins = <String, LatLng>{..._convoyPositions};
+    if (origins.isEmpty &&
+        activity.driverLatitude != null &&
+        activity.driverLongitude != null) {
+      origins[_selectedDriverId ?? activity.driverId] = LatLng(
+        activity.driverLatitude!,
+        activity.driverLongitude!,
+      );
+    }
+    if (origins.isEmpty) return;
 
-    if (!mounted) return;
+    final generation = ++_routeLoadGeneration;
+    final results = await Future.wait(
+      origins.entries.map((entry) async {
+        try {
+          final route = await _routeService.fetchRoute(
+            entry.value,
+            destination,
+          );
+          return (driverId: entry.key, route: route);
+        } catch (error) {
+          debugPrint('[Routes] driver=${entry.key} route failed: $error');
+          return null;
+        }
+      }),
+    );
 
-    setState(() {
-      _polylines = {
+    if (!mounted || generation != _routeLoadGeneration) return;
+
+    final lines = <Polyline>{};
+    String? selectedEta;
+    for (final result in results) {
+      if (result == null) continue;
+      final selected = result.driverId == _selectedDriverId;
+      lines.add(
         Polyline(
-          polylineId: const PolylineId('route'),
-          points: result.points,
-          color: _primary,
-          width: 5,
+          polylineId: PolylineId('driver_route_${result.driverId}'),
+          points: result.route.points,
+          color: selected ? _primary : const Color(0xFF7C3AED),
+          width: selected ? 6 : 4,
           geodesic: true,
           jointType: JointType.round,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
+          zIndex: selected ? 2 : 1,
         ),
-      };
+      );
+      if (selected || selectedEta == null) {
+        selectedEta = result.route.durationText;
+      }
+    }
 
-      _eta = result.durationText;
+    setState(() {
+      _polylines = lines;
+      _eta = selectedEta;
     });
   }
 
@@ -1037,52 +1189,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // CAMERA
   // =========================================================================
 
-  double _speedToZoom(double speedMs) {
-    final kmh = speedMs * 3.6;
-
-    if (kmh < 10) return 17;
-    if (kmh < 30) return 15.5;
-    if (kmh < 60) return 13.5;
-
-    return 12;
-  }
-
-  void _animateCameraToDriver() {
-    final activity = _activity;
-
-    if (_mapCtrl == null ||
-        activity?.driverLatitude == null ||
-        activity?.driverLongitude == null) {
-      return;
-    }
-
-    _isProgrammaticMove = true;
-
-    _mapCtrl!.animateCamera(
-      CameraUpdate.newLatLngZoom(
-        LatLng(activity!.driverLatitude!, activity.driverLongitude!),
-        _speedToZoom(_driverSpeed),
-      ),
-    );
-  }
-
   void _animateCameraToRelevant() {
     if (_mapCtrl == null) {
       return;
     }
 
-    final activity = _activity;
     final booking = _booking;
+    final selectedPosition = _convoyPositions[_selectedDriverId];
 
-    if (activity?.driverLatitude != null && activity?.driverLongitude != null) {
+    if (selectedPosition != null && !_isTourCompleted()) {
       _isProgrammaticMove = true;
 
-      _mapCtrl!.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(activity!.driverLatitude!, activity.driverLongitude!),
-          15,
-        ),
-      );
+      _mapCtrl!.animateCamera(CameraUpdate.newLatLngZoom(selectedPosition, 15));
     } else if (booking?.pickupLatitude != null &&
         booking?.pickupLongitude != null) {
       _isProgrammaticMove = true;
@@ -1245,9 +1363,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   }
 
   Future<void> _openDriverChat() async {
-    final booking = _booking;
-
-    final driverId = booking?.assignedDriverId ?? _activity?.driverId ?? '';
+    final selected = _convoy
+        .where((driver) => driver.driverId == _selectedDriverId)
+        .firstOrNull;
+    final driverId = selected?.driverId ?? _convoy.firstOrNull?.driverId ?? '';
 
     if (driverId.isEmpty) {
       _showSnack('Driver has not accepted the tour yet.');
@@ -1256,12 +1375,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
 
     try {
-      final conversation = await _repo.getOrCreateConversation(
-        touristId: booking?.touristId.isNotEmpty == true
-            ? booking!.touristId
-            : _repo.requireUserId(),
-        driverId: driverId,
-        bookingId: booking?.id,
+      final conversation = await _repo.ensureBookingGroupConversation(
+        widget.bookingId,
       );
 
       if (!mounted) return;
@@ -1272,11 +1387,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           builder: (_) => TouristChatScreen(
             conversationId: conversation['id'].toString(),
             driverId: driverId,
-            driverName: _driverInfo?.name ?? 'Driver',
-            driverPhone: _driverInfo?.phoneNumber ?? '',
-            driverAvatar: _driverInfo?.profile?.avatarUrl.isNotEmpty == true
-                ? _driverInfo!.profile!.avatarUrl
-                : _driverInfo?.profile?.profileImageUrl ?? '',
+            driverName: _convoy.length > 1
+                ? 'Booking Group (${_convoy.length + 1})'
+                : selected?.driverName ?? 'Driver',
+            driverPhone: selected?.phoneNumber ?? '',
+            driverAvatar: selected?.avatarUrl ?? '',
           ),
         ),
       );
@@ -1351,24 +1466,32 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       backgroundColor: _background,
       body: SafeArea(
         bottom: false,
-        child: _loading
-            ? const _LoadingView()
-            : _error != null
-            ? Column(
-                children: [
-                  _TrackingTopBar(
-                    eta: null,
-                    onBack: () => Navigator.pop(context),
-                    onShare: () {},
-                    onRefresh: _load,
-                    onManage: null,
-                  ),
-                  Expanded(
-                    child: _ErrorView(message: _error!, onRetry: _load),
-                  ),
-                ],
-              )
-            : _buildContent(),
+        child: Column(
+          children: [
+            if (kDebugMode && _serverTestModeEnabled)
+              const _TestModeActiveBanner(),
+            Expanded(
+              child: _loading
+                  ? const _LoadingView()
+                  : _error != null
+                  ? Column(
+                      children: [
+                        _TrackingTopBar(
+                          eta: null,
+                          onBack: () => Navigator.pop(context),
+                          onShare: () {},
+                          onRefresh: _load,
+                          onManage: null,
+                        ),
+                        Expanded(
+                          child: _ErrorView(message: _error!, onRetry: _load),
+                        ),
+                      ],
+                    )
+                  : _buildContent(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1396,14 +1519,33 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         ? 'waiting_for_drivers'
         : activity?.tourStatus ?? 'waiting_driver';
 
-    final statusData =
-        _statusInfo[tourStatus] ??
-        (
-          tourStatus.replaceAll('_', ' ').toUpperCase(),
-          '',
-          _muted,
-          Icons.info_rounded,
-        );
+    final awaitingFinalPayment =
+        bookingStatus.toLowerCase() == 'awaiting_final_payment';
+    final awaitingRemainingPayment =
+        bookingStatus.toLowerCase() == 'awaiting_remaining_payment' ||
+        tourStatus == 'awaiting_remaining_payment';
+
+    final statusData = awaitingRemainingPayment
+        ? (
+            'TOUR ITINERARY COMPLETED',
+            'Remaining payment is required before the convoy can proceed to drop-off.',
+            const Color(0xFFD97706),
+            Icons.payments_outlined,
+          )
+        : awaitingFinalPayment
+        ? (
+            'TOUR FINISHED — AWAITING FINAL PAYMENT',
+            'All drivers and itinerary stops are complete. Confirm the remaining balance to close this booking.',
+            const Color(0xFFD97706),
+            Icons.payments_outlined,
+          )
+        : _statusInfo[tourStatus] ??
+              (
+                tourStatus.replaceAll('_', ' ').toUpperCase(),
+                '',
+                _muted,
+                Icons.info_rounded,
+              );
 
     final (statusLabel, statusDescription, statusColor, statusIcon) =
         statusData;
@@ -1431,11 +1573,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     final driverReviewCount = _driverInfo?.profile?.totalReviews ?? 0;
 
-    final completed = tourStatus == 'completed' || tourStatus == 'dropped_off';
+    final completed = _isTourCompleted();
     final fullyAssigned =
         requiredDrivers > 0 && acceptedDrivers >= requiredDrivers;
     final downPaymentRecord = _paymentRecordForStage('down_payment');
     final downPaymentConfirmed = downPaymentRecord?.isConfirmed == true;
+    final remainingPaymentRecord = _paymentRecordForStage('remaining_balance');
+    final itineraryComplete =
+        _spots.isNotEmpty && _completedSpotCount == _spots.length;
 
     return Column(
       children: [
@@ -1480,6 +1625,33 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 ),
 
                 const SizedBox(height: 14),
+
+                if (itineraryComplete &&
+                    remainingPaymentRecord?.isConfirmed == true) ...[
+                  const _ModernCard(
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: _success,
+                          size: 22,
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Payment confirmed • The convoy may proceed to drop-off.',
+                            style: TextStyle(
+                              color: Color(0xFF166534),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
 
                 // ===========================================================
                 // MAP
@@ -1532,6 +1704,20 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   const SizedBox(height: 14),
                 ],
 
+                if (_convoy.isNotEmpty) ...[
+                  ConvoyTouristDriverList(
+                    convoy: _convoy,
+                    selectedDriverId: _selectedDriverId,
+                    onSelect: (driverId) {
+                      setState(() => _selectedDriverId = driverId);
+                      _animateCameraToRelevant();
+                    },
+                    onCall: (driver) => _launchPhone(driver.phoneNumber),
+                    onMessage: (_) => _openDriverChat(),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
                 // ===========================================================
                 // CURRENT DESTINATION
                 // ===========================================================
@@ -1548,7 +1734,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // DRIVER
                 // ===========================================================
-                if (driverName.isNotEmpty) ...[
+                if (_convoy.isEmpty && driverName.isNotEmpty) ...[
                   _DriverCard(
                     name: driverName,
                     phone: driverPhone,
@@ -1627,11 +1813,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 if (fullyAssigned &&
                     bookingType == 'advanced' &&
                     downPaymentConfirmed &&
+                    (itineraryComplete || remainingPaymentRecord != null) &&
                     (booking?.remainingBalance ?? 0) > 0) ...[
                   _PaymentStageCard(
                     title: 'Remaining Balance',
                     amount: booking!.remainingBalance,
-                    record: _paymentRecordForStage('remaining_balance'),
+                    record: remainingPaymentRecord,
+                    cashAllocations: _paymentAllocations,
+                    convoy: _convoy,
                     actionLabel: 'Choose GCash or Cash',
                     busy: _busyPaymentStages.contains('remaining_balance'),
                     onPay: _chooseRemainingPayment,
@@ -1645,6 +1834,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 _BookingSummaryCard(
                   date: travelDate,
+                  pickupDateTime: booking?.scheduledStartAt?.toLocal(),
                   bookingType: bookingType,
                   adults: adults,
                   children: children,
@@ -1770,6 +1960,35 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 // ============================================================================
 // TOP BAR
 // ============================================================================
+
+class _TestModeActiveBanner extends StatelessWidget {
+  const _TestModeActiveBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFB91C1C),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 17),
+          SizedBox(width: 7),
+          Text(
+            'TEST MODE ACTIVE',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.7,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _TrackingTopBar extends StatelessWidget {
   const _TrackingTopBar({
@@ -3332,6 +3551,8 @@ class _PaymentStageCard extends StatelessWidget {
     required this.busy,
     required this.onPay,
     required this.onViewReceipt,
+    this.cashAllocations = const [],
+    this.convoy = const [],
   });
 
   final String title;
@@ -3343,6 +3564,8 @@ class _PaymentStageCard extends StatelessWidget {
 
   final VoidCallback onPay;
   final ValueChanged<PaymentRecord> onViewReceipt;
+  final List<PaymentAllocation> cashAllocations;
+  final List<ConvoyDriverSnapshot> convoy;
 
   @override
   Widget build(BuildContext context) {
@@ -3350,6 +3573,17 @@ class _PaymentStageCard extends StatelessWidget {
 
     final payment = record;
     final status = payment?.status;
+    final allocations = payment == null
+        ? const <PaymentAllocation>[]
+        : cashAllocations
+              .where(
+                (allocation) =>
+                    allocation.paymentRecordId == payment.id?.toString(),
+              )
+              .toList(growable: false);
+    final confirmedCashCount = allocations
+        .where((allocation) => allocation.isCashConfirmed)
+        .length;
 
     Color statusColor = _muted;
     Color statusBackground = const Color(0xFFF1F5F9);
@@ -3440,6 +3674,58 @@ class _PaymentStageCard extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
+
+          if (payment?.isGroupCash == true && allocations.isNotEmpty) ...[
+            Text(
+              'Cash confirmation  •  $confirmedCashCount of ${allocations.length} drivers confirmed',
+              style: const TextStyle(
+                color: _ink,
+                fontWeight: FontWeight.w900,
+                fontSize: 10.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...allocations.map((allocation) {
+              final driver = convoy
+                  .where((item) => item.driverId == allocation.driverId)
+                  .firstOrNull;
+              final confirmed = allocation.isCashConfirmed;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Row(
+                  children: [
+                    Icon(
+                      confirmed
+                          ? Icons.check_circle_rounded
+                          : Icons.schedule_rounded,
+                      size: 15,
+                      color: confirmed ? _success : _warning,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        driver?.driverName ?? 'Assigned driver',
+                        style: const TextStyle(
+                          color: _ink,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      confirmed ? 'Confirmed' : 'Waiting',
+                      style: TextStyle(
+                        color: confirmed ? _success : _warning,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            const SizedBox(height: 7),
+          ],
 
           SizedBox(
             width: double.infinity,
@@ -3562,6 +3848,7 @@ class _PaymentStageCard extends StatelessWidget {
 class _BookingSummaryCard extends StatelessWidget {
   const _BookingSummaryCard({
     required this.date,
+    required this.pickupDateTime,
     required this.bookingType,
     required this.adults,
     required this.children,
@@ -3570,6 +3857,8 @@ class _BookingSummaryCard extends StatelessWidget {
   });
 
   final DateTime? date;
+
+  final DateTime? pickupDateTime;
 
   final String bookingType;
 
@@ -3629,8 +3918,10 @@ class _BookingSummaryCard extends StatelessWidget {
 
           _BookingDetailRow(
             icon: Icons.calendar_today_outlined,
-            label: 'Travel Date',
-            value: date == null
+            label: 'Pickup Schedule',
+            value: pickupDateTime != null
+                ? DateFormat('MMMM d, yyyy • h:mm a').format(pickupDateTime!)
+                : date == null
                 ? '—'
                 : DateFormat('MMMM d, yyyy').format(date!),
           ),

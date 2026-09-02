@@ -342,6 +342,8 @@ class PackageBooking extends TourisTrikeRow {
   dynamic get packageId => row['package_id'];
   String get touristId => dbString(row['tourist_id']);
   DateTime? get travelDate => dbDate(row['travel_date']);
+  DateTime? get scheduledStartAt => dbDate(row['scheduled_start_at']);
+  DateTime? get estimatedEndAt => dbDate(row['estimated_end_at']);
   int get adults => dbInt(row['adults'], fallback: 1);
   int get children => dbInt(row['children'], fallback: 0);
   String get bookingType => dbString(row['booking_type'], fallback: 'advanced');
@@ -563,9 +565,23 @@ class PaymentAllocation extends TourisTrikeRow {
   int get splitBasisPoints => dbInt(row['split_basis_points']);
   String get status => dbString(row['status']);
   DateTime? get paidAt => dbDate(row['paid_at']);
+  Json get paymentRecord {
+    final value = row['payment_records'];
+    return value is Map ? Json.from(value) : <String, dynamic>{};
+  }
+
+  String get paymentRecordStatus => dbString(paymentRecord['status']);
+  String get provider => dbString(paymentRecord['provider']);
+  String get paymentMethod => dbString(paymentRecord['payment_method']);
+  String get paymentStage => dbString(paymentRecord['payment_stage']);
+  DateTime? get confirmedAt => dbDate(paymentRecord['paid_at']) ?? paidAt;
 
   bool get isAwaitingCash => status == 'awaiting_cash';
   bool get isCashConfirmed => status == 'cash_confirmed';
+  bool get isConfirmedEarning =>
+      paymentRecordStatus == 'confirmed' &&
+      status != 'cancelled' &&
+      status != 'manual_review';
 }
 
 class PayMongoCheckout {
@@ -782,6 +798,10 @@ class BookingItineraryItem extends TourisTrikeRow {
   String get arrivalTime => dbTimeText(row['arrival_time']);
   int get estimatedStayDurationMinutes =>
       dbInt(row['estimated_stay_duration_minutes'], fallback: 0);
+  int get travelDurationMinutes =>
+      dbInt(row['travel_duration_minutes'], fallback: 0);
+  int get routeDistanceMeters =>
+      dbInt(row['route_distance_meters'], fallback: 0);
   String get departureTime => dbTimeText(row['departure_time']);
   String get activityNote =>
       dbString(row['activity_note'], fallback: dbString(row['activity']));
@@ -924,21 +944,51 @@ class PackageActivity extends TourisTrikeRow {
     bookingRow?['booking_status'],
     fallback: dbString(bookingRow?['status']),
   );
+  String get bookingDriverStatus =>
+      dbString(row['booking_driver_status']).trim().toLowerCase();
+  String get driverJourneyState =>
+      dbString(row['driver_journey_state']).trim().toLowerCase();
 
   String get lifecycleStatus {
     final activityStatus = status.trim().toLowerCase();
     final currentTourStatus = tourStatus.trim().toLowerCase();
     final currentBookingStatus = bookingStatus.trim().toLowerCase();
 
-    if (activityStatus == 'cancelled' || currentBookingStatus == 'cancelled') {
+    if (activityStatus == 'cancelled' ||
+        currentBookingStatus == 'cancelled' ||
+        currentBookingStatus == 'rejected') {
       return 'cancelled';
     }
     if (activityStatus == 'completed' ||
         currentTourStatus == 'completed' ||
-        currentTourStatus == 'dropped_off' ||
-        currentBookingStatus == 'completed') {
+        currentBookingStatus == 'completed' ||
+        currentBookingStatus == 'done') {
       return 'completed';
     }
+
+    // A convoy member can finish their own assignment before the booking is
+    // globally complete. Keep that state distinct so one driver cannot make
+    // every participant see "Tour Completed" prematurely.
+    if (bookingDriverStatus == 'completed' ||
+        driverJourneyState == 'completed') {
+      return 'assignment_completed';
+    }
+
+    // A booking_drivers row is the authoritative ownership record for a
+    // convoy driver. In particular, the first accepted driver remains active
+    // while the booking itself is still waiting for the remaining slots.
+    if (bookingDriverStatus == 'accepted') {
+      if (driverJourneyState == 'boarded' ||
+          driverJourneyState == 'en_route_stop' ||
+          driverJourneyState == 'at_stop' ||
+          driverJourneyState == 'stop_done' ||
+          driverJourneyState == 'en_route_dropoff' ||
+          driverJourneyState == 'at_dropoff') {
+        return 'ongoing';
+      }
+      return 'accepted';
+    }
+
     if (activityStatus == 'ongoing' ||
         currentBookingStatus == 'on_tour' ||
         currentTourStatus == 'picked_up' ||
@@ -951,7 +1001,9 @@ class PackageActivity extends TourisTrikeRow {
     }
     if (activityStatus == 'accepted' ||
         currentBookingStatus == 'accepted' ||
+        currentBookingStatus == 'confirmed' ||
         currentBookingStatus == 'driver_on_the_way' ||
+        currentTourStatus == 'arrived' ||
         currentTourStatus == 'driver_accepted' ||
         currentTourStatus == 'driver_en_route' ||
         currentTourStatus == 'driver_arrived') {
@@ -983,6 +1035,68 @@ class PackageActivity extends TourisTrikeRow {
   Json? get bookingRow => row['package_bookings'] is Map
       ? Json.from(row['package_bookings'] as Map)
       : null;
+}
+
+/// Reconstructs the Activity view model from the persisted booking row.
+///
+/// `package_bookings` is the source of truth. `package_activities` supplies
+/// tracking details when present, while [bookingDriver] supplies authoritative
+/// convoy ownership and per-driver journey state.
+PackageActivity packageActivityFromPersistedBooking(
+  Json booking, {
+  Json? bookingDriver,
+  String? effectiveDriverId,
+}) {
+  final bookingCopy = Json.from(booking);
+  final package = bookingCopy.remove('tour_packages');
+  final relatedActivity = _singleRelatedRow(
+    bookingCopy.remove('package_activities'),
+  );
+
+  final row = <String, dynamic>{
+    ...?relatedActivity,
+    'booking_id': dbString(booking['id']),
+    'tourist_id': dbString(booking['tourist_id']),
+    'package_id': booking['package_id'],
+    'price': relatedActivity?['price'] ?? booking['total_amount'],
+    'created_at': relatedActivity?['created_at'] ?? booking['created_at'],
+    'updated_at': relatedActivity?['updated_at'] ?? booking['updated_at'],
+    'status': relatedActivity?['status'] ?? booking['status'] ?? 'pending',
+    'tour_status': relatedActivity?['tour_status'] ?? 'waiting_driver',
+    'package_bookings': bookingCopy,
+    ...package is Map
+        ? {'tour_packages': Json.from(package)}
+        : const <String, dynamic>{},
+    if (effectiveDriverId != null && effectiveDriverId.isNotEmpty)
+      'driver_id': effectiveDriverId,
+    if (bookingDriver != null) ...{
+      'booking_driver_status': bookingDriver['status'],
+      'driver_journey_state': bookingDriver['journey_state'],
+      'booking_driver_accepted_at': bookingDriver['accepted_at'],
+      'booking_driver_completed_at': bookingDriver['completed_at'],
+    },
+  };
+
+  final activity = PackageActivity(row);
+  if (activity.lifecycleStatus == 'completed' ||
+      activity.lifecycleStatus == 'assignment_completed' ||
+      activity.lifecycleStatus == 'cancelled') {
+    // Activity/history rows must never expose a driver's live coordinates for
+    // a terminal trip. Live tracking performs its own active-trip checks.
+    row['driver_latitude'] = null;
+    row['driver_longitude'] = null;
+    row['driver_last_seen'] = null;
+  }
+
+  return PackageActivity(row);
+}
+
+Json? _singleRelatedRow(dynamic value) {
+  if (value is Map) return Json.from(value);
+  if (value is List && value.isNotEmpty && value.first is Map) {
+    return Json.from(value.first as Map);
+  }
+  return null;
 }
 
 class TouristSpot extends TourisTrikeRow {

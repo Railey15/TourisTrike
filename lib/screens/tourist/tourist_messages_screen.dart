@@ -66,7 +66,7 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
       final rows = await _supabase
           .from('conversations')
           .select(
-            'id, tourist_id, driver_id, booking_id, '
+            'id, tourist_id, driver_id, booking_id, conversation_type, '
             'last_message, last_message_at',
           )
           .eq('tourist_id', user.id)
@@ -160,9 +160,11 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
                           .toString(),
                     )
                   : null,
-          driverName: fullName.isEmpty
-              ? 'Driver'
-              : fullName,
+          driverName: row['conversation_type'] == 'booking_group'
+              ? 'Booking Group'
+              : fullName.isEmpty
+                  ? 'Driver'
+                  : fullName,
           driverPhone:
               driver?['mobile'] as String? ?? '',
           driverAvatar: avatarUrl,

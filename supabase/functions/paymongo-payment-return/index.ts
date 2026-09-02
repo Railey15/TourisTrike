@@ -5,53 +5,36 @@ serve((request) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const requestedResult = new URL(request.url).searchParams.get("result");
+  const returnUrl = new URL(request.url);
+  const requestedResult = returnUrl.searchParams.get("result");
   const result = requestedResult === "success" ? "success" : "cancel";
-  const appUrl = `touristrike://wallet/payment/${result}`;
-  const title = result === "success"
-    ? "Payment submitted"
-    : "Payment cancelled";
-  const message = result === "success"
-    ? "Return to TourisTrike while we verify your payment."
-    : "Return to TourisTrike to choose another payment option.";
-
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0;url=${appUrl}">
-  <title>${title}</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh;
-      display: grid; place-items: center; background: #f5f7fb; color: #0f172a; }
-    main { max-width: 28rem; margin: 1.5rem; padding: 2rem; text-align: center;
-      background: white; border-radius: 1rem; box-shadow: 0 12px 32px #0f172a18; }
-    a { display: inline-block; margin-top: 1rem; padding: .8rem 1.2rem;
-      border-radius: .75rem; background: #2563eb; color: white;
-      font-weight: 700; text-decoration: none; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>${title}</h1>
-    <p>${message}</p>
-    <a href="${appUrl}">Return to TourisTrike</a>
-  </main>
-  <script>window.location.replace(${JSON.stringify(appUrl)});</script>
-</body>
-</html>`;
-
-  return new Response(html, {
-    status: 200,
+  const bookingId = returnUrl.searchParams.get("booking_id") ?? "";
+  const paymentRecordId = returnUrl.searchParams.get("payment_record_id") ?? "";
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const appUrl = new URL(`touristrike://wallet/payment/${result}`);
+  if (uuidPattern.test(bookingId)) {
+    appUrl.searchParams.set("booking_id", bookingId);
+  }
+  if (uuidPattern.test(paymentRecordId)) {
+    appUrl.searchParams.set("payment_record_id", paymentRecordId);
+  }
+  const appUrlString = appUrl.toString();
+  console.info(
+    `[PayMongo] payment return result=${result} booking=${
+      uuidPattern.test(bookingId) ? bookingId : "missing"
+    }`,
+  );
+  // Supabase's hosted Edge gateway deliberately renders HTML responses from
+  // the default project domain as text/plain with a sandbox CSP. Redirecting
+  // directly to the registered Android custom scheme avoids exposing raw HTML
+  // and lets Chrome hand control back to TourisTrike.
+  return new Response(null, {
+    status: 302,
     headers: {
-      "Content-Type": "text/html; charset=utf-8",
+      "Location": appUrlString,
       "Cache-Control": "no-store",
-      "Content-Security-Policy":
-        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
       "Referrer-Policy": "no-referrer",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
     },
   });
 });

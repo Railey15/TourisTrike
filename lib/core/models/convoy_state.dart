@@ -117,6 +117,7 @@ class ConvoyDriverSnapshot {
     required this.journeyState,
     required this.currentStopIndex,
     required this.stateUpdatedAt,
+    this.assignmentStatus = 'accepted',
     this.lastLocationAt,
     this.phoneNumber = '',
     this.avatarUrl = '',
@@ -136,6 +137,14 @@ class ConvoyDriverSnapshot {
 
   /// When [journeyState] last changed — drives the deadlock timers.
   final DateTime stateUpdatedAt;
+
+  /// Roster membership state from `booking_drivers.status`. Completed
+  /// assignments remain convoy members and satisfy every earlier gate.
+  final String assignmentStatus;
+
+  bool get isAssignmentCompleted =>
+      assignmentStatus == 'completed' ||
+      journeyState == ConvoyJourneyState.completed;
 
   /// Latest `driver_live_locations.updated_at` for this driver, if any —
   /// drives offline detection. Null means no location ping has ever been
@@ -161,6 +170,55 @@ class ConvoyDriverSnapshot {
   /// compute_passenger_split in the Phase 0 migration, wired into
   /// accept_package_booking in the Phase 3 migration).
   final int assignedPassengers;
+}
+
+/// Authoritative aggregate returned by `get_convoy_stage_progress`.
+class ConvoyStageProgress {
+  const ConvoyStageProgress({
+    required this.stage,
+    required this.stopIndex,
+    required this.requiredDriverCount,
+    required this.satisfiedDriverCount,
+    required this.allSatisfied,
+    required this.waitingDriverIds,
+    required this.driverStates,
+  });
+
+  factory ConvoyStageProgress.fromJson(Map<String, dynamic> json) {
+    final waiting = json['waiting_driver_ids'];
+    final states = json['driver_states'];
+    return ConvoyStageProgress(
+      stage: json['stage']?.toString() ?? '',
+      stopIndex: (json['stop_index'] as num?)?.toInt(),
+      requiredDriverCount:
+          (json['required_driver_count'] as num?)?.toInt() ?? 0,
+      satisfiedDriverCount:
+          (json['satisfied_driver_count'] as num?)?.toInt() ?? 0,
+      allSatisfied: json['all_satisfied'] == true,
+      waitingDriverIds: waiting is List
+          ? waiting.map((id) => id.toString()).toList(growable: false)
+          : const [],
+      driverStates: states is List
+          ? states
+                .whereType<Map>()
+                .map((row) => Map<String, dynamic>.from(row))
+                .toList(growable: false)
+          : const [],
+    );
+  }
+
+  final String stage;
+  final int? stopIndex;
+  final int requiredDriverCount;
+  final int satisfiedDriverCount;
+  final bool allSatisfied;
+  final List<String> waitingDriverIds;
+  final List<Map<String, dynamic>> driverStates;
+
+  bool matches(String expectedStage, int? expectedStopIndex) =>
+      stage == expectedStage &&
+      (stage != 'at_stop' && stage != 'stop_done' ||
+          stopIndex == expectedStopIndex);
 }
 
 /// Shared callback shape for the convoy widgets' contact buttons

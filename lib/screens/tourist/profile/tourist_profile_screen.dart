@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
@@ -9,6 +10,7 @@ import 'package:touristrike/screens/tourist/profile/personal_info_screen.dart';
 import 'package:touristrike/screens/tourist/profile/privacy_policy_screen.dart';
 import 'package:touristrike/screens/tourist/profile/saved_places_screen.dart';
 import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
+import 'package:touristrike/screens/tourist/profile/widgets/developer_tools_section.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -581,6 +583,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
 
                   const SizedBox(height: 14),
+
+                  if (kDebugMode) ...[
+                    const DeveloperToolsSection(),
+                    const SizedBox(height: 14),
+                  ],
 
                   _SectionCard(
                     title: 'Legal & Privacy',

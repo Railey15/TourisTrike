@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   late String migration;
   late String paymentTrailMigration;
+  late String lifecycleMigration;
 
   setUpAll(() {
     migration = File(
@@ -12,6 +13,9 @@ void main() {
     ).readAsStringSync().replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     paymentTrailMigration = File(
       'supabase/migrations/20260725000000_gcash_payment_trail.sql',
+    ).readAsStringSync().replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    lifecycleMigration = File(
+      'supabase/migrations/20260831010000_transaction_lifecycle_consistency.sql',
     ).readAsStringSync().replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   });
 
@@ -113,34 +117,41 @@ void main() {
     expect(migration, contains("raise exception 'BOOKING_START_TOO_EARLY'"));
   });
 
-  test('11 completion requires confirmed remaining balance', () {
+  test('11 global completion requires confirmed remaining balance', () {
     expect(
-      migration,
-      contains("raise exception 'REMAINING_BALANCE_NOT_CONFIRMED'"),
+      lifecycleMigration,
+      contains("bpr.payment_stage = 'remaining_balance'"),
     );
-    expect(migration, contains("pr.payment_stage = 'remaining_balance'"));
+    expect(lifecycleMigration, contains("pr.status = 'confirmed'"));
+    expect(
+      lifecycleMigration,
+      contains('pr.id = bpr.satisfied_by_payment_record_id'),
+    );
   });
 
   test('12 first completed convoy driver cannot complete overall booking', () {
-    expect(migration, contains('v_completed_slots < v_active_slots'));
-    expect(migration, contains("'overall_completed', false"));
+    expect(lifecycleMigration, contains('v_completed_slots = v_active_slots'));
     expect(
-      migration,
-      contains('array_agg(journey_state order by public.journey_state_order'),
+      lifecycleMigration,
+      contains("'overall_completed', v_overall_completed"),
+    );
+    expect(
+      lifecycleMigration,
+      contains('order by public.journey_state_order(journey_state)'),
     );
   });
 
   test('13 pickup stop and drop-off barriers remain backend enforced', () {
-    expect(migration, contains("v_current = 'boarded'"));
-    expect(migration, contains("v_current = 'stop_done'"));
-    expect(migration, contains("v_current = 'at_dropoff'"));
-    expect(migration, contains("raise exception 'BARRIER_NOT_MET'"));
+    expect(lifecycleMigration, contains("v_current = 'boarded'"));
+    expect(lifecycleMigration, contains("v_current = 'stop_done'"));
+    expect(lifecycleMigration, contains("v_current = 'at_dropoff'"));
+    expect(lifecycleMigration, contains("raise exception 'BARRIER_NOT_MET'"));
   });
 
   test('14 every validated journey transition is audited server-side', () {
-    expect(migration, contains('insert into public.trip_status_logs'));
-    expect(migration, contains('previous_state, new_state'));
-    expect(migration, contains('Server-validated journey transition'));
+    expect(lifecycleMigration, contains('insert into public.trip_status_logs'));
+    expect(lifecycleMigration, contains('previous_state, new_state'));
+    expect(lifecycleMigration, contains('Server-validated journey transition'));
   });
 
   test('15 direct roster and payment confirmation bypasses are closed', () {

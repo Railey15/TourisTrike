@@ -35,6 +35,7 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   table_calendar: ^3.0.9
+  app_links: ^6.4.1
   supabase_flutter: ^2.5.0
   flutter_map: ^7.0.2
   latlong2: ^0.9.1

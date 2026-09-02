@@ -501,6 +501,8 @@ class TourisTrikeRepository {
   Future<PackageBooking> createPackageBooking({
     required dynamic packageId,
     required DateTime travelDate,
+    required DateTime scheduledStartAt,
+    required DateTime estimatedEndAt,
     required int adults,
     int children = 0,
     required String paymentMethod,
@@ -536,6 +538,8 @@ class TourisTrikeRepository {
     final bookingPayload = <String, dynamic>{
       'package_id': packageId,
       'travel_date': travelDate.toIso8601String().split('T').first,
+      'scheduled_start_at': scheduledStartAt.toUtc().toIso8601String(),
+      'estimated_end_at': estimatedEndAt.toUtc().toIso8601String(),
       'adults': adults,
       'children': children,
       'payment_method': paymentMethod,
@@ -903,8 +907,8 @@ class TourisTrikeRepository {
   }) async {
     assert(bookingId != null || rideId != null);
     final equals = <String, dynamic>{
-      if (bookingId != null) 'booking_id': bookingId,
-      if (rideId != null) 'ride_id': rideId,
+      'booking_id': ?bookingId,
+      'ride_id': ?rideId,
     };
     final rows = await fetchRows(
       TourisTrikeTables.paymentRecords,
@@ -930,6 +934,10 @@ class TourisTrikeRepository {
   }) async {
     final idempotencyKey = _paymentAttemptKey(bookingId, paymentStage);
     try {
+      debugPrint(
+        '[PayMongo] invoking paymongo-create-payment '
+        'booking=$bookingId stage=$paymentStage',
+      );
       final response = await _client.functions.invoke(
         'paymongo-create-payment',
         body: {
@@ -946,6 +954,9 @@ class TourisTrikeRepository {
       if (checkout.paymentRecordId.isEmpty || checkout.checkoutUrl.isEmpty) {
         throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
       }
+      final checkoutHost =
+          Uri.tryParse(checkout.checkoutUrl)?.host ?? 'invalid';
+      debugPrint('[PayMongo] checkout URL received host=$checkoutHost');
       return checkout;
     } on FunctionException catch (error) {
       final details = error.details;
@@ -988,6 +999,25 @@ class TourisTrikeRepository {
         .select()
         .eq('booking_id', bookingId)
         .order('created_at');
+    return _rows(rows).map(PaymentAllocation.new).toList(growable: false);
+  }
+
+  Future<List<PaymentAllocation>> fetchConfirmedDriverPaymentAllocations({
+    int limit = 500,
+  }) async {
+    final rows = await _client
+        .from('payment_allocations')
+        .select(
+          '*, payment_records!inner('
+          'status, provider, payment_method, payment_stage, paid_at'
+          ')',
+        )
+        .eq('driver_id', requireUserId())
+        .eq('payment_records.status', 'confirmed')
+        .neq('status', 'cancelled')
+        .neq('status', 'manual_review')
+        .order('created_at', ascending: false)
+        .limit(limit);
     return _rows(rows).map(PaymentAllocation.new).toList(growable: false);
   }
 
@@ -1388,47 +1418,58 @@ class TourisTrikeRepository {
 
   Future<List<PackageActivity>> fetchTouristActivities({int limit = 60}) async {
     final rows = await _client
-        .from(TourisTrikeTables.packageActivities)
+        .from(TourisTrikeTables.packageBookings)
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
-          'driver:profiles!package_activities_driver_id_fkey(full_name, first_name, last_name, mobile), '
-          'package_bookings('
-          '  travel_date, adults, children, payment_method, booking_type, '
-          '  total_amount, assigned_driver_id, status, booking_status, '
-          '  pickup_address, dropoff_address, required_drivers, accepted_drivers_count, '
-          '  municipality, province, total_passengers, cancelled_at, cancelled_by, '
-          '  cancelled_reason, cancellation_note, cancellation_category, '
-          '  cancellation_type, cancellation_fee, refundable_amount, refund_status'
+          'package_activities('
+          '  *, '
+          '  driver:profiles!package_activities_driver_id_fkey('
+          '    full_name, first_name, last_name, mobile'
+          '  )'
           ')',
         )
         .eq('tourist_id', requireUserId())
         .order('created_at', ascending: false)
         .limit(limit);
-    return _rows(rows).map(PackageActivity.new).toList(growable: false);
+    return _rows(
+      rows,
+    ).map(packageActivityFromPersistedBooking).toList(growable: false);
   }
 
   Future<List<PackageActivity>> fetchDriverActivities({int limit = 60}) async {
+    final driverId = requireUserId();
     final rows = await _client
-        .from(TourisTrikeTables.packageActivities)
+        .from(TourisTrikeTables.bookingDrivers)
         .select(
-          '*, '
-          'tour_packages(title, city, cover_image_url, image_url), '
-          'tourist:profiles!package_activities_tourist_id_fkey(full_name, first_name, last_name, profile_image_url, mobile), '
+          'booking_id, status, journey_state, accepted_at, completed_at, created_at, '
           'package_bookings('
-          '  travel_date, adults, children, payment_method, booking_type, '
-          '  total_amount, assigned_driver_id, status, booking_status, '
-          '  pickup_address, dropoff_address, completed_at, '
-          '  municipality, province, total_passengers, '
-          '  required_drivers, accepted_drivers_count, cancelled_at, cancelled_by, '
-          '  cancelled_reason, cancellation_note, cancellation_category, '
-          '  cancellation_type, cancellation_fee, refundable_amount, refund_status'
+          '  *, '
+          '  tour_packages(title, city, cover_image_url, image_url), '
+          '  package_activities('
+          '    *, '
+          '    tourist:profiles!package_activities_tourist_id_fkey('
+          '      full_name, first_name, last_name, profile_image_url, mobile'
+          '    )'
+          '  )'
           ')',
         )
-        .eq('driver_id', requireUserId())
+        .eq('driver_id', driverId)
+        .inFilter('status', const ['accepted', 'completed'])
         .order('created_at', ascending: false)
         .limit(limit);
-    return _rows(rows).map(PackageActivity.new).toList(growable: false);
+    return _rows(rows)
+        .map((membership) {
+          final bookingValue = membership['package_bookings'];
+          if (bookingValue is! Map) return null;
+          return packageActivityFromPersistedBooking(
+            Json.from(bookingValue),
+            bookingDriver: membership,
+            effectiveDriverId: driverId,
+          );
+        })
+        .whereType<PackageActivity>()
+        .toList(growable: false);
   }
 
   // ── PACKAGE ACTIVITY TRACKING ───────────────────────────────
@@ -1462,7 +1503,8 @@ class TourisTrikeRepository {
           '  full_name, first_name, last_name, profile_image_url, mobile'
           '), '
           'package_bookings('
-          '  id, tourist_id, travel_date, adults, children, booking_type, '
+          '  id, tourist_id, travel_date, scheduled_start_at, estimated_end_at, '
+          '  adults, children, booking_type, '
           '  pickup_address, pickup_latitude, pickup_longitude, '
           '  dropoff_address, dropoff_latitude, dropoff_longitude, '
           '  total_amount, downpayment_amount, remaining_balance, '
@@ -1585,6 +1627,21 @@ class TourisTrikeRepository {
     }
   }
 
+  Future<Map<String, dynamic>> ensureBookingGroupConversation(
+    String bookingId,
+  ) async {
+    final conversationId = await _client.rpc(
+      'ensure_booking_group_conversation',
+      params: {'p_booking_id': bookingId},
+    );
+    final row = await _client
+        .from(TourisTrikeTables.conversations)
+        .select('*')
+        .eq('id', conversationId)
+        .single();
+    return Json.from(row);
+  }
+
   Future<PackageActivity?> fetchPackageActivityById(String activityId) async {
     final rows = await _client
         .from(TourisTrikeTables.packageActivities)
@@ -1644,7 +1701,8 @@ class TourisTrikeRepository {
           '  full_name, first_name, last_name, profile_image_url, mobile'
           '), '
           'package_bookings('
-          '  id, travel_date, adults, children, booking_type, status, booking_status, '
+          '  id, travel_date, scheduled_start_at, estimated_end_at, adults, '
+          '  children, booking_type, status, booking_status, '
           '  pickup_address, pickup_latitude, pickup_longitude, '
           '  dropoff_address, dropoff_latitude, dropoff_longitude, '
           '  required_drivers, accepted_drivers_count, municipality, province, '
@@ -1874,17 +1932,21 @@ class TourisTrikeRepository {
 
   Future<Map<String, dynamic>> completePackageActivity(
     String activityId, {
+    String bookingId = '',
     String remainingPaymentMethod = '',
   }) async {
-    final result = await _client.rpc(
-      'complete_package_tour',
-      params: {
-        'p_activity_id': activityId,
-        'p_remaining_payment_method': remainingPaymentMethod.trim().isEmpty
-            ? null
-            : remainingPaymentMethod,
-      },
-    );
+    final params = {
+      'p_activity_id': activityId,
+      'p_remaining_payment_method': remainingPaymentMethod.trim().isEmpty
+          ? null
+          : remainingPaymentMethod,
+    };
+    final dynamic result;
+    if (kDebugMode && await fetchDeveloperTestBookingMode(bookingId)) {
+      result = await _client.rpc('debug_complete_package_tour', params: params);
+    } else {
+      result = await _client.rpc('complete_package_tour', params: params);
+    }
     return result is Map
         ? Map<String, dynamic>.from(result)
         : const {'success': true, 'overall_completed': true};
@@ -1892,6 +1954,7 @@ class TourisTrikeRepository {
 
   Future<Map<String, dynamic>> completeCurrentItineraryItem(
     String activityId, {
+    String bookingId = '',
     String itineraryItemId = '',
     String remainingPaymentMethod = '',
   }) async {
@@ -1990,7 +2053,7 @@ class TourisTrikeRepository {
 
   // ── ITINERARY ACTUAL TIMES ───────────────────────────────────
 
-  Future<void> markSpotActualArrival({
+  Future<bool> markSpotActualArrival({
     required String bookingId,
     int spotIndex = 0,
     String? itineraryItemId,
@@ -2006,16 +2069,20 @@ class TourisTrikeRepository {
           .order('arrival_time', ascending: true)
           .range(spotIndex, spotIndex);
       final list = _rows(rows);
-      if (list.isEmpty) return;
+      if (list.isEmpty) return false;
       targetId = dbString(list.first['id']);
     }
-    await _client
-        .from(TourisTrikeTables.bookingItineraryItems)
-        .update({
-          'actual_arrival_time': DateTime.now().toIso8601String(),
-          'spot_status': 'at_spot',
-        })
-        .eq('id', targetId);
+    final params = {'p_booking_id': bookingId, 'p_itinerary_item_id': targetId};
+    final dynamic result;
+    if (kDebugMode && await fetchDeveloperTestBookingMode(bookingId)) {
+      result = await _client.rpc(
+        'debug_mark_itinerary_stop_arrived',
+        params: params,
+      );
+    } else {
+      result = await _client.rpc('mark_itinerary_stop_arrived', params: params);
+    }
+    return result == true;
   }
 
   Future<void> markSpotActualDeparture({
@@ -2081,6 +2148,70 @@ class TourisTrikeRepository {
         .eq('id', targetId);
   }
 
+  /// Changes the authoritative server registration for a developer test
+  /// booking. The backend still verifies both trusted-test-user membership and
+  /// real participation in the target booking.
+  Future<bool> setDeveloperTestBookingMode({
+    required String bookingId,
+    required bool enabled,
+  }) async {
+    if (!kDebugMode) {
+      throw StateError('DEBUG_TEST_TOOLS_UNAVAILABLE');
+    }
+
+    final normalizedBookingId = bookingId.trim();
+    if (normalizedBookingId.isEmpty) {
+      throw ArgumentError.value(bookingId, 'bookingId', 'must not be empty');
+    }
+
+    final result = await _client.rpc(
+      'debug_set_test_booking_mode',
+      params: {'p_booking_id': normalizedBookingId, 'p_enabled': enabled},
+    );
+    final row = result is Map ? Map<String, dynamic>.from(result) : const {};
+    final serverEnabled = row['enabled'] == true;
+
+    debugPrint(
+      '[TEST MODE] booking_id=$normalizedBookingId '
+      'action=${enabled ? 'enable' : 'disable'} '
+      'server_enabled=$serverEnabled',
+    );
+
+    if (serverEnabled != enabled) {
+      throw StateError('TEST_MODE_SERVER_STATE_MISMATCH');
+    }
+    return serverEnabled;
+  }
+
+  Future<bool> fetchDeveloperTestBookingMode(String bookingId) async {
+    if (!kDebugMode) return false;
+
+    final normalizedBookingId = bookingId.trim();
+    if (normalizedBookingId.isEmpty) return false;
+
+    final result = await _client.rpc(
+      'debug_get_test_booking_state',
+      params: {'p_booking_id': normalizedBookingId},
+    );
+    final row = result is Map ? Map<String, dynamic>.from(result) : const {};
+    return row['enabled'] == true;
+  }
+
+  Future<Map<String, dynamic>> markRemainingBalancePaidForDebugTest(
+    String bookingId,
+  ) async {
+    if (!kDebugMode || !await fetchDeveloperTestBookingMode(bookingId)) {
+      throw StateError('DEBUG_TRANSACTION_BYPASS_UNAVAILABLE');
+    }
+    final result = await _client.rpc(
+      'debug_mark_remaining_balance_paid',
+      params: {'p_booking_id': bookingId},
+    );
+    return result is Map
+        ? Map<String, dynamic>.from(result)
+        : const {'success': true};
+  }
+
   // ── GROUP BOOKING ────────────────────────────────────────────
 
   Future<void> updateBookingRequiredDrivers({
@@ -2103,11 +2234,28 @@ class TourisTrikeRepository {
     return rows.map(BookingDriver.new).toList(growable: false);
   }
 
+  /// Resets only lifecycle/navigation state for a server-registered test
+  /// booking. Payment records, allocations, chat, itinerary rows, and driver
+  /// assignment rows are preserved by the RPC.
+  Future<Map<String, dynamic>> resetDebugTestTrip(String bookingId) async {
+    if (!kDebugMode) {
+      throw StateError('DEBUG_TEST_TOOLS_UNAVAILABLE');
+    }
+
+    final result = await _client.rpc(
+      'debug_reset_test_trip',
+      params: {'p_booking_id': bookingId},
+    );
+    return result is Map
+        ? Map<String, dynamic>.from(result)
+        : const {'success': true};
+  }
+
   Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(String bookingId) async {
     final bookingDrivers = await fetchBookingDrivers(bookingId);
 
     final accepted = bookingDrivers
-        .where((bd) => bd.status == 'accepted')
+        .where((bd) => bd.status == 'accepted' || bd.status == 'completed')
         .toList(growable: false);
 
     if (accepted.isEmpty) {
@@ -2147,6 +2295,7 @@ class TourisTrikeRepository {
             journeyState: bd.journeyState,
             currentStopIndex: bd.currentStopIndex,
             stateUpdatedAt: bd.stateUpdatedAt,
+            assignmentStatus: bd.status,
             lastLocationAt: loc?.updatedAt,
             phoneNumber: info?.phoneNumber ?? '',
             avatarUrl: avatar,
@@ -2165,18 +2314,46 @@ class TourisTrikeRepository {
         .toList(growable: false);
   }
 
+  Future<ConvoyStageProgress> fetchConvoyStageProgress({
+    required String bookingId,
+    required String stage,
+    int? stopIndex,
+  }) async {
+    final result = await _client.rpc(
+      'get_convoy_stage_progress',
+      params: {
+        'p_booking_id': bookingId,
+        'p_stage': stage,
+        'p_stop_index': stopIndex,
+      },
+    );
+    if (result is! Map) {
+      throw StateError('INVALID_CONVOY_PROGRESS_RESPONSE');
+    }
+    return ConvoyStageProgress.fromJson(Map<String, dynamic>.from(result));
+  }
+
   Future<Map<String, dynamic>> advanceDriverJourneyState({
     required String bookingId,
     required ConvoyJourneyState targetState,
   }) async {
     try {
-      final result = await _client.rpc(
-        'advance_driver_journey_state',
-        params: {
-          'p_booking_id': bookingId,
-          'p_target_state': targetState.dbValue,
-        },
-      );
+      final params = {
+        'p_booking_id': bookingId,
+        'p_target_state': targetState.dbValue,
+      };
+      final dynamic result;
+      if (kDebugMode && await fetchDeveloperTestBookingMode(bookingId)) {
+        result = await _client.rpc(
+          'debug_advance_driver_journey_state',
+          params: params,
+        );
+      } else {
+        result = await _client.rpc(
+          'advance_driver_journey_state',
+          params: params,
+        );
+      }
 
       if (result is Map) {
         return Map<String, dynamic>.from(result);
@@ -2190,6 +2367,28 @@ class TourisTrikeRepository {
 
       rethrow;
     }
+  }
+
+  /// DEBUG-only completion escape hatch for an allowlisted disposable booking.
+  /// The server still verifies the authenticated driver is a real assignment.
+  Future<Map<String, dynamic>> forceCompleteDebugTestTrip({
+    required String bookingId,
+    bool allConvoyAssignments = false,
+  }) async {
+    if (!kDebugMode || !await fetchDeveloperTestBookingMode(bookingId)) {
+      throw StateError('DEBUG_TRANSACTION_BYPASS_UNAVAILABLE');
+    }
+
+    final result = await _client.rpc(
+      'debug_force_complete_test_trip',
+      params: {
+        'p_booking_id': bookingId,
+        'p_force_all_assignments': allConvoyAssignments,
+      },
+    );
+    return result is Map
+        ? Map<String, dynamic>.from(result)
+        : const {'success': true};
   }
 
   Future<Map<String, dynamic>> cancelDriverSlot(String bookingId) async {

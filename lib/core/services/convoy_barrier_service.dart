@@ -33,13 +33,19 @@ class ConvoyBarrierService {
   /// "Depart from Pickup" — every driver must have at least boarded.
   static bool canDepartFromPickup(List<ConvoyDriverSnapshot> convoy) =>
       convoy.every(
-        (d) => d.journeyState.isAtLeast(ConvoyJourneyState.boarded),
+        (d) =>
+            d.isAssignmentCompleted ||
+            d.journeyState.isAtLeast(ConvoyJourneyState.boarded),
       );
 
   static List<ConvoyDriverSnapshot> blockingDepartFromPickup(
     List<ConvoyDriverSnapshot> convoy,
   ) => convoy
-      .where((d) => !d.journeyState.isAtLeast(ConvoyJourneyState.boarded))
+      .where(
+        (d) =>
+            !d.isAssignmentCompleted &&
+            !d.journeyState.isAtLeast(ConvoyJourneyState.boarded),
+      )
       .toList(growable: false);
 
   /// "Depart from Stop N" — every driver must be past stop N already, or
@@ -60,18 +66,27 @@ class ConvoyBarrierService {
       .toList(growable: false);
 
   static bool _hasClearedStop(ConvoyDriverSnapshot d, int stopIndex) =>
+      d.isAssignmentCompleted ||
       d.currentStopIndex > stopIndex ||
       (d.currentStopIndex == stopIndex &&
           d.journeyState.isAtLeast(ConvoyJourneyState.stopDone));
 
   /// "Complete Tour" — every driver must have at least reached drop-off.
-  static bool canCompleteTour(List<ConvoyDriverSnapshot> convoy) => convoy
-      .every((d) => d.journeyState.isAtLeast(ConvoyJourneyState.atDropoff));
+  static bool canCompleteTour(List<ConvoyDriverSnapshot> convoy) =>
+      convoy.every(
+        (d) =>
+            d.isAssignmentCompleted ||
+            d.journeyState.isAtLeast(ConvoyJourneyState.atDropoff),
+      );
 
   static List<ConvoyDriverSnapshot> blockingCompleteTour(
     List<ConvoyDriverSnapshot> convoy,
   ) => convoy
-      .where((d) => !d.journeyState.isAtLeast(ConvoyJourneyState.atDropoff))
+      .where(
+        (d) =>
+            !d.isAssignmentCompleted &&
+            !d.journeyState.isAtLeast(ConvoyJourneyState.atDropoff),
+      )
       .toList(growable: false);
 
   /// True once a driver has reached whichever gate state they're
@@ -79,13 +94,15 @@ class ConvoyBarrierService {
   /// they're independently "arrived and waiting," not still en route.
   /// Single source for the "N of M arrived/ready" aggregates shown in
   /// ConvoyRosterStrip and ConvoyOverallStatusBanner.
-  static bool isAtGate(ConvoyDriverSnapshot d) => switch (d.journeyState) {
-    ConvoyJourneyState.boarded ||
-    ConvoyJourneyState.stopDone ||
-    ConvoyJourneyState.atDropoff ||
-    ConvoyJourneyState.completed => true,
-    _ => false,
-  };
+  static bool isAtGate(ConvoyDriverSnapshot d) =>
+      d.isAssignmentCompleted ||
+      switch (d.journeyState) {
+        ConvoyJourneyState.boarded ||
+        ConvoyJourneyState.stopDone ||
+        ConvoyJourneyState.atDropoff ||
+        ConvoyJourneyState.completed => true,
+        _ => false,
+      };
 
   // ── Overall status (Open Question 4: slowest driver wins) ──────
 
@@ -118,10 +135,8 @@ class ConvoyBarrierService {
   static bool isStuck(ConvoyDriverSnapshot driver, {DateTime? now}) =>
       elapsedAtCurrentState(driver, now: now) >= stuckWarningThreshold;
 
-  static bool isCriticallyStuck(
-    ConvoyDriverSnapshot driver, {
-    DateTime? now,
-  }) => elapsedAtCurrentState(driver, now: now) >= stuckCriticalThreshold;
+  static bool isCriticallyStuck(ConvoyDriverSnapshot driver, {DateTime? now}) =>
+      elapsedAtCurrentState(driver, now: now) >= stuckCriticalThreshold;
 
   static bool isOffline(ConvoyDriverSnapshot driver, {DateTime? now}) {
     final lastSeen = driver.lastLocationAt;

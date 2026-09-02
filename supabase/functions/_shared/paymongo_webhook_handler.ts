@@ -28,6 +28,7 @@ export async function handlePayMongoWebhook(request: Request): Promise<Response>
       toleranceSeconds: Number.isFinite(tolerance) ? tolerance : 300,
     }))
   ) {
+    console.error("[PayMongo] webhook rejected: invalid signature");
     return jsonResponse({ error: "INVALID_WEBHOOK_SIGNATURE" }, 401);
   }
 
@@ -65,9 +66,10 @@ export async function handlePayMongoWebhook(request: Request): Promise<Response>
       : envelope.livemode ?? attributes.livemode,
   );
   console.info(
-    `[PayMongo] webhook received event=${providerEventId} type=${
-      eventType ?? "unknown"
-    }`,
+    `[PayMongo] webhook received event=${providerEventId} ` +
+      `type=${eventType ?? "unknown"} ` +
+      `checkout=${providerCheckoutId ?? "missing"} ` +
+      `payment=${payment?.id ?? "missing"}`,
   );
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -78,6 +80,26 @@ export async function handlePayMongoWebhook(request: Request): Promise<Response>
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
   });
+  let paymentLookup = serviceClient
+    .from("payment_records")
+    .select("id, booking_id, status")
+    .eq("provider", "paymongo");
+  if (providerCheckoutId) {
+    paymentLookup = paymentLookup.eq(
+      "provider_checkout_id",
+      providerCheckoutId,
+    );
+  } else if (providerReference) {
+    paymentLookup = paymentLookup.or(
+      `provider_reference.eq.${providerReference},id.eq.${providerReference}`,
+    );
+  }
+  const { data: existingPayment } = await paymentLookup.maybeSingle();
+  console.info(
+    `[PayMongo] webhook mapping payment_record=${existingPayment?.id ?? "missing"} ` +
+      `booking=${existingPayment?.booking_id ?? "missing"} ` +
+      `old_status=${existingPayment?.status ?? "missing"}`,
+  );
   const { data, error } = await serviceClient.rpc(
     "process_paymongo_webhook_event",
     {
@@ -97,15 +119,28 @@ export async function handlePayMongoWebhook(request: Request): Promise<Response>
     },
   );
   if (error) {
-    console.error("[PayMongo] webhook database processing failed", error.code);
+    console.error(
+      `[PayMongo] webhook database processing failed code=${error.code}`,
+    );
     // A verified event gets a retry on transient database failure. Idempotency
     // in payment_provider_events makes concurrent/redelivered events safe.
     return jsonResponse({ error: "WEBHOOK_PROCESSING_FAILED" }, 500);
   }
+  let newStatus = "unknown";
+  const processedPaymentRecordId = data?.payment_record_id ?? existingPayment?.id;
+  if (processedPaymentRecordId) {
+    const { data: updatedPayment } = await serviceClient
+      .from("payment_records")
+      .select("status")
+      .eq("id", processedPaymentRecordId)
+      .maybeSingle();
+    newStatus = updatedPayment?.status ?? "missing";
+  }
   console.info(
     `[PayMongo] webhook processed event=${providerEventId} confirmed=${
       Boolean(data?.confirmed)
-    }`,
+    } payment_record=${processedPaymentRecordId ?? "missing"} ` +
+      `new_status=${newStatus}`,
   );
   return jsonResponse(data ?? { ok: true });
 }

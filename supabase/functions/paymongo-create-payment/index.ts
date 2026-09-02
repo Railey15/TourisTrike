@@ -18,7 +18,25 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 
+function safeLogText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .slice(0, 240);
+}
+
+function returnUrlWithPaymentContext(
+  configuredUrl: string,
+  bookingId: string,
+  paymentRecordId: string,
+): string {
+  const url = new URL(configuredUrl);
+  url.searchParams.set("booking_id", bookingId);
+  url.searchParams.set("payment_record_id", paymentRecordId);
+  return url.toString();
+}
+
 serve(async (request) => {
+  console.info("[PayMongo] create-payment Edge Function invoked");
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -35,13 +53,8 @@ serve(async (request) => {
     .toLowerCase();
   const livemode = environment === "live";
   const splitEnabled = enabled("PAYMONGO_SPLIT_PAYMENTS_ENABLED");
-  // PayMongo recommends Checkout v2 for new hosted checkouts. Its current
-  // linked-account splitting guide documents split_payment on the v1 checkout
-  // shape, so approved split payments stay on that contract.
-  const configuredCheckoutVersion = (
-    Deno.env.get("PAYMONGO_CHECKOUT_API_VERSION") ?? "v2"
-  ).trim().toLowerCase();
-  const checkoutVersion = splitEnabled ? "v1" : configuredCheckoutVersion;
+  const checkoutEndpoint =
+    "https://api.paymongo.com/v1/checkout_sessions";
 
   if (!enabled("PAYMONGO_ENABLED") || !payMongoKey) {
     return jsonResponse({ error: "PAYMENT_PROVIDER_NOT_CONFIGURED" }, 503);
@@ -51,12 +64,6 @@ serve(async (request) => {
   }
   if (environment !== "test" && environment !== "live") {
     return jsonResponse({ error: "INVALID_PAYMONGO_ENVIRONMENT" }, 503);
-  }
-  if (checkoutVersion !== "v1" && checkoutVersion !== "v2") {
-    return jsonResponse(
-      { error: "INVALID_PAYMONGO_CHECKOUT_API_VERSION" },
-      503,
-    );
   }
   if (
     (livemode && !payMongoKey.startsWith("sk_live_")) ||
@@ -77,6 +84,7 @@ serve(async (request) => {
   if (userError || !userData.user) {
     return jsonResponse({ error: "UNAUTHENTICATED" }, 401);
   }
+  console.info(`[PayMongo] authenticated tourist=${userData.user.id}`);
 
   let body: Record<string, unknown>;
   try {
@@ -100,10 +108,24 @@ serve(async (request) => {
     `[PayMongo] checkout requested booking=${bookingId} stage=${paymentStage}`,
   );
 
-  const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
-  });
-  const { data: prepared, error: prepareError } = await serviceClient.rpc(
+  const { data: booking, error: bookingError } = await userClient
+    .from("package_bookings")
+    .select("tourist_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (bookingError) {
+    console.error("[PayMongo] booking lookup failed", bookingError.code);
+    return jsonResponse({ error: "BOOKING_LOOKUP_FAILED" }, 400);
+  }
+  if (!booking) {
+    return jsonResponse({ error: "BOOKING_NOT_FOUND" }, 404);
+  }
+  console.info(`[PayMongo] booking tourist=${booking.tourist_id}`);
+  if (booking.tourist_id !== userData.user.id) {
+    return jsonResponse({ error: "NOT_BOOKING_TOURIST" }, 403);
+  }
+
+  const { data: prepared, error: prepareError } = await userClient.rpc(
     "prepare_paymongo_payment",
     {
       p_booking_id: bookingId,
@@ -122,10 +144,17 @@ serve(async (request) => {
 
   const payment = prepared.payment as Record<string, unknown>;
   console.info(
-    `[PayMongo] payment prepared record=${payment.id} allocations=${
+    `[PayMongo] payment record created/prepared record=${payment.id} allocations=${
       Array.isArray(prepared.allocations) ? prepared.allocations.length : 0
     } reused=${Boolean(prepared.reused)}`,
   );
+  if (payment.status === "confirmed") {
+    console.info(`[PayMongo] duplicate checkout blocked record=${payment.id}`);
+    return jsonResponse({
+      error: "PAYMENT_ALREADY_CONFIRMED",
+      payment_record_id: payment.id,
+    }, 409);
+  }
   if (typeof payment.checkout_url === "string" && payment.checkout_url) {
     console.info(`[PayMongo] existing checkout returned record=${payment.id}`);
     return jsonResponse({
@@ -144,6 +173,16 @@ serve(async (request) => {
   if (!isHttpsUrl(successUrl) || !isHttpsUrl(cancelUrl)) {
     return jsonResponse({ error: "PAYMENT_REDIRECTS_NOT_CONFIGURED" }, 503);
   }
+  const contextualSuccessUrl = returnUrlWithPaymentContext(
+    successUrl,
+    bookingId,
+    String(payment.id),
+  );
+  const contextualCancelUrl = returnUrlWithPaymentContext(
+    cancelUrl,
+    bookingId,
+    String(payment.id),
+  );
 
   const allocations = (prepared.allocations ?? []) as Allocation[];
   const attributes: Record<string, unknown> = {
@@ -155,8 +194,8 @@ serve(async (request) => {
       quantity: 1,
     }],
     payment_method_types: ["gcash"],
-    success_url: successUrl,
-    cancel_url: cancelUrl,
+    success_url: contextualSuccessUrl,
+    cancel_url: contextualCancelUrl,
     reference_number: payment.provider_reference ?? payment.id,
     description: "TourisTrike package booking payment",
     send_email_receipt: true,
@@ -194,7 +233,7 @@ serve(async (request) => {
   }
 
   const response = await fetch(
-    `https://api.paymongo.com/${checkoutVersion}/checkout_sessions`,
+    checkoutEndpoint,
     {
       method: "POST",
       headers: {
@@ -206,12 +245,19 @@ serve(async (request) => {
     },
   );
   const providerBody = await response.json().catch(() => ({}));
+  console.info(`[PayMongo] Checkout API HTTP status=${response.status}`);
   if (!response.ok) {
     const providerCode = providerBody?.errors?.[0]?.code ??
       `HTTP_${response.status}`;
     const providerDetail = providerBody?.errors?.[0]?.detail ??
       "Checkout creation failed";
-    console.error("[PayMongo] checkout creation failed", providerCode);
+    console.error(
+      `[PayMongo] checkout creation failed code=${safeLogText(providerCode)} ` +
+        `detail=${safeLogText(providerDetail)}`,
+    );
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    });
     await serviceClient.rpc("record_paymongo_checkout_failure", {
       p_payment_record_id: payment.id,
       p_failure_code: String(providerCode),
@@ -225,6 +271,12 @@ serve(async (request) => {
   if (!session?.id || !checkoutUrl) {
     return jsonResponse({ error: "INVALID_PAYMENT_PROVIDER_RESPONSE" }, 502);
   }
+  console.info(
+    `[PayMongo] checkout URL received host=${new URL(checkoutUrl).host}`,
+  );
+  const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
   const { error: persistError } = await serviceClient.rpc(
     "set_paymongo_checkout_session",
     {
@@ -245,6 +297,7 @@ serve(async (request) => {
   console.info(`[PayMongo] checkout URL returned record=${payment.id}`);
 
   return jsonResponse({
+    success: true,
     payment_record_id: payment.id,
     checkout_url: checkoutUrl,
     reused: false,

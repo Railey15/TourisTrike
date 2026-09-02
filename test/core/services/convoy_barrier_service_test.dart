@@ -8,6 +8,7 @@ ConvoyDriverSnapshot _driver(
   int stopIndex = 0,
   DateTime? stateUpdatedAt,
   DateTime? lastLocationAt,
+  String assignmentStatus = 'accepted',
 }) => ConvoyDriverSnapshot(
   driverId: id,
   driverName: id,
@@ -16,6 +17,7 @@ ConvoyDriverSnapshot _driver(
   currentStopIndex: stopIndex,
   stateUpdatedAt: stateUpdatedAt ?? DateTime(2026, 8, 5, 12, 0, 0),
   lastLocationAt: lastLocationAt,
+  assignmentStatus: assignmentStatus,
 );
 
 void main() {
@@ -29,7 +31,9 @@ void main() {
     test('fromDb falls back to assigned for unknown/null input', () {
       expect(ConvoyJourneyState.fromDb(null), ConvoyJourneyState.assigned);
       expect(
-        ConvoyJourneyState.fromDb('waiting_driver'), // legacy package_activities value
+        ConvoyJourneyState.fromDb(
+          'waiting_driver',
+        ), // legacy package_activities value
         ConvoyJourneyState.assigned,
       );
     });
@@ -54,7 +58,9 @@ void main() {
       ];
       expect(ConvoyBarrierService.canDepartFromPickup(convoy), isFalse);
       expect(
-        ConvoyBarrierService.blockingDepartFromPickup(convoy).map((d) => d.driverId),
+        ConvoyBarrierService.blockingDepartFromPickup(
+          convoy,
+        ).map((d) => d.driverId),
         ['B'],
       );
     });
@@ -79,21 +85,18 @@ void main() {
       expect(ConvoyBarrierService.canDepartFromStop(convoy, 1), isFalse);
     });
 
-    test(
-      'raw enum order alone would be WRONG here — regression guard for the '
-      'stop-index bug: a driver stopDone on an EARLIER stop must not '
-      'count as clearing a LATER stop',
-      () {
-        final convoy = [
-          // Finished stop 0 already, now en route to stop 1 (order LOWER
-          // than stopDone, but this driver has legitimately cleared stop 0).
-          _driver('A', ConvoyJourneyState.enRouteStop, stopIndex: 1),
-          _driver('B', ConvoyJourneyState.stopDone, stopIndex: 0),
-        ];
-        expect(ConvoyBarrierService.canDepartFromStop(convoy, 0), isTrue);
-        expect(ConvoyBarrierService.canDepartFromStop(convoy, 1), isFalse);
-      },
-    );
+    test('raw enum order alone would be WRONG here — regression guard for the '
+        'stop-index bug: a driver stopDone on an EARLIER stop must not '
+        'count as clearing a LATER stop', () {
+      final convoy = [
+        // Finished stop 0 already, now en route to stop 1 (order LOWER
+        // than stopDone, but this driver has legitimately cleared stop 0).
+        _driver('A', ConvoyJourneyState.enRouteStop, stopIndex: 1),
+        _driver('B', ConvoyJourneyState.stopDone, stopIndex: 0),
+      ];
+      expect(ConvoyBarrierService.canDepartFromStop(convoy, 0), isTrue);
+      expect(ConvoyBarrierService.canDepartFromStop(convoy, 1), isFalse);
+    });
 
     test('unblocked once every driver has cleared the stop', () {
       final convoy = [
@@ -101,6 +104,20 @@ void main() {
         _driver('B', ConvoyJourneyState.enRouteDropoff, stopIndex: 2),
       ];
       expect(ConvoyBarrierService.canDepartFromStop(convoy, 2), isTrue);
+    });
+
+    test('completed assignment satisfies a later shared stop', () {
+      final convoy = [
+        _driver(
+          'A',
+          ConvoyJourneyState.atStop,
+          stopIndex: 0,
+          assignmentStatus: 'completed',
+        ),
+        _driver('B', ConvoyJourneyState.stopDone, stopIndex: 2),
+      ];
+      expect(ConvoyBarrierService.canDepartFromStop(convoy, 2), isTrue);
+      expect(ConvoyBarrierService.blockingDepartFromStop(convoy, 2), isEmpty);
     });
   });
 
@@ -112,7 +129,9 @@ void main() {
       ];
       expect(ConvoyBarrierService.canCompleteTour(convoy), isFalse);
       expect(
-        ConvoyBarrierService.blockingCompleteTour(convoy).map((d) => d.driverId),
+        ConvoyBarrierService.blockingCompleteTour(
+          convoy,
+        ).map((d) => d.driverId),
         ['B'],
       );
     });
@@ -180,31 +199,43 @@ void main() {
             ConvoyJourneyState.stopDone,
             stopIndex: 1,
           );
-          expect(ConvoyBarrierService.canDepartFromStop([doneStop1], 1), isTrue);
+          expect(
+            ConvoyBarrierService.canDepartFromStop([doneStop1], 1),
+            isTrue,
+          );
         },
       );
 
-      test('canCompleteTour depends only on the lone driver reaching drop-off', () {
-        expect(
-          ConvoyBarrierService.canCompleteTour([
-            _driver('solo', ConvoyJourneyState.enRouteDropoff),
-          ]),
-          isFalse,
-        );
-        expect(
-          ConvoyBarrierService.canCompleteTour([
-            _driver('solo', ConvoyJourneyState.atDropoff),
-          ]),
-          isTrue,
-        );
-      });
+      test(
+        'canCompleteTour depends only on the lone driver reaching drop-off',
+        () {
+          expect(
+            ConvoyBarrierService.canCompleteTour([
+              _driver('solo', ConvoyJourneyState.enRouteDropoff),
+            ]),
+            isFalse,
+          );
+          expect(
+            ConvoyBarrierService.canCompleteTour([
+              _driver('solo', ConvoyJourneyState.atDropoff),
+            ]),
+            isTrue,
+          );
+        },
+      );
 
-      test('a lone driver is never blocked by a nonexistent "other" driver', () {
-        // i.e. once their own state clears the gate, nothing else can hold
-        // them back — there's no second driver to disagree.
-        final ready = _driver('solo', ConvoyJourneyState.boarded);
-        expect(ConvoyBarrierService.blockingDepartFromPickup([ready]), isEmpty);
-      });
+      test(
+        'a lone driver is never blocked by a nonexistent "other" driver',
+        () {
+          // i.e. once their own state clears the gate, nothing else can hold
+          // them back — there's no second driver to disagree.
+          final ready = _driver('solo', ConvoyJourneyState.boarded);
+          expect(
+            ConvoyBarrierService.blockingDepartFromPickup([ready]),
+            isEmpty,
+          );
+        },
+      );
     },
   );
 

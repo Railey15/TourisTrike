@@ -97,6 +97,18 @@ select is(
   10000::bigint,
   'provider percentage splits total exactly 100 percent'
 );
+select is(
+  (select array_agg(amount_centavos order by recipient_position)
+   from public.compute_equal_split_centavos(360000, 4)),
+  array[90000,90000,90000,90000]::bigint[],
+  'four drivers split PHP 3,600 into exact PHP 900 shares'
+);
+select is(
+  (select array_agg(amount_centavos order by recipient_position)
+   from public.compute_equal_split_centavos(100001, 3)),
+  array[33334,33334,33333]::bigint[],
+  'multiple remainder centavos go one each to the first ordered drivers'
+);
 
 select has_function('public', 'claim_payment_allocation_for_payout',
   array['uuid'], 'payout claims have a locking state transition');

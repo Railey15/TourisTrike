@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -14,6 +15,7 @@ import 'package:touristrike/screens/driver/profile/driver_role_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_toda_assignment_screen.dart';
 import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_developer_tools_section.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
 import 'package:touristrike/screens/auth/login_screen.dart';
 
@@ -158,6 +160,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                           : 'Complete your remaining driver profile steps',
                     ),
                     const SizedBox(height: 14),
+                    if (kDebugMode) ...[
+                      const DriverDeveloperToolsSection(),
+                      const SizedBox(height: 14),
+                    ],
                     DriverProfileCard(
                       child: Row(
                         children: [

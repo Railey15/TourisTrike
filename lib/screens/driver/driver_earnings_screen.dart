@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
@@ -25,13 +26,44 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   bool _loading = true;
 
   List<PaymentRecord> _records = const [];
+  List<PaymentAllocation> _allocations = const [];
   List<PackageActivity> _activities = const [];
+  RealtimeChannel? _earningsChannel;
 
   @override
   void initState() {
     super.initState();
 
     _load();
+    final driverId = Supabase.instance.client.auth.currentUser?.id;
+    if (driverId != null) {
+      _earningsChannel = Supabase.instance.client
+          .channel('driver-earnings:$driverId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'payment_allocations',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'driver_id',
+              value: driverId,
+            ),
+            callback: (_) => _load(),
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'payment_records',
+            callback: (_) => _load(),
+          )
+          .subscribe();
+    }
+  }
+
+  @override
+  void dispose() {
+    _earningsChannel?.unsubscribe();
+    super.dispose();
   }
 
   // ===========================================================================
@@ -48,6 +80,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     try {
       final results = await Future.wait([
         _repo.fetchPaymentRecords(role: 'payee', limit: 200),
+        _repo.fetchConfirmedDriverPaymentAllocations(limit: 200),
         _repo.fetchDriverActivities(),
       ]);
 
@@ -55,7 +88,8 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
       setState(() {
         _records = results[0] as List<PaymentRecord>;
-        _activities = results[1] as List<PackageActivity>;
+        _allocations = results[1] as List<PaymentAllocation>;
+        _activities = results[2] as List<PackageActivity>;
         _loading = false;
       });
     } catch (error, stackTrace) {
@@ -103,9 +137,14 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   // ===========================================================================
 
   double get _totalEarned {
-    return _records
+    final directPayments = _records
         .where((record) => record.isConfirmed)
         .fold<double>(0, (sum, record) => sum + record.amount);
+    final packageShares = _allocations.fold<double>(
+      0,
+      (sum, allocation) => sum + allocation.driverAmount,
+    );
+    return directPayments + packageShares;
   }
 
   int get _activeCount {
@@ -125,7 +164,8 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   }
 
   int get _confirmedCount {
-    return _records.where((record) => record.isConfirmed).length;
+    return _records.where((record) => record.isConfirmed).length +
+        _allocations.length;
   }
 
   int get _pendingCount {
@@ -141,7 +181,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   double get _todayEarnings {
     final now = DateTime.now();
 
-    return _records
+    final directPayments = _records
         .where((record) {
           if (!record.isConfirmed || record.createdAt == null) {
             return false;
@@ -154,6 +194,16 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
               date.day == now.day;
         })
         .fold<double>(0, (sum, record) => sum + record.amount);
+    final packageShares = _allocations
+        .where((allocation) {
+          final date = allocation.confirmedAt?.toLocal();
+          return date != null &&
+              date.year == now.year &&
+              date.month == now.month &&
+              date.day == now.day;
+        })
+        .fold<double>(0, (sum, allocation) => sum + allocation.driverAmount);
+    return directPayments + packageShares;
   }
 
   // ===========================================================================
@@ -206,7 +256,9 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: _TransactionSectionHeader(count: _records.length),
+                  child: _TransactionSectionHeader(
+                    count: _records.length + _allocations.length,
+                  ),
                 ),
 
                 const SizedBox(height: 12),
@@ -216,7 +268,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                     padding: EdgeInsets.symmetric(horizontal: 18),
                     child: _EarningsLoadingState(),
                   )
-                else if (_records.isEmpty)
+                else if (_records.isEmpty && _allocations.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 18),
                     child: _EmptyTransactionsState(),
@@ -225,14 +277,22 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 18),
                     child: Column(
-                      children: _records
-                          .map(
-                            (record) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _EarningTile(record: record),
+                      children: [
+                        ..._allocations.map(
+                          (allocation) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _AllocationEarningTile(
+                              allocation: allocation,
                             ),
-                          )
-                          .toList(),
+                          ),
+                        ),
+                        ..._records.map(
+                          (record) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _EarningTile(record: record),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
               ],
@@ -249,10 +309,10 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     return DriverPageHeader(
       icon: Icons.account_balance_wallet_outlined,
       title: 'Earnings',
-      subtitle: 'Your direct GCash payment records',
+      subtitle: 'Your confirmed payment records',
       action: const DriverHeaderBadge(
         icon: Icons.verified_user_outlined,
-        label: 'RECORD ONLY',
+        label: 'RECORDED',
       ),
       stats: [
         DriverHeaderStat(
@@ -299,8 +359,8 @@ class _EarningsRecordNotice extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'TourisTrike records your payments only. Actual funds are sent '
-              'directly to the driver\'s GCash.',
+              'Confirmed package shares appear here as earnings. Transfer and '
+              'payout status are tracked separately.',
               style: TextStyle(
                 color: Color(0xFF57739A),
                 fontWeight: FontWeight.w600,
@@ -602,6 +662,134 @@ class _TransactionSectionHeader extends StatelessWidget {
 // =============================================================================
 // TRANSACTION TILE
 // =============================================================================
+
+class _AllocationEarningTile extends StatelessWidget {
+  const _AllocationEarningTile({required this.allocation});
+
+  final PaymentAllocation allocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final paidAt = allocation.confirmedAt?.toLocal();
+    final dateLabel = paidAt == null
+        ? '-'
+        : DateFormat('MMM d, yyyy • h:mm a').format(paidAt);
+    final stage = _titleCase(allocation.paymentStage.replaceAll('_', ' '));
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5ECF5)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF3FF),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.payments_outlined,
+              color: Color(0xFF2F7EFF),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Package $stage',
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13.5,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '$dateLabel • PayMongo GCash',
+                  style: const TextStyle(
+                    color: Color(0xFF8A98AB),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10.5,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Booking ${_shortId(allocation.bookingId)}',
+                  style: const TextStyle(
+                    color: Color(0xFF8A98AB),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 9.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '₱${allocation.driverAmount.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  color: Color(0xFF111827),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14.5,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF3),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'CONFIRMED',
+                  style: TextStyle(
+                    color: Color(0xFF15803D),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 8.8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _shortId(String value) {
+    return value.length <= 8 ? value : value.substring(0, 8);
+  }
+
+  static String _titleCase(String value) {
+    return value
+        .split(' ')
+        .where((word) => word.isNotEmpty)
+        .map(
+          (word) =>
+              '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+        )
+        .join(' ');
+  }
+}
 
 class _EarningTile extends StatelessWidget {
   const _EarningTile({required this.record});

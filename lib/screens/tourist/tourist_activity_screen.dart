@@ -16,7 +16,8 @@ class ActivityScreen extends StatefulWidget {
   State<ActivityScreen> createState() => _ActivityScreenState();
 }
 
-class _ActivityScreenState extends State<ActivityScreen> {
+class _ActivityScreenState extends State<ActivityScreen>
+    with WidgetsBindingObserver {
   final _repo = TourisTrikeRepository();
   final _supabase = Supabase.instance.client;
 
@@ -35,14 +36,23 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _future = _loadData();
     _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _channel?.unsubscribe();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reload();
+    }
   }
 
   Future<_ActivityPayload> _loadData() async {
@@ -72,12 +82,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
     return _ActivityPayload(activities: activities, driverInfos: driverInfos);
   }
 
-  void _reload() {
+  Future<void> _reload() async {
     if (!mounted) return;
 
+    final next = _loadData();
     setState(() {
-      _future = _loadData();
+      _future = next;
     });
+    await next;
   }
 
   Future<void> _cancelFromCard(PackageActivity activity) async {
@@ -121,6 +133,12 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
     _channel = _supabase
         .channel('tourist-activity:${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'package_bookings',
+          callback: (_) => _reload(),
+        )
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -218,7 +236,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
               return RefreshIndicator(
                 onRefresh: () async {
-                  _reload();
+                  await _reload();
                 },
                 color: const Color(0xFF2A86FF),
                 backgroundColor: Colors.white,
@@ -294,6 +312,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                                 driverInfo:
                                     payload.driverInfos[activity.driverId],
                                 onCancel: () => _cancelFromCard(activity),
+                                onReturn: _reload,
                               ),
                             ),
                           ),
@@ -635,11 +654,17 @@ class _FilterRow extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────
 
 class _ActivityCard extends StatelessWidget {
-  const _ActivityCard({required this.activity, this.driverInfo, this.onCancel});
+  const _ActivityCard({
+    required this.activity,
+    this.driverInfo,
+    this.onCancel,
+    this.onReturn,
+  });
 
   final PackageActivity activity;
   final DriverInfo? driverInfo;
   final VoidCallback? onCancel;
+  final Future<void> Function()? onReturn;
 
   @override
   Widget build(BuildContext context) {
@@ -695,16 +720,17 @@ class _ActivityCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {
+        onTap: () async {
           if (activity.bookingId.isEmpty) return;
 
-          Navigator.push(
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) =>
                   ActivityTrackingScreen(bookingId: activity.bookingId),
             ),
           );
+          await onReturn?.call();
         },
         borderRadius: BorderRadius.circular(24),
         child: Container(

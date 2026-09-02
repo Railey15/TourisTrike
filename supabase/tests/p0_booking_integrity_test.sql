@@ -104,13 +104,13 @@ select ok(
   'tour start enforces its scheduled window'
 );
 select ok(
-  pg_get_functiondef('public.advance_driver_journey_state(uuid,text)'::regprocedure)
-    like '%REMAINING_BALANCE_NOT_CONFIRMED%',
-  'final completion requires confirmed remaining balance'
+  pg_get_functiondef('public.finalize_package_booking_if_eligible(uuid)'::regprocedure)
+    like '%booking_payment_requirements%payment_stage = ''remaining_balance''%status = ''confirmed''%',
+  'global completion requires a satisfied remaining-payment requirement linked to a confirmed record'
 );
 select ok(
   pg_get_functiondef('public.advance_driver_journey_state(uuid,text)'::regprocedure)
-    like '%array_agg(journey_state order by public.journey_state_order(journey_state))%',
+    like '%array_agg(journey_state%order by public.journey_state_order(journey_state)%',
   'overall state remains derived from the slowest convoy driver'
 );
 select ok(
@@ -120,8 +120,8 @@ select ok(
 );
 select ok(
   pg_get_functiondef('public.complete_package_tour(uuid,text)'::regprocedure)
-    like '%v_completed_slots < v_active_slots%',
-  'legacy completion waits for every active convoy driver'
+    like '%finalize_package_booking_if_eligible(v_booking_id)%',
+  'legacy completion delegates all global invariants to the central finalizer'
 );
 select ok(
   not exists (

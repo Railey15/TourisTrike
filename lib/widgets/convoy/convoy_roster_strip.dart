@@ -10,6 +10,7 @@ class ConvoyRosterStrip extends StatelessWidget {
     super.key,
     required this.convoy,
     required this.selfDriverId,
+    required this.progress,
     this.now,
     this.onCall,
     this.onMessage,
@@ -17,6 +18,7 @@ class ConvoyRosterStrip extends StatelessWidget {
 
   final List<ConvoyDriverSnapshot> convoy;
   final String selfDriverId;
+  final ConvoyStageProgress progress;
   final DateTime? now;
   final ConvoyContactCallback? onCall;
   final ConvoyContactCallback? onMessage;
@@ -25,7 +27,9 @@ class ConvoyRosterStrip extends StatelessWidget {
     if (ConvoyBarrierService.isOffline(d, now: now)) {
       return const Color(0xFFDC2626); // red — offline/stuck
     }
-    if (ConvoyBarrierService.isAtGate(d)) return const Color(0xFF16A34A); // green
+    if (ConvoyBarrierService.isAtGate(d)) {
+      return const Color(0xFF16A34A); // green
+    }
     return const Color(0xFFF59E0B); // amber — en route
   }
 
@@ -33,7 +37,8 @@ class ConvoyRosterStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     if (convoy.length <= 1) return const SizedBox.shrink();
     final effectiveNow = now ?? DateTime.now();
-    final readyCount = convoy.where(ConvoyBarrierService.isAtGate).length;
+    final satisfiedCount = progress.satisfiedDriverCount;
+    final requiredCount = progress.requiredDriverCount;
 
     return Container(
       width: double.infinity,
@@ -59,7 +64,9 @@ class ConvoyRosterStrip extends StatelessWidget {
                 ),
               ),
               Text(
-                '$readyCount of ${convoy.length} ready',
+                progress.allSatisfied
+                    ? 'Convoy synchronized — $satisfiedCount of $requiredCount'
+                    : 'Convoy progress — $satisfiedCount of $requiredCount',
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 11.5,
@@ -72,7 +79,7 @@ class ConvoyRosterStrip extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
             child: LinearProgressIndicator(
-              value: readyCount / convoy.length,
+              value: requiredCount == 0 ? 0 : satisfiedCount / requiredCount,
               minHeight: 5,
               backgroundColor: const Color(0xFFE2E8F0),
               valueColor: const AlwaysStoppedAnimation(Color(0xFF16A34A)),
@@ -167,7 +174,9 @@ class ConvoyRosterStrip extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  driver.journeyState.label,
+                  driver.isAssignmentCompleted
+                      ? 'Assignment completed'
+                      : driver.journeyState.label,
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 12.5,

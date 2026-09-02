@@ -544,10 +544,6 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
       return 'You must be online/available to accept bookings.';
     }
 
-    if (_hasActiveTour) {
-      return 'Complete your current tour before accepting another.';
-    }
-
     if (_acceptedBookingIds.contains(job.bookingId)) {
       return 'You already accepted this booking.';
     }
@@ -627,7 +623,7 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
                 _ActiveTourBanner(
                   onTap: () {
                     _showSnack(
-                      'Complete your current tour before accepting another.',
+                      'You may accept another job when its scheduled time does not overlap. Conflicts are checked by the server.',
                     );
                   },
                 ),
@@ -807,7 +803,7 @@ class _ActiveTourBanner extends StatelessWidget {
                 SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    'Complete your active tour before accepting another.',
+                    'You have scheduled tours. Non-overlapping jobs remain available.',
                     style: TextStyle(
                       color: Color(0xFF92400E),
                       fontSize: 10.8,
@@ -1025,7 +1021,7 @@ class _EmptyJobsState extends StatelessWidget {
 
                   child: Text(
                     hasActiveTour
-                        ? 'You already have an active tour. New jobs can be accepted after your current assignment is completed.'
+                        ? 'No non-overlapping jobs are available right now. Your existing schedule does not block other time windows.'
                         : area.isNotEmpty
                         ? 'New tour bookings in $area will appear here automatically when they need drivers.'
                         : 'New tour bookings in your assigned area will appear here automatically.',
@@ -1408,6 +1404,7 @@ class _JobCard extends StatelessWidget {
     final packageTitle = _str(package?['title']) ?? 'Package Tour';
 
     final travelDate = _parseDate(booking?['travel_date']);
+    final scheduledStart = dbDate(booking?['scheduled_start_at'])?.toLocal();
 
     final adults = booking?['adults'] is num
         ? (booking!['adults'] as num).toInt()
@@ -1626,7 +1623,9 @@ class _JobCard extends StatelessWidget {
                         value: travelDate != null
                             ? DateFormat('MMM d').format(travelDate)
                             : 'Pending',
-                        label: 'Date',
+                        label: scheduledStart == null
+                            ? 'Date'
+                            : DateFormat('h:mm a').format(scheduledStart),
                       ),
                     ),
 
@@ -1675,7 +1674,11 @@ class _JobCard extends StatelessWidget {
                       icon: Icons.calendar_month_outlined,
                       label: 'Tour date',
                       value: travelDate != null
-                          ? DateFormat('MMMM d, yyyy').format(travelDate)
+                          ? scheduledStart == null
+                                ? DateFormat('MMMM d, yyyy').format(travelDate)
+                                : DateFormat(
+                                    'MMMM d, yyyy â€¢ h:mm a',
+                                  ).format(scheduledStart)
                           : 'Date pending',
                     ),
 

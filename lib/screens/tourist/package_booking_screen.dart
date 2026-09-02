@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/itinerary_schedule_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_screen.dart';
@@ -27,10 +30,7 @@ const Color _softBlue = Color(0xFFEAF3FF);
 // =============================================================================
 
 class _AutocompleteResult {
-  const _AutocompleteResult({
-    required this.placeId,
-    required this.description,
-  });
+  const _AutocompleteResult({required this.placeId, required this.description});
 
   final String placeId;
   final String description;
@@ -62,7 +62,6 @@ class PackageBookingScreen extends StatefulWidget {
 }
 
 class _PackageBookingScreenState extends State<PackageBookingScreen> {
-
   static const double _additionalSpotFee = 250;
 
   static const int _tourStartMinutes = 7 * 60;
@@ -77,6 +76,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       'Your itinerary exceeds the allowed tour hours. Tours are only available from 7:00 AM to 5:00 PM.';
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
+  late final ItineraryScheduleService _scheduleService =
+      ItineraryScheduleService(
+        apiKey: CitySpotSuggestionService.resolveApiKey(),
+      );
 
   final PageController _pageController = PageController();
   final TextEditingController _notesCtrl = TextEditingController();
@@ -86,9 +89,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   int _currentStep = 0;
 
   DateTime? _selectedDate;
+  TimeOfDay? _selectedPickupTime;
 
   int _adults = 1;
   int _children = 0;
+  int _selectedTricycles = 1;
 
   _PaymentMethod _payment = _PaymentMethod.cashPickup;
 
@@ -126,10 +131,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   List<_EditableItineraryStop> _suggestedItinerary = const [];
   List<_EditableItineraryStop> _customizedItinerary = const [];
 
-  _ItineraryViewMode _itineraryMode =
-      _ItineraryViewMode.suggested;
+  _ItineraryViewMode _itineraryMode = _ItineraryViewMode.suggested;
 
   bool _customizedItineraryDirty = false;
+  bool _scheduleLoading = false;
+  int _scheduleRevision = 0;
+  int _finalTravelDurationMinutes = 0;
 
   // =============================================================================
   // LIFECYCLE
@@ -169,14 +176,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       throw StateError('Package not found.');
     }
 
-    final province = dbString(
-      package.row['province'],
-      fallback: 'Bulacan',
-    );
+    final province = dbString(package.row['province'], fallback: 'Bulacan');
 
-    final packageSpotsFuture = _repo.fetchPackageSpots(
-      package.id,
-    );
+    final packageSpotsFuture = _repo.fetchPackageSpots(package.id);
 
     final suggestionFuture = CitySpotSuggestionService().fetchSuggestions(
       city: package.city,
@@ -195,12 +197,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     suggestions = suggestions
-        .where(
-          (spot) => _sameMunicipality(
-            spot.city,
-            package!.city,
-          ),
-        )
+        .where((spot) => _sameMunicipality(spot.city, package!.city))
         .toList(growable: false);
 
     return _BookingScreenData(
@@ -221,10 +218,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       ..clear()
       ..addAll(
         data.packageSpots.map(
-          (spot) => _EditableBookingSpot.fromTouristSpot(
-            spot,
-            isOriginal: true,
-          ),
+          (spot) =>
+              _EditableBookingSpot.fromTouristSpot(spot, isOriginal: true),
         ),
       );
 
@@ -232,34 +227,24 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     // Backward compatibility if another page still passes customizedSpots.
     if (widget.customizedSpots.isNotEmpty) {
-      final activeRows = widget.customizedSpots
-          .where(
-            (row) =>
-                row['action_type'] == 'kept' ||
-                row['action_type'] == 'added',
-          )
-          .toList()
-        ..sort(
-          (a, b) => dbInt(
-            a['sort_order'],
-          ).compareTo(
-            dbInt(
-              b['sort_order'],
-            ),
-          ),
-        );
+      final activeRows =
+          widget.customizedSpots
+              .where(
+                (row) =>
+                    row['action_type'] == 'kept' ||
+                    row['action_type'] == 'added',
+              )
+              .toList()
+            ..sort(
+              (a, b) =>
+                  dbInt(a['sort_order']).compareTo(dbInt(b['sort_order'])),
+            );
 
       _selectedSpots.addAll(
-        activeRows.map(
-          _EditableBookingSpot.fromCustomizationRow,
-        ),
+        activeRows.map(_EditableBookingSpot.fromCustomizationRow),
       );
     } else {
-      _selectedSpots.addAll(
-        _originalSpots.map(
-          _EditableBookingSpot.copy,
-        ),
-      );
+      _selectedSpots.addAll(_originalSpots.map(_EditableBookingSpot.copy));
     }
 
     _googleSuggestions = data.googleSuggestions;
@@ -275,10 +260,18 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   int get _totalParticipants => _adults + _children;
 
+  int get _minimumRequiredTricycles =>
+      (_totalParticipants / _tricycleCapacity).ceil().clamp(1, 99);
+
   int get _requiredTricycles =>
-      (_totalParticipants / _tricycleCapacity)
-          .ceil()
-          .clamp(1, 99);
+      math.max(_selectedTricycles, _minimumRequiredTricycles);
+
+  void _keepSelectedTricyclesAboveMinimum() {
+    _selectedTricycles = math.max(
+      _selectedTricycles,
+      _minimumRequiredTricycles,
+    );
+  }
 
   // =============================================================================
   // BOOKING TYPE
@@ -305,9 +298,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // =============================================================================
 
   int get _addedGoogleSpotCount {
-    return _selectedSpots
-        .where((spot) => !spot.isOriginal)
-        .length;
+    return _selectedSpots.where((spot) => !spot.isOriginal).length;
   }
 
   double _unitPrice(TourPackage package) {
@@ -317,8 +308,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return widget.customizedUnitPrice!;
     }
 
-    return package.numericPrice +
-        (_addedGoogleSpotCount * _additionalSpotFee);
+    return package.numericPrice + (_addedGoogleSpotCount * _additionalSpotFee);
   }
 
   double _totalPrice(TourPackage package) {
@@ -359,15 +349,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // LOCATION
   // =============================================================================
 
-  void _onPickupSelected(
-    String? address,
-    double? lat,
-    double? lng,
-  ) {
+  void _onPickupSelected(String? address, double? lat, double? lng) {
     setState(() {
-      if (address != null &&
-          lat != null &&
-          lng != null) {
+      if (address != null && lat != null && lng != null) {
         _selectedPickup = _SelectedLocation(
           address: address,
           latitude: lat,
@@ -380,17 +364,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         _selectedPickup = null;
       }
     });
+    unawaited(_recalculateSelectedItinerary());
   }
 
-  void _onDropoffSelected(
-    String? address,
-    double? lat,
-    double? lng,
-  ) {
+  void _onDropoffSelected(String? address, double? lat, double? lng) {
     setState(() {
-      if (address != null &&
-          lat != null &&
-          lng != null) {
+      if (address != null && lat != null && lng != null) {
         _selectedDropoff = _SelectedLocation(
           address: address,
           latitude: lat,
@@ -403,13 +382,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         _selectedDropoff = null;
       }
     });
+    unawaited(_recalculateSelectedItinerary());
   }
 
   String _packageProvince(TourPackage package) {
-    return dbString(
-      package.row['province'],
-      fallback: 'Bulacan',
-    );
+    return dbString(package.row['province'], fallback: 'Bulacan');
   }
 
   String? _locationBlockingMessage(TourPackage package) {
@@ -451,27 +428,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   bool _containsSpot(_EditableBookingSpot spot) {
-    return _selectedSpots.any(
-      (item) => item.key == spot.key,
-    );
+    return _selectedSpots.any((item) => item.key == spot.key);
   }
 
   void _addGoogleSuggestion(CitySpotSuggestion suggestion) {
     if (_selectedSpots.length >= _maximumSpots) {
-      _snack(
-        'You can only select up to $_maximumSpots destinations.',
-      );
+      _snack('You can only select up to $_maximumSpots destinations.');
       return;
     }
 
-    final candidate = _EditableBookingSpot.fromSuggestion(
-      suggestion,
-    );
+    final candidate = _EditableBookingSpot.fromSuggestion(suggestion);
 
     if (_containsSpot(candidate)) {
-      _snack(
-        'This destination is already selected.',
-      );
+      _snack('This destination is already selected.');
       return;
     }
 
@@ -483,16 +452,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   void _removeSelectedSpot(_EditableBookingSpot spot) {
     if (_selectedSpots.length <= _minimumSpots) {
-      _snack(
-        'At least $_minimumSpots destinations are required.',
-      );
+      _snack('At least $_minimumSpots destinations are required.');
       return;
     }
 
     setState(() {
-      _selectedSpots.removeWhere(
-        (item) => item.key == spot.key,
-      );
+      _selectedSpots.removeWhere((item) => item.key == spot.key);
 
       _spotSelectionDirtyForSchedule = true;
     });
@@ -500,9 +465,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   void _restoreOriginalSpot(_EditableBookingSpot original) {
     if (_selectedSpots.length >= _maximumSpots) {
-      _snack(
-        'You can only select up to $_maximumSpots destinations.',
-      );
+      _snack('You can only select up to $_maximumSpots destinations.');
       return;
     }
 
@@ -511,9 +474,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     setState(() {
-      _selectedSpots.add(
-        _EditableBookingSpot.copy(original),
-      );
+      _selectedSpots.add(_EditableBookingSpot.copy(original));
 
       _spotSelectionDirtyForSchedule = true;
     });
@@ -522,70 +483,55 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   void _moveSelectedSpot(int index, int delta) {
     final nextIndex = index + delta;
 
-    if (nextIndex < 0 ||
-        nextIndex >= _selectedSpots.length) {
+    if (nextIndex < 0 || nextIndex >= _selectedSpots.length) {
       return;
     }
 
     setState(() {
       final item = _selectedSpots.removeAt(index);
 
-      _selectedSpots.insert(
-        nextIndex,
-        item,
-      );
+      _selectedSpots.insert(nextIndex, item);
 
       _spotSelectionDirtyForSchedule = true;
     });
   }
 
   List<_EditableBookingSpot> get _removedOriginalSpots {
-    final selectedKeys = _selectedSpots
-        .map((spot) => spot.key)
-        .toSet();
+    final selectedKeys = _selectedSpots.map((spot) => spot.key).toSet();
 
     return _originalSpots
-        .where(
-          (spot) => !selectedKeys.contains(spot.key),
-        )
+        .where((spot) => !selectedKeys.contains(spot.key))
         .toList(growable: false);
   }
 
   List<CitySpotSuggestion> get _filteredGoogleSuggestions {
-    final selectedKeys = _selectedSpots
-        .map((spot) => spot.key)
-        .toSet();
+    final selectedKeys = _selectedSpots.map((spot) => spot.key).toSet();
 
     final selectedTitles = _selectedSpots
         .map((spot) => _normalizeText(spot.title))
         .toSet();
 
-    return _googleSuggestions.where((suggestion) {
-      if (selectedKeys.contains('google:${suggestion.id}')) {
-        return false;
-      }
+    return _googleSuggestions
+        .where((suggestion) {
+          if (selectedKeys.contains('google:${suggestion.id}')) {
+            return false;
+          }
 
-      if (selectedTitles.contains(
-        _normalizeText(suggestion.title),
-      )) {
-        return false;
-      }
+          if (selectedTitles.contains(_normalizeText(suggestion.title))) {
+            return false;
+          }
 
-      if (_spotCategory != 'All' &&
-          suggestion.category != _spotCategory) {
-        return false;
-      }
+          if (_spotCategory != 'All' && suggestion.category != _spotCategory) {
+            return false;
+          }
 
-      return true;
-    }).toList(growable: false);
+          return true;
+        })
+        .toList(growable: false);
   }
 
-  List<Map<String, dynamic>> _buildCustomizationRows(
-    TourPackage package,
-  ) {
-    final selectedKeys = _selectedSpots
-        .map((spot) => spot.key)
-        .toSet();
+  List<Map<String, dynamic>> _buildCustomizationRows(TourPackage package) {
+    final selectedKeys = _selectedSpots.map((spot) => spot.key).toSet();
 
     final rows = <Map<String, dynamic>>[];
 
@@ -606,24 +552,18 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         'image_url': spot.imageUrl,
         'additional_fee': spot.isOriginal ? 0 : _additionalSpotFee,
         'sort_order': i,
-        'opening_time': spot.openingTime.isEmpty
+        'opening_time': spot.openingTime.isEmpty ? null : spot.openingTime,
+        'closing_time': spot.closingTime.isEmpty ? null : spot.closingTime,
+        'estimated_arrival_time': spot.estimatedArrivalTime.isEmpty
             ? null
-            : spot.openingTime,
-        'closing_time': spot.closingTime.isEmpty
-            ? null
-            : spot.closingTime,
-        'estimated_arrival_time':
-            spot.estimatedArrivalTime.isEmpty
-                ? null
-                : spot.estimatedArrivalTime,
-        'estimated_duration_minutes':
-            spot.estimatedDurationMinutes > 0
-                ? spot.estimatedDurationMinutes
-                : null,
+            : spot.estimatedArrivalTime,
+        'estimated_duration_minutes': spot.estimatedDurationMinutes > 0
+            ? spot.estimatedDurationMinutes
+            : null,
         'recommended_visit_duration_minutes':
             spot.recommendedVisitDurationMinutes > 0
-                ? spot.recommendedVisitDurationMinutes
-                : null,
+            ? spot.recommendedVisitDurationMinutes
+            : null,
       });
     }
 
@@ -652,18 +592,16 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         'closing_time': original.closingTime.isEmpty
             ? null
             : original.closingTime,
-        'estimated_arrival_time':
-            original.estimatedArrivalTime.isEmpty
-                ? null
-                : original.estimatedArrivalTime,
-        'estimated_duration_minutes':
-            original.estimatedDurationMinutes > 0
-                ? original.estimatedDurationMinutes
-                : null,
+        'estimated_arrival_time': original.estimatedArrivalTime.isEmpty
+            ? null
+            : original.estimatedArrivalTime,
+        'estimated_duration_minutes': original.estimatedDurationMinutes > 0
+            ? original.estimatedDurationMinutes
+            : null,
         'recommended_visit_duration_minutes':
             original.recommendedVisitDurationMinutes > 0
-                ? original.recommendedVisitDurationMinutes
-                : null,
+            ? original.recommendedVisitDurationMinutes
+            : null,
       });
     }
 
@@ -690,32 +628,22 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   void _rebuildScheduleFromSelectedSpots() {
     _disposeItineraries();
 
-    var nextArrival = '09:00:00';
+    var cursorMinutes = _pickupMinutes;
 
     final suggested = <_EditableItineraryStop>[];
 
     for (final spot in _selectedSpots) {
-      final sourceArrival = spot.estimatedArrivalTime.trim();
-
-      final arrival = sourceArrival.isNotEmpty
-          ? sourceArrival
-          : nextArrival;
-
       final stayMinutes = resolveItineraryStayMinutes(
         estimatedMinutes: spot.estimatedDurationMinutes,
-        recommendedMinutes:
-            spot.recommendedVisitDurationMinutes,
+        recommendedMinutes: spot.recommendedVisitDurationMinutes,
       );
 
-      final departure = addMinutesToScheduleTime(
-        arrival,
-        stayMinutes,
-      );
-
-      nextArrival = addMinutesToScheduleTime(
-        departure,
-        20,
-      );
+      const initialTravelMinutes = 20;
+      final arrivalMinutes = cursorMinutes + initialTravelMinutes;
+      final departureMinutes = arrivalMinutes + stayMinutes;
+      final arrival = _storageTimeFromMinutes(arrivalMinutes);
+      final departure = _storageTimeFromMinutes(departureMinutes);
+      cursorMinutes = departureMinutes;
 
       suggested.add(
         _EditableItineraryStop(
@@ -732,6 +660,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           arrivalTime: arrival,
           stayMinutes: stayMinutes,
           departureTime: departure,
+          travelDurationMinutes: initialTravelMinutes,
+          routeDistanceMeters: 0,
         ),
       );
     }
@@ -744,6 +674,79 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     _spotSelectionDirtyForSchedule = false;
     _customizedItineraryDirty = false;
+    unawaited(_recalculateSelectedItinerary());
+  }
+
+  int get _pickupMinutes {
+    final time = _selectedPickupTime;
+    return time == null ? _tourStartMinutes : time.hour * 60 + time.minute;
+  }
+
+  DateTime? get _scheduledPickupAt {
+    final date = _selectedDate;
+    final time = _selectedPickupTime;
+    if (date == null || time == null) return null;
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  DateTime? get _estimatedBookingEndAt {
+    final date = _selectedDate;
+    final itinerary = _selectedItinerary;
+    if (date == null || itinerary.isEmpty) return null;
+    final departure = _storageTimeToMinutes(itinerary.last.departureTime);
+    if (departure == null) return null;
+    final endMinutes = departure + _finalTravelDurationMinutes;
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+    ).add(Duration(minutes: endMinutes));
+  }
+
+  Future<void> _recalculateSelectedItinerary() async {
+    final pickup = _selectedPickup;
+    final itinerary = _selectedItinerary;
+    if (pickup == null || itinerary.isEmpty) return;
+
+    final revision = ++_scheduleRevision;
+    if (mounted) setState(() => _scheduleLoading = true);
+
+    final points = <LatLng>[
+      LatLng(pickup.latitude, pickup.longitude),
+      ...itinerary.map((item) => LatLng(item.latitude, item.longitude)),
+      if (_selectedDropoff case final dropoff?)
+        LatLng(dropoff.latitude, dropoff.longitude),
+    ];
+    final legs = await _scheduleService.fetchTravelLegs(points);
+    if (!mounted || revision != _scheduleRevision) return;
+
+    final inboundLegs = legs.take(itinerary.length).toList(growable: false);
+    final timings = calculateItineraryTimings(
+      pickupMinutes: _pickupMinutes,
+      stayDurationMinutes: itinerary.map((item) => item.stayMinutes).toList(),
+      travelDurationMinutes: List<int>.generate(
+        itinerary.length,
+        (i) => i < inboundLegs.length ? inboundLegs[i].durationMinutes : 20,
+      ),
+    );
+
+    setState(() {
+      for (var i = 0; i < itinerary.length; i++) {
+        itinerary[i]
+          ..arrivalTime = _storageTimeFromMinutes(timings[i].arrivalMinutes)
+          ..departureTime = _storageTimeFromMinutes(timings[i].departureMinutes)
+          ..travelDurationMinutes = timings[i].travelDurationMinutes
+          ..routeDistanceMeters = i < inboundLegs.length
+              ? inboundLegs[i].distanceMeters
+              : 0;
+      }
+      _finalTravelDurationMinutes = legs.length > itinerary.length
+          ? legs[itinerary.length].durationMinutes
+          : 0;
+      _scheduleLoading = false;
+      _customizedItineraryDirty =
+          _itineraryMode == _ItineraryViewMode.customize;
+    });
   }
 
   List<_EditableItineraryStop> get _selectedItinerary {
@@ -761,9 +764,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   int get _selectedItineraryDurationMinutes {
-    return _calculateDurationMinutes(
-      _selectedItinerary,
-    );
+    return _calculateDurationMinutes(_selectedItinerary);
   }
 
   String? _itineraryValidationMessage() {
@@ -782,16 +783,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     int? finalDepartureMinutes;
 
     for (final item in itinerary) {
-      final arrivalMinutes = _storageTimeToMinutes(
-        item.arrivalTime,
-      );
+      final arrivalMinutes = _storageTimeToMinutes(item.arrivalTime);
 
-      final departureMinutes = _storageTimeToMinutes(
-        item.departureTime,
-      );
+      final departureMinutes = _storageTimeToMinutes(item.departureTime);
 
-      if (arrivalMinutes == null ||
-          departureMinutes == null) {
+      if (arrivalMinutes == null || departureMinutes == null) {
         return 'Please complete all itinerary times.';
       }
 
@@ -824,6 +820,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 'Please select a travel date.';
     }
 
+    if (_selectedPickupTime == null) {
+      return 'Please select an exact pickup time.';
+    }
+
+    if (_pickupMinutes < _tourStartMinutes ||
+        _pickupMinutes >= _tourEndMinutes) {
+      return 'Pickup time must be between 7:00 AM and 4:59 PM.';
+    }
+
     if (finalDepartureMinutes != null &&
         finalDepartureMinutes > _tourEndMinutes) {
       return _tourHoursErrorMessage;
@@ -832,17 +837,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     if (_isSameDay) {
       final now = DateTime.now();
 
-      final currentMinutes =
-          now.hour * 60 + now.minute;
+      final scheduled = _scheduledPickupAt;
+      if (scheduled != null && scheduled.isBefore(now)) {
+        return 'For same-day bookings, pickup time must be later than the current time.';
+      }
+
+      final currentMinutes = now.hour * 60 + now.minute;
 
       if (currentMinutes > _tourEndMinutes) {
         return 'Tours are no longer available today. Tours are only available from 7:00 AM to 5:00 PM.';
       }
 
-      if (firstArrivalMinutes != null &&
-          firstArrivalMinutes < currentMinutes) {
-        if (currentMinutes +
-                _selectedItineraryDurationMinutes >
+      if (firstArrivalMinutes != null && firstArrivalMinutes < currentMinutes) {
+        if (currentMinutes + _selectedItineraryDurationMinutes >
             _tourEndMinutes) {
           return _tourHoursErrorMessage;
         }
@@ -863,108 +870,27 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return null;
     }
 
-    return int.parse(match.group(1)!) * 60 +
-        int.parse(match.group(2)!);
+    return int.parse(match.group(1)!) * 60 + int.parse(match.group(2)!);
   }
 
-  void _moveCustomizedItineraryStop(
-    int index,
-    int delta,
-  ) {
+  void _moveCustomizedItineraryStop(int index, int delta) {
     final target = index + delta;
 
-    if (target < 0 ||
-        target >= _customizedItinerary.length) {
+    if (target < 0 || target >= _customizedItinerary.length) {
       return;
     }
 
     setState(() {
       final item = _customizedItinerary.removeAt(index);
 
-      _customizedItinerary.insert(
-        target,
-        item,
-      );
+      _customizedItinerary.insert(target, item);
 
       _customizedItineraryDirty = true;
     });
+    unawaited(_recalculateSelectedItinerary());
   }
 
-  static List<String> _tourTimeOptions() {
-    final options = <String>[];
-
-    for (var minutes = _tourStartMinutes;
-        minutes <= _tourEndMinutes;
-        minutes += 15) {
-      final hour = minutes ~/ 60;
-      final minute = minutes % 60;
-
-      options.add(
-        '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}:00',
-      );
-    }
-
-    return options;
-  }
-
-  Future<void> _pickItineraryTime(
-    _EditableItineraryStop item, {
-    required bool pickingArrival,
-  }) async {
-    final current = pickingArrival
-        ? item.arrivalTime
-        : item.departureTime;
-
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.white,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(28),
-        ),
-      ),
-      builder: (_) => _TimePickerSheet(
-        title: pickingArrival
-            ? 'Select Arrival Time'
-            : 'Select Departure Time',
-        options: _tourTimeOptions(),
-        selected: current,
-      ),
-    );
-
-    if (picked == null) {
-      return;
-    }
-
-    setState(() {
-      if (pickingArrival) {
-        item.arrivalTime = picked;
-
-        item.departureTime = addMinutesToScheduleTime(
-          item.arrivalTime,
-          item.stayMinutes,
-        );
-      } else {
-        item.departureTime = picked;
-
-        final difference = scheduleMinutesBetween(
-          item.arrivalTime,
-          item.departureTime,
-        );
-
-        if (difference > 0) {
-          item.stayMinutes = difference;
-        }
-      }
-
-      _customizedItineraryDirty = true;
-    });
-  }
-
-  bool _commitCustomizedItinerary({
-    bool showSnack = true,
-  }) {
+  bool _commitCustomizedItinerary({bool showSnack = true}) {
     final error = _itineraryValidationMessage();
 
     if (error != null) {
@@ -983,17 +909,16 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   List<Json> _buildFinalItineraryPayload() {
-    return _selectedItinerary.indexed.map(
-      (entry) {
-        return entry.$2.toBookingPayload(
-          order: entry.$1 + 1,
-          sourceType: _itineraryMode ==
-                  _ItineraryViewMode.customize
-              ? 'customized'
-              : 'ai_suggested',
-        );
-      },
-    ).toList(growable: false);
+    return _selectedItinerary.indexed
+        .map((entry) {
+          return entry.$2.toBookingPayload(
+            order: entry.$1 + 1,
+            sourceType: _itineraryMode == _ItineraryViewMode.customize
+                ? 'customized'
+                : 'ai_suggested',
+          );
+        })
+        .toList(growable: false);
   }
 
   // =============================================================================
@@ -1005,27 +930,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 'Choose your travel date';
     }
 
-    return DateFormat(
-      'EEEE, MMMM d, yyyy',
-    ).format(_selectedDate!);
+    return DateFormat('EEEE, MMMM d, yyyy').format(_selectedDate!);
   }
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
 
-    final firstDate = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
+    final firstDate = DateTime(now.year, now.month, now.day);
 
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate ?? firstDate,
       firstDate: firstDate,
-      lastDate: DateTime(
-        now.year + 2,
-      ),
+      lastDate: DateTime(now.year + 2),
     );
 
     if (picked == null) {
@@ -1040,11 +957,25 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           picked.month == now.month &&
           picked.day == now.day;
 
-      if (!pickedIsToday &&
-          _payment == _PaymentMethod.cashPickup) {
+      if (!pickedIsToday && _payment == _PaymentMethod.cashPickup) {
         _payment = _PaymentMethod.gcash;
       }
     });
+    unawaited(_recalculateSelectedItinerary());
+  }
+
+  String get _pickupTimeLabel => _selectedPickupTime == null
+      ? 'Choose exact pickup time'
+      : _selectedPickupTime!.format(context);
+
+  Future<void> _pickPickupTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedPickupTime ?? const TimeOfDay(hour: 8, minute: 0),
+    );
+    if (picked == null) return;
+    setState(() => _selectedPickupTime = picked);
+    await _recalculateSelectedItinerary();
   }
 
   // =============================================================================
@@ -1063,14 +994,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     return null;
   }
 
-  String? _stepValidationMessage(
-    int step,
-    TourPackage package,
-  ) {
+  String? _stepValidationMessage(int step, TourPackage package) {
     switch (step) {
       case 0:
         if (_selectedDate == null) {
           return 'Please select your travel date first.';
+        }
+        if (_selectedPickupTime == null) {
+          return 'Please select your pickup time.';
         }
 
         return _passengerValidationMessage();
@@ -1082,19 +1013,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         return _spotValidationMessage();
 
       case 3:
-        if (_itineraryMode ==
-                _ItineraryViewMode.customize &&
-            !_commitCustomizedItinerary(
-              showSnack: false,
-            )) {
+        if (_itineraryMode == _ItineraryViewMode.customize &&
+            !_commitCustomizedItinerary(showSnack: false)) {
           return _itineraryValidationMessage();
         }
 
         return _itineraryValidationMessage();
 
       case 4:
-        if (!_isSameDay &&
-            _payment == _PaymentMethod.cashPickup) {
+        if (!_isSameDay && _payment == _PaymentMethod.cashPickup) {
           return 'Advanced bookings require GCash for the 50% down payment.';
         }
 
@@ -1105,9 +1032,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
   }
 
-  String? _confirmationBlockingMessage(
-    TourPackage package,
-  ) {
+  String? _confirmationBlockingMessage(TourPackage package) {
     return _passengerValidationMessage() ??
         _locationBlockingMessage(package) ??
         _spotValidationMessage() ??
@@ -1118,13 +1043,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // STEPS
   // =============================================================================
 
-  Future<void> _nextStep(
-    TourPackage package,
-  ) async {
-    final error = _stepValidationMessage(
-      _currentStep,
-      package,
-    );
+  Future<void> _nextStep(TourPackage package) async {
+    final error = _stepValidationMessage(_currentStep, package);
 
     if (error != null) {
       _snack(error);
@@ -1132,11 +1052,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     // Leaving Choose Spots.
-    if (_currentStep == 2 &&
-        _spotSelectionDirtyForSchedule) {
+    if (_currentStep == 2 && _spotSelectionDirtyForSchedule) {
       setState(() {
         _rebuildScheduleFromSelectedSpots();
       });
+    }
+
+    if (_currentStep == 1 || _currentStep == 2) {
+      await _recalculateSelectedItinerary();
     }
 
     if (_currentStep >= 5) {
@@ -1151,9 +1074,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     await _pageController.animateToPage(
       next,
-      duration: const Duration(
-        milliseconds: 270,
-      ),
+      duration: const Duration(milliseconds: 270),
       curve: Curves.easeOutCubic,
     );
   }
@@ -1172,9 +1093,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     await _pageController.animateToPage(
       previous,
-      duration: const Duration(
-        milliseconds: 250,
-      ),
+      duration: const Duration(milliseconds: 250),
       curve: Curves.easeOutCubic,
     );
   }
@@ -1194,9 +1113,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     await _pageController.animateToPage(
       step,
-      duration: const Duration(
-        milliseconds: 250,
-      ),
+      duration: const Duration(milliseconds: 250),
       curve: Curves.easeOutCubic,
     );
   }
@@ -1241,9 +1158,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       );
     }
 
-    parts.add(
-      'Final itinerary source: $_selectedItineraryLabel',
-    );
+    parts.add('Final itinerary source: $_selectedItineraryLabel');
 
     parts.add(
       'Estimated tour duration: ${_formatDurationLabel(_selectedItineraryDurationMinutes)}',
@@ -1256,16 +1171,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // CONFIRM
   // =============================================================================
 
-  Future<void> _confirm(
-    TourPackage package,
-  ) async {
+  Future<void> _confirm(TourPackage package) async {
     try {
       final active = await _repo.hasActiveTour();
 
       if (active) {
-        _snack(
-          TourisTrikeRepository.activeTourErrorMessage,
-        );
+        _snack(TourisTrikeRepository.activeTourErrorMessage);
         return;
       }
     } catch (_) {
@@ -1275,9 +1186,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
-    final blocking = _confirmationBlockingMessage(
-      package,
-    );
+    final blocking = _confirmationBlockingMessage(package);
 
     if (blocking != null) {
       _snack(blocking);
@@ -1290,18 +1199,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       });
     }
 
-    if (_itineraryMode ==
-            _ItineraryViewMode.customize &&
+    if (_itineraryMode == _ItineraryViewMode.customize &&
         !_commitCustomizedItinerary()) {
-      return;
-    }
-
-    final itinerary = _buildFinalItineraryPayload();
-
-    if (itinerary.isEmpty) {
-      _snack(
-        'Unable to prepare the itinerary for this booking.',
-      );
       return;
     }
 
@@ -1310,24 +1209,34 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     });
 
     try {
+      await _recalculateSelectedItinerary();
+      if (!mounted) return;
+
+      final recalculatedError = _itineraryValidationMessage();
+      if (recalculatedError != null) {
+        _snack(recalculatedError);
+        return;
+      }
+
+      final itinerary = _buildFinalItineraryPayload();
+      if (itinerary.isEmpty) {
+        _snack('Unable to prepare the itinerary for this booking.');
+        return;
+      }
+
       final total = _totalPrice(package);
 
-      final downpayment = _downpaymentAmount(
-        package,
-      );
+      final downpayment = _downpaymentAmount(package);
 
-      final remaining = _remainingBalance(
-        package,
-      );
+      final remaining = _remainingBalance(package);
 
-      final method =
-          _payment == _PaymentMethod.gcash
-              ? 'gcash'
-              : 'cash';
+      final method = _payment == _PaymentMethod.gcash ? 'gcash' : 'cash';
 
       final booking = await _repo.createPackageBooking(
         packageId: package.id,
         travelDate: _selectedDate!,
+        scheduledStartAt: _scheduledPickupAt!,
+        estimatedEndAt: _estimatedBookingEndAt!,
         adults: _adults,
         children: _children,
         paymentMethod: method,
@@ -1352,9 +1261,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
         notes: _buildNotesSummary(),
 
-        customizedSpots: _buildCustomizationRows(
-          package,
-        ),
+        customizedSpots: _buildCustomizationRows(package),
 
         itineraryItems: itinerary,
 
@@ -1370,17 +1277,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         return;
       }
 
-      _navigateToActivityTracking(
-        booking.id.toString(),
-      );
+      _navigateToActivityTracking(booking.id.toString());
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _snack(
-        'Unable to create booking: $error',
-      );
+      _snack('Unable to create booking: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -1390,31 +1293,22 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
   }
 
-  void _navigateToActivityTracking(
-    String bookingId,
-  ) {
+  void _navigateToActivityTracking(String bookingId) {
     final navigator = Navigator.of(context);
 
     navigator.pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const ActivityScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const ActivityScreen()),
       (route) => false,
     );
 
     navigator.push(
       MaterialPageRoute(
-        builder: (_) => ActivityTrackingScreen(
-          bookingId: bookingId,
-        ),
+        builder: (_) => ActivityTrackingScreen(bookingId: bookingId),
       ),
     );
   }
 
-  void _snack(
-    String message, {
-    bool error = true,
-  }) {
+  void _snack(String message, {bool error = true}) {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context)
@@ -1423,9 +1317,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         SnackBar(
           content: Text(
             message,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
@@ -1450,8 +1342,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       body: FutureBuilder<_BookingScreenData>(
         future: _future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState !=
-              ConnectionState.done) {
+          if (snapshot.connectionState != ConnectionState.done) {
             return const _BookingLoadingView();
           }
 
@@ -1473,13 +1364,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
           final total = _totalPrice(package);
 
-          final amountNow = _amountToPayNow(
-            package,
-          );
+          final amountNow = _amountToPayNow(package);
 
-          final remaining = _remainingBalance(
-            package,
-          );
+          final remaining = _remainingBalance(package);
 
           return SafeArea(
             bottom: false,
@@ -1501,8 +1388,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                 Expanded(
                   child: PageView(
                     controller: _pageController,
-                    physics:
-                        const NeverScrollableScrollPhysics(),
+                    physics: const NeverScrollableScrollPhysics(),
                     children: [
                       // ======================================================
                       // STEP 1 - TRIP DETAILS
@@ -1528,8 +1414,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const _StepSectionTitle(
                             title: 'Travel Date',
-                            subtitle:
-                                'When would you like to take this tour?',
+                            subtitle: 'When would you like to take this tour?',
                           ),
 
                           const SizedBox(height: 10),
@@ -1539,6 +1424,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             isSameDay: _isSameDay,
                             dateLabel: _dateLabel,
                             onTap: _pickDate,
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          _PickupTimeSelectionCard(
+                            selected: _selectedPickupTime != null,
+                            value: _pickupTimeLabel,
+                            onTap: _pickPickupTime,
                           ),
 
                           const SizedBox(height: 22),
@@ -1559,24 +1452,27 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 : () {
                                     setState(() {
                                       _adults--;
+                                      _keepSelectedTricyclesAboveMinimum();
                                     });
                                   },
                             onAdultsPlus: () {
                               setState(() {
                                 _adults++;
+                                _keepSelectedTricyclesAboveMinimum();
                               });
                             },
-                            onChildrenMinus:
-                                _children <= 0
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _children--;
-                                        });
-                                      },
+                            onChildrenMinus: _children <= 0
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _children--;
+                                      _keepSelectedTricyclesAboveMinimum();
+                                    });
+                                  },
                             onChildrenPlus: () {
                               setState(() {
                                 _children++;
+                                _keepSelectedTricyclesAboveMinimum();
                               });
                             },
                           ),
@@ -1585,7 +1481,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           _TransportRequirementCard(
                             participants: _totalParticipants,
-                            tricycles: _requiredTricycles,
+                            minimumTricycles: _minimumRequiredTricycles,
+                            selectedTricycles: _requiredTricycles,
+                            onMinus:
+                                _requiredTricycles <= _minimumRequiredTricycles
+                                ? null
+                                : () => setState(() => _selectedTricycles--),
+                            onPlus: () => setState(() => _selectedTricycles++),
                           ),
                         ],
                       ),
@@ -1610,25 +1512,20 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             icon: Icons.trip_origin_rounded,
                             iconColor: const Color(0xFF16A34A),
                             title: 'Pickup Point',
-                            subtitle:
-                                'Where should the driver meet you?',
+                            subtitle: 'Where should the driver meet you?',
                             child: _LocationPickerCard(
                               label: 'Pickup',
                               requiredMunicipality: package.city,
-                              requiredProvince:
-                                  _packageProvince(package),
+                              requiredProvince: _packageProvince(package),
                               errorText: _pickupLocationError,
-                              onValidationMessageChanged:
-                                  (message) {
+                              onValidationMessageChanged: (message) {
                                 if (!mounted) return;
 
                                 setState(() {
-                                  _pickupLocationError =
-                                      message;
+                                  _pickupLocationError = message;
                                 });
                               },
-                              onLocationSelected:
-                                  _onPickupSelected,
+                              onLocationSelected: _onPickupSelected,
                             ),
                           ),
 
@@ -1639,25 +1536,20 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             icon: Icons.location_on_rounded,
                             iconColor: const Color(0xFFDC2626),
                             title: 'Drop-off Point',
-                            subtitle:
-                                'Where should the tour end?',
+                            subtitle: 'Where should the tour end?',
                             child: _LocationPickerCard(
                               label: 'Drop-off',
                               requiredMunicipality: package.city,
-                              requiredProvince:
-                                  _packageProvince(package),
+                              requiredProvince: _packageProvince(package),
                               errorText: _dropoffLocationError,
-                              onValidationMessageChanged:
-                                  (message) {
+                              onValidationMessageChanged: (message) {
                                 if (!mounted) return;
 
                                 setState(() {
-                                  _dropoffLocationError =
-                                      message;
+                                  _dropoffLocationError = message;
                                 });
                               },
-                              onLocationSelected:
-                                  _onDropoffSelected,
+                              onLocationSelected: _onDropoffSelected,
                             ),
                           ),
 
@@ -1672,18 +1564,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 10),
 
                           _SharedRouteMapPreview(
-                            pickupAddress:
-                                _selectedPickup?.address,
-                            pickupLat:
-                                _selectedPickup?.latitude,
-                            pickupLng:
-                                _selectedPickup?.longitude,
-                            dropoffAddress:
-                                _selectedDropoff?.address,
-                            dropoffLat:
-                                _selectedDropoff?.latitude,
-                            dropoffLng:
-                                _selectedDropoff?.longitude,
+                            pickupAddress: _selectedPickup?.address,
+                            pickupLat: _selectedPickup?.latitude,
+                            pickupLng: _selectedPickup?.longitude,
+                            dropoffAddress: _selectedDropoff?.address,
+                            dropoffLat: _selectedDropoff?.latitude,
+                            dropoffLng: _selectedDropoff?.longitude,
                           ),
                         ],
                       ),
@@ -1706,8 +1592,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           _SelectedSpotSummaryCard(
                             selectedCount: _selectedSpots.length,
                             addedCount: _addedGoogleSpotCount,
-                            removedCount:
-                                _removedOriginalSpots.length,
+                            removedCount: _removedOriginalSpots.length,
                             unitPrice: _unitPrice(package),
                             basePrice: package.numericPrice,
                           ),
@@ -1722,41 +1607,20 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 10),
 
-                          ..._selectedSpots
-                              .asMap()
-                              .entries
-                              .map(
-                                (entry) =>
-                                    _SelectedBookingSpotCard(
-                                  index: entry.key,
-                                  spot: entry.value,
-                                  total:
-                                      _selectedSpots.length,
-                                  onMoveUp:
-                                      entry.key == 0
-                                          ? null
-                                          : () =>
-                                              _moveSelectedSpot(
-                                                entry.key,
-                                                -1,
-                                              ),
-                                  onMoveDown:
-                                      entry.key ==
-                                              _selectedSpots
-                                                      .length -
-                                                  1
-                                          ? null
-                                          : () =>
-                                              _moveSelectedSpot(
-                                                entry.key,
-                                                1,
-                                              ),
-                                  onRemove: () =>
-                                      _removeSelectedSpot(
-                                    entry.value,
-                                  ),
-                                ),
-                              ),
+                          ..._selectedSpots.asMap().entries.map(
+                            (entry) => _SelectedBookingSpotCard(
+                              index: entry.key,
+                              spot: entry.value,
+                              total: _selectedSpots.length,
+                              onMoveUp: entry.key == 0
+                                  ? null
+                                  : () => _moveSelectedSpot(entry.key, -1),
+                              onMoveDown: entry.key == _selectedSpots.length - 1
+                                  ? null
+                                  : () => _moveSelectedSpot(entry.key, 1),
+                              onRemove: () => _removeSelectedSpot(entry.value),
+                            ),
+                          ),
 
                           if (_removedOriginalSpots.isNotEmpty) ...[
                             const SizedBox(height: 20),
@@ -1772,10 +1636,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             ..._removedOriginalSpots.map(
                               (spot) => _RemovedOriginalSpotCard(
                                 spot: spot,
-                                onRestore: () =>
-                                    _restoreOriginalSpot(
-                                  spot,
-                                ),
+                                onRestore: () => _restoreOriginalSpot(spot),
                               ),
                             ),
                           ],
@@ -1803,23 +1664,17 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           if (_filteredGoogleSuggestions.isEmpty)
                             const _SimpleEmptyCard(
-                              icon:
-                                  Icons.travel_explore_outlined,
+                              icon: Icons.travel_explore_outlined,
                               title: 'No more suggestions',
                               subtitle:
                                   'Try another category or continue with your selected destinations.',
                             )
                           else
                             ..._filteredGoogleSuggestions.map(
-                              (spot) =>
-                                  _GoogleSuggestionCard(
+                              (spot) => _GoogleSuggestionCard(
                                 spot: spot,
-                                additionalFee:
-                                    _additionalSpotFee,
-                                onAdd: () =>
-                                    _addGoogleSuggestion(
-                                  spot,
-                                ),
+                                additionalFee: _additionalSpotFee,
+                                onAdd: () => _addGoogleSuggestion(spot),
                               ),
                             ),
 
@@ -1844,9 +1699,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 18),
 
-                          _FinalSpotStrip(
-                            spots: _selectedSpots,
-                          ),
+                          _FinalSpotStrip(spots: _selectedSpots),
 
                           const SizedBox(height: 18),
 
@@ -1861,78 +1714,45 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 12),
 
-                          if (_itineraryMode ==
-                              _ItineraryViewMode.suggested)
+                          if (_itineraryMode == _ItineraryViewMode.suggested)
                             _ReadOnlyItineraryCard(
                               items: _suggestedItinerary,
-                              totalDurationLabel:
-                                  _formatDurationLabel(
-                                _calculateDurationMinutes(
-                                  _suggestedItinerary,
-                                ),
+                              totalDurationLabel: _formatDurationLabel(
+                                _calculateDurationMinutes(_suggestedItinerary),
                               ),
                             )
                           else
                             _EditableItineraryCard(
                               items: _customizedItinerary,
-                              currentDurationLabel:
-                                  _formatDurationLabel(
-                                _calculateDurationMinutes(
-                                  _customizedItinerary,
-                                ),
+                              currentDurationLabel: _formatDurationLabel(
+                                _calculateDurationMinutes(_customizedItinerary),
                               ),
-                              hasUnsavedChanges:
-                                  _customizedItineraryDirty,
-                              onPickArrival: (item) =>
-                                  _pickItineraryTime(
-                                item,
-                                pickingArrival: true,
-                              ),
-                              onPickDeparture: (item) =>
-                                  _pickItineraryTime(
-                                item,
-                                pickingArrival: false,
-                              ),
-                              onStayChanged:
-                                  (item, minutes) {
+                              hasUnsavedChanges: _customizedItineraryDirty,
+                              onStayChanged: (item, minutes) {
                                 setState(() {
-                                  item.stayMinutes =
-                                      minutes;
-
-                                  if (item.arrivalTime
-                                      .isNotEmpty) {
-                                    item.departureTime =
-                                        addMinutesToScheduleTime(
-                                      item.arrivalTime,
-                                      minutes,
-                                    );
-                                  }
-
-                                  _customizedItineraryDirty =
-                                      true;
+                                  item.stayMinutes = minutes;
+                                  _customizedItineraryDirty = true;
                                 });
+                                unawaited(_recalculateSelectedItinerary());
                               },
                               onMoveUp: (index) =>
-                                  _moveCustomizedItineraryStop(
-                                index,
-                                -1,
-                              ),
+                                  _moveCustomizedItineraryStop(index, -1),
                               onMoveDown: (index) =>
-                                  _moveCustomizedItineraryStop(
-                                index,
-                                1,
-                              ),
+                                  _moveCustomizedItineraryStop(index, 1),
                             ),
+
+                          if (_scheduleLoading) ...[
+                            const SizedBox(height: 10),
+                            const LinearProgressIndicator(minHeight: 2),
+                          ],
 
                           const SizedBox(height: 12),
 
                           _ItineraryGuideCard(
-                            duration:
-                                _formatDurationLabel(
+                            duration: _formatDurationLabel(
                               _selectedItineraryDurationMinutes,
                             ),
-                            stops:
-                                _selectedItinerary.length,
+                            stops: _selectedItinerary.length,
                           ),
                         ],
                       ),
@@ -1962,16 +1782,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 20),
 
                           _PricingBreakdownCard(
-                            baseUnitPrice:
-                                package.numericPrice,
-                            addedSpotCount:
-                                _addedGoogleSpotCount,
-                            addedSpotFee:
-                                _additionalSpotFee,
-                            finalUnitPrice:
-                                _unitPrice(package),
-                            passengers:
-                                _totalParticipants,
+                            baseUnitPrice: package.numericPrice,
+                            addedSpotCount: _addedGoogleSpotCount,
+                            addedSpotFee: _additionalSpotFee,
+                            finalUnitPrice: _unitPrice(package),
+                            passengers: _totalParticipants,
                           ),
 
                           const SizedBox(height: 22),
@@ -1985,23 +1800,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 10),
 
                           _PaymentCard(
-                            selected: _payment ==
-                                _PaymentMethod.cashPickup,
-                            enabled: _selectedDate != null &&
-                                _isSameDay,
+                            selected: _payment == _PaymentMethod.cashPickup,
+                            enabled: _selectedDate != null && _isSameDay,
                             icon: Icons.payments_outlined,
                             title: 'Cash on Pick-up',
                             subtitle: _selectedDate == null
                                 ? 'Choose your travel date first.'
                                 : _isSameDay
-                                    ? 'Pay the full amount directly to your driver at pickup.'
-                                    : 'Available only for same-day bookings.',
+                                ? 'Pay the full amount directly to your driver at pickup.'
+                                : 'Available only for same-day bookings.',
                             onTap: () {
-                              if (_selectedDate != null &&
-                                  _isSameDay) {
+                              if (_selectedDate != null && _isSameDay) {
                                 setState(() {
-                                  _payment =
-                                      _PaymentMethod.cashPickup;
+                                  _payment = _PaymentMethod.cashPickup;
                                 });
                               }
                             },
@@ -2010,21 +1821,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 10),
 
                           _PaymentCard(
-                            selected:
-                                _payment == _PaymentMethod.gcash,
+                            selected: _payment == _PaymentMethod.gcash,
                             enabled: _selectedDate != null,
                             icon: Icons.qr_code_2_rounded,
                             title: 'GCash',
                             subtitle: _selectedDate == null
                                 ? 'Choose your travel date first.'
                                 : _isSameDay
-                                    ? 'Pay the full amount directly to your assigned driver using GCash.'
-                                    : 'Pay the 50% down payment after a driver accepts, then pay the remaining balance after the tour.',
+                                ? 'Pay the full amount directly to your assigned driver using GCash.'
+                                : 'Pay the 50% down payment after a driver accepts, then pay the remaining balance after the tour.',
                             onTap: () {
                               if (_selectedDate != null) {
                                 setState(() {
-                                  _payment =
-                                      _PaymentMethod.gcash;
+                                  _payment = _PaymentMethod.gcash;
                                 });
                               }
                             },
@@ -2032,9 +1841,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 14),
 
-                          _DirectPaymentNotice(
-                            isSameDay: _isSameDay,
-                          ),
+                          _DirectPaymentNotice(isSameDay: _isSameDay),
 
                           const SizedBox(height: 22),
 
@@ -2046,9 +1853,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 10),
 
-                          _NotesField(
-                            controller: _notesCtrl,
-                          ),
+                          _NotesField(controller: _notesCtrl),
                         ],
                       ),
 
@@ -2067,9 +1872,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 18),
 
-                          _ReviewPackageCard(
-                            package: package,
-                          ),
+                          _ReviewPackageCard(package: package),
 
                           const SizedBox(height: 12),
 
@@ -2084,25 +1887,23 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                     ? 'Not selected'
                                     : DateFormat(
                                         'MMM d, yyyy',
-                                      ).format(
-                                        _selectedDate!,
-                                      ),
+                                      ).format(_selectedDate!),
+                              ),
+                              _ReviewRow(
+                                label: 'Pickup Time',
+                                value: _pickupTimeLabel,
                               ),
                               _ReviewRow(
                                 label: 'Booking Type',
-                                value: _isSameDay
-                                    ? 'Same-day'
-                                    : 'Advanced',
+                                value: _isSameDay ? 'Same-day' : 'Advanced',
                               ),
                               _ReviewRow(
                                 label: 'Participants',
-                                value:
-                                    '$_totalParticipants',
+                                value: '$_totalParticipants',
                               ),
                               _ReviewRow(
                                 label: 'Tricycles',
-                                value:
-                                    '$_requiredTricycles',
+                                value: '$_requiredTricycles',
                               ),
                             ],
                           ),
@@ -2116,22 +1917,18 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             children: [
                               _ReviewAddressRow(
                                 label: 'Pickup',
-                                value: _selectedPickup
-                                        ?.address ??
-                                    'Not selected',
-                                color:
-                                    const Color(0xFF16A34A),
+                                value:
+                                    _selectedPickup?.address ?? 'Not selected',
+                                color: const Color(0xFF16A34A),
                               ),
 
                               const SizedBox(height: 10),
 
                               _ReviewAddressRow(
                                 label: 'Drop-off',
-                                value: _selectedDropoff
-                                        ?.address ??
-                                    'Not selected',
-                                color:
-                                    const Color(0xFFDC2626),
+                                value:
+                                    _selectedDropoff?.address ?? 'Not selected',
+                                color: const Color(0xFFDC2626),
                               ),
                             ],
                           ),
@@ -2145,8 +1942,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             children: [
                               _ReviewRow(
                                 label: 'Selected',
-                                value:
-                                    '${_selectedSpots.length}',
+                                value: '${_selectedSpots.length}',
                               ),
                               _ReviewRow(
                                 label: 'Original Kept',
@@ -2155,26 +1951,18 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                               ),
                               _ReviewRow(
                                 label: 'Google Added',
-                                value:
-                                    '$_addedGoogleSpotCount',
+                                value: '$_addedGoogleSpotCount',
                               ),
 
                               const SizedBox(height: 8),
 
-                              ..._selectedSpots
-                                  .asMap()
-                                  .entries
-                                  .map(
-                                    (entry) =>
-                                        _ReviewDestinationRow(
-                                      index:
-                                          entry.key + 1,
-                                      name:
-                                          entry.value.title,
-                                      added:
-                                          !entry.value.isOriginal,
-                                    ),
-                                  ),
+                              ..._selectedSpots.asMap().entries.map(
+                                (entry) => _ReviewDestinationRow(
+                                  index: entry.key + 1,
+                                  name: entry.value.title,
+                                  added: !entry.value.isOriginal,
+                                ),
+                              ),
                             ],
                           ),
 
@@ -2187,13 +1975,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             children: [
                               _ReviewRow(
                                 label: 'Schedule Type',
-                                value:
-                                    _selectedItineraryLabel,
+                                value: _selectedItineraryLabel,
                               ),
                               _ReviewRow(
                                 label: 'Duration',
-                                value:
-                                    _formatDurationLabel(
+                                value: _formatDurationLabel(
                                   _selectedItineraryDurationMinutes,
                                 ),
                               ),
@@ -2209,21 +1995,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             children: [
                               _ReviewRow(
                                 label: 'Method',
-                                value: _payment ==
-                                        _PaymentMethod.gcash
+                                value: _payment == _PaymentMethod.gcash
                                     ? 'GCash'
                                     : 'Cash on Pick-up',
                               ),
                               _ReviewRow(
                                 label: 'Unit Price',
-                                value: _money(
-                                  _unitPrice(package),
-                                ),
+                                value: _money(_unitPrice(package)),
                               ),
-                              _ReviewRow(
-                                label: 'Total',
-                                value: _money(total),
-                              ),
+                              _ReviewRow(label: 'Total', value: _money(total)),
                               _ReviewRow(
                                 label: 'Pay Now',
                                 value: _money(amountNow),
@@ -2232,15 +2012,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                               if (!_isSameDay)
                                 _ReviewRow(
                                   label: 'Remaining',
-                                  value:
-                                      _money(remaining),
+                                  value: _money(remaining),
                                 ),
                             ],
                           ),
 
-                          if (_notesCtrl.text
-                              .trim()
-                              .isNotEmpty) ...[
+                          if (_notesCtrl.text.trim().isNotEmpty) ...[
                             const SizedBox(height: 12),
 
                             _ReviewSection(
@@ -2254,8 +2031,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                     color: _secondaryText,
                                     fontSize: 11.5,
                                     height: 1.45,
-                                    fontWeight:
-                                        FontWeight.w600,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ],
@@ -2264,9 +2040,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 14),
 
-                          _FinalAgreementNotice(
-                            isSameDay: _isSameDay,
-                          ),
+                          _FinalAgreementNotice(isSameDay: _isSameDay),
                         ],
                       ),
                     ],
@@ -2301,15 +2075,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 // ENUMS / DATA
 // =============================================================================
 
-enum _PaymentMethod {
-  cashPickup,
-  gcash,
-}
+enum _PaymentMethod { cashPickup, gcash }
 
-enum _ItineraryViewMode {
-  suggested,
-  customize,
-}
+enum _ItineraryViewMode { suggested, customize }
 
 class _BookingScreenData {
   const _BookingScreenData({
@@ -2386,8 +2154,8 @@ class _EditableBookingSpot {
     final key = googlePlaceId.isNotEmpty
         ? 'google:$googlePlaceId'
         : spot.id != null
-            ? 'db:${spot.id}'
-            : 'title:${_normalizeText(spot.title)}';
+        ? 'db:${spot.id}'
+        : 'title:${_normalizeText(spot.title)}';
 
     return _EditableBookingSpot(
       key: key,
@@ -2399,28 +2167,19 @@ class _EditableBookingSpot {
       imageUrl: spot.imageUrl,
       latitude: spot.latitude,
       longitude: spot.longitude,
-      sourceType: spot.sourceType.isEmpty
-          ? 'manual'
-          : spot.sourceType,
+      sourceType: spot.sourceType.isEmpty ? 'manual' : spot.sourceType,
       googlePlaceId: googlePlaceId,
       isOriginal: isOriginal,
-      category: _inferCategoryFromTitle(
-        spot.title,
-      ),
+      category: _inferCategoryFromTitle(spot.title),
       openingTime: spot.openingTime,
       closingTime: spot.closingTime,
-      estimatedArrivalTime:
-          spot.estimatedArrivalTime,
-      estimatedDurationMinutes:
-          spot.estimatedDurationMinutes,
-      recommendedVisitDurationMinutes:
-          spot.recommendedVisitDurationMinutes,
+      estimatedArrivalTime: spot.estimatedArrivalTime,
+      estimatedDurationMinutes: spot.estimatedDurationMinutes,
+      recommendedVisitDurationMinutes: spot.recommendedVisitDurationMinutes,
     );
   }
 
-  factory _EditableBookingSpot.fromSuggestion(
-    CitySpotSuggestion suggestion,
-  ) {
+  factory _EditableBookingSpot.fromSuggestion(CitySpotSuggestion suggestion) {
     return _EditableBookingSpot(
       key: 'google:${suggestion.id}',
       spotId: null,
@@ -2443,23 +2202,14 @@ class _EditableBookingSpot {
     );
   }
 
-  factory _EditableBookingSpot.fromCustomizationRow(
-    Map<String, dynamic> row,
-  ) {
-    final googlePlaceId = dbString(
-      row['google_place_id'],
-    );
+  factory _EditableBookingSpot.fromCustomizationRow(Map<String, dynamic> row) {
+    final googlePlaceId = dbString(row['google_place_id']);
 
     final spotId = row['spot_id'];
 
-    final title = dbString(
-      row['spot_title'],
-    );
+    final title = dbString(row['spot_title']);
 
-    final sourceType = dbString(
-      row['source_type'],
-      fallback: 'manual',
-    );
+    final sourceType = dbString(row['source_type'], fallback: 'manual');
 
     final added = row['action_type'] == 'added';
 
@@ -2467,45 +2217,31 @@ class _EditableBookingSpot {
       key: googlePlaceId.isNotEmpty
           ? 'google:$googlePlaceId'
           : spotId != null
-              ? 'db:$spotId'
-              : 'title:${_normalizeText(title)}',
+          ? 'db:$spotId'
+          : 'title:${_normalizeText(title)}',
       spotId: spotId,
       title: title,
       address: dbString(row['spot_address']),
       barangay: dbString(row['barangay']),
-      municipality:
-          dbString(row['municipality']),
+      municipality: dbString(row['municipality']),
       imageUrl: dbString(row['image_url']),
       latitude: dbDouble(row['latitude']),
       longitude: dbDouble(row['longitude']),
       sourceType: sourceType,
       googlePlaceId: googlePlaceId,
       isOriginal: !added,
-      category: _inferCategoryFromTitle(
-        title,
-      ),
-      openingTime: dbTimeText(
-        row['opening_time'],
-      ),
-      closingTime: dbTimeText(
-        row['closing_time'],
-      ),
-      estimatedArrivalTime: dbTimeText(
-        row['estimated_arrival_time'],
-      ),
-      estimatedDurationMinutes: dbInt(
-        row['estimated_duration_minutes'],
-      ),
-      recommendedVisitDurationMinutes:
-          dbInt(
+      category: _inferCategoryFromTitle(title),
+      openingTime: dbTimeText(row['opening_time']),
+      closingTime: dbTimeText(row['closing_time']),
+      estimatedArrivalTime: dbTimeText(row['estimated_arrival_time']),
+      estimatedDurationMinutes: dbInt(row['estimated_duration_minutes']),
+      recommendedVisitDurationMinutes: dbInt(
         row['recommended_visit_duration_minutes'],
       ),
     );
   }
 
-  factory _EditableBookingSpot.copy(
-    _EditableBookingSpot other,
-  ) {
+  factory _EditableBookingSpot.copy(_EditableBookingSpot other) {
     return _EditableBookingSpot(
       key: other.key,
       spotId: other.spotId,
@@ -2522,12 +2258,9 @@ class _EditableBookingSpot {
       category: other.category,
       openingTime: other.openingTime,
       closingTime: other.closingTime,
-      estimatedArrivalTime:
-          other.estimatedArrivalTime,
-      estimatedDurationMinutes:
-          other.estimatedDurationMinutes,
-      recommendedVisitDurationMinutes:
-          other.recommendedVisitDurationMinutes,
+      estimatedArrivalTime: other.estimatedArrivalTime,
+      estimatedDurationMinutes: other.estimatedDurationMinutes,
+      recommendedVisitDurationMinutes: other.recommendedVisitDurationMinutes,
     );
   }
 }
@@ -2550,12 +2283,7 @@ class _BookingTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        18,
-        9,
-        18,
-        7,
-      ),
+      padding: const EdgeInsets.fromLTRB(18, 9, 18, 7),
       child: Row(
         children: [
           Material(
@@ -2569,9 +2297,7 @@ class _BookingTopBar extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(13),
-                  border: Border.all(
-                    color: _border,
-                  ),
+                  border: Border.all(color: _border),
                 ),
                 child: const Icon(
                   Icons.arrow_back_ios_new_rounded,
@@ -2613,10 +2339,7 @@ class _BookingTopBar extends StatelessWidget {
           ),
 
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 6,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
             decoration: BoxDecoration(
               color: _softBlue,
               borderRadius: BorderRadius.circular(999),
@@ -2641,10 +2364,7 @@ class _BookingTopBar extends StatelessWidget {
 // =============================================================================
 
 class _BookingStepIndicator extends StatelessWidget {
-  const _BookingStepIndicator({
-    required this.currentStep,
-    required this.onTap,
-  });
+  const _BookingStepIndicator({required this.currentStep, required this.onTap});
 
   final int currentStep;
   final ValueChanged<int> onTap;
@@ -2661,87 +2381,66 @@ class _BookingStepIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 4,
-          vertical: 8,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: _border,
-          ),
+          border: Border.all(color: _border),
         ),
         child: Row(
-          children: List.generate(
-            _steps.length,
-            (index) {
-              final active = index == currentStep;
-              final complete = index < currentStep;
+          children: List.generate(_steps.length, (index) {
+            final active = index == currentStep;
+            final complete = index < currentStep;
 
-              return Expanded(
-                child: InkWell(
-                  onTap: index <= currentStep
-                      ? () => onTap(index)
-                      : null,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(
-                          milliseconds: 170,
-                        ),
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: active
-                              ? _primary
-                              : complete
-                                  ? _softBlue
-                                  : const Color(0xFFF3F5F8),
-                          borderRadius:
-                              BorderRadius.circular(9),
-                        ),
-                        child: Icon(
-                          complete
-                              ? Icons.check_rounded
-                              : _steps[index].$1,
-                          color: active
-                              ? Colors.white
-                              : complete
-                                  ? _primary
-                                  : const Color(0xFFA6B0BE),
-                          size: 14,
-                        ),
+            return Expanded(
+              child: InkWell(
+                onTap: index <= currentStep ? () => onTap(index) : null,
+                borderRadius: BorderRadius.circular(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 170),
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: active
+                            ? _primary
+                            : complete
+                            ? _softBlue
+                            : const Color(0xFFF3F5F8),
+                        borderRadius: BorderRadius.circular(9),
                       ),
-
-                      const SizedBox(height: 4),
-
-                      Text(
-                        _steps[index].$2,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: active
-                              ? _primary
-                              : const Color(0xFF667085),
-                          fontWeight: active
-                              ? FontWeight.w900
-                              : FontWeight.w600,
-                          fontSize: 8.2,
-                        ),
+                      child: Icon(
+                        complete ? Icons.check_rounded : _steps[index].$1,
+                        color: active
+                            ? Colors.white
+                            : complete
+                            ? _primary
+                            : const Color(0xFFA6B0BE),
+                        size: 14,
                       ),
-                    ],
-                  ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      _steps[index].$2,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: active ? _primary : const Color(0xFF667085),
+                        fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+                        fontSize: 8.2,
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            },
-          ),
+              ),
+            );
+          }),
         ),
       ),
     );
@@ -2753,9 +2452,7 @@ class _BookingStepIndicator extends StatelessWidget {
 // =============================================================================
 
 class _StepScrollView extends StatelessWidget {
-  const _StepScrollView({
-    required this.children,
-  });
+  const _StepScrollView({required this.children});
 
   final List<Widget> children;
 
@@ -2763,12 +2460,7 @@ class _StepScrollView extends StatelessWidget {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        18,
-        16,
-        18,
-        28,
-      ),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: children,
@@ -2802,11 +2494,7 @@ class _StepIntro extends StatelessWidget {
             color: _softBlue,
             borderRadius: BorderRadius.circular(15),
           ),
-          child: Icon(
-            icon,
-            color: _primary,
-            size: 21,
-          ),
+          child: Icon(icon, color: _primary, size: 21),
         ),
 
         const SizedBox(width: 11),
@@ -2857,10 +2545,7 @@ class _StepIntro extends StatelessWidget {
 }
 
 class _StepSectionTitle extends StatelessWidget {
-  const _StepSectionTitle({
-    required this.title,
-    required this.subtitle,
-  });
+  const _StepSectionTitle({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -2900,29 +2585,21 @@ class _StepSectionTitle extends StatelessWidget {
 // =============================================================================
 
 class _PackageSummary extends StatelessWidget {
-  const _PackageSummary({
-    required this.package,
-    required this.unitPrice,
-  });
+  const _PackageSummary({required this.package, required this.unitPrice});
 
   final TourPackage package;
   final double unitPrice;
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(
-      symbol: '₱',
-      decimalDigits: 0,
-    );
+    final money = NumberFormat.currency(symbol: '₱', decimalDigits: 0);
 
     return Container(
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Row(
         children: [
@@ -2936,8 +2613,7 @@ class _PackageSummary extends StatelessWidget {
                   : Image.network(
                       package.displayImageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
-                          const _ImageFallback(),
+                      errorBuilder: (_, _, _) => const _ImageFallback(),
                     ),
             ),
           ),
@@ -2948,9 +2624,7 @@ class _PackageSummary extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _MiniChip(
-                  text: 'TOUR PACKAGE',
-                ),
+                const _MiniChip(text: 'TOUR PACKAGE'),
 
                 const SizedBox(height: 6),
 
@@ -3042,9 +2716,7 @@ class _DateSelectionCard extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected
-                  ? const Color(0xFFBBD7FF)
-                  : _border,
+              color: selected ? const Color(0xFFBBD7FF) : _border,
               width: selected ? 1.4 : 1,
             ),
           ),
@@ -3071,9 +2743,7 @@ class _DateSelectionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      selected
-                          ? 'Travel Date'
-                          : 'Select Travel Date',
+                      selected ? 'Travel Date' : 'Select Travel Date',
                       style: const TextStyle(
                         color: Color(0xFF8491A3),
                         fontWeight: FontWeight.w600,
@@ -3096,13 +2766,9 @@ class _DateSelectionCard extends StatelessWidget {
                       const SizedBox(height: 4),
 
                       Text(
-                        isSameDay
-                            ? 'Same-day booking'
-                            : 'Advanced booking',
+                        isSameDay ? 'Same-day booking' : 'Advanced booking',
                         style: TextStyle(
-                          color: isSameDay
-                              ? const Color(0xFF16A34A)
-                              : _primary,
+                          color: isSameDay ? const Color(0xFF16A34A) : _primary,
                           fontWeight: FontWeight.w800,
                           fontSize: 9.5,
                         ),
@@ -3112,10 +2778,84 @@ class _DateSelectionCard extends StatelessWidget {
                 ),
               ),
 
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: Color(0xFF9AA6B6),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF9AA6B6)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PickupTimeSelectionCard extends StatelessWidget {
+  const _PickupTimeSelectionCard({
+    required this.selected,
+    required this.value,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? const Color(0xFFBBD7FF) : _border,
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _softBlue,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(
+                  Icons.schedule_rounded,
+                  color: _primary,
+                  size: 20,
+                ),
               ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Pickup Time',
+                      style: TextStyle(
+                        color: Color(0xFF8491A3),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF9AA6B6)),
             ],
           ),
         ),
@@ -3154,9 +2894,7 @@ class _ParticipantsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         children: [
@@ -3170,13 +2908,8 @@ class _ParticipantsCard extends StatelessWidget {
           ),
 
           const Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: 13,
-            ),
-            child: Divider(
-              height: 1,
-              color: Color(0xFFEDF1F6),
-            ),
+            padding: EdgeInsets.symmetric(vertical: 13),
+            child: Divider(height: 1, color: Color(0xFFEDF1F6)),
           ),
 
           _CounterRow(
@@ -3222,11 +2955,7 @@ class _CounterRow extends StatelessWidget {
             color: _softBlue,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(
-            icon,
-            color: _primary,
-            size: 18,
-          ),
+          child: Icon(icon, color: _primary, size: 18),
         ),
 
         const SizedBox(width: 11),
@@ -3258,10 +2987,7 @@ class _CounterRow extends StatelessWidget {
           ),
         ),
 
-        _RoundButton(
-          icon: Icons.remove_rounded,
-          onTap: onMinus,
-        ),
+        _RoundButton(icon: Icons.remove_rounded, onTap: onMinus),
 
         SizedBox(
           width: 42,
@@ -3276,11 +3002,7 @@ class _CounterRow extends StatelessWidget {
           ),
         ),
 
-        _RoundButton(
-          icon: Icons.add_rounded,
-          onTap: onPlus,
-          filled: true,
-        ),
+        _RoundButton(icon: Icons.add_rounded, onTap: onPlus, filled: true),
       ],
     );
   }
@@ -3289,37 +3011,36 @@ class _CounterRow extends StatelessWidget {
 class _TransportRequirementCard extends StatelessWidget {
   const _TransportRequirementCard({
     required this.participants,
-    required this.tricycles,
+    required this.minimumTricycles,
+    required this.selectedTricycles,
+    required this.onMinus,
+    required this.onPlus,
   });
 
   final int participants;
-  final int tricycles;
+  final int minimumTricycles;
+  final int selectedTricycles;
+  final VoidCallback? onMinus;
+  final VoidCallback onPlus;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 13,
-        vertical: 11,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
       decoration: BoxDecoration(
         color: const Color(0xFFF2F7FF),
         borderRadius: BorderRadius.circular(15),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.commute_outlined,
-            color: _primary,
-            size: 18,
-          ),
+          const Icon(Icons.commute_outlined, color: _primary, size: 18),
 
           const SizedBox(width: 9),
 
           Expanded(
             child: Text(
               '$participants passenger${participants == 1 ? '' : 's'} • '
-              '$tricycles tricycle${tricycles == 1 ? '' : 's'} required',
+              'minimum $minimumTricycles tricycle${minimumTricycles == 1 ? '' : 's'} | selected $selectedTricycles',
               style: const TextStyle(
                 color: Color(0xFF4D6686),
                 fontWeight: FontWeight.w700,
@@ -3327,6 +3048,20 @@ class _TransportRequirementCard extends StatelessWidget {
               ),
             ),
           ),
+          _RoundButton(icon: Icons.remove_rounded, onTap: onMinus),
+          SizedBox(
+            width: 38,
+            child: Text(
+              '$selectedTricycles',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: _ink,
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          _RoundButton(icon: Icons.add_rounded, onTap: onPlus, filled: true),
         ],
       ),
     );
@@ -3355,19 +3090,13 @@ class _SelectedSpotSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(
-      symbol: '₱',
-      decimalDigits: 0,
-    );
+    final money = NumberFormat.currency(symbol: '₱', decimalDigits: 0);
 
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF2563EB),
-            Color(0xFF3FAAF8),
-          ],
+          colors: [Color(0xFF2563EB), Color(0xFF3FAAF8)],
         ),
         borderRadius: BorderRadius.circular(22),
       ),
@@ -3408,9 +3137,7 @@ class _SelectedSpotSummaryCard extends StatelessWidget {
           const SizedBox(height: 14),
 
           Container(
-            padding: const EdgeInsets.symmetric(
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(15),
@@ -3425,17 +3152,11 @@ class _SelectedSpotSummaryCard extends StatelessWidget {
                 ),
                 _WhiteDivider(),
                 Expanded(
-                  child: _WhiteMetric(
-                    value: '$addedCount',
-                    label: 'Added',
-                  ),
+                  child: _WhiteMetric(value: '$addedCount', label: 'Added'),
                 ),
                 _WhiteDivider(),
                 Expanded(
-                  child: _WhiteMetric(
-                    value: '$removedCount',
-                    label: 'Removed',
-                  ),
+                  child: _WhiteMetric(value: '$removedCount', label: 'Removed'),
                 ),
               ],
             ),
@@ -3447,10 +3168,7 @@ class _SelectedSpotSummaryCard extends StatelessWidget {
 }
 
 class _WhiteMetric extends StatelessWidget {
-  const _WhiteMetric({
-    required this.value,
-    required this.label,
-  });
+  const _WhiteMetric({required this.value, required this.label});
 
   final String value;
   final String label;
@@ -3515,16 +3233,12 @@ class _SelectedBookingSpotCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(
-        bottom: 9,
-      ),
+      margin: const EdgeInsets.only(bottom: 9),
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3541,8 +3255,7 @@ class _SelectedBookingSpotCard extends StatelessWidget {
                       : Image.network(
                           spot.imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) =>
-                              const _ImageFallback(),
+                          errorBuilder: (_, _, _) => const _ImageFallback(),
                         ),
                 ),
               ),
@@ -3555,9 +3268,7 @@ class _SelectedBookingSpotCard extends StatelessWidget {
                   height: 22,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(
-                      alpha: 0.95,
-                    ),
+                    color: Colors.white.withValues(alpha: 0.95),
                     borderRadius: BorderRadius.circular(7),
                   ),
                   child: Text(
@@ -3619,9 +3330,7 @@ class _SelectedBookingSpotCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    spot.isOriginal
-                        ? 'Package spot'
-                        : '+ ₱250 Google Place',
+                    spot.isOriginal ? 'Package spot' : '+ ₱250 Google Place',
                     style: TextStyle(
                       color: spot.isOriginal
                           ? const Color(0xFF15803D)
@@ -3667,10 +3376,7 @@ class _SelectedBookingSpotCard extends StatelessWidget {
 }
 
 class _RemovedOriginalSpotCard extends StatelessWidget {
-  const _RemovedOriginalSpotCard({
-    required this.spot,
-    required this.onRestore,
-  });
+  const _RemovedOriginalSpotCard({required this.spot, required this.onRestore});
 
   final _EditableBookingSpot spot;
   final VoidCallback onRestore;
@@ -3678,16 +3384,12 @@ class _RemovedOriginalSpotCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(
-        bottom: 8,
-      ),
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFD),
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Row(
         children: [
@@ -3724,10 +3426,7 @@ class _RemovedOriginalSpotCard extends StatelessWidget {
 
           TextButton.icon(
             onPressed: onRestore,
-            icon: const Icon(
-              Icons.undo_rounded,
-              size: 15,
-            ),
+            icon: const Icon(Icons.undo_rounded, size: 15),
             label: const Text('Restore'),
             style: TextButton.styleFrom(
               textStyle: const TextStyle(
@@ -3743,10 +3442,7 @@ class _RemovedOriginalSpotCard extends StatelessWidget {
 }
 
 class _SpotCategoryFilter extends StatelessWidget {
-  const _SpotCategoryFilter({
-    required this.selected,
-    required this.onSelected,
-  });
+  const _SpotCategoryFilter({required this.selected, required this.onSelected});
 
   final String selected;
   final ValueChanged<String> onSelected;
@@ -3772,37 +3468,25 @@ class _SpotCategoryFilter extends StatelessWidget {
           final active = selected == category;
 
           return Padding(
-            padding: const EdgeInsets.only(
-              right: 7,
-            ),
+            padding: const EdgeInsets.only(right: 7),
             child: InkWell(
               onTap: () => onSelected(category),
               borderRadius: BorderRadius.circular(999),
               child: AnimatedContainer(
-                duration: const Duration(
-                  milliseconds: 160,
-                ),
+                duration: const Duration(milliseconds: 160),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 13,
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: active
-                      ? _primary
-                      : Colors.white,
+                  color: active ? _primary : Colors.white,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: active
-                        ? _primary
-                        : _border,
-                  ),
+                  border: Border.all(color: active ? _primary : _border),
                 ),
                 child: Text(
                   category,
                   style: TextStyle(
-                    color: active
-                        ? Colors.white
-                        : const Color(0xFF526173),
+                    color: active ? Colors.white : const Color(0xFF526173),
                     fontWeight: FontWeight.w800,
                     fontSize: 10.5,
                   ),
@@ -3830,16 +3514,12 @@ class _GoogleSuggestionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(
-        bottom: 9,
-      ),
+      margin: const EdgeInsets.only(bottom: 9),
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3852,8 +3532,7 @@ class _GoogleSuggestionCard extends StatelessWidget {
               child: Image.network(
                 spot.imageForCard,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const _ImageFallback(),
+                errorBuilder: (_, _, _) => const _ImageFallback(),
               ),
             ),
           ),
@@ -3881,11 +3560,7 @@ class _GoogleSuggestionCard extends StatelessWidget {
                   [
                     spot.category,
                     spot.barangayHint,
-                  ]
-                      .where(
-                        (value) => value.trim().isNotEmpty,
-                      )
-                      .join(' • '),
+                  ].where((value) => value.trim().isNotEmpty).join(' • '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -3917,19 +3592,14 @@ class _GoogleSuggestionCard extends StatelessWidget {
               onPressed: onAdd,
               style: ElevatedButton.styleFrom(
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
               child: const Text(
                 'Add',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 10.5,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10.5),
               ),
             ),
           ),
@@ -3949,18 +3619,12 @@ class _SpotFeeNotice extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFFF8E8),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: const Color(0xFFFDE3A7),
-        ),
+        border: Border.all(color: const Color(0xFFFDE3A7)),
       ),
       child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.info_outline_rounded,
-            color: Color(0xFFD97706),
-            size: 17,
-          ),
+          Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 17),
 
           SizedBox(width: 8),
 
@@ -3982,9 +3646,7 @@ class _SpotFeeNotice extends StatelessWidget {
 }
 
 class _FinalSpotStrip extends StatelessWidget {
-  const _FinalSpotStrip({
-    required this.spots,
-  });
+  const _FinalSpotStrip({required this.spots});
 
   final List<_EditableBookingSpot> spots;
 
@@ -3996,9 +3658,7 @@ class _FinalSpotStrip extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4017,28 +3677,23 @@ class _FinalSpotStrip extends StatelessWidget {
           Wrap(
             spacing: 7,
             runSpacing: 7,
-            children: spots.asMap().entries.map(
-              (entry) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 6,
+            children: spots.asMap().entries.map((entry) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _softBlue,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${entry.key + 1}. ${entry.value.title}',
+                  style: const TextStyle(
+                    color: Color(0xFF315B8A),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 9.5,
                   ),
-                  decoration: BoxDecoration(
-                    color: _softBlue,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '${entry.key + 1}. ${entry.value.title}',
-                    style: const TextStyle(
-                      color: Color(0xFF315B8A),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 9.5,
-                    ),
-                  ),
-                );
-              },
-            ).toList(),
+                ),
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -4051,10 +3706,7 @@ class _FinalSpotStrip extends StatelessWidget {
 // =============================================================================
 
 class _ItineraryModeToggle extends StatelessWidget {
-  const _ItineraryModeToggle({
-    required this.selected,
-    required this.onChanged,
-  });
+  const _ItineraryModeToggle({required this.selected, required this.onChanged});
 
   final _ItineraryViewMode selected;
   final ValueChanged<_ItineraryViewMode> onChanged;
@@ -4073,11 +3725,8 @@ class _ItineraryModeToggle extends StatelessWidget {
             child: _ItineraryModeChip(
               icon: Icons.auto_awesome_rounded,
               label: 'Suggested Schedule',
-              selected: selected ==
-                  _ItineraryViewMode.suggested,
-              onTap: () => onChanged(
-                _ItineraryViewMode.suggested,
-              ),
+              selected: selected == _ItineraryViewMode.suggested,
+              onTap: () => onChanged(_ItineraryViewMode.suggested),
             ),
           ),
 
@@ -4087,11 +3736,8 @@ class _ItineraryModeToggle extends StatelessWidget {
             child: _ItineraryModeChip(
               icon: Icons.tune_rounded,
               label: 'Customize Schedule',
-              selected: selected ==
-                  _ItineraryViewMode.customize,
-              onTap: () => onChanged(
-                _ItineraryViewMode.customize,
-              ),
+              selected: selected == _ItineraryViewMode.customize,
+              onTap: () => onChanged(_ItineraryViewMode.customize),
             ),
           ),
         ],
@@ -4120,14 +3766,9 @@ class _ItineraryModeChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(13),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 8,
-          vertical: 9,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
         decoration: BoxDecoration(
-          color: selected
-              ? Colors.white
-              : Colors.transparent,
+          color: selected ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(13),
         ),
         child: Row(
@@ -4136,9 +3777,7 @@ class _ItineraryModeChip extends StatelessWidget {
             Icon(
               icon,
               size: 14,
-              color: selected
-                  ? _primary
-                  : const Color(0xFF667085),
+              color: selected ? _primary : const Color(0xFF667085),
             ),
 
             const SizedBox(width: 5),
@@ -4149,9 +3788,7 @@ class _ItineraryModeChip extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: selected
-                      ? _ink
-                      : const Color(0xFF667085),
+                  color: selected ? _ink : const Color(0xFF667085),
                   fontWeight: FontWeight.w800,
                   fontSize: 9.5,
                 ),
@@ -4180,9 +3817,7 @@ class _ReadOnlyItineraryCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(21),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4190,10 +3825,7 @@ class _ReadOnlyItineraryCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: _softBlue,
                   borderRadius: BorderRadius.circular(999),
@@ -4235,19 +3867,16 @@ class _ReadOnlyItineraryCard extends StatelessWidget {
           const SizedBox(height: 13),
 
           ...items.asMap().entries.map(
-                (entry) => Padding(
-                  padding: EdgeInsets.only(
-                    bottom:
-                        entry.key == items.length - 1
-                            ? 0
-                            : 8,
-                  ),
-                  child: _ItineraryPreviewTile(
-                    index: entry.key + 1,
-                    item: entry.value,
-                  ),
-                ),
+            (entry) => Padding(
+              padding: EdgeInsets.only(
+                bottom: entry.key == items.length - 1 ? 0 : 8,
               ),
+              child: _ItineraryPreviewTile(
+                index: entry.key + 1,
+                item: entry.value,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -4255,10 +3884,7 @@ class _ReadOnlyItineraryCard extends StatelessWidget {
 }
 
 class _ItineraryPreviewTile extends StatelessWidget {
-  const _ItineraryPreviewTile({
-    required this.index,
-    required this.item,
-  });
+  const _ItineraryPreviewTile({required this.index, required this.item});
 
   final int index;
   final _EditableItineraryStop item;
@@ -4314,6 +3940,7 @@ class _ItineraryPreviewTile extends StatelessWidget {
                     arrivalTime: item.arrivalTime,
                     stayMinutes: item.stayMinutes,
                     departureTime: item.departureTime,
+                    travelDurationMinutes: item.travelDurationMinutes,
                   ),
                   style: const TextStyle(
                     color: _secondaryText,
@@ -4336,8 +3963,6 @@ class _EditableItineraryCard extends StatelessWidget {
     required this.items,
     required this.currentDurationLabel,
     required this.hasUnsavedChanges,
-    required this.onPickArrival,
-    required this.onPickDeparture,
     required this.onStayChanged,
     required this.onMoveUp,
     required this.onMoveDown,
@@ -4349,16 +3974,7 @@ class _EditableItineraryCard extends StatelessWidget {
 
   final bool hasUnsavedChanges;
 
-  final ValueChanged<_EditableItineraryStop>
-      onPickArrival;
-
-  final ValueChanged<_EditableItineraryStop>
-      onPickDeparture;
-
-  final void Function(
-    _EditableItineraryStop item,
-    int minutes,
-  ) onStayChanged;
+  final void Function(_EditableItineraryStop item, int minutes) onStayChanged;
 
   final ValueChanged<int> onMoveUp;
   final ValueChanged<int> onMoveDown;
@@ -4370,9 +3986,7 @@ class _EditableItineraryCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(21),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4412,38 +4026,22 @@ class _EditableItineraryCard extends StatelessWidget {
           const SizedBox(height: 13),
 
           ...items.asMap().entries.map(
-                (entry) => Padding(
-                  padding: EdgeInsets.only(
-                    bottom:
-                        entry.key == items.length - 1
-                            ? 0
-                            : 10,
-                  ),
-                  child: _EditableItineraryTile(
-                    index: entry.key,
-                    total: items.length,
-                    item: entry.value,
-                    onMoveUp: entry.key == 0
-                        ? null
-                        : () => onMoveUp(entry.key),
-                    onMoveDown:
-                        entry.key == items.length - 1
-                            ? null
-                            : () => onMoveDown(
-                                  entry.key,
-                                ),
-                    onPickArrival: () =>
-                        onPickArrival(entry.value),
-                    onPickDeparture: () =>
-                        onPickDeparture(entry.value),
-                    onStayChanged: (minutes) =>
-                        onStayChanged(
-                      entry.value,
-                      minutes,
-                    ),
-                  ),
-                ),
+            (entry) => Padding(
+              padding: EdgeInsets.only(
+                bottom: entry.key == items.length - 1 ? 0 : 10,
               ),
+              child: _EditableItineraryTile(
+                index: entry.key,
+                total: items.length,
+                item: entry.value,
+                onMoveUp: entry.key == 0 ? null : () => onMoveUp(entry.key),
+                onMoveDown: entry.key == items.length - 1
+                    ? null
+                    : () => onMoveDown(entry.key),
+                onStayChanged: (minutes) => onStayChanged(entry.value, minutes),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -4457,8 +4055,6 @@ class _EditableItineraryTile extends StatelessWidget {
     required this.item,
     required this.onMoveUp,
     required this.onMoveDown,
-    required this.onPickArrival,
-    required this.onPickDeparture,
     required this.onStayChanged,
   });
 
@@ -4469,9 +4065,6 @@ class _EditableItineraryTile extends StatelessWidget {
 
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
-
-  final VoidCallback onPickArrival;
-  final VoidCallback onPickDeparture;
 
   final ValueChanged<int> onStayChanged;
 
@@ -4541,11 +4134,9 @@ class _EditableItineraryTile extends StatelessWidget {
                 child: _EditableTimeButton(
                   label: 'Arrival',
                   value: item.arrivalTime.isEmpty
-                      ? 'Set time'
-                      : formatScheduleTimeLabel(
-                          item.arrivalTime,
-                        ),
-                  onTap: onPickArrival,
+                      ? 'Calculating'
+                      : formatScheduleTimeLabel(item.arrivalTime),
+                  onTap: null,
                 ),
               ),
 
@@ -4555,11 +4146,9 @@ class _EditableItineraryTile extends StatelessWidget {
                 child: _EditableTimeButton(
                   label: 'Departure',
                   value: item.departureTime.isEmpty
-                      ? 'Set time'
-                      : formatScheduleTimeLabel(
-                          item.departureTime,
-                        ),
-                  onTap: onPickDeparture,
+                      ? 'Calculating'
+                      : formatScheduleTimeLabel(item.departureTime),
+                  onTap: null,
                 ),
               ),
             ],
@@ -4571,19 +4160,13 @@ class _EditableItineraryTile extends StatelessWidget {
             initialValue: '${item.stayMinutes}',
             keyboardType: TextInputType.number,
             onChanged: (value) {
-              final minutes = int.tryParse(
-                value.trim(),
-              );
+              final minutes = int.tryParse(value.trim());
 
-              if (minutes != null &&
-                  minutes > 0) {
+              if (minutes != null && minutes > 0) {
                 onStayChanged(minutes);
               }
             },
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 11.5,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
             decoration: InputDecoration(
               labelText: 'Estimated stay',
               suffixText: 'min',
@@ -4595,15 +4178,11 @@ class _EditableItineraryTile extends StatelessWidget {
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13),
-                borderSide: const BorderSide(
-                  color: _border,
-                ),
+                borderSide: const BorderSide(color: _border),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13),
-                borderSide: const BorderSide(
-                  color: _border,
-                ),
+                borderSide: const BorderSide(color: _border),
               ),
             ),
           ),
@@ -4622,7 +4201,7 @@ class _EditableTimeButton extends StatelessWidget {
 
   final String label;
   final String value;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -4630,16 +4209,11 @@ class _EditableTimeButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(13),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 9,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(13),
-          border: Border.all(
-            color: _border,
-          ),
+          border: Border.all(color: _border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -4673,10 +4247,7 @@ class _EditableTimeButton extends StatelessWidget {
 }
 
 class _ItineraryGuideCard extends StatelessWidget {
-  const _ItineraryGuideCard({
-    required this.duration,
-    required this.stops,
-  });
+  const _ItineraryGuideCard({required this.duration, required this.stops});
 
   final String duration;
   final int stops;
@@ -4684,21 +4255,14 @@ class _ItineraryGuideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 10,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFFF2F7FF),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.schedule_outlined,
-            color: _primary,
-            size: 16,
-          ),
+          const Icon(Icons.schedule_outlined, color: _primary, size: 16),
 
           const SizedBox(width: 8),
 
@@ -4737,20 +4301,14 @@ class _PaymentAmountHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(
-      symbol: 'PHP ',
-      decimalDigits: 0,
-    );
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF2563EB),
-            Color(0xFF3FAAF8),
-          ],
+          colors: [Color(0xFF2563EB), Color(0xFF3FAAF8)],
         ),
         borderRadius: BorderRadius.circular(22),
       ),
@@ -4758,9 +4316,7 @@ class _PaymentAmountHero extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isSameDay
-                ? 'FULL PAYMENT'
-                : '50% DOWN PAYMENT',
+            isSameDay ? 'FULL PAYMENT' : '50% DOWN PAYMENT',
             style: const TextStyle(
               color: Colors.white70,
               fontWeight: FontWeight.w900,
@@ -4783,9 +4339,7 @@ class _PaymentAmountHero extends StatelessWidget {
           const SizedBox(height: 14),
 
           Container(
-            padding: const EdgeInsets.symmetric(
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(15),
@@ -4804,9 +4358,7 @@ class _PaymentAmountHero extends StatelessWidget {
                 Expanded(
                   child: _PaymentMetric(
                     label: 'Remaining',
-                    value: isSameDay
-                        ? 'PHP 0'
-                        : money.format(remaining),
+                    value: isSameDay ? 'PHP 0' : money.format(remaining),
                   ),
                 ),
               ],
@@ -4819,10 +4371,7 @@ class _PaymentAmountHero extends StatelessWidget {
 }
 
 class _PaymentMetric extends StatelessWidget {
-  const _PaymentMetric({
-    required this.label,
-    required this.value,
-  });
+  const _PaymentMetric({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -4875,19 +4424,14 @@ class _PricingBreakdownCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(
-      symbol: '₱',
-      decimalDigits: 0,
-    );
+    final money = NumberFormat.currency(symbol: '₱', decimalDigits: 0);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         children: [
@@ -4902,15 +4446,11 @@ class _PricingBreakdownCard extends StatelessWidget {
             _PriceBreakdownRow(
               label:
                   '$addedSpotCount added destination${addedSpotCount == 1 ? '' : 's'}',
-              value:
-                  '+ ${money.format(addedSpotCount * addedSpotFee)}',
+              value: '+ ${money.format(addedSpotCount * addedSpotFee)}',
             ),
           ],
 
-          const Divider(
-            height: 20,
-            color: Color(0xFFEDF1F6),
-          ),
+          const Divider(height: 20, color: Color(0xFFEDF1F6)),
 
           _PriceBreakdownRow(
             label: 'Price per person',
@@ -4922,9 +4462,7 @@ class _PricingBreakdownCard extends StatelessWidget {
 
           _PriceBreakdownRow(
             label: '$passengers passenger${passengers == 1 ? '' : 's'}',
-            value: money.format(
-              finalUnitPrice * passengers,
-            ),
+            value: money.format(finalUnitPrice * passengers),
             strong: true,
           ),
         ],
@@ -4952,12 +4490,8 @@ class _PriceBreakdownRow extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: strong
-                  ? _ink
-                  : _secondaryText,
-              fontWeight: strong
-                  ? FontWeight.w800
-                  : FontWeight.w600,
+              color: strong ? _ink : _secondaryText,
+              fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
               fontSize: 10.5,
             ),
           ),
@@ -5026,11 +4560,7 @@ class _PaymentCard extends StatelessWidget {
                     color: _softBlue,
                     borderRadius: BorderRadius.circular(13),
                   ),
-                  child: Icon(
-                    icon,
-                    color: _primary,
-                    size: 18,
-                  ),
+                  child: Icon(icon, color: _primary, size: 18),
                 ),
 
                 const SizedBox(width: 10),
@@ -5069,9 +4599,7 @@ class _PaymentCard extends StatelessWidget {
                   active
                       ? Icons.radio_button_checked_rounded
                       : Icons.radio_button_off_rounded,
-                  color: active
-                      ? _primary
-                      : const Color(0xFFC3CDDA),
+                  color: active ? _primary : const Color(0xFFC3CDDA),
                   size: 21,
                 ),
               ],
@@ -5084,9 +4612,7 @@ class _PaymentCard extends StatelessWidget {
 }
 
 class _DirectPaymentNotice extends StatelessWidget {
-  const _DirectPaymentNotice({
-    required this.isSameDay,
-  });
+  const _DirectPaymentNotice({required this.isSameDay});
 
   final bool isSameDay;
 
@@ -5101,11 +4627,7 @@ class _DirectPaymentNotice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: _primary,
-            size: 17,
-          ),
+          const Icon(Icons.info_outline_rounded, color: _primary, size: 17),
 
           const SizedBox(width: 8),
 
@@ -5129,9 +4651,7 @@ class _DirectPaymentNotice extends StatelessWidget {
 }
 
 class _NotesField extends StatelessWidget {
-  const _NotesField({
-    required this.controller,
-  });
+  const _NotesField({required this.controller});
 
   final TextEditingController controller;
 
@@ -5147,8 +4667,7 @@ class _NotesField extends StatelessWidget {
         fontSize: 11.5,
       ),
       decoration: InputDecoration(
-        hintText:
-            'Example: Please assist an elderly passenger...',
+        hintText: 'Example: Please assist an elderly passenger...',
         hintStyle: const TextStyle(
           color: Color(0xFFA0AABA),
           fontWeight: FontWeight.w500,
@@ -5158,21 +4677,15 @@ class _NotesField extends StatelessWidget {
         contentPadding: const EdgeInsets.all(14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(17),
-          borderSide: const BorderSide(
-            color: _border,
-          ),
+          borderSide: const BorderSide(color: _border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(17),
-          borderSide: const BorderSide(
-            color: _border,
-          ),
+          borderSide: const BorderSide(color: _border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(17),
-          borderSide: const BorderSide(
-            color: _primary,
-          ),
+          borderSide: const BorderSide(color: _primary),
         ),
       ),
     );
@@ -5184,9 +4697,7 @@ class _NotesField extends StatelessWidget {
 // =============================================================================
 
 class _ReviewPackageCard extends StatelessWidget {
-  const _ReviewPackageCard({
-    required this.package,
-  });
+  const _ReviewPackageCard({required this.package});
 
   final TourPackage package;
 
@@ -5197,9 +4708,7 @@ class _ReviewPackageCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Row(
         children: [
@@ -5213,8 +4722,7 @@ class _ReviewPackageCard extends StatelessWidget {
                   : Image.network(
                       package.displayImageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
-                          const _ImageFallback(),
+                      errorBuilder: (_, _, _) => const _ImageFallback(),
                     ),
             ),
           ),
@@ -5289,9 +4797,7 @@ class _ReviewSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         children: [
@@ -5304,11 +4810,7 @@ class _ReviewSection extends StatelessWidget {
                   color: _softBlue,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  size: 15,
-                  color: _primary,
-                ),
+                child: Icon(icon, size: 15, color: _primary),
               ),
 
               const SizedBox(width: 8),
@@ -5328,25 +4830,17 @@ class _ReviewSection extends StatelessWidget {
                 onPressed: onEdit,
                 style: TextButton.styleFrom(
                   minimumSize: const Size(0, 28),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
                 child: const Text(
                   'Edit',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 10,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10),
                 ),
               ),
             ],
           ),
 
-          const Divider(
-            height: 19,
-            color: Color(0xFFEDF1F6),
-          ),
+          const Divider(height: 19, color: Color(0xFFEDF1F6)),
 
           ...children,
         ],
@@ -5370,9 +4864,7 @@ class _ReviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        vertical: 3.5,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 3.5),
       child: Row(
         children: [
           Expanded(
@@ -5393,9 +4885,7 @@ class _ReviewRow extends StatelessWidget {
               value,
               textAlign: TextAlign.right,
               style: TextStyle(
-                color: emphasized
-                    ? _primary
-                    : _ink,
+                color: emphasized ? _primary : _ink,
                 fontWeight: FontWeight.w800,
                 fontSize: emphasized ? 12 : 10.8,
               ),
@@ -5421,9 +4911,7 @@ class _ReviewDestinationRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(
-        top: 6,
-      ),
+      padding: const EdgeInsets.only(top: 6),
       child: Row(
         children: [
           Container(
@@ -5459,10 +4947,7 @@ class _ReviewDestinationRow extends StatelessWidget {
 
           if (added)
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 6,
-                vertical: 3,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 color: _softBlue,
                 borderRadius: BorderRadius.circular(999),
@@ -5502,10 +4987,7 @@ class _ReviewAddressRow extends StatelessWidget {
           width: 8,
           height: 8,
           margin: const EdgeInsets.only(top: 4),
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
 
         const SizedBox(width: 7),
@@ -5541,9 +5023,7 @@ class _ReviewAddressRow extends StatelessWidget {
 }
 
 class _FinalAgreementNotice extends StatelessWidget {
-  const _FinalAgreementNotice({
-    required this.isSameDay,
-  });
+  const _FinalAgreementNotice({required this.isSameDay});
 
   final bool isSameDay;
 
@@ -5558,11 +5038,7 @@ class _FinalAgreementNotice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.verified_user_outlined,
-            color: _primary,
-            size: 17,
-          ),
+          const Icon(Icons.verified_user_outlined, color: _primary, size: 17),
 
           const SizedBox(width: 8),
 
@@ -5612,23 +5088,13 @@ class _BookingNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).padding.bottom;
 
-    final finalStep =
-        currentStep == totalSteps - 1;
+    final finalStep = currentStep == totalSteps - 1;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        18,
-        10,
-        18,
-        10 + bottom,
-      ),
+      padding: EdgeInsets.fromLTRB(18, 10, 18, 10 + bottom),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(
-          top: BorderSide(
-            color: Color(0xFFE8EDF4),
-          ),
-        ),
+        border: const Border(top: BorderSide(color: Color(0xFFE8EDF4))),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.055),
@@ -5646,20 +5112,15 @@ class _BookingNavigationBar extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: saving ? null : onBack,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor:
-                      const Color(0xFF4D5D73),
-                  side: const BorderSide(
-                    color: Color(0xFFDCE4EE),
-                  ),
+                  foregroundColor: const Color(0xFF4D5D73),
+                  side: const BorderSide(color: Color(0xFFDCE4EE)),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 child: const Text(
                   'Back',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ),
@@ -5674,14 +5135,13 @@ class _BookingNavigationBar extends StatelessWidget {
                 onPressed: saving
                     ? null
                     : finalStep
-                        ? onConfirm
-                        : onNext,
+                    ? onConfirm
+                    : onNext,
                 style: ElevatedButton.styleFrom(
                   elevation: 0,
                   backgroundColor: _primary,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor:
-                      const Color(0xFFB9D5FA),
+                  disabledBackgroundColor: const Color(0xFFB9D5FA),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -5696,13 +5156,10 @@ class _BookingNavigationBar extends StatelessWidget {
                         ),
                       )
                     : Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            finalStep
-                                ? 'Confirm Booking'
-                                : 'Continue',
+                            finalStep ? 'Confirm Booking' : 'Continue',
                             style: const TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 13,
@@ -5758,9 +5215,7 @@ class _LocationStepCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(21),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5774,11 +5229,7 @@ class _LocationStepCard extends StatelessWidget {
                   color: iconColor.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
-                  icon,
-                  color: iconColor,
-                  size: 17,
-                ),
+                child: Icon(icon, color: iconColor, size: 17),
               ),
 
               const SizedBox(width: 10),
@@ -5851,27 +5302,19 @@ class _LocationPickerCard extends StatefulWidget {
 
   final String? errorText;
 
-  final ValueChanged<String?>?
-      onValidationMessageChanged;
+  final ValueChanged<String?>? onValidationMessageChanged;
 
-  final void Function(
-    String? address,
-    double? lat,
-    double? lng,
-  ) onLocationSelected;
+  final void Function(String? address, double? lat, double? lng)
+  onLocationSelected;
 
   @override
-  State<_LocationPickerCard> createState() =>
-      _LocationPickerCardState();
+  State<_LocationPickerCard> createState() => _LocationPickerCardState();
 }
 
-class _LocationPickerCardState
-    extends State<_LocationPickerCard> {
-  static final String _apiKey =
-      CitySpotSuggestionService.resolveApiKey();
+class _LocationPickerCardState extends State<_LocationPickerCard> {
+  static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
 
-  final TextEditingController _searchCtrl =
-      TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
 
   final FocusNode _focusNode = FocusNode();
 
@@ -5913,9 +5356,7 @@ class _LocationPickerCardState
     );
   }
 
-  Future<void> _fetchSuggestions(
-    String query,
-  ) async {
+  Future<void> _fetchSuggestions(String query) async {
     if (!mounted) return;
 
     setState(() {
@@ -5926,9 +5367,7 @@ class _LocationPickerCardState
       final scoped =
           '$query, ${widget.requiredMunicipality}, ${widget.requiredProvince}, Philippines';
 
-      final encoded = Uri.encodeQueryComponent(
-        scoped,
-      );
+      final encoded = Uri.encodeQueryComponent(scoped);
 
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/place/autocomplete/json'
@@ -5938,36 +5377,24 @@ class _LocationPickerCardState
         '&language=en',
       );
 
-      final response = await http
-          .get(uri)
-          .timeout(
-            const Duration(seconds: 10),
-          );
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
 
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body)
-            as Map<String, dynamic>;
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
 
-        final predictions =
-            (body['predictions'] as List?) ?? const [];
+        final predictions = (body['predictions'] as List?) ?? const [];
 
         setState(() {
           _suggestions = predictions
               .map(
                 (prediction) => _AutocompleteResult(
-                  placeId:
-                      prediction['place_id'] as String? ??
-                          '',
-                  description: prediction['description']
-                          as String? ??
-                      '',
+                  placeId: prediction['place_id'] as String? ?? '',
+                  description: prediction['description'] as String? ?? '',
                 ),
               )
-              .where(
-                (result) => result.placeId.isNotEmpty,
-              )
+              .where((result) => result.placeId.isNotEmpty)
               .take(5)
               .toList(growable: false);
         });
@@ -5983,9 +5410,7 @@ class _LocationPickerCardState
     }
   }
 
-  Future<void> _selectSuggestion(
-    _AutocompleteResult suggestion,
-  ) async {
+  Future<void> _selectSuggestion(_AutocompleteResult suggestion) async {
     _focusNode.unfocus();
 
     setState(() {
@@ -6001,42 +5426,30 @@ class _LocationPickerCardState
         '&key=$_apiKey',
       );
 
-      final response = await http
-          .get(uri)
-          .timeout(
-            const Duration(seconds: 10),
-          );
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
 
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body)
-            as Map<String, dynamic>;
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
 
-        final result =
-            body['result'] as Map<String, dynamic>?;
+        final result = body['result'] as Map<String, dynamic>?;
 
         final geometry = result?['geometry'] as Map?;
 
         final location = geometry == null
             ? null
-            : Map<String, dynamic>.from(
-                geometry,
-              )['location'] as Map?;
+            : Map<String, dynamic>.from(geometry)['location'] as Map?;
 
-        final lat =
-            (location?['lat'] as num?)?.toDouble();
+        final lat = (location?['lat'] as num?)?.toDouble();
 
-        final lng =
-            (location?['lng'] as num?)?.toDouble();
+        final lng = (location?['lng'] as num?)?.toDouble();
 
         final address =
-            result?['formatted_address'] as String? ??
-                suggestion.description;
+            result?['formatted_address'] as String? ?? suggestion.description;
 
         final components = _parseAddressComponents(
-          (result?['address_components'] as List?) ??
-              const [],
+          (result?['address_components'] as List?) ?? const [],
         );
 
         if (lat != null && lng != null) {
@@ -6052,11 +5465,7 @@ class _LocationPickerCardState
             return;
           }
 
-          _setLocation(
-            address,
-            lat,
-            lng,
-          );
+          _setLocation(address, lat, lng);
 
           return;
         }
@@ -6084,35 +5493,26 @@ class _LocationPickerCardState
     });
 
     try {
-      final enabled =
-          await Geolocator.isLocationServiceEnabled();
+      final enabled = await Geolocator.isLocationServiceEnabled();
 
       if (!enabled) {
-        _showError(
-          'Location services are disabled. Please enable them first.',
-        );
+        _showError('Location services are disabled. Please enable them first.');
         return;
       }
 
-      var permission =
-          await Geolocator.checkPermission();
+      var permission = await Geolocator.checkPermission();
 
       if (permission == LocationPermission.denied) {
-        permission =
-            await Geolocator.requestPermission();
+        permission = await Geolocator.requestPermission();
       }
 
       if (permission == LocationPermission.denied ||
-          permission ==
-              LocationPermission.deniedForever) {
-        _showError(
-          'Location permission was denied.',
-        );
+          permission == LocationPermission.deniedForever) {
+        _showError('Location permission was denied.');
         return;
       }
 
-      final position =
-          await Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
 
@@ -6125,10 +5525,7 @@ class _LocationPickerCardState
 
       final validation = _locationValidationMessage(
         address: address,
-        countryCode: _addressContainsLocation(
-          address,
-          'Philippines',
-        )
+        countryCode: _addressContainsLocation(address, 'Philippines')
             ? 'PH'
             : '',
       );
@@ -6138,15 +5535,9 @@ class _LocationPickerCardState
         return;
       }
 
-      _setLocation(
-        address,
-        position.latitude,
-        position.longitude,
-      );
+      _setLocation(address, position.latitude, position.longitude);
     } catch (_) {
-      _showError(
-        'Could not get your current location. Please try again.',
-      );
+      _showError('Could not get your current location. Please try again.');
     } finally {
       if (mounted) {
         setState(() {
@@ -6156,10 +5547,7 @@ class _LocationPickerCardState
     }
   }
 
-  Future<String> _reverseGeocode(
-    double lat,
-    double lng,
-  ) async {
+  Future<String> _reverseGeocode(double lat, double lng) async {
     try {
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/geocode/json'
@@ -6168,22 +5556,15 @@ class _LocationPickerCardState
         '&language=en',
       );
 
-      final response = await http
-          .get(uri)
-          .timeout(
-            const Duration(seconds: 10),
-          );
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body)
-            as Map<String, dynamic>;
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
 
-        final results =
-            (body['results'] as List?) ?? const [];
+        final results = (body['results'] as List?) ?? const [];
 
         if (results.isNotEmpty) {
-          return results.first['formatted_address']
-                  as String? ??
+          return results.first['formatted_address'] as String? ??
               '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
         }
       }
@@ -6192,11 +5573,7 @@ class _LocationPickerCardState
     return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
   }
 
-  void _setLocation(
-    String address,
-    double lat,
-    double lng,
-  ) {
+  void _setLocation(String address, double lat, double lng) {
     _searchCtrl.text = address;
 
     setState(() {
@@ -6208,11 +5585,7 @@ class _LocationPickerCardState
 
     widget.onValidationMessageChanged?.call(null);
 
-    widget.onLocationSelected(
-      address,
-      lat,
-      lng,
-    );
+    widget.onLocationSelected(address, lat, lng);
   }
 
   void _clearLocation() {
@@ -6227,11 +5600,7 @@ class _LocationPickerCardState
 
     widget.onValidationMessageChanged?.call(null);
 
-    widget.onLocationSelected(
-      null,
-      null,
-      null,
-    );
+    widget.onLocationSelected(null, null, null);
   }
 
   void _invalidateSelection(String message) {
@@ -6250,10 +5619,7 @@ class _LocationPickerCardState
   }) {
     final isPhilippines =
         countryCode.trim().toUpperCase() == 'PH' ||
-        _addressContainsLocation(
-          address,
-          'Philippines',
-        );
+        _addressContainsLocation(address, 'Philippines');
 
     if (!isPhilippines) {
       return 'Please select a valid location within the Philippines.';
@@ -6261,32 +5627,19 @@ class _LocationPickerCardState
 
     final structuredProvinceMatches =
         province.isNotEmpty &&
-        _locationNamesMatch(
-          province,
-          widget.requiredProvince,
-        );
+        _locationNamesMatch(province, widget.requiredProvince);
 
     final structuredLocalityMatches =
         locality.isNotEmpty &&
-        _locationNamesMatch(
-          locality,
-          widget.requiredMunicipality,
-        );
+        _locationNamesMatch(locality, widget.requiredMunicipality);
 
-    if (structuredProvinceMatches &&
-        structuredLocalityMatches) {
+    if (structuredProvinceMatches && structuredLocalityMatches) {
       return null;
     }
 
     final fallbackMatches =
-        _addressContainsLocation(
-          address,
-          widget.requiredMunicipality,
-        ) &&
-        _addressContainsLocation(
-          address,
-          widget.requiredProvince,
-        );
+        _addressContainsLocation(address, widget.requiredMunicipality) &&
+        _addressContainsLocation(address, widget.requiredProvince);
 
     if (fallbackMatches) {
       return null;
@@ -6311,8 +5664,7 @@ class _LocationPickerCardState
 
   @override
   Widget build(BuildContext context) {
-    final busy =
-        _loadingDetails || _loadingLocation;
+    final busy = _loadingDetails || _loadingLocation;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -6327,8 +5679,7 @@ class _LocationPickerCardState
             fontSize: 11.5,
           ),
           decoration: InputDecoration(
-            hintText:
-                'Search ${widget.label.toLowerCase()} location...',
+            hintText: 'Search ${widget.label.toLowerCase()} location...',
             hintStyle: const TextStyle(
               color: Color(0xFF9AA6B6),
               fontWeight: FontWeight.w500,
@@ -6351,34 +5702,26 @@ class _LocationPickerCardState
                     ),
                   )
                 : _searchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        onPressed: _clearLocation,
-                        icon: const Icon(
-                          Icons.close_rounded,
-                        ),
-                      )
-                    : null,
+                ? IconButton(
+                    onPressed: _clearLocation,
+                    icon: const Icon(Icons.close_rounded),
+                  )
+                : null,
             filled: true,
             fillColor: const Color(0xFFF8FAFD),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(
-                color: _border,
-              ),
+              borderSide: const BorderSide(color: _border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(15),
               borderSide: BorderSide(
-                color: _selectedLat != null
-                    ? const Color(0xFF86EFAC)
-                    : _border,
+                color: _selectedLat != null ? const Color(0xFF86EFAC) : _border,
               ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(
-                color: _primary,
-              ),
+              borderSide: const BorderSide(color: _primary),
             ),
           ),
         ),
@@ -6386,10 +5729,7 @@ class _LocationPickerCardState
         if (_loadingSuggestions)
           const Padding(
             padding: EdgeInsets.only(top: 6),
-            child: LinearProgressIndicator(
-              color: _primary,
-              minHeight: 2,
-            ),
+            child: LinearProgressIndicator(color: _primary, minHeight: 2),
           ),
 
         if (_suggestions.isNotEmpty) ...[
@@ -6399,47 +5739,41 @@ class _LocationPickerCardState
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: _border,
-              ),
+              border: Border.all(color: _border),
             ),
             child: Column(
-              children: _suggestions.map(
-                (suggestion) {
-                  return InkWell(
-                    onTap: () => _selectSuggestion(
-                      suggestion,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(11),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.place_outlined,
-                            color: _primary,
-                            size: 16,
-                          ),
+              children: _suggestions.map((suggestion) {
+                return InkWell(
+                  onTap: () => _selectSuggestion(suggestion),
+                  child: Padding(
+                    padding: const EdgeInsets.all(11),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.place_outlined,
+                          color: _primary,
+                          size: 16,
+                        ),
 
-                          const SizedBox(width: 8),
+                        const SizedBox(width: 8),
 
-                          Expanded(
-                            child: Text(
-                              suggestion.description,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF344054),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 10.5,
-                              ),
+                        Expanded(
+                          child: Text(
+                            suggestion.description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF344054),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 10.5,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ).toList(),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         ],
@@ -6447,24 +5781,16 @@ class _LocationPickerCardState
         const SizedBox(height: 6),
 
         TextButton.icon(
-          onPressed:
-              _loadingLocation ? null : _useCurrentLocation,
+          onPressed: _loadingLocation ? null : _useCurrentLocation,
           icon: _loadingLocation
               ? const SizedBox(
                   width: 14,
                   height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(
-                  Icons.my_location_rounded,
-                  size: 15,
-                ),
+              : const Icon(Icons.my_location_rounded, size: 15),
           label: Text(
-            _loadingLocation
-                ? 'Getting location...'
-                : 'Use Current Location',
+            _loadingLocation ? 'Getting location...' : 'Use Current Location',
           ),
           style: TextButton.styleFrom(
             visualDensity: VisualDensity.compact,
@@ -6543,8 +5869,7 @@ class _SharedRouteMapPreview extends StatelessWidget {
     required this.dropoffLng,
   });
 
-  static final String _apiKey =
-      CitySpotSuggestionService.resolveApiKey();
+  static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
 
   final String? pickupAddress;
 
@@ -6563,15 +5888,11 @@ class _SharedRouteMapPreview extends StatelessWidget {
     );
 
     if (pickupLat != null && pickupLng != null) {
-      buffer.write(
-        '&markers=color:green%7Clabel:P%7C$pickupLat,$pickupLng',
-      );
+      buffer.write('&markers=color:green%7Clabel:P%7C$pickupLat,$pickupLng');
     }
 
     if (dropoffLat != null && dropoffLng != null) {
-      buffer.write(
-        '&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng',
-      );
+      buffer.write('&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng');
     }
 
     return buffer.toString();
@@ -6599,9 +5920,7 @@ class _SharedRouteMapPreview extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Column(
         children: [
@@ -6616,9 +5935,7 @@ class _SharedRouteMapPreview extends StatelessWidget {
                 height: 160,
                 color: const Color(0xFFF1F5F9),
                 alignment: Alignment.center,
-                child: const Text(
-                  'Map preview unavailable',
-                ),
+                child: const Text('Map preview unavailable'),
               ),
             ),
           ),
@@ -6664,10 +5981,7 @@ class _MapLegendRow extends StatelessWidget {
           width: 8,
           height: 8,
           margin: const EdgeInsets.only(top: 3),
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
 
         const SizedBox(width: 7),
@@ -6735,33 +6049,14 @@ class _ParsedAddressComponents {
 String _normalizeLocationName(String value) {
   return value
       .toLowerCase()
-      .replaceAll(
-        RegExp(
-          r'\b(city|municipality|province)\s+of\b',
-        ),
-        '',
-      )
-      .replaceAll(
-        RegExp(
-          r'\b(city|municipality|province)\b',
-        ),
-        '',
-      )
-      .replaceAll(
-        RegExp(r'[^a-z0-9]+'),
-        ' ',
-      )
-      .replaceAll(
-        RegExp(r'\s+'),
-        ' ',
-      )
+      .replaceAll(RegExp(r'\b(city|municipality|province)\s+of\b'), '')
+      .replaceAll(RegExp(r'\b(city|municipality|province)\b'), '')
+      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 }
 
-bool _locationNamesMatch(
-  String actual,
-  String expected,
-) {
+bool _locationNamesMatch(String actual, String expected) {
   final a = _normalizeLocationName(actual);
   final b = _normalizeLocationName(expected);
 
@@ -6769,23 +6064,16 @@ bool _locationNamesMatch(
     return false;
   }
 
-  return a == b ||
-      a.contains(b) ||
-      b.contains(a);
+  return a == b || a.contains(b) || b.contains(a);
 }
 
-bool _addressContainsLocation(
-  String address,
-  String expected,
-) {
-  return _normalizeLocationName(address).contains(
-    _normalizeLocationName(expected),
-  );
+bool _addressContainsLocation(String address, String expected) {
+  return _normalizeLocationName(
+    address,
+  ).contains(_normalizeLocationName(expected));
 }
 
-_ParsedAddressComponents _parseAddressComponents(
-  List<dynamic> rawComponents,
-) {
+_ParsedAddressComponents _parseAddressComponents(List<dynamic> rawComponents) {
   String countryCode = '';
   String province = '';
   String locality = '';
@@ -6793,36 +6081,23 @@ _ParsedAddressComponents _parseAddressComponents(
   for (final raw in rawComponents.whereType<Map>()) {
     final component = Map<String, dynamic>.from(raw);
 
-    final types =
-        (component['types'] as List?)
-                ?.cast<String>() ??
-            const [];
+    final types = (component['types'] as List?)?.cast<String>() ?? const [];
 
-    final longName = dbString(
-      component['long_name'],
-    );
+    final longName = dbString(component['long_name']);
 
-    final shortName = dbString(
-      component['short_name'],
-    );
+    final shortName = dbString(component['short_name']);
 
     if (types.contains('country')) {
       countryCode = shortName;
     }
 
-    if (types.contains(
-      'administrative_area_level_1',
-    )) {
+    if (types.contains('administrative_area_level_1')) {
       province = longName;
     }
 
     if (types.contains('locality') ||
-        types.contains(
-          'administrative_area_level_2',
-        ) ||
-        types.contains(
-          'administrative_area_level_3',
-        )) {
+        types.contains('administrative_area_level_2') ||
+        types.contains('administrative_area_level_3')) {
       if (locality.isEmpty) {
         locality = longName;
       }
@@ -6855,6 +6130,8 @@ class _EditableItineraryStop {
     required this.arrivalTime,
     required this.stayMinutes,
     required this.departureTime,
+    required this.travelDurationMinutes,
+    required this.routeDistanceMeters,
   });
 
   final String localKey;
@@ -6876,17 +6153,16 @@ class _EditableItineraryStop {
   String arrivalTime;
   int stayMinutes;
   String departureTime;
+  int travelDurationMinutes;
+  int routeDistanceMeters;
 
-  factory _EditableItineraryStop.cloneFrom(
-    _EditableItineraryStop other,
-  ) {
+  factory _EditableItineraryStop.cloneFrom(_EditableItineraryStop other) {
     return _EditableItineraryStop(
       localKey: other.localKey,
       spotId: other.spotId,
       googlePlaceId: other.googlePlaceId,
       destinationName: other.destinationName,
-      destinationAddress:
-          other.destinationAddress,
+      destinationAddress: other.destinationAddress,
       municipality: other.municipality,
       barangay: other.barangay,
       latitude: other.latitude,
@@ -6895,13 +6171,12 @@ class _EditableItineraryStop {
       arrivalTime: other.arrivalTime,
       stayMinutes: other.stayMinutes,
       departureTime: other.departureTime,
+      travelDurationMinutes: other.travelDurationMinutes,
+      routeDistanceMeters: other.routeDistanceMeters,
     );
   }
 
-  Json toBookingPayload({
-    required int order,
-    required String sourceType,
-  }) {
+  Json toBookingPayload({required int order, required String sourceType}) {
     return {
       'spot_id': spotId,
       'destination_name': destinationName,
@@ -6909,9 +6184,10 @@ class _EditableItineraryStop {
       'order_number': order,
       'destination_order': order,
       'arrival_time': arrivalTime,
-      'estimated_stay_duration_minutes':
-          stayMinutes,
+      'estimated_stay_duration_minutes': stayMinutes,
       'departure_time': departureTime,
+      'travel_duration_minutes': travelDurationMinutes,
+      'route_distance_meters': routeDistanceMeters,
       'activity_note': '',
       'itinerary_source': sourceType,
       'source_type': sourceType,
@@ -6931,9 +6207,7 @@ class _EditableItineraryStop {
 // GENERAL HELPERS
 // =============================================================================
 
-int _calculateDurationMinutes(
-  List<_EditableItineraryStop> items,
-) {
+int _calculateDurationMinutes(List<_EditableItineraryStop> items) {
   if (items.isEmpty) {
     return 0;
   }
@@ -6942,16 +6216,10 @@ int _calculateDurationMinutes(
   final last = items.last.departureTime;
 
   if (first.isNotEmpty && last.isNotEmpty) {
-    return scheduleMinutesBetween(
-      first,
-      last,
-    );
+    return scheduleMinutesBetween(first, last);
   }
 
-  return items.fold(
-    0,
-    (total, item) => total + item.stayMinutes,
-  );
+  return items.fold(0, (total, item) => total + item.stayMinutes);
 }
 
 String _formatDurationLabel(int minutes) {
@@ -6977,36 +6245,39 @@ String _itineraryTimingSummary({
   required String arrivalTime,
   required int stayMinutes,
   required String departureTime,
+  int travelDurationMinutes = 0,
 }) {
   final parts = <String>[];
 
+  if (travelDurationMinutes > 0) {
+    parts.add('Travel ${_formatDurationLabel(travelDurationMinutes)}');
+  }
+
   if (arrivalTime.isNotEmpty) {
-    parts.add(
-      'Arrival ${formatScheduleTimeLabel(arrivalTime)}',
-    );
+    parts.add('Arrival ${formatScheduleTimeLabel(arrivalTime)}');
   }
 
   if (stayMinutes > 0) {
-    parts.add(
-      'Stay ${_formatDurationLabel(stayMinutes)}',
-    );
+    parts.add('Stay ${_formatDurationLabel(stayMinutes)}');
   }
 
   if (departureTime.isNotEmpty) {
-    parts.add(
-      'Leave ${formatScheduleTimeLabel(departureTime)}',
-    );
+    parts.add('Leave ${formatScheduleTimeLabel(departureTime)}');
   }
 
   return parts.join(' • ');
 }
 
-bool _sameMunicipality(
-  String a,
-  String b,
-) {
-  return _normalizeText(a) ==
-      _normalizeText(b);
+String _storageTimeFromMinutes(int totalMinutes) {
+  final normalized = totalMinutes % (24 * 60);
+  final hour = normalized ~/ 60;
+  final minute = normalized % 60;
+  return '${hour.toString().padLeft(2, '0')}:'
+      '${minute.toString().padLeft(2, '0')}:00';
+}
+
+bool _sameMunicipality(String a, String b) {
+  return _normalizeText(a) == _normalizeText(b);
 }
 
 String _normalizeText(String value) {
@@ -7114,9 +6385,7 @@ class _RoundButton extends StatelessWidget {
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: filled
-              ? _primary
-              : const Color(0xFFF1F4F8),
+          color: filled ? _primary : const Color(0xFFF1F4F8),
           shape: BoxShape.circle,
         ),
         child: Icon(
@@ -7125,8 +6394,8 @@ class _RoundButton extends StatelessWidget {
           color: onTap == null
               ? const Color(0xFFC8D0DB)
               : filled
-                  ? Colors.white
-                  : const Color(0xFF526173),
+              ? Colors.white
+              : const Color(0xFF526173),
         ),
       ),
     );
@@ -7159,8 +6428,8 @@ class _TinyActionButton extends StatelessWidget {
           color: onTap == null
               ? const Color(0xFFC8D0DB)
               : danger
-                  ? const Color(0xFFDC2626)
-                  : const Color(0xFF64748B),
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF64748B),
         ),
       ),
     );
@@ -7168,19 +6437,14 @@ class _TinyActionButton extends StatelessWidget {
 }
 
 class _MiniChip extends StatelessWidget {
-  const _MiniChip({
-    required this.text,
-  });
+  const _MiniChip({required this.text});
 
   final String text;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 7,
-        vertical: 4,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
         color: _softBlue,
         borderRadius: BorderRadius.circular(999),
@@ -7217,9 +6481,7 @@ class _SimpleEmptyCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
       ),
       child: Row(
         children: [
@@ -7230,11 +6492,7 @@ class _SimpleEmptyCard extends StatelessWidget {
               color: _softBlue,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              icon,
-              color: _primary,
-              size: 18,
-            ),
+            child: Icon(icon, color: _primary, size: 18),
           ),
 
           const SizedBox(width: 10),
@@ -7280,10 +6538,7 @@ class _ImageFallback extends StatelessWidget {
     return Container(
       color: _softBlue,
       alignment: Alignment.center,
-      child: const Icon(
-        Icons.map_outlined,
-        color: _primary,
-      ),
+      child: const Icon(Icons.map_outlined, color: _primary),
     );
   }
 }
@@ -7322,12 +6577,7 @@ class _TimePickerSheet extends StatelessWidget {
             ),
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(
-                18,
-                13,
-                8,
-                8,
-              ),
+              padding: const EdgeInsets.fromLTRB(18, 13, 8, 8),
               child: Row(
                 children: [
                   Expanded(
@@ -7343,9 +6593,7 @@ class _TimePickerSheet extends StatelessWidget {
 
                   IconButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                    ),
+                    icon: const Icon(Icons.close_rounded),
                   ),
                 ],
               ),
@@ -7362,30 +6610,18 @@ class _TimePickerSheet extends StatelessWidget {
                   final active = option == selected;
 
                   return ListTile(
-                    onTap: () => Navigator.pop(
-                      context,
-                      option,
-                    ),
-                    tileColor: active
-                        ? _softBlue
-                        : null,
+                    onTap: () => Navigator.pop(context, option),
+                    tileColor: active ? _softBlue : null,
                     title: Text(
                       formatScheduleTimeLabel(option),
                       style: TextStyle(
-                        color: active
-                            ? _primary
-                            : _ink,
-                        fontWeight: active
-                            ? FontWeight.w900
-                            : FontWeight.w600,
+                        color: active ? _primary : _ink,
+                        fontWeight: active ? FontWeight.w900 : FontWeight.w600,
                         fontSize: 12,
                       ),
                     ),
                     trailing: active
-                        ? const Icon(
-                            Icons.check_rounded,
-                            color: _primary,
-                          )
+                        ? const Icon(Icons.check_rounded, color: _primary)
                         : null,
                   );
                 },
@@ -7416,10 +6652,7 @@ class _BookingLoadingView extends StatelessWidget {
             SizedBox(
               width: 29,
               height: 29,
-              child: CircularProgressIndicator(
-                color: _primary,
-                strokeWidth: 3,
-              ),
+              child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
             ),
 
             SizedBox(height: 13),
@@ -7440,10 +6673,7 @@ class _BookingLoadingView extends StatelessWidget {
 }
 
 class _ErrorView extends StatelessWidget {
-  const _ErrorView({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorView({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -7459,9 +6689,7 @@ class _ErrorView extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(21),
-              border: Border.all(
-                color: _border,
-              ),
+              border: Border.all(color: _border),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -7502,9 +6730,7 @@ class _ErrorView extends StatelessWidget {
                   height: 45,
                   child: ElevatedButton.icon(
                     onPressed: onRetry,
-                    icon: const Icon(
-                      Icons.refresh_rounded,
-                    ),
+                    icon: const Icon(Icons.refresh_rounded),
                     label: const Text('Try Again'),
                   ),
                 ),

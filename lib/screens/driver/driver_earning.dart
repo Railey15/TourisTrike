@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/driver/driver_trips.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
@@ -35,6 +36,7 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
   // ever paid). TourisTrike does NOT custody funds — this is a read of the
   // driver's own confirmed payment_records rows.
   Map<String, double> _confirmedByRide = {};
+  List<PaymentAllocation> _confirmedPackageAllocations = const [];
   RealtimeChannel? _paymentsChannel;
 
   @override
@@ -44,16 +46,22 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
     final userId = _supabase.auth.currentUser?.id;
     if (userId != null) {
       _paymentsChannel = _supabase
-          .channel('driver_earning_payment_records_$userId')
+          .channel('driver_earnings_$userId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'payment_allocations',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'driver_id',
+              value: userId,
+            ),
+            callback: (_) => _loadConfirmedPayments(),
+          )
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'payment_records',
-            filter: PostgresChangeFilter(
-              type: PostgresChangeFilterType.eq,
-              column: 'payee_id',
-              value: userId,
-            ),
             callback: (_) => _loadConfirmedPayments(),
           )
           .subscribe();
@@ -68,7 +76,12 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
 
   Future<void> _loadConfirmedPayments() async {
     try {
-      final records = await _repo.fetchPaymentRecords(role: 'payee', limit: 500);
+      final records = await _repo.fetchPaymentRecords(
+        role: 'payee',
+        limit: 500,
+      );
+      final packageAllocations = await _repo
+          .fetchConfirmedDriverPaymentAllocations(limit: 500);
       final byRide = <String, double>{};
       for (final r in records) {
         if (!r.isConfirmed || r.rideId == null) continue;
@@ -76,8 +89,13 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
         byRide[key] = (byRide[key] ?? 0) + r.amount;
       }
       if (!mounted) return;
-      setState(() => _confirmedByRide = byRide);
-    } catch (_) {
+      setState(() {
+        _confirmedByRide = byRide;
+        _confirmedPackageAllocations = packageAllocations;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('[DriverEarnings] payment load failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
       // Non-fatal — totals just stay at 0 until this succeeds.
     }
   }
@@ -140,6 +158,7 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
               rides: rides,
               dailyGoalAmount: widget.dailyGoalAmount,
               confirmedAmountsByRideId: _confirmedByRide,
+              confirmedPackageAllocations: _confirmedPackageAllocations,
             );
 
             return Align(
@@ -149,130 +168,156 @@ class _DriverEarningScreenState extends State<DriverEarningScreen> {
                 child: CustomScrollView(
                   physics: const BouncingScrollPhysics(),
                   slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                    child: _HeaderSection(
-                      driverName:
-                          user.userMetadata?['full_name']?.toString() ??
-                          user.userMetadata?['name']?.toString() ??
-                          'Driver',
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _TodayEarningsCard(summary: summary),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            icon: Icons.account_balance_wallet_rounded,
-                            iconBg: const Color(0xFFEAF2FF),
-                            label: 'TOTAL',
-                            value: _currency(summary.totalEarnings),
-                            subtitle: 'Total earnings',
-                          ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                        child: _HeaderSection(
+                          driverName:
+                              user.userMetadata?['full_name']?.toString() ??
+                              user.userMetadata?['name']?.toString() ??
+                              'Driver',
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _StatCard(
-                            icon: Icons.radio_button_unchecked_rounded,
-                            iconBg: const Color(0xFFF6F1FF),
-                            label: 'COUNT',
-                            value: '${summary.completedTrips}',
-                            subtitle: 'Completed tours',
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
-                    child: Row(
-                      children: [
-                        Text(
-                          'Recent Tours',
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF1C2430),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: _TodayEarningsCard(summary: summary),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _StatCard(
+                                icon: Icons.account_balance_wallet_rounded,
+                                iconBg: const Color(0xFFEAF2FF),
+                                label: 'TOTAL',
+                                value: _currency(summary.totalEarnings),
+                                subtitle: 'Total earnings',
                               ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEAF2FF),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Text(
-                            'Today',
-                            style: TextStyle(
-                              color: Color(0xFF2F6FFF),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 11,
                             ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _StatCard(
+                                icon: Icons.radio_button_unchecked_rounded,
+                                iconBg: const Color(0xFFF6F1FF),
+                                label: 'COUNT',
+                                value: '${summary.completedTrips}',
+                                subtitle: 'Completed tours',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_confirmedPackageAllocations.isNotEmpty) ...[
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+                          child: Text(
+                            'Package Payment Earnings',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF1C2430),
+                                ),
                           ),
                         ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(
-                                builder: (_) => DriverTripsScreen(
-                                  onBottomNavTap: widget.onBottomNavTap,
+                      ),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                        sliver: SliverList.separated(
+                          itemCount: _confirmedPackageAllocations.length,
+                          itemBuilder: (context, index) => _PackageEarningTile(
+                            allocation: _confirmedPackageAllocations[index],
+                          ),
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 10),
+                        ),
+                      ),
+                    ],
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+                        child: Row(
+                          children: [
+                            Text(
+                              'Recent Tours',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF1C2430),
+                                  ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEAF2FF),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'Today',
+                                style: TextStyle(
+                                  color: Color(0xFF2F6FFF),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
                                 ),
                               ),
-                            );
-                          },
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF2F6FFF),
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(0, 0),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          child: const Text(
-                            'View All',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
+                            ),
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(context).pushReplacement(
+                                  MaterialPageRoute(
+                                    builder: (_) => DriverTripsScreen(
+                                      onBottomNavTap: widget.onBottomNavTap,
+                                    ),
+                                  ),
+                                );
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFF2F6FFF),
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 0),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text(
+                                'View All',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                if (summary.todayTrips.isEmpty)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 120),
-                      child: _EmptyTripsCard(),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
-                    sliver: SliverList.separated(
-                      itemCount: summary.todayTrips.length,
-                      itemBuilder: (context, index) {
-                        final ride = summary.todayTrips[index];
-                        return _TripTile(ride: ride);
-                      },
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: 12),
-                    ),
-                  ),
-              ],
+                    if (summary.todayTrips.isEmpty)
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(16, 0, 16, 120),
+                          child: _EmptyTripsCard(),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+                        sliver: SliverList.separated(
+                          itemCount: summary.todayTrips.length,
+                          itemBuilder: (context, index) {
+                            final ride = summary.todayTrips[index];
+                            return _TripTile(ride: ride);
+                          },
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 12),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             );
@@ -409,6 +454,7 @@ class DriverEarningSummary {
     required List<DriverRide> rides,
     required double dailyGoalAmount,
     Map<String, double> confirmedAmountsByRideId = const {},
+    List<PaymentAllocation> confirmedPackageAllocations = const [],
   }) {
     final now = DateTime.now();
 
@@ -423,15 +469,30 @@ class DriverEarningSummary {
     double confirmedAmountFor(DriverRide ride) =>
         confirmedAmountsByRideId[ride.id] ?? 0;
 
-    final totalEarnings = rides.fold<double>(
-      0,
-      (sum, ride) => sum + confirmedAmountFor(ride),
-    );
+    final packageEarnings = confirmedPackageAllocations
+        .where((allocation) => allocation.isConfirmedEarning)
+        .fold<double>(0, (sum, allocation) => sum + allocation.driverAmount);
+    final packageEarningsToday = confirmedPackageAllocations
+        .where((allocation) {
+          final confirmedAt = allocation.confirmedAt?.toLocal();
+          return allocation.isConfirmedEarning &&
+              confirmedAt != null &&
+              confirmedAt.year == now.year &&
+              confirmedAt.month == now.month &&
+              confirmedAt.day == now.day;
+        })
+        .fold<double>(0, (sum, allocation) => sum + allocation.driverAmount);
 
-    final todayEarnings = todayRides.fold<double>(
-      0,
-      (sum, ride) => sum + confirmedAmountFor(ride),
-    );
+    final totalEarnings =
+        rides.fold<double>(0, (sum, ride) => sum + confirmedAmountFor(ride)) +
+        packageEarnings;
+
+    final todayEarnings =
+        todayRides.fold<double>(
+          0,
+          (sum, ride) => sum + confirmedAmountFor(ride),
+        ) +
+        packageEarningsToday;
 
     final safeGoal = dailyGoalAmount <= 0 ? 1 : dailyGoalAmount;
     final progress = (todayEarnings / safeGoal).clamp(0, 1).toDouble();
@@ -942,6 +1003,93 @@ class _TripTile extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageEarningTile extends StatelessWidget {
+  const _PackageEarningTile({required this.allocation});
+
+  final PaymentAllocation allocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final stage = allocation.paymentStage
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+    final confirmedAt = allocation.confirmedAt?.toLocal();
+    final dateText = confirmedAt == null
+        ? 'Confirmed payment'
+        : DateFormat('MMM d, yyyy • hh:mm a').format(confirmedAt);
+    final bookingLabel = allocation.bookingId.length > 8
+        ? allocation.bookingId.substring(0, 8).toUpperCase()
+        : allocation.bookingId.toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFECFDF3),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.payments_rounded,
+              color: Color(0xFF16A34A),
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stage.isEmpty ? 'Package payment' : stage,
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Booking $bookingLabel • $dateText',
+                  style: const TextStyle(
+                    color: Color(0xFF7B8794),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            NumberFormat.currency(
+              locale: 'en_PH',
+              symbol: '₱',
+              decimalDigits: allocation.driverAmount % 1 == 0 ? 0 : 2,
+            ).format(allocation.driverAmount),
+            style: const TextStyle(
+              color: Color(0xFF16A34A),
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+            ),
           ),
         ],
       ),

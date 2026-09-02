@@ -9,8 +9,6 @@ source control:
 - `PAYMONGO_ENVIRONMENT` (`test` or `live`)
 - `PAYMONGO_SUCCESS_URL`
 - `PAYMONGO_CANCEL_URL`
-- `PAYMONGO_CHECKOUT_API_VERSION` (`v2` by default for ordinary hosted
-  checkout; enabled linked-account splitting uses the documented v1 shape)
 - `PAYMONGO_SPLIT_PAYMENTS_ENABLED` (`false` until Platforms/linked accounts
   and Payment Splitting are approved and driver merchant IDs are verified)
 - `PAYMONGO_DISBURSEMENTS_ENABLED` (`false`; no disbursement endpoint is called

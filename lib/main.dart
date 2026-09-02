@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/services/developer_settings.dart';
 import 'package:touristrike/screens/guest/guest_trip_access_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_spots_screen.dart';
 import 'package:touristrike/screens/driver/driver_home_screen.dart';
@@ -18,6 +19,10 @@ Future<void> main() async {
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dHFoc3JkZ3R3ZGVvb3RnamNpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwODYxMDcsImV4cCI6MjA4NzY2MjEwN30.TI-q2wAlBtd5qAZkZGhUo45rKFFooXfXLyB6kZu070o',
   );
+
+  if (kDebugMode) {
+    await DeveloperSettings.instance.initialize();
+  }
 
   runApp(const TourisTrikeApp());
 }

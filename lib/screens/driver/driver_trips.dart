@@ -24,7 +24,8 @@ class DriverTripsScreen extends StatefulWidget {
   State<DriverTripsScreen> createState() => _DriverTripsScreenState();
 }
 
-class _DriverTripsScreenState extends State<DriverTripsScreen> {
+class _DriverTripsScreenState extends State<DriverTripsScreen>
+    with WidgetsBindingObserver {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final SupabaseClient _supabase = Supabase.instance.client;
 
@@ -37,6 +38,7 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _future = _repo.fetchDriverActivities();
 
@@ -45,17 +47,27 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _channel?.unsubscribe();
 
     super.dispose();
   }
 
-  void _reload() {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reload();
+    }
+  }
+
+  Future<void> _reload() async {
     if (!mounted) return;
 
+    final next = _repo.fetchDriverActivities();
     setState(() {
-      _future = _repo.fetchDriverActivities();
+      _future = next;
     });
+    await next;
   }
 
   void _subscribeRealtime() {
@@ -77,6 +89,18 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'package_bookings',
+          callback: (_) => _reload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'booking_drivers',
+          callback: (_) => _reload(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'booking_drivers',
           callback: (_) => _reload(),
         )
         .subscribe();
@@ -151,7 +175,7 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
             color: const Color(0xFF2F7EFF),
             backgroundColor: Colors.white,
             onRefresh: () async {
-              _reload();
+              await _reload();
             },
             child: Align(
               alignment: Alignment.topCenter,
@@ -261,6 +285,7 @@ class _DriverTripsScreenState extends State<DriverTripsScreen> {
                                   padding: const EdgeInsets.only(bottom: 14),
                                   child: _DriverActivityCard(
                                     activity: activity,
+                                    onReturn: _reload,
                                   ),
                                 ),
                               )
@@ -487,9 +512,10 @@ class _DriverActivityFilterRow extends StatelessWidget {
 // =============================================================================
 
 class _DriverActivityCard extends StatelessWidget {
-  const _DriverActivityCard({required this.activity});
+  const _DriverActivityCard({required this.activity, this.onReturn});
 
   final PackageActivity activity;
+  final Future<void> Function()? onReturn;
 
   bool get _isActive => activity.isActiveLifecycle;
 
@@ -525,6 +551,12 @@ class _DriverActivityCard extends StatelessWidget {
         ? null
         : DateTime.tryParse(booking!['travel_date'].toString());
 
+    final scheduledStart = booking?['scheduled_start_at'] == null
+        ? null
+        : DateTime.tryParse(
+            booking!['scheduled_start_at'].toString(),
+          )?.toLocal();
+
     final totalAmount = booking?['total_amount'] is num
         ? (booking!['total_amount'] as num).toDouble()
         : activity.price;
@@ -542,17 +574,16 @@ class _DriverActivityCard extends StatelessWidget {
       color: Colors.transparent,
 
       child: InkWell(
-        onTap: _isActive
-            ? () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => DriverPackageTrackingScreen(
-                      activityId: activity.id.toString(),
-                    ),
-                  ),
-                );
-              }
-            : null,
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => DriverPackageTrackingScreen(
+                activityId: activity.id.toString(),
+              ),
+            ),
+          );
+          await onReturn?.call();
+        },
 
         borderRadius: BorderRadius.circular(24),
 
@@ -680,8 +711,12 @@ class _DriverActivityCard extends StatelessWidget {
                         icon: Icons.calendar_month_outlined,
                         value: travelDate == null
                             ? 'Pending'
-                            : DateFormat('MMM d').format(travelDate),
-                        label: 'Date',
+                            : scheduledStart == null
+                            ? DateFormat('MMM d').format(travelDate)
+                            : DateFormat(
+                                'MMM d • h:mm a',
+                              ).format(scheduledStart),
+                        label: 'Pickup',
                       ),
                     ),
 
@@ -733,7 +768,11 @@ class _DriverActivityCard extends StatelessWidget {
                     _DriverActivityLine(
                       icon: Icons.calendar_today_outlined,
                       label: 'Tour date',
-                      value: travelDate == null
+                      value: scheduledStart != null
+                          ? DateFormat(
+                              'MMM d, yyyy • h:mm a',
+                            ).format(scheduledStart)
+                          : travelDate == null
                           ? 'Date pending'
                           : DateFormat('MMM d, yyyy').format(travelDate),
                     ),
@@ -800,6 +839,44 @@ class _DriverActivityCard extends StatelessWidget {
                             Icon(
                               Icons.chevron_right_rounded,
                               color: Color(0xFF2F7EFF),
+                              size: 17,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F9FC),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.history_rounded,
+                              color: Color(0xFF64748B),
+                              size: 16,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'View Trip Details',
+                              style: TextStyle(
+                                color: Color(0xFF475569),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                            SizedBox(width: 3),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: Color(0xFF64748B),
                               size: 17,
                             ),
                           ],

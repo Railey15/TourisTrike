@@ -36,16 +36,43 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
 
   Future<List<_DriverConversationItem>> _loadConversations() async {
     try {
-      final rows = await _supabase
-          .from('conversations')
-          .select(
-            'id, tourist_id, driver_id, booking_id, last_message, last_message_at',
-          )
-          .eq('driver_id', _myId)
-          .order('last_message_at', ascending: false)
-          .limit(50);
+      final results = await Future.wait([
+        _supabase
+            .from('conversations')
+            .select(
+              'id, tourist_id, driver_id, booking_id, conversation_type, last_message, last_message_at',
+            )
+            .eq('driver_id', _myId)
+            .order('last_message_at', ascending: false)
+            .limit(50),
+        _supabase
+            .from('conversation_members')
+            .select(
+              'conversation:conversations('
+              'id, tourist_id, driver_id, booking_id, conversation_type, '
+              'last_message, last_message_at)',
+            )
+            .eq('user_id', _myId),
+      ]);
 
-      final convList = List<Map<String, dynamic>>.from(rows as List);
+      final byId = <String, Map<String, dynamic>>{};
+      for (final row in results[0] as List<dynamic>) {
+        final map = Map<String, dynamic>.from(row as Map);
+        byId[map['id'].toString()] = map;
+      }
+      for (final membership in results[1] as List<dynamic>) {
+        final raw = (membership as Map)['conversation'];
+        if (raw is Map) {
+          final map = Map<String, dynamic>.from(raw);
+          byId[map['id'].toString()] = map;
+        }
+      }
+      final convList = byId.values.toList()
+        ..sort(
+          (a, b) => (b['last_message_at']?.toString() ?? '').compareTo(
+            a['last_message_at']?.toString() ?? '',
+          ),
+        );
       if (convList.isEmpty) return const [];
 
       final touristIds = convList
@@ -85,7 +112,11 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
               lastMessageAt: row['last_message_at'] != null
                   ? DateTime.tryParse(row['last_message_at'].toString())
                   : null,
-              touristName: displayName.isEmpty ? 'Tourist' : displayName,
+              touristName: row['conversation_type'] == 'booking_group'
+                  ? 'Booking Group'
+                  : displayName.isEmpty
+                  ? 'Tourist'
+                  : displayName,
               touristPhone: tourist?['mobile'] as String? ?? '',
               touristAvatar: avatar.isNotEmpty
                   ? avatar
@@ -140,91 +171,91 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 680),
             child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Row(
-                children: [
-                  const Text(
-                    'Messages',
-                    style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF2FF),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      color: Color(0xFF2F6FFF),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: FutureBuilder<List<_DriverConversationItem>>(
-                future: _convFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF2F6FFF),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'Messages',
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.5,
+                        ),
                       ),
-                    );
-                  }
-                  if (snapshot.hasError) {
-                    return _DriverMessagesErrorState(
-                      message: snapshot.error.toString(),
-                      onRetry: () => setState(() {
-                        _convFuture = _loadConversations();
-                      }),
-                    );
-                  }
-
-                  final conversations = snapshot.data ?? const [];
-                  if (conversations.isEmpty) {
-                    return const _DriverMessagesEmptyState();
-                  }
-
-                  return RefreshIndicator(
-                    color: const Color(0xFF2F6FFF),
-                    onRefresh: () async {
-                      if (!mounted) return;
-                      setState(() {
-                        _convFuture = _loadConversations();
-                      });
-                    },
-                    child: ListView.builder(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      itemCount: conversations.length,
-                      itemBuilder: (context, index) {
-                        final item = conversations[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _DriverConversationCard(
-                            conversation: item,
-                            onTap: () => _openChat(item),
+                      const Spacer(),
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF2FF),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: Color(0xFF2F6FFF),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: FutureBuilder<List<_DriverConversationItem>>(
+                    future: _convFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF2F6FFF),
                           ),
                         );
-                      },
-                    ),
-                  );
-                },
-              ),
+                      }
+                      if (snapshot.hasError) {
+                        return _DriverMessagesErrorState(
+                          message: snapshot.error.toString(),
+                          onRetry: () => setState(() {
+                            _convFuture = _loadConversations();
+                          }),
+                        );
+                      }
+
+                      final conversations = snapshot.data ?? const [];
+                      if (conversations.isEmpty) {
+                        return const _DriverMessagesEmptyState();
+                      }
+
+                      return RefreshIndicator(
+                        color: const Color(0xFF2F6FFF),
+                        onRefresh: () async {
+                          if (!mounted) return;
+                          setState(() {
+                            _convFuture = _loadConversations();
+                          });
+                        },
+                        child: ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          itemCount: conversations.length,
+                          itemBuilder: (context, index) {
+                            final item = conversations[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _DriverConversationCard(
+                                conversation: item,
+                                onTap: () => _openChat(item),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
           ),
         ),
       ),
@@ -567,7 +598,9 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
             Container(
               color: Colors.white,
               padding: EdgeInsets.fromLTRB(
-                14, 10, 14,
+                14,
+                10,
+                14,
                 10 + MediaQuery.of(context).padding.bottom,
               ),
               child: Row(

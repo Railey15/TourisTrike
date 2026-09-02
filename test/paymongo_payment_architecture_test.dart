@@ -8,9 +8,11 @@ String read(String path) => File(
 
 List<int> splitCentavos(int total, int recipients) {
   final base = total ~/ recipients;
-  final result = List<int>.filled(recipients, base);
-  result[0] += total % recipients;
-  return result;
+  final remainder = total % recipients;
+  return List<int>.generate(
+    recipients,
+    (index) => base + (index < remainder ? 1 : 0),
+  );
 }
 
 void main() {
@@ -19,6 +21,8 @@ void main() {
   late String workflow;
   late String payout;
   late String connection;
+  late String authContextFix;
+  late String splitRemainderFix;
   late String createFunction;
   late String webhookFunction;
   late String webhookAliasFunction;
@@ -26,8 +30,11 @@ void main() {
   late String returnFunction;
   late String supabaseConfig;
   late String repository;
+  late String models;
   late String touristTracking;
   late String driverTracking;
+  late String driverEarnings;
+  late String loadingScreen;
 
   setUpAll(() {
     schema = read(
@@ -45,6 +52,12 @@ void main() {
     connection = read(
       'supabase/migrations/20260827060000_connect_paymongo_and_group_cash.sql',
     );
+    authContextFix = read(
+      'supabase/migrations/20260829010000_fix_paymongo_tourist_auth_context.sql',
+    );
+    splitRemainderFix = read(
+      'supabase/migrations/20260829020000_distribute_split_remainder_centavos.sql',
+    );
     createFunction = read(
       'supabase/functions/paymongo-create-payment/index.ts',
     );
@@ -60,12 +73,15 @@ void main() {
     );
     supabaseConfig = read('supabase/config.toml');
     repository = read('lib/core/supabase/touristrike_repository.dart');
+    models = read('lib/core/supabase/touristrike_models.dart');
     touristTracking = read(
       'lib/screens/tourist/tourist_activity_tracking_screen.dart',
     );
     driverTracking = read(
       'lib/screens/driver/driver_package_tracking_screen.dart',
     );
+    driverEarnings = read('lib/screens/driver/driver_earnings_screen.dart');
+    loadingScreen = read('lib/screens/auth/loading_screen.dart');
   });
 
   test('client amount is never accepted as authoritative', () {
@@ -76,25 +92,43 @@ void main() {
     expect(workflow, contains('v_amount := v_booking.total_amount'));
   });
 
-  test('Checkout uses v2 normally and v1 for documented split shape', () {
-    expect(createFunction, contains('?? "v2"'));
-    expect(createFunction, contains('splitEnabled ? "v1"'));
-    expect(createFunction, contains(r'/${checkoutVersion}/checkout_sessions'));
-    expect(createFunction, contains('checkoutVersion !== "v2"'));
+  test('Checkout uses the documented PayMongo v1 hosted endpoint', () {
+    expect(
+      createFunction,
+      contains('https://api.paymongo.com/v1/checkout_sessions'),
+    );
     expect(createFunction, contains('isHttpsUrl(successUrl)'));
     expect(returnFunction, contains('touristrike://wallet/payment/'));
     expect(returnFunction, isNot(contains('.rpc(')));
   });
 
   test('unauthorized booking payment is rejected', () {
-    expect(workflow, contains("raise exception 'NOT_BOOKING_TOURIST'"));
-    expect(workflow, contains('v_booking.tourist_id <> p_tourist_id'));
+    expect(authContextFix, contains("raise exception 'NOT_BOOKING_TOURIST'"));
+    expect(
+      authContextFix,
+      contains('v_authenticated_tourist_id uuid := auth.uid()'),
+    );
+    expect(authContextFix, contains('new.payer_id <> auth.uid()'));
+    expect(authContextFix, contains('new.payer_id <> v_booking.tourist_id'));
+  });
+
+  test('tourist payment insert preserves JWT auth context', () {
+    final preparation = createFunction
+        .split('const { data: prepared, error: prepareError }')[1]
+        .split('const payment = prepared.payment')[0];
+    expect(createFunction, contains('userClient.auth.getUser()'));
+    expect(createFunction, contains('.select("tourist_id")'));
+    expect(preparation, contains('userClient.rpc('));
+    expect(preparation, isNot(contains('serviceClient.rpc(')));
+    expect(authContextFix, contains('to authenticated;'));
+    expect(authContextFix, contains('PAYMONGO_PAYEE_MUST_BE_NULL'));
   });
 
   test('duplicate create request reuses one payment and provider request', () {
     expect(schema, contains('payment_records_provider_idempotency_uidx'));
     expect(workflow, contains("'reused', true"));
     expect(createFunction, contains(r'touristrike-checkout-${payment.id}'));
+    expect(createFunction, contains('PAYMENT_ALREADY_CONFIRMED'));
   });
 
   test('valid paid webhook is the only provider confirmation path', () {
@@ -114,6 +148,14 @@ void main() {
     expect(workflow, contains("'duplicate', true"));
   });
 
+  test('webhook logging exposes mapping and state without secrets', () {
+    expect(webhookHandler, contains('webhook rejected: invalid signature'));
+    expect(webhookHandler, contains(r'checkout=${providerCheckoutId'));
+    expect(webhookHandler, contains('old_status='));
+    expect(webhookHandler, contains('new_status='));
+    expect(webhookHandler, isNot(contains('PAYMONGO_WEBHOOK_SECRET}')));
+  });
+
   test('failed and unknown provider events do not confirm payment', () {
     expect(workflow, contains("status = 'cancelled'"));
     expect(workflow, contains('UNKNOWN_PAYMENT_REFERENCE'));
@@ -125,6 +167,12 @@ void main() {
     expect(workflow, contains('compute_equal_split_centavos'));
     expect(workflow, contains('recipient_position integer'));
     expect(workflow, isNot(contains('returns table (position integer')));
+  });
+
+  test('one and three tricycle splits preserve the exact stage amount', () {
+    expect(splitCentavos(360000, 1), [360000]);
+    expect(splitCentavos(360000, 3), [120000, 120000, 120000]);
+    expect(splitCentavos(100000, 3), [33334, 33333, 33333]);
   });
 
   test('exact PHP 7,200 advanced two-driver scenario is preserved', () {
@@ -160,7 +208,43 @@ void main() {
     expect(checkoutMethod, isNot(contains("'amount'")));
     expect(touristTracking, contains('createPayMongoCheckout'));
     expect(touristTracking, contains('LaunchMode.externalApplication'));
+    expect(createFunction, contains('success: true'));
+    expect(createFunction, contains('checkout_url: checkoutUrl'));
+    expect(models, contains("checkoutUrl: dbString(json['checkout_url'])"));
     expect(touristTracking, isNot(contains('showGcashPaymentSheet')));
+  });
+
+  test('payment return redirects and cold-starts the booking screen', () {
+    expect(returnFunction, contains('status: 302'));
+    expect(returnFunction, contains('"Location": appUrlString'));
+    expect(returnFunction, isNot(contains('text/html')));
+    expect(returnFunction, contains('booking_id'));
+    expect(returnFunction, contains('payment_record_id'));
+    expect(returnFunction, contains('touristrike://wallet/payment/'));
+    expect(createFunction, contains('returnUrlWithPaymentContext'));
+    expect(loadingScreen, contains('AppLinks'));
+    expect(
+      loadingScreen,
+      contains('ActivityTrackingScreen(bookingId: bookingId)'),
+    );
+    expect(loadingScreen, contains('refreshing server state'));
+    expect(
+      touristTracking,
+      contains('app resumed; refreshing server payment status'),
+    );
+  });
+
+  test('driver earnings are derived from confirmed payment allocations', () {
+    expect(repository, contains('fetchConfirmedDriverPaymentAllocations'));
+    expect(repository, contains(".from('payment_allocations')"));
+    expect(repository, contains("payment_records!inner("));
+    expect(repository, contains(".eq('payment_records.status', 'confirmed')"));
+    expect(driverEarnings, contains('fetchConfirmedDriverPaymentAllocations'));
+    expect(driverEarnings, contains('allocation.driverAmount'));
+    expect(driverEarnings, contains('_AllocationEarningTile'));
+    expect(driverEarnings, contains("table: 'payment_allocations'"));
+    expect(repository, contains(".eq('driver_id', requireUserId())"));
+    expect(schema, contains('driver_id = auth.uid()'));
   });
 
   test('webhook state reaches Tour Tracking through Realtime', () {
@@ -192,8 +276,20 @@ void main() {
       expect(allocation, [33334, 33333, 33333]);
       expect(allocation.reduce((left, right) => left + right), 100000);
       expect(workflow, contains('v_amount_remainder'));
+      expect(splitRemainderFix, contains('series <= v_amount_remainder'));
     },
   );
+
+  test('two and four drivers receive exact even stage shares', () {
+    expect(splitCentavos(360000, 2), [180000, 180000]);
+    expect(splitCentavos(360000, 4), [90000, 90000, 90000, 90000]);
+  });
+
+  test('multi-cent remainder is spread one centavo per ordered driver', () {
+    final allocation = splitCentavos(100001, 3);
+    expect(allocation, [33334, 33334, 33333]);
+    expect(allocation.reduce((left, right) => left + right), 100001);
+  });
 
   test('only accepted assigned drivers are allocated', () {
     expect(
@@ -249,5 +345,6 @@ void main() {
     expect(schema, contains('payment_allocation_summaries'));
     expect(schema, contains('No authenticated INSERT/UPDATE/DELETE policies'));
     expect(workflow, contains('to service_role'));
+    expect(authContextFix, contains('to authenticated'));
   });
 }
