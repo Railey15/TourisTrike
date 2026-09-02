@@ -329,9 +329,9 @@ class _DriverPackageTrackingScreenState
           DateTime.now().isBefore(scheduled)) {
         return 'Upcoming booking • Navigation unlocks ${DateFormat('MMM d, yyyy • h:mm a').format(scheduled.toLocal())}.';
       }
-      if (booking.bookingType == 'advanced' &&
+      if (!_bypassTransactionValidation &&
           !_hasConfirmedPayment('down_payment', booking.downpaymentAmount)) {
-        return 'Waiting for confirmed down payment of ₱${booking.downpaymentAmount.toStringAsFixed(2)}.';
+        return 'Down payment has not been confirmed yet. Required: ₱${booking.downpaymentAmount.toStringAsFixed(2)}.';
       }
     }
 

@@ -80,7 +80,14 @@ void main() {
   test('test mode relaxes operations but preserves lifecycle invariants', () {
     expect(
       migration,
-      contains('if not v_is_test_booking\n       and now() < lower'),
+      contains('if not v_debug_bypass\n       and now() < lower'),
+    );
+    expect(
+      migration,
+      contains(
+        'if not v_debug_bypass\n'
+        '       and not public.is_booking_downpayment_confirmed(p_booking_id)',
+      ),
     );
     expect(migration, contains("raise exception 'DOWNPAYMENT_NOT_CONFIRMED'"));
     expect(migration, contains("raise exception 'STOP_DWELL_TIME_NOT_MET'"));

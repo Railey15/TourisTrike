@@ -95,7 +95,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   int _children = 0;
   int _selectedTricycles = 1;
 
-  _PaymentMethod _payment = _PaymentMethod.cashPickup;
+  _PaymentMethod _payment = _PaymentMethod.gcash;
 
   bool _saving = false;
 
@@ -322,26 +322,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   double _downpaymentAmount(TourPackage package) {
-    if (_isSameDay) {
-      return 0;
-    }
-
     return (_totalPrice(package) * 50).roundToDouble() / 100;
   }
 
   double _remainingBalance(TourPackage package) {
-    if (_isSameDay) {
-      return 0;
-    }
-
     return _totalPrice(package) - _downpaymentAmount(package);
   }
 
   double _amountToPayNow(TourPackage package) {
-    if (_isSameDay) {
-      return _totalPrice(package);
-    }
-
     return _downpaymentAmount(package);
   }
 
@@ -951,15 +939,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     setState(() {
       _selectedDate = picked;
-
-      final pickedIsToday =
-          picked.year == now.year &&
-          picked.month == now.month &&
-          picked.day == now.day;
-
-      if (!pickedIsToday && _payment == _PaymentMethod.cashPickup) {
-        _payment = _PaymentMethod.gcash;
-      }
+      _payment = _PaymentMethod.gcash;
     });
     unawaited(_recalculateSelectedItinerary());
   }
@@ -1021,10 +1001,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         return _itineraryValidationMessage();
 
       case 4:
-        if (!_isSameDay && _payment == _PaymentMethod.cashPickup) {
-          return 'Advanced bookings require GCash for the 50% down payment.';
-        }
-
         return null;
 
       default:
@@ -1230,7 +1206,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
       final remaining = _remainingBalance(package);
 
-      final method = _payment == _PaymentMethod.gcash ? 'gcash' : 'cash';
+      const method = 'gcash';
 
       final booking = await _repo.createPackageBooking(
         packageId: package.id,
@@ -1776,7 +1752,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             total: total,
                             amountNow: amountNow,
                             remaining: remaining,
-                            isSameDay: _isSameDay,
                           ),
 
                           const SizedBox(height: 20),
@@ -1800,36 +1775,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 10),
 
                           _PaymentCard(
-                            selected: _payment == _PaymentMethod.cashPickup,
-                            enabled: _selectedDate != null && _isSameDay,
-                            icon: Icons.payments_outlined,
-                            title: 'Cash on Pick-up',
-                            subtitle: _selectedDate == null
-                                ? 'Choose your travel date first.'
-                                : _isSameDay
-                                ? 'Pay the full amount directly to your driver at pickup.'
-                                : 'Available only for same-day bookings.',
-                            onTap: () {
-                              if (_selectedDate != null && _isSameDay) {
-                                setState(() {
-                                  _payment = _PaymentMethod.cashPickup;
-                                });
-                              }
-                            },
-                          ),
-
-                          const SizedBox(height: 10),
-
-                          _PaymentCard(
                             selected: _payment == _PaymentMethod.gcash,
                             enabled: _selectedDate != null,
                             icon: Icons.qr_code_2_rounded,
                             title: 'GCash',
                             subtitle: _selectedDate == null
                                 ? 'Choose your travel date first.'
-                                : _isSameDay
-                                ? 'Pay the full amount directly to your assigned driver using GCash.'
-                                : 'Pay the 50% down payment after a driver accepts, then pay the remaining balance after the tour.',
+                                : 'Pay the 50% down payment after the driver roster is filled, then pay the remaining balance after the tour.',
                             onTap: () {
                               if (_selectedDate != null) {
                                 setState(() {
@@ -1841,7 +1793,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 14),
 
-                          _DirectPaymentNotice(isSameDay: _isSameDay),
+                          const _DirectPaymentNotice(),
 
                           const SizedBox(height: 22),
 
@@ -1993,12 +1945,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             title: 'Payment',
                             onEdit: () => _goToStep(4),
                             children: [
-                              _ReviewRow(
-                                label: 'Method',
-                                value: _payment == _PaymentMethod.gcash
-                                    ? 'GCash'
-                                    : 'Cash on Pick-up',
-                              ),
+                              _ReviewRow(label: 'Method', value: 'GCash'),
                               _ReviewRow(
                                 label: 'Unit Price',
                                 value: _money(_unitPrice(package)),
@@ -2009,11 +1956,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 value: _money(amountNow),
                                 emphasized: true,
                               ),
-                              if (!_isSameDay)
-                                _ReviewRow(
-                                  label: 'Remaining',
-                                  value: _money(remaining),
-                                ),
+                              _ReviewRow(
+                                label: 'Remaining',
+                                value: _money(remaining),
+                              ),
                             ],
                           ),
 
@@ -2040,7 +1986,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           const SizedBox(height: 14),
 
-                          _FinalAgreementNotice(isSameDay: _isSameDay),
+                          const _FinalAgreementNotice(),
                         ],
                       ),
                     ],
@@ -2075,7 +2021,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 // ENUMS / DATA
 // =============================================================================
 
-enum _PaymentMethod { cashPickup, gcash }
+enum _PaymentMethod { gcash }
 
 enum _ItineraryViewMode { suggested, customize }
 
@@ -4291,13 +4237,11 @@ class _PaymentAmountHero extends StatelessWidget {
     required this.total,
     required this.amountNow,
     required this.remaining,
-    required this.isSameDay,
   });
 
   final double total;
   final double amountNow;
   final double remaining;
-  final bool isSameDay;
 
   @override
   Widget build(BuildContext context) {
@@ -4316,7 +4260,7 @@ class _PaymentAmountHero extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isSameDay ? 'FULL PAYMENT' : '50% DOWN PAYMENT',
+            '50% DOWN PAYMENT',
             style: const TextStyle(
               color: Colors.white70,
               fontWeight: FontWeight.w900,
@@ -4358,7 +4302,7 @@ class _PaymentAmountHero extends StatelessWidget {
                 Expanded(
                   child: _PaymentMetric(
                     label: 'Remaining',
-                    value: isSameDay ? 'PHP 0' : money.format(remaining),
+                    value: money.format(remaining),
                   ),
                 ),
               ],
@@ -4612,9 +4556,7 @@ class _PaymentCard extends StatelessWidget {
 }
 
 class _DirectPaymentNotice extends StatelessWidget {
-  const _DirectPaymentNotice({required this.isSameDay});
-
-  final bool isSameDay;
+  const _DirectPaymentNotice();
 
   @override
   Widget build(BuildContext context) {
@@ -4633,9 +4575,7 @@ class _DirectPaymentNotice extends StatelessWidget {
 
           Expanded(
             child: Text(
-              isSameDay
-                  ? 'Same-day bookings are paid in full directly to the assigned driver. TourisTrike only records the transaction.'
-                  : 'Advanced bookings require a 50% down payment after a driver accepts. The remaining balance is paid after the tour. TourisTrike does not hold the money.',
+              'Every package booking requires a confirmed 50% GCash down payment before the driver can start. The remaining balance is paid after the tour.',
               style: const TextStyle(
                 color: Color(0xFF57708F),
                 fontWeight: FontWeight.w600,
@@ -5023,9 +4963,7 @@ class _ReviewAddressRow extends StatelessWidget {
 }
 
 class _FinalAgreementNotice extends StatelessWidget {
-  const _FinalAgreementNotice({required this.isSameDay});
-
-  final bool isSameDay;
+  const _FinalAgreementNotice();
 
   @override
   Widget build(BuildContext context) {
@@ -5044,9 +4982,7 @@ class _FinalAgreementNotice extends StatelessWidget {
 
           Expanded(
             child: Text(
-              isSameDay
-                  ? 'By confirming, you are requesting this same-day tour and agree to pay the assigned driver directly.'
-                  : 'By confirming, you are requesting this advanced tour. The 50% down payment becomes due after a driver accepts your booking.',
+              'By confirming, you are requesting this tour. The 50% GCash down payment becomes due after the driver roster is filled.',
               style: const TextStyle(
                 color: Color(0xFF57708F),
                 fontWeight: FontWeight.w600,

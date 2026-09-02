@@ -1715,11 +1715,9 @@ class _JobCard extends StatelessWidget {
                       _ItineraryPreview(items: itineraryItems),
                     ],
 
-                    if (isAdvanced) ...[
-                      const SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                      const _PaymentNotice(),
-                    ],
+                    const _PaymentNotice(),
 
                     if (isGroup) ...[
                       const SizedBox(height: 12),
@@ -1986,7 +1984,7 @@ class _PaymentNotice extends StatelessWidget {
 
           Expanded(
             child: Text(
-              '50% down payment received • remaining balance due on tour day',
+              'A confirmed 50% down payment is required before navigation can start.',
               style: TextStyle(
                 color: Color(0xFF57708F),
                 fontWeight: FontWeight.w600,

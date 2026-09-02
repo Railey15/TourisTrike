@@ -1871,9 +1871,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // PAYMENTS
                 // ===========================================================
-                if (fullyAssigned &&
-                    bookingType == 'advanced' &&
-                    (booking?.downpaymentAmount ?? 0) > 0) ...[
+                if (fullyAssigned && (booking?.downpaymentAmount ?? 0) > 0) ...[
                   _PaymentStageCard(
                     title: 'Down Payment',
                     amount: booking!.downpaymentAmount,
@@ -1887,7 +1885,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 ],
 
                 if (fullyAssigned &&
-                    bookingType == 'advanced' &&
                     downPaymentConfirmed &&
                     (itineraryComplete || remainingPaymentRecord != null) &&
                     (booking?.remainingBalance ?? 0) > 0) ...[

@@ -41,18 +41,17 @@ begin
     new.booking_status := 'waiting_for_drivers';
     new.accepted_drivers_count := 0;
 
-    if lower(coalesce(nullif(trim(new.booking_type), ''), 'advanced')) = 'advanced' then
-      if lower(coalesce(nullif(trim(new.payment_method), ''), '')) <> 'gcash' then
-        raise exception 'ADVANCED_BOOKING_REQUIRES_GCASH';
-      end if;
-      if new.total_amount is null or new.downpayment_amount is null
-         or new.remaining_balance is null then
-        raise exception 'MISSING_ADVANCED_PAYMENT_AMOUNTS';
-      end if;
-      if new.downpayment_amount <> round(new.total_amount * 0.50, 2)
-         or new.remaining_balance <> new.total_amount - new.downpayment_amount then
-        raise exception 'INVALID_ADVANCED_PAYMENT_SPLIT';
-      end if;
+    -- Same-day and advance bookings share one staged PayMongo payment rule.
+    if lower(coalesce(nullif(trim(new.payment_method), ''), '')) <> 'gcash' then
+      raise exception 'PACKAGE_BOOKING_REQUIRES_GCASH';
+    end if;
+    if new.total_amount is null or new.downpayment_amount is null
+       or new.remaining_balance is null then
+      raise exception 'MISSING_PACKAGE_PAYMENT_AMOUNTS';
+    end if;
+    if new.downpayment_amount <> round(new.total_amount * 0.50, 2)
+       or new.remaining_balance <> new.total_amount - new.downpayment_amount then
+      raise exception 'INVALID_PACKAGE_PAYMENT_SPLIT';
     end if;
     return new;
   end if;
@@ -80,6 +79,25 @@ begin
   return new;
 end;
 $$;
+
+-- Repair unpaid, pre-tour same-day rows created by the legacy full-payment
+-- branch. Never rewrite a booking whose payment stage has already started.
+select set_config('touristrike.validated_transition', 'true', true);
+update public.package_bookings pb
+set payment_method = 'gcash',
+    downpayment_amount = round(pb.total_amount * 0.50, 2),
+    remaining_balance = pb.total_amount - round(pb.total_amount * 0.50, 2),
+    updated_at = now()
+where lower(coalesce(pb.booking_type, '')) = 'same_day'
+  and coalesce(pb.total_amount, 0) > 0
+  and coalesce(pb.downpayment_amount, 0) = 0
+  and lower(coalesce(pb.booking_status, pb.status, '')) in (
+    'pending', 'waiting_for_drivers', 'accepted', 'confirmed'
+  )
+  and not exists (
+    select 1 from public.payment_records pr
+    where pr.booking_id = pb.id and pr.status <> 'cancelled'
+  );
 
 create or replace function public.finalize_package_booking_if_eligible(
   p_booking_id uuid
@@ -144,8 +162,7 @@ begin
     and v_completed_slots = v_active_slots;
 
   v_payment_satisfied :=
-    lower(coalesce(v_booking.booking_type, 'same_day')) <> 'advanced'
-    or coalesce(v_booking.remaining_balance, 0) <= 0
+    coalesce(v_booking.remaining_balance, 0) <= 0
     or exists (
       select 1
       from public.booking_payment_requirements bpr
@@ -422,6 +439,48 @@ $$;
 revoke all on function public.is_booking_driver_roster_full(uuid)
   from public, anon, authenticated;
 
+-- Booking type describes scheduling only. The confirmed payment record is the
+-- single source of truth for whether any package booking may start.
+create or replace function public.is_booking_downpayment_confirmed(
+  p_booking_id uuid
+)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare v_required_amount numeric(14,2);
+begin
+  select round(
+    case
+      when coalesce(pb.downpayment_amount, 0) > 0
+        then pb.downpayment_amount
+      else coalesce(pb.total_amount, 0) * 0.50
+    end,
+    2
+  )
+  into v_required_amount
+  from public.package_bookings pb
+  where pb.id = p_booking_id;
+  if not found then raise exception 'BOOKING_NOT_FOUND'; end if;
+
+  if v_required_amount <= 0 then return true; end if;
+
+  return exists (
+    select 1
+    from public.payment_records pr
+    where pr.booking_id = p_booking_id
+      and pr.payment_stage in ('down_payment', 'full')
+      and pr.status = 'confirmed'
+      and pr.amount >= v_required_amount
+  );
+end;
+$$;
+
+revoke all on function public.is_booking_downpayment_confirmed(uuid)
+  from public, anon, authenticated;
+
 -- Replace the earlier accepted-only implementation. Requirements may need to
 -- be recreated or reconciled after assignments have already completed.
 create or replace function public.ensure_booking_payment_requirements(
@@ -445,10 +504,6 @@ begin
   if not public.is_booking_driver_roster_full(p_booking_id) then
     return 0;
   end if;
-  if lower(coalesce(v_booking.booking_type, 'same_day')) <> 'advanced' then
-    return 0;
-  end if;
-
   if coalesce(v_booking.downpayment_amount, 0) > 0 then
     insert into public.booking_payment_requirements(
       booking_id, payment_stage, amount
@@ -504,8 +559,7 @@ begin
   where id = p_booking_id;
   if not found then raise exception 'BOOKING_NOT_FOUND'; end if;
 
-  if lower(coalesce(v_booking.booking_type, 'same_day')) <> 'advanced'
-     or coalesce(v_booking.remaining_balance, 0) <= 0 then
+  if coalesce(v_booking.remaining_balance, 0) <= 0 then
     return true;
   end if;
 
@@ -555,6 +609,96 @@ $$;
 
 revoke all on function public.is_booking_itinerary_complete(uuid)
   from public, anon, authenticated;
+
+-- Validate payment stages by the booking's staged amounts, never its schedule
+-- type. PayMongo remains the only route for a downpayment confirmation.
+create or replace function public.validate_booking_payment_submission()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_booking public.package_bookings;
+  v_required_amount numeric;
+  v_trusted_group_cash boolean :=
+    coalesce(current_setting('touristrike.trusted_group_cash', true), '') = 'true';
+begin
+  if new.booking_id is null then return new; end if;
+
+  select * into v_booking from public.package_bookings
+  where id = new.booking_id for key share;
+  if not found then raise exception 'BOOKING_NOT_FOUND'; end if;
+
+  if new.provider = 'paymongo' then
+    if auth.uid() is null or new.payer_id <> auth.uid()
+       or new.payer_id <> v_booking.tourist_id then
+      raise exception 'NOT_BOOKING_TOURIST';
+    end if;
+    if new.payee_id is not null then
+      raise exception 'PAYMONGO_PAYEE_MUST_BE_NULL';
+    end if;
+    if new.payment_method <> 'gcash' then
+      raise exception 'PAYMONGO_GCASH_REQUIRED';
+    end if;
+  elsif new.payee_id is null then
+    if not v_trusted_group_cash or new.payer_id <> v_booking.tourist_id
+       or new.payment_method <> 'cash'
+       or new.payment_stage <> 'remaining_balance'
+       or new.provider_status <> 'awaiting_cash_receipt' then
+      raise exception 'TRUSTED_GROUP_CASH_BACKEND_REQUIRED';
+    end if;
+  elsif auth.uid() is null or new.payer_id <> auth.uid()
+        or new.payer_id <> v_booking.tourist_id then
+    raise exception 'NOT_BOOKING_TOURIST';
+  elsif not exists (
+    select 1 from public.booking_drivers bd
+    where bd.booking_id = new.booking_id
+      and bd.driver_id = new.payee_id
+      and bd.status in ('accepted', 'completed')
+  ) then
+    raise exception 'PAYEE_NOT_ASSIGNED_DRIVER';
+  end if;
+
+  if lower(coalesce(v_booking.booking_status, v_booking.status, 'pending'))
+       in ('cancelled', 'completed', 'rejected', 'done') then
+    raise exception 'BOOKING_NOT_PAYABLE';
+  end if;
+
+  if new.payment_stage = 'down_payment' then
+    v_required_amount := v_booking.downpayment_amount;
+    if new.provider <> 'paymongo' or new.payment_method <> 'gcash' then
+      raise exception 'DOWN_PAYMENT_REQUIRES_PAYMONGO_GCASH';
+    end if;
+  elsif new.payment_stage = 'remaining_balance' then
+    v_required_amount := v_booking.remaining_balance;
+    if not (
+      (new.provider = 'paymongo' and new.payment_method = 'gcash')
+      or (new.provider = 'manual' and new.payment_method = 'cash')
+    ) then
+      raise exception 'INVALID_REMAINING_PAYMENT_ROUTE';
+    end if;
+  else
+    raise exception 'INVALID_PACKAGE_PAYMENT_STAGE';
+  end if;
+
+  if coalesce(v_required_amount, 0) <= 0
+     or new.amount <> round(v_required_amount, 2) then
+    raise exception 'INVALID_PAYMENT_AMOUNT';
+  end if;
+  if not exists (
+    select 1 from public.booking_payment_requirements bpr
+    where bpr.booking_id = new.booking_id
+      and bpr.payment_stage = new.payment_stage
+      and bpr.status <> 'waived'
+      and bpr.amount = new.amount
+  ) then
+    raise exception 'PAYMENT_STAGE_NOT_REQUIRED';
+  end if;
+
+  return new;
+end;
+$$;
 
 -- Override the trusted implementation behind the authenticated wrapper from
 -- 20260829010000, preserving auth.uid() in the tourist's JWT context.
@@ -622,30 +766,25 @@ begin
   end if;
 
   perform public.ensure_booking_payment_requirements(p_booking_id);
-  if lower(coalesce(v_booking.booking_type, 'same_day')) = 'advanced' then
-    if v_stage = 'down_payment' then
-      v_amount := v_booking.downpayment_amount;
-    elsif v_stage = 'remaining_balance' then
-      if not public.is_booking_itinerary_complete(p_booking_id) then
-        raise exception 'REMAINING_PAYMENT_NOT_DUE';
-      end if;
-      if not exists (
-        select 1 from public.booking_payment_requirements
-        where booking_id = p_booking_id and payment_stage = 'down_payment'
-          and status = 'satisfied'
-      ) then raise exception 'DOWNPAYMENT_NOT_CONFIRMED'; end if;
-      v_amount := v_booking.remaining_balance;
-    else
-      raise exception 'INVALID_ADVANCED_PAYMENT_STAGE';
+  if v_stage = 'down_payment' then
+    v_amount := v_booking.downpayment_amount;
+  elsif v_stage = 'remaining_balance' then
+    if not public.is_booking_itinerary_complete(p_booking_id) then
+      raise exception 'REMAINING_PAYMENT_NOT_DUE';
     end if;
-    if not exists (
-      select 1 from public.booking_payment_requirements
-      where booking_id = p_booking_id and payment_stage = v_stage
-        and status = 'required' and amount = v_amount
-    ) then raise exception 'PAYMENT_STAGE_NOT_DUE'; end if;
+    if not public.is_booking_downpayment_confirmed(p_booking_id) then
+      raise exception 'DOWNPAYMENT_NOT_CONFIRMED';
+    end if;
+    v_amount := v_booking.remaining_balance;
   else
-    if v_stage <> 'full' then raise exception 'INVALID_PAYMENT_STAGE'; end if;
-    v_amount := v_booking.total_amount;
+    raise exception 'INVALID_PACKAGE_PAYMENT_STAGE';
+  end if;
+  if not exists (
+    select 1 from public.booking_payment_requirements
+    where booking_id = p_booking_id and payment_stage = v_stage
+      and status = 'required' and amount = v_amount
+  ) then
+    raise exception 'PAYMENT_STAGE_NOT_DUE';
   end if;
   v_amount := round(v_amount, 2);
   if coalesce(v_amount, 0) <= 0 then raise exception 'INVALID_PAYMENT_AMOUNT'; end if;
@@ -765,9 +904,6 @@ begin
   if v_booking.tourist_id <> auth.uid() then
     raise exception 'NOT_BOOKING_TOURIST';
   end if;
-  if lower(coalesce(v_booking.booking_type, '')) <> 'advanced' then
-    raise exception 'CASH_REMAINING_BALANCE_ONLY';
-  end if;
   if lower(coalesce(v_booking.booking_status, v_booking.status, ''))
        in ('cancelled', 'completed', 'rejected', 'done') then
     raise exception 'BOOKING_NOT_PAYABLE';
@@ -783,11 +919,9 @@ begin
   if not public.is_booking_itinerary_complete(p_booking_id) then
     raise exception 'REMAINING_PAYMENT_NOT_DUE';
   end if;
-  if not exists (
-    select 1 from public.booking_payment_requirements
-    where booking_id = p_booking_id and payment_stage = 'down_payment'
-      and status = 'satisfied'
-  ) then raise exception 'DOWNPAYMENT_NOT_CONFIRMED'; end if;
+  if not public.is_booking_downpayment_confirmed(p_booking_id) then
+    raise exception 'DOWNPAYMENT_NOT_CONFIRMED';
+  end if;
   if not exists (
     select 1 from public.booking_payment_requirements
     where booking_id = p_booking_id and payment_stage = 'remaining_balance'
@@ -1137,6 +1271,7 @@ declare
   v_total_items integer;
   v_completed_items integer;
   v_is_test_booking boolean := false;
+  v_debug_bypass boolean := false;
   v_finalization jsonb;
   v_stage_progress jsonb;
 begin
@@ -1156,6 +1291,9 @@ begin
   end if;
 
   v_is_test_booking := public.is_developer_test_booking(p_booking_id);
+  v_debug_bypass := v_is_test_booking and coalesce(
+    current_setting('touristrike.debug_progression_bypass', true), ''
+  ) = 'true';
 
   select journey_state, current_stop_index into v_current, v_stop_index
   from public.booking_drivers
@@ -1226,19 +1364,12 @@ begin
     if v_accepted_count < greatest(coalesce(v_booking.required_drivers, 1), 1) then
       raise exception 'DRIVER_SLOTS_NOT_FILLED';
     end if;
-    if not v_is_test_booking
+    if not v_debug_bypass
        and now() < lower(public.package_booking_schedule_window(v_booking)) then
       raise exception 'BOOKING_START_TOO_EARLY';
     end if;
-    if lower(coalesce(v_booking.booking_type, 'same_day')) = 'advanced'
-       and coalesce(v_booking.downpayment_amount, 0) > 0
-       and not exists (
-         select 1 from public.payment_records pr
-         where pr.booking_id = p_booking_id
-           and pr.payment_stage = 'down_payment'
-           and pr.status = 'confirmed'
-           and pr.amount >= v_booking.downpayment_amount
-       ) then
+    if not v_debug_bypass
+       and not public.is_booking_downpayment_confirmed(p_booking_id) then
       raise exception 'DOWNPAYMENT_NOT_CONFIRMED';
     end if;
   end if;
@@ -1342,7 +1473,7 @@ begin
       case when p_target_state = 'completed' then 'assignment_completed'
            else v_legacy_status end,
       v_current, p_target_state, v_new_stop_index, now(),
-      case when v_is_test_booking
+      case when v_debug_bypass
         then 'Developer test booking journey transition; operational validations bypassed'
         else 'Server-validated journey transition' end
     );
@@ -1379,7 +1510,7 @@ begin
     end,
     'overall_completed', coalesce((v_finalization->>'overall_completed')::boolean, false),
     'awaiting_final_payment', coalesce((v_finalization->>'awaiting_final_payment')::boolean, false),
-    'debug_bypass', v_is_test_booking
+    'debug_bypass', v_debug_bypass
   );
 end;
 $$;
@@ -1398,6 +1529,7 @@ set search_path = public
 as $$
 begin
   perform public.debug_test_driver_assignment(p_booking_id);
+  perform set_config('touristrike.debug_progression_bypass', 'true', true);
   return public.advance_driver_journey_state(p_booking_id, p_target_state);
 end;
 $$;
@@ -1561,8 +1693,7 @@ begin
       and bd.status in ('accepted', 'completed')
   ) then raise exception 'NOT_TEST_BOOKING_PARTICIPANT'; end if;
 
-  if lower(coalesce(v_booking.booking_type, 'same_day')) <> 'advanced'
-     or coalesce(v_booking.remaining_balance, 0) <= 0 then
+  if coalesce(v_booking.remaining_balance, 0) <= 0 then
     return jsonb_build_object(
       'success', true, 'already_paid', true,
       'booking_id', p_booking_id, 'payment_required', false
