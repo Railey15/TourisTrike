@@ -125,6 +125,15 @@ serve(async (request) => {
     return jsonResponse({ error: "NOT_BOOKING_TOURIST" }, 403);
   }
 
+  const { data: touristProfile, error: profileError } = await userClient
+    .from("profiles")
+    .select("first_name,last_name,full_name,mobile")
+    .eq("id", userData.user.id)
+    .maybeSingle();
+  if (profileError) {
+    console.warn("[PayMongo] tourist profile lookup failed", profileError.code);
+  }
+
   const { data: prepared, error: prepareError } = await userClient.rpc(
     "prepare_paymongo_payment",
     {
@@ -207,6 +216,24 @@ serve(async (request) => {
       payment_stage: payment.payment_stage,
     },
   };
+
+  const customerName = String(
+    touristProfile?.full_name ??
+      [touristProfile?.first_name, touristProfile?.last_name]
+        .filter(Boolean)
+        .join(" "),
+  ).trim();
+  const customerEmail = String(userData.user.email ?? "").trim();
+  const customerPhone = String(
+    touristProfile?.mobile ?? userData.user.phone ?? "",
+  ).trim();
+  const billing: Record<string, string> = {};
+  if (customerName) billing.name = customerName;
+  if (customerEmail) billing.email = customerEmail;
+  if (customerPhone) billing.phone = customerPhone;
+  if (Object.keys(billing).length > 0) {
+    attributes.billing = billing;
+  }
 
   if (splitEnabled) {
     if (

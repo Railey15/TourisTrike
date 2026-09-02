@@ -95,7 +95,7 @@ void main() {
       migration,
       contains("raise exception 'REMAINING_BALANCE_NOT_CONFIRMED'"),
     );
-    expect(driverTracking, contains('Mark Remaining Balance Paid'));
+    expect(driverTracking, isNot(contains('Mark Remaining Balance Paid')));
     expect(repository, contains('debug_mark_remaining_balance_paid'));
   });
 

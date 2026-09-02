@@ -141,7 +141,7 @@ void main() {
     expect(migration, isNot(contains('update public.payment_allocations')));
     expect(tracking, contains('_bypassTransactionValidation'));
     expect(tracking, contains("_testActionLabel('Arrived at Pickup')"));
-    expect(tracking, contains('Mark Remaining Balance Paid — TEST'));
+    expect(tracking, isNot(contains('Mark Remaining Balance Paid')));
     expect(tracking, contains('Re-enable Testing Mode in Developer Tools'));
     expect(tools, contains('setDeveloperTestBookingMode'));
     expect(

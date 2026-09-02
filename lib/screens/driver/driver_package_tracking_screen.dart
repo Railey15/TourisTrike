@@ -13,6 +13,7 @@ import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/developer_settings.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
+import 'package:touristrike/core/services/live_marker_motion.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/payment_dispute_screen.dart'
@@ -76,6 +77,8 @@ class _DriverPackageTrackingScreenState
   String? _convoyError;
 
   RealtimeChannel? _bookingDriversChannel;
+  RealtimeChannel? _participantLocationChannel;
+  LatLng? _touristLivePosition;
 
   Timer? _convoyPollTimer;
   Timer? _convoyTicker;
@@ -240,6 +243,8 @@ class _DriverPackageTrackingScreenState
   BitmapDescriptor? _tricycleMarker;
 
   Position? _currentPosition;
+  DateTime? _lastDriverLocationUploadAt;
+  bool _driverLocationUploadInFlight = false;
 
   RealtimeChannel? _activityChannel;
   RealtimeChannel? _bookingChannel;
@@ -255,6 +260,9 @@ class _DriverPackageTrackingScreenState
 
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
+  final LiveMarkerMotion _markerMotion = LiveMarkerMotion();
+  final Map<String, LatLng> _liveMarkerPositions = <String, LatLng>{};
+  final Map<String, double> _liveMarkerHeadings = <String, double>{};
 
   bool get _configuredTestMode => kDebugMode && _serverTestModeEnabled;
 
@@ -373,6 +381,7 @@ class _DriverPackageTrackingScreenState
     _paymentChannel?.unsubscribe();
 
     _bookingDriversChannel?.unsubscribe();
+    _participantLocationChannel?.unsubscribe();
 
     _convoyPollTimer?.cancel();
     _convoyTicker?.cancel();
@@ -380,6 +389,7 @@ class _DriverPackageTrackingScreenState
     _gpsSub?.cancel();
     _scheduleGateTimer?.cancel();
     _routeRefreshTimer?.cancel();
+    _markerMotion.dispose();
     _mapCtrl?.dispose();
 
     super.dispose();
@@ -586,6 +596,14 @@ class _DriverPackageTrackingScreenState
 
       if (!mounted || loadGeneration != _convoyLoadGeneration) return;
 
+      for (final driver in roster) {
+        if (driver.latitude == null || driver.longitude == null) continue;
+        final point = LatLng(driver.latitude!, driver.longitude!);
+        _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
+        _liveMarkerPositions.putIfAbsent(driver.driverId, () => point);
+        _liveMarkerHeadings.putIfAbsent(driver.driverId, () => driver.heading);
+      }
+
       setState(() {
         _convoy = roster;
         _convoyProgress = progress;
@@ -658,16 +676,66 @@ class _DriverPackageTrackingScreenState
           schema: 'public',
           table: 'driver_live_locations',
           callback: (payload) {
-            final driverId = payload.newRecord['driver_id']?.toString() ?? '';
+            final row = payload.newRecord;
+            final driverId = row['driver_id']?.toString() ?? '';
             if (driverId.isEmpty ||
                 !_convoy.any((driver) => driver.driverId == driverId)) {
               return;
             }
-            unawaited(_loadConvoy());
+            final lat = (row['latitude'] as num?)?.toDouble();
+            final lng = (row['longitude'] as num?)?.toDouble();
+            if (lat == null ||
+                lng == null ||
+                !lat.isFinite ||
+                !lng.isFinite ||
+                lat < -90 ||
+                lat > 90 ||
+                lng < -180 ||
+                lng > 180) {
+              return;
+            }
+            _markerMotion.animateTo(
+              driverId,
+              LatLng(lat, lng),
+              (row['heading'] as num?)?.toDouble() ?? 0,
+              (position, heading) {
+                if (!mounted) return;
+                setState(() {
+                  _liveMarkerPositions[driverId] = position;
+                  _liveMarkerHeadings[driverId] = heading;
+                });
+                _buildMarkers();
+              },
+            );
             _scheduleRouteRefresh();
           },
         )
         .subscribe();
+
+    _participantLocationChannel?.unsubscribe();
+    _participantLocationChannel = _supabase
+        .channel('booking-participant-location:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_participant_live_locations',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (payload) {
+            final row = payload.newRecord;
+            if (row['participant_role'] != 'tourist') return;
+            final lat = (row['latitude'] as num?)?.toDouble();
+            final lng = (row['longitude'] as num?)?.toDouble();
+            if (!mounted || lat == null || lng == null) return;
+            setState(() => _touristLivePosition = LatLng(lat, lng));
+            _buildMarkers();
+          },
+        )
+        .subscribe();
+    unawaited(_loadTouristLiveLocation());
 
     _convoyPollTimer?.cancel();
 
@@ -676,6 +744,15 @@ class _DriverPackageTrackingScreenState
         _loadConvoy();
       }
     });
+  }
+
+  Future<void> _loadTouristLiveLocation() async {
+    final row = await _repo.fetchTouristLiveLocation(_bookingId);
+    final lat = (row?['latitude'] as num?)?.toDouble();
+    final lng = (row?['longitude'] as num?)?.toDouble();
+    if (!mounted || lat == null || lng == null) return;
+    setState(() => _touristLivePosition = LatLng(lat, lng));
+    _buildMarkers();
   }
 
   ConvoyDriverSnapshot? get _myConvoyStatus {
@@ -988,6 +1065,25 @@ class _DriverPackageTrackingScreenState
 
       _currentPosition = position;
 
+      final now = DateTime.now();
+      final mayUpload =
+          !_driverLocationUploadInFlight &&
+          (_lastDriverLocationUploadAt == null ||
+              now.difference(_lastDriverLocationUploadAt!) >=
+                  const Duration(seconds: 3));
+      if (!mayUpload) {
+        _buildMarkers();
+        if (_isFollowingDriver) {
+          _animateCameraFollowing(
+            LatLng(position.latitude, position.longitude),
+            position.speed,
+          );
+        }
+        return;
+      }
+      _driverLocationUploadInFlight = true;
+      _lastDriverLocationUploadAt = now;
+
       try {
         // Each driver always writes to their own live-location row.
         await _repo.upsertDriverLiveLocation(
@@ -1014,6 +1110,23 @@ class _DriverPackageTrackingScreenState
         }
 
         if (!mounted) return;
+
+        final myId = _repo.currentUserId;
+        if (myId != null) {
+          _markerMotion.animateTo(
+            myId,
+            LatLng(position.latitude, position.longitude),
+            position.heading,
+            (displayed, heading) {
+              if (!mounted) return;
+              setState(() {
+                _liveMarkerPositions[myId] = displayed;
+                _liveMarkerHeadings[myId] = heading;
+              });
+              _buildMarkers();
+            },
+          );
+        }
 
         if (isLegacyWriter) {
           setState(() {
@@ -1043,6 +1156,8 @@ class _DriverPackageTrackingScreenState
         if (mounted) {
           _buildMarkers();
         }
+      } finally {
+        _driverLocationUploadInFlight = false;
       }
     });
   }
@@ -1083,7 +1198,7 @@ class _DriverPackageTrackingScreenState
     final position = _currentPosition;
 
     if (position == null) {
-      return true;
+      return false;
     }
 
     final distanceMeters = _haversineMeters(
@@ -1308,9 +1423,26 @@ class _DriverPackageTrackingScreenState
 
     final markers = <Marker>{};
 
+    if (_touristLivePosition != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('tourist_live'),
+          position: _touristLivePosition!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
+          infoWindow: const InfoWindow(title: 'Tourist'),
+          zIndexInt: 2,
+        ),
+      );
+    }
+
     final pickup = _pickupLatLng();
     final dropoff = _dropoffLatLng();
-    final driverPosition = _driverLatLng();
+    final myId = _repo.currentUserId;
+    final driverPosition = myId == null
+        ? _driverLatLng()
+        : _liveMarkerPositions[myId] ?? _driverLatLng();
 
     // -------------------------------------------------------------------------
     // PICKUP
@@ -1399,7 +1531,7 @@ class _DriverPackageTrackingScreenState
           icon:
               _tricycleMarker ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          rotation: _currentPosition?.heading ?? 0,
+          rotation: _liveMarkerHeadings[myId] ?? _currentPosition?.heading ?? 0,
           anchor: const Offset(0.5, 0.5),
           flat: true,
           infoWindow: const InfoWindow(title: 'You (Driver)'),
@@ -1411,16 +1543,17 @@ class _DriverPackageTrackingScreenState
     // OTHER CONVOY DRIVERS
     // -------------------------------------------------------------------------
 
-    final myId = _repo.currentUserId;
+    final currentDriverId = _repo.currentUserId;
 
     for (final driver in _convoy) {
       // Your own marker is already shown above.
-      if (driver.driverId == myId) {
+      if (driver.driverId == currentDriverId) {
         continue;
       }
 
-      final lat = driver.latitude;
-      final lng = driver.longitude;
+      final displayed = _liveMarkerPositions[driver.driverId];
+      final lat = displayed?.latitude ?? driver.latitude;
+      final lng = displayed?.longitude ?? driver.longitude;
 
       if (lat == null || lng == null) {
         continue;
@@ -1433,7 +1566,7 @@ class _DriverPackageTrackingScreenState
           icon: BitmapDescriptor.defaultMarkerWithHue(
             BitmapDescriptor.hueViolet,
           ),
-          rotation: driver.heading,
+          rotation: _liveMarkerHeadings[driver.driverId] ?? driver.heading,
           anchor: const Offset(0.5, 0.5),
           flat: true,
           infoWindow: InfoWindow(
@@ -1496,11 +1629,14 @@ class _DriverPackageTrackingScreenState
 
     final origins = <String, LatLng>{
       for (final driver in _convoy)
-        if (driver.latitude != null && driver.longitude != null)
-          driver.driverId: LatLng(driver.latitude!, driver.longitude!),
+        if (_liveMarkerPositions[driver.driverId] != null ||
+            (driver.latitude != null && driver.longitude != null))
+          driver.driverId:
+              _liveMarkerPositions[driver.driverId] ??
+              LatLng(driver.latitude!, driver.longitude!),
     };
     final myId = _repo.currentUserId ?? 'self';
-    final myPosition = _driverLatLng();
+    final myPosition = _liveMarkerPositions[myId] ?? _driverLatLng();
     if (myPosition != null) origins[myId] = myPosition;
     if (origins.isEmpty) return;
 
@@ -2092,61 +2228,6 @@ class _DriverPackageTrackingScreenState
     _logStatus('completed');
     _showSnack('Tour completed successfully.');
   });
-
-  Future<void> _forceCompleteTestTrip() async {
-    if (!_bypassTransactionValidation || _actionBusy || !mounted) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Force complete this driver assignment?'),
-        content: const Text(
-          'Your assignment must already be at drop-off and every shared itinerary stop must already be complete. Other assignments and payment records will not be changed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Complete — TEST'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    await _doAction(() async {
-      final result = await _repo.forceCompleteDebugTestTrip(
-        bookingId: _bookingId,
-      );
-      await _refreshTrackingState(logTag: 'debug-force-complete');
-      final overall = result['overall_completed'] == true;
-      _showSnack(
-        overall
-            ? 'Test booking completed with its real payment state preserved.'
-            : result['awaiting_final_payment'] == true
-            ? 'Assignments finished. Use the explicit TEST payment action to settle the remaining balance.'
-            : 'This driver assignment is complete. Waiting for the other convoy drivers.',
-      );
-    });
-  }
-
-  Future<void> _markRemainingBalancePaidTest() async {
-    if (!_bypassTransactionValidation || _actionBusy) return;
-    await _doAction(() async {
-      final result = await _repo.markRemainingBalancePaidForDebugTest(
-        _bookingId,
-      );
-      await _refreshTrackingState(logTag: 'debug-payment-settled');
-      _showSnack(
-        result['overall_completed'] == true
-            ? 'TEST payment recorded. The booking is now completed.'
-            : 'TEST payment recorded in Supabase. Final completion will occur after the tour invariants are satisfied.',
-      );
-    });
-  }
 
   // =========================================================================
   // PAYMENTS
@@ -2887,7 +2968,11 @@ class _DriverPackageTrackingScreenState
                   onCall: _callTourist,
                 ),
                 const SizedBox(height: 14),
-                _ModernLocationsCard(booking: _booking, status: status),
+                _ModernLocationsCard(
+                  booking: _booking,
+                  activity: _activity,
+                  status: status,
+                ),
                 const SizedBox(height: 14),
                 _ModernBookingCard(
                   booking: _booking,
@@ -2907,19 +2992,6 @@ class _DriverPackageTrackingScreenState
                   _CashReceiptConfirmationCard(
                     shares: pendingCashShares,
                     onConfirm: _confirmCashShare,
-                  ),
-                ],
-                if (_configuredTestMode && !bookingCompleted) ...[
-                  const SizedBox(height: 14),
-                  _TestModeNotice(
-                    busy: _actionBusy,
-                    onForceThisDriver: _forceCompleteTestTrip,
-                    showPaymentAction:
-                        (awaitingRemainingPayment ||
-                            _allItineraryItemsCompleted) &&
-                        (_booking?.remainingBalance ?? 0) > 0 &&
-                        !_hasConfirmedRemainingBalance,
-                    onMarkRemainingBalancePaid: _markRemainingBalancePaidTest,
                   ),
                 ],
                 const SizedBox(height: 4),
@@ -4317,10 +4389,18 @@ class _ContactButton extends StatelessWidget {
 // ============================================================================
 
 class _ModernLocationsCard extends StatelessWidget {
-  const _ModernLocationsCard({required this.booking, required this.status});
+  const _ModernLocationsCard({
+    required this.booking,
+    required this.activity,
+    required this.status,
+  });
 
   final PackageBooking? booking;
+  final PackageActivity? activity;
   final String status;
+
+  String _time(DateTime value) =>
+      DateFormat('MMM d, h:mm a').format(value.toLocal());
 
   @override
   Widget build(BuildContext context) {
@@ -4363,7 +4443,14 @@ class _ModernLocationsCard extends StatelessWidget {
                   : Icons.trip_origin_rounded,
               label: 'PICKUP',
               address: pickup,
-              status: pickupComplete ? 'Completed' : 'Tourist pickup',
+              status: [
+                if (booking?.scheduledStartAt != null)
+                  'Scheduled ${_time(booking!.scheduledStartAt!)}',
+                if (booking?.arrivedAt != null || activity?.arrivedAt != null)
+                  'Arrived ${_time((booking?.arrivedAt ?? activity!.arrivedAt)!)}',
+                if (booking?.pickedUpAt != null || activity?.pickedUpAt != null)
+                  'Picked up ${_time((booking?.pickedUpAt ?? activity!.pickedUpAt)!)}',
+              ].join(' • '),
               complete: pickupComplete,
               hasLine: dropoff.isNotEmpty,
             ),
@@ -4375,7 +4462,11 @@ class _ModernLocationsCard extends StatelessWidget {
                   : Icons.location_on_rounded,
               label: 'DROP-OFF',
               address: dropoff,
-              status: dropoffComplete ? 'Completed' : 'Final destination',
+              status: activity?.droppedOffAt != null
+                  ? 'Dropped off ${_time(activity!.droppedOffAt!)}'
+                  : booking?.estimatedEndAt != null
+                  ? 'Estimated ${_time(booking!.estimatedEndAt!)}'
+                  : 'Final destination',
               complete: dropoffComplete,
               hasLine: false,
             ),
@@ -5064,72 +5155,6 @@ class _DriverTestModeActiveBanner extends StatelessWidget {
           fontWeight: FontWeight.w900,
           letterSpacing: 0.6,
         ),
-      ),
-    );
-  }
-}
-
-class _TestModeNotice extends StatelessWidget {
-  const _TestModeNotice({
-    required this.busy,
-    required this.onForceThisDriver,
-    required this.showPaymentAction,
-    required this.onMarkRemainingBalancePaid,
-  });
-
-  final bool busy;
-  final VoidCallback onForceThisDriver;
-  final bool showPaymentAction;
-  final VoidCallback onMarkRemainingBalancePaid;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(11),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFED7AA)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.science_outlined, color: Color(0xFFEA580C), size: 16),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Schedule, dwell, and GPS constraints are relaxed for this configured test booking. Assignment, itinerary order, convoy barriers, real Supabase writes, realtime updates, and payment truth remain enforced.',
-                  style: TextStyle(
-                    color: Color(0xFF9A4D12),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 9.5,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          OutlinedButton.icon(
-            onPressed: busy ? null : onForceThisDriver,
-            icon: const Icon(Icons.task_alt_rounded, size: 16),
-            label: const Text('Force Complete This Assignment — TEST'),
-          ),
-          if (showPaymentAction) ...[
-            const SizedBox(height: 6),
-            FilledButton.icon(
-              onPressed: busy ? null : onMarkRemainingBalancePaid,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF166534),
-              ),
-              icon: const Icon(Icons.payments_rounded, size: 16),
-              label: const Text('Mark Remaining Balance Paid — TEST'),
-            ),
-          ],
-        ],
       ),
     );
   }

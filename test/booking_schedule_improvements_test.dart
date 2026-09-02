@@ -87,7 +87,8 @@ void main() {
       'lib/screens/tourist/tourist_activity_tracking_screen.dart',
     );
     expect(tracking, contains("MarkerId('driver_\${driver.driverId}')"));
-    expect(tracking, contains('_convoyPositions[driverId] = LatLng(lat, lng)'));
+    expect(tracking, contains('_markerMotion.animateTo'));
+    expect(tracking, contains('_convoyPositions[driverId] = position'));
     expect(tracking, contains("table: 'driver_live_locations'"));
     expect(
       tracking,

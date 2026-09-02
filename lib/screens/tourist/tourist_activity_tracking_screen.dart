@@ -13,6 +13,7 @@ import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/emergency_service.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
+import 'package:touristrike/core/services/live_marker_motion.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
@@ -79,6 +80,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   String? _selectedDriverId;
   final Map<String, LatLng> _convoyPositions = <String, LatLng>{};
   final Map<String, double> _convoyHeadings = <String, double>{};
+  final LiveMarkerMotion _markerMotion = LiveMarkerMotion();
 
   List<BookingItineraryItem> _spots = [];
   List<EmergencyContactRecord> _emergencyContacts = [];
@@ -100,6 +102,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   BitmapDescriptor? _passengerMarker;
 
   Position? _touristPosition;
+  DateTime? _lastTouristLocationUploadAt;
+  LatLng? _lastTouristUploadedPosition;
+  bool _touristLocationUploadInFlight = false;
 
   StreamSubscription<Position>? _touristGpsSub;
   Timer? _routeRefreshTimer;
@@ -333,6 +338,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     _touristGpsSub?.cancel();
     _routeRefreshTimer?.cancel();
+    _markerMotion.dispose();
 
     _mapCtrl?.dispose();
 
@@ -519,10 +525,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
       for (final driver in convoy) {
         if (driver.latitude != null && driver.longitude != null) {
-          _convoyPositions[driver.driverId] = LatLng(
-            driver.latitude!,
-            driver.longitude!,
-          );
+          final point = LatLng(driver.latitude!, driver.longitude!);
+          _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
+          _convoyPositions.putIfAbsent(driver.driverId, () => point);
           _convoyHeadings[driver.driverId] = driver.heading;
         }
       }
@@ -592,17 +597,33 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             }
             final lat = (row['latitude'] as num?)?.toDouble();
             final lng = (row['longitude'] as num?)?.toDouble();
-            if (lat == null || lng == null) return;
-            setState(() {
-              _convoyPositions[driverId] = LatLng(lat, lng);
-              _convoyHeadings[driverId] =
-                  (row['heading'] as num?)?.toDouble() ?? 0;
-            });
-            _buildMarkers();
-            _scheduleRouteRefresh();
-            if (_isFollowingDriver && _selectedDriverId == driverId) {
-              _animateCameraToRelevant();
+            if (lat == null ||
+                lng == null ||
+                !lat.isFinite ||
+                !lng.isFinite ||
+                lat < -90 ||
+                lat > 90 ||
+                lng < -180 ||
+                lng > 180) {
+              return;
             }
+            _markerMotion.animateTo(
+              driverId,
+              LatLng(lat, lng),
+              (row['heading'] as num?)?.toDouble() ?? 0,
+              (position, heading) {
+                if (!mounted) return;
+                setState(() {
+                  _convoyPositions[driverId] = position;
+                  _convoyHeadings[driverId] = heading;
+                });
+                _buildMarkers();
+                if (_isFollowingDriver && _selectedDriverId == driverId) {
+                  _animateCameraToRelevant();
+                }
+              },
+            );
+            _scheduleRouteRefresh();
           },
         )
         .subscribe();
@@ -733,9 +754,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     final bookingId = _booking?.id?.toString() ?? widget.bookingId;
 
-    final driverId = _booking?.assignedDriverId ?? _activity?.driverId ?? '';
-
-    if (bookingId.isEmpty || driverId.isEmpty) {
+    if (bookingId.isEmpty || _convoy.isEmpty) {
       return;
     }
 
@@ -746,12 +765,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       fallback: dbString(_booking?.packageRow?['title']),
     );
 
-    final hasDriver = await _repo.hasReviewedDriver(bookingId);
-
-    final hasPackage =
+    var hasPackage =
         packageId == null || await _repo.hasReviewedPackage(bookingId);
+    final unreviewedDrivers = <ConvoyDriverSnapshot>[];
+    for (final driver in _convoy) {
+      if (!await _repo.hasReviewedDriver(
+        bookingId,
+        driverId: driver.driverId,
+      )) {
+        unreviewedDrivers.add(driver);
+      }
+    }
 
-    if (hasDriver && hasPackage) {
+    if (unreviewedDrivers.isEmpty && hasPackage) {
       _reviewShown = true;
       return;
     }
@@ -762,19 +788,28 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _reviewShown = true;
     });
 
-    final submitted = await DriverReviewModal.show(
-      context,
-      bookingId: bookingId,
-      driverId: driverId,
-      driverName: _driverInfo?.name ?? '',
-      driverAvatarUrl: _driverInfo?.profile?.avatarUrl.isNotEmpty == true
-          ? _driverInfo!.profile!.avatarUrl
-          : _driverInfo?.profile?.profileImageUrl ?? '',
-      packageId: packageId,
-      packageName: packageName.isNotEmpty ? packageName : null,
-      includeDriverReview: !hasDriver,
-      includePackageReview: !hasPackage,
-    );
+    var submitted = false;
+    final prompts = unreviewedDrivers.isEmpty
+        ? <ConvoyDriverSnapshot?>[null]
+        : unreviewedDrivers
+              .map<ConvoyDriverSnapshot?>((driver) => driver)
+              .toList();
+    for (final driver in prompts) {
+      if (!mounted) return;
+      submitted = await DriverReviewModal.show(
+        context,
+        bookingId: bookingId,
+        driverId: driver?.driverId ?? '',
+        driverName: driver?.driverName ?? '',
+        driverAvatarUrl: driver?.avatarUrl ?? '',
+        packageId: packageId,
+        packageName: packageName.isNotEmpty ? packageName : null,
+        includeDriverReview: driver != null,
+        includePackageReview: !hasPackage,
+      );
+      if (!submitted) return;
+      hasPackage = true;
+    }
 
     if (!mounted || !submitted) {
       return;
@@ -910,7 +945,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
               accuracy: LocationAccuracy.high,
               distanceFilter: 10,
             ),
-          ).listen((position) {
+          ).listen((position) async {
             if (!mounted) return;
 
             setState(() {
@@ -918,6 +953,42 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             });
 
             _buildMarkers();
+            final point = LatLng(position.latitude, position.longitude);
+            final now = DateTime.now();
+            final elapsed = _lastTouristLocationUploadAt == null
+                ? const Duration(days: 1)
+                : now.difference(_lastTouristLocationUploadAt!);
+            final moved = _lastTouristUploadedPosition == null
+                ? double.infinity
+                : Geolocator.distanceBetween(
+                    _lastTouristUploadedPosition!.latitude,
+                    _lastTouristUploadedPosition!.longitude,
+                    point.latitude,
+                    point.longitude,
+                  );
+            if (!_touristLocationUploadInFlight &&
+                (elapsed >= const Duration(seconds: 15) ||
+                    (elapsed >= const Duration(seconds: 5) && moved >= 3))) {
+              _touristLocationUploadInFlight = true;
+              try {
+                await _repo.upsertTouristLiveLocation(
+                  bookingId: widget.bookingId,
+                  latitude: position.latitude,
+                  longitude: position.longitude,
+                  heading: position.heading,
+                  speed: position.speed,
+                  accuracyMeters: position.accuracy,
+                );
+                _lastTouristLocationUploadAt = now;
+                _lastTouristUploadedPosition = point;
+              } catch (error) {
+                debugPrint(
+                  '[TouristTracking:gps] Location sync failed: $error',
+                );
+              } finally {
+                _touristLocationUploadInFlight = false;
+              }
+            }
           });
     } catch (_) {}
   }
@@ -1788,6 +1859,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     pickup: booking.pickupAddress,
                     dropoff: booking.dropoffAddress,
                     tourStatus: tourStatus,
+                    scheduledStartAt: booking.scheduledStartAt,
+                    estimatedEndAt: booking.estimatedEndAt,
+                    arrivedAt: booking.arrivedAt ?? _activity?.arrivedAt,
+                    pickedUpAt: booking.pickedUpAt ?? _activity?.pickedUpAt,
+                    droppedOffAt: _activity?.droppedOffAt,
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -3380,11 +3456,24 @@ class _LocationsCard extends StatelessWidget {
     required this.pickup,
     required this.dropoff,
     required this.tourStatus,
+    this.scheduledStartAt,
+    this.estimatedEndAt,
+    this.arrivedAt,
+    this.pickedUpAt,
+    this.droppedOffAt,
   });
 
   final String pickup;
   final String dropoff;
   final String tourStatus;
+  final DateTime? scheduledStartAt;
+  final DateTime? estimatedEndAt;
+  final DateTime? arrivedAt;
+  final DateTime? pickedUpAt;
+  final DateTime? droppedOffAt;
+
+  String _time(DateTime value) =>
+      DateFormat('MMM d, h:mm a').format(value.toLocal());
 
   @override
   Widget build(BuildContext context) {
@@ -3422,6 +3511,12 @@ class _LocationsCard extends StatelessWidget {
             address: pickup.isEmpty ? 'Pickup location unavailable' : pickup,
             complete: pickupDone,
             line: true,
+            status: [
+              if (scheduledStartAt != null)
+                'Scheduled ${_time(scheduledStartAt!)}',
+              if (arrivedAt != null) 'Arrived ${_time(arrivedAt!)}',
+              if (pickedUpAt != null) 'Picked up ${_time(pickedUpAt!)}',
+            ].join(' • '),
           ),
 
           _LocationTimelineRow(
@@ -3433,6 +3528,11 @@ class _LocationsCard extends StatelessWidget {
                 : dropoff,
             complete: dropoffDone,
             line: false,
+            status: droppedOffAt != null
+                ? 'Dropped off ${_time(droppedOffAt!)}'
+                : estimatedEndAt != null
+                ? 'Estimated ${_time(estimatedEndAt!)}'
+                : '',
           ),
         ],
       ),
@@ -3448,6 +3548,7 @@ class _LocationTimelineRow extends StatelessWidget {
     required this.address,
     required this.complete,
     required this.line,
+    this.status = '',
   });
 
   final Color color;
@@ -3459,6 +3560,7 @@ class _LocationTimelineRow extends StatelessWidget {
 
   final bool complete;
   final bool line;
+  final String status;
 
   @override
   Widget build(BuildContext context) {
@@ -3518,7 +3620,9 @@ class _LocationTimelineRow extends StatelessWidget {
                 const SizedBox(height: 3),
 
                 Text(
-                  complete
+                  status.isNotEmpty
+                      ? status
+                      : complete
                       ? 'Completed'
                       : label == 'PICKUP'
                       ? 'Tour starting point'

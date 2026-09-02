@@ -92,17 +92,20 @@ void main() {
     expect(driverTracking, contains('OPERATIONAL CONSTRAINTS BYPASSED'));
   });
 
-  test('test payment is explicit and uses persisted payment rows', () {
-    expect(migration, contains('debug_mark_remaining_balance_paid'));
-    expect(migration, contains("'manual', 'PHP', 'awaiting_cash_receipt'"));
-    expect(
-      migration,
-      contains("set status = 'confirmed', provider_status = 'cash_received'"),
-    );
-    expect(migration, contains('insert into public.payment_allocations'));
-    expect(migration, contains("set status = 'satisfied'"));
-    expect(driverTracking, contains('Mark Remaining Balance Paid — TEST'));
-  });
+  test(
+    'test payment remains persisted but is not mixed into tour controls',
+    () {
+      expect(migration, contains('debug_mark_remaining_balance_paid'));
+      expect(migration, contains("'manual', 'PHP', 'awaiting_cash_receipt'"));
+      expect(
+        migration,
+        contains("set status = 'confirmed', provider_status = 'cash_received'"),
+      );
+      expect(migration, contains('insert into public.payment_allocations'));
+      expect(migration, contains("set status = 'satisfied'"));
+      expect(driverTracking, isNot(contains('Mark Remaining Balance Paid')));
+    },
+  );
 
   test('driver and tourist refresh all lifecycle tables in realtime', () {
     for (final table in [

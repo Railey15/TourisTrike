@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
@@ -40,7 +41,7 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
         _supabase
             .from('conversations')
             .select(
-              'id, tourist_id, driver_id, booking_id, conversation_type, last_message, last_message_at',
+              'id, tourist_id, driver_id, booking_id, conversation_type, title, last_message, last_message_at',
             )
             .eq('driver_id', _myId)
             .order('last_message_at', ascending: false)
@@ -50,7 +51,7 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
             .select(
               'conversation:conversations('
               'id, tourist_id, driver_id, booking_id, conversation_type, '
-              'last_message, last_message_at)',
+              'title, last_message, last_message_at)',
             )
             .eq('user_id', _myId),
       ]);
@@ -113,7 +114,9 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
                   ? DateTime.tryParse(row['last_message_at'].toString())
                   : null,
               touristName: row['conversation_type'] == 'booking_group'
-                  ? 'Booking Group'
+                  ? ((row['title'] as String? ?? '').trim().isEmpty
+                        ? 'Booking Group'
+                        : (row['title'] as String).trim())
                   : displayName.isEmpty
                   ? 'Tourist'
                   : displayName,
@@ -285,6 +288,7 @@ class DriverChatScreen extends StatefulWidget {
 
 class _DriverChatScreenState extends State<DriverChatScreen> {
   final _supabase = Supabase.instance.client;
+  final _repo = TourisTrikeRepository();
   final _messageCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   late Future<List<_DriverMessage>> _msgFuture;
@@ -310,12 +314,9 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
 
   Future<List<_DriverMessage>> _loadMessages() async {
     try {
-      final rows = await _supabase
-          .from('messages')
-          .select('id, sender_id, message_text, is_read, created_at')
-          .eq('conversation_id', widget.conversationId)
-          .order('created_at', ascending: true)
-          .limit(200);
+      final rows = await _repo.fetchConversationMessageFeed(
+        widget.conversationId,
+      );
 
       final messages = (rows as List<dynamic>)
           .map(
@@ -328,6 +329,12 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                   ? DateTime.tryParse(row['created_at'].toString()) ??
                         DateTime.now()
                   : DateTime.now(),
+              messageType: row['message_type']?.toString() ?? 'user',
+              senderDisplayName:
+                  row['sender_display_name']?.toString() ?? 'Participant',
+              senderRole: row['sender_role']?.toString() ?? 'participant',
+              driverNumber: (row['driver_number'] as num?)?.toInt(),
+              clientMessageId: row['client_message_id']?.toString(),
             ),
           )
           .toList(growable: false);
@@ -387,32 +394,36 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
     final text = _messageCtrl.text.trim();
     if (text.isEmpty || _sending) return;
 
+    final clientMessageId = _repo.newClientMessageId();
+    final optimistic = _DriverMessage(
+      id: 'optimistic-$clientMessageId',
+      senderId: _myId,
+      text: text,
+      isRead: false,
+      createdAt: DateTime.now(),
+      senderDisplayName: 'You',
+      senderRole: 'driver',
+      clientMessageId: clientMessageId,
+    );
+
     setState(() {
       _sending = true;
+      _msgFuture = _msgFuture.then((messages) => [...messages, optimistic]);
     });
 
     try {
-      await _supabase.from('messages').insert({
-        'conversation_id': widget.conversationId,
-        'sender_id': _myId,
-        'receiver_id': widget.touristId,
-        'message_text': text,
-        'is_read': false,
-      });
-
-      await _supabase
-          .from('conversations')
-          .update({
-            'last_message': text,
-            'last_message_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', widget.conversationId);
+      await _repo.sendConversationMessage(
+        conversationId: widget.conversationId,
+        messageText: text,
+        clientMessageId: clientMessageId,
+      );
 
       if (!mounted) return;
       _messageCtrl.clear();
       _refreshMessages();
     } catch (error) {
       if (!mounted) return;
+      setState(() => _msgFuture = _loadMessages());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not send your message right now. $error'),
@@ -532,6 +543,34 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                     itemBuilder: (context, index) {
                       final message = messages[index];
                       final mine = message.senderId == _myId;
+                      if (message.messageType == 'system') {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Center(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 7,
+                                ),
+                                child: Text(
+                                  message.text,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Color(0xFF2563EB),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
                       return Align(
                         alignment: mine
                             ? Alignment.centerRight
@@ -565,6 +604,19 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (!mine) ...[
+                                Text(
+                                  message.driverNumber == null
+                                      ? '${message.senderDisplayName} • ${message.senderRole}'
+                                      : '${message.senderDisplayName} • Driver ${message.driverNumber}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF64748B),
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                              ],
                               Text(
                                 message.text,
                                 style: TextStyle(
@@ -593,6 +645,38 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
                     },
                   );
                 },
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final text in const [
+                      'On my way',
+                      'Arrived at pickup',
+                      'Heading to next stop',
+                      'Please confirm payment',
+                    ]) ...[
+                      ActionChip(
+                        label: Text(text),
+                        onPressed: _sending
+                            ? null
+                            : () {
+                                _messageCtrl.text = text;
+                                _messageCtrl.selection =
+                                    TextSelection.collapsed(
+                                      offset: text.length,
+                                    );
+                              },
+                      ),
+                      const SizedBox(width: 7),
+                    ],
+                  ],
+                ),
               ),
             ),
             Container(
@@ -692,6 +776,11 @@ class _DriverMessage {
     required this.text,
     required this.isRead,
     required this.createdAt,
+    this.messageType = 'user',
+    this.senderDisplayName = 'Participant',
+    this.senderRole = 'participant',
+    this.driverNumber,
+    this.clientMessageId,
   });
 
   final String id;
@@ -699,6 +788,11 @@ class _DriverMessage {
   final String text;
   final bool isRead;
   final DateTime createdAt;
+  final String messageType;
+  final String senderDisplayName;
+  final String senderRole;
+  final int? driverNumber;
+  final String? clientMessageId;
 }
 
 class _DriverConversationCard extends StatelessWidget {

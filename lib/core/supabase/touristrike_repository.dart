@@ -45,6 +45,8 @@ class TourisTrikeTables {
   static const messages = 'messages';
   static const bookingDrivers = 'booking_drivers';
   static const driverLiveLocations = 'driver_live_locations';
+  static const bookingParticipantLiveLocations =
+      'booking_participant_live_locations';
   static const tripStatusLogs = 'trip_status_logs';
   static const driverReviews = 'driver_reviews';
   static const sharedTripLinks = 'shared_trip_links';
@@ -2006,15 +2008,104 @@ class TourisTrikeRepository {
     double speed = 0,
   }) async {
     final driverId = requireUserId();
+    if (!latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180) {
+      throw ArgumentError('Invalid live-location coordinates.');
+    }
+    final safeHeading = heading.isFinite ? heading.clamp(0, 360).toDouble() : 0;
+    final safeSpeed = speed.isFinite ? max(0, speed) : 0.0;
     await _client.from(TourisTrikeTables.driverLiveLocations).upsert({
       'driver_id': driverId,
       'activity_id': activityId,
       'latitude': latitude,
       'longitude': longitude,
-      'heading': heading,
-      'speed': speed,
+      'heading': safeHeading,
+      'speed': safeSpeed,
       'updated_at': DateTime.now().toIso8601String(),
     }, onConflict: 'driver_id');
+  }
+
+  String newClientMessageId() {
+    final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20)}';
+  }
+
+  Future<List<Json>> fetchConversationMessageFeed(String conversationId) async {
+    final result = await _client.rpc(
+      'get_conversation_message_feed',
+      params: {'p_conversation_id': conversationId},
+    );
+    return _rows(result);
+  }
+
+  Future<Json> sendConversationMessage({
+    required String conversationId,
+    required String messageText,
+    required String clientMessageId,
+  }) async {
+    final result = await _client.rpc(
+      'send_conversation_message',
+      params: {
+        'p_conversation_id': conversationId,
+        'p_message_text': messageText,
+        'p_client_message_id': clientMessageId,
+      },
+    );
+    return Json.from(result as Map);
+  }
+
+  Future<void> upsertTouristLiveLocation({
+    required String bookingId,
+    required double latitude,
+    required double longitude,
+    double heading = 0,
+    double speed = 0,
+    double? accuracyMeters,
+  }) async {
+    if (!latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180) {
+      throw ArgumentError('Invalid live-location coordinates.');
+    }
+    await _client.rpc(
+      'upsert_tourist_live_location',
+      params: {
+        'p_booking_id': bookingId,
+        'p_latitude': latitude,
+        'p_longitude': longitude,
+        'p_heading': heading.isFinite ? heading.clamp(0, 360).toDouble() : 0,
+        'p_speed': speed.isFinite ? max(0, speed) : 0,
+        'p_accuracy_meters': accuracyMeters?.isFinite == true
+            ? accuracyMeters!.clamp(0, 500).toDouble()
+            : null,
+      },
+    );
+  }
+
+  Future<Json?> fetchTouristLiveLocation(String bookingId) async {
+    final rows = await _client
+        .from(TourisTrikeTables.bookingParticipantLiveLocations)
+        .select()
+        .eq('booking_id', bookingId)
+        .eq('participant_role', 'tourist')
+        .order('updated_at', ascending: false)
+        .limit(1);
+    final parsed = _rows(rows);
+    return parsed.isEmpty ? null : parsed.first;
   }
 
   Future<DriverLiveLocation?> fetchDriverLiveLocation(String driverId) async {
@@ -2287,6 +2378,15 @@ class TourisTrikeRepository {
               : (info?.profile?.avatarUrl ?? '');
 
           final loc = locationByDriverId[bd.driverId];
+          final hasValidLocation =
+              loc != null &&
+              loc.latitude.isFinite &&
+              loc.longitude.isFinite &&
+              loc.latitude >= -90 &&
+              loc.latitude <= 90 &&
+              loc.longitude >= -180 &&
+              loc.longitude <= 180 &&
+              !(loc.latitude == 0 && loc.longitude == 0);
 
           return ConvoyDriverSnapshot(
             driverId: bd.driverId,
@@ -2299,13 +2399,11 @@ class TourisTrikeRepository {
             lastLocationAt: loc?.updatedAt,
             phoneNumber: info?.phoneNumber ?? '',
             avatarUrl: avatar,
-            latitude: loc == null || (loc.latitude == 0 && loc.longitude == 0)
-                ? null
-                : loc.latitude,
-            longitude: loc == null || (loc.latitude == 0 && loc.longitude == 0)
-                ? null
-                : loc.longitude,
-            heading: loc?.heading ?? 0,
+            latitude: hasValidLocation ? loc.latitude : null,
+            longitude: hasValidLocation ? loc.longitude : null,
+            heading: hasValidLocation && loc.heading.isFinite
+                ? loc.heading.clamp(0, 360).toDouble()
+                : 0,
             todaName: info?.details?.todaName ?? '',
             rating: info?.profile?.averageRating ?? 0,
             assignedPassengers: bd.assignedPassengers,
@@ -2406,36 +2504,30 @@ class TourisTrikeRepository {
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────
 
-  Future<bool> hasReviewedDriver(String bookingId) async {
+  Future<bool> hasReviewedDriver(String bookingId, {String? driverId}) async {
     final userId = currentUserId;
     if (userId == null) return false;
-    final row = await _client
+    dynamic query = _client
         .from(TourisTrikeTables.driverReviews)
         .select('id')
         .eq('booking_id', bookingId)
-        .eq('tourist_id', userId)
-        .maybeSingle();
-    return row != null;
+        .eq('tourist_id', userId);
+    if (driverId != null && driverId.isNotEmpty) {
+      query = query.eq('driver_id', driverId);
+    }
+    final rows = await query.limit(1);
+    return rows is List && rows.isNotEmpty;
   }
 
   /// Returns true only when BOTH driver review and package review exist.
   Future<bool> hasReviewedBooking(String bookingId) async {
     final userId = currentUserId;
     if (userId == null) return false;
-    final driverRow = await _client
-        .from(TourisTrikeTables.driverReviews)
-        .select('id')
-        .eq('booking_id', bookingId)
-        .eq('tourist_id', userId)
-        .maybeSingle();
-    if (driverRow == null) return false;
-    final packageRow = await _client
-        .from('package_reviews')
-        .select('id')
-        .eq('booking_id', bookingId)
-        .eq('tourist_id', userId)
-        .maybeSingle();
-    return packageRow != null;
+    final result = await _client.rpc(
+      'tourist_has_reviewed_booking',
+      params: {'p_booking_id': bookingId},
+    );
+    return result == true;
   }
 
   Future<void> submitDriverReview({
@@ -2451,7 +2543,7 @@ class TourisTrikeRepository {
       'tourist_id': userId,
       'rating': rating,
       'review_text': reviewText.trim().isEmpty ? null : reviewText.trim(),
-    }, onConflict: 'booking_id,tourist_id');
+    }, onConflict: 'booking_id,driver_id,tourist_id');
   }
 
   Future<void> submitPackageReview({
