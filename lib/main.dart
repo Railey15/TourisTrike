@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/config/app_config.dart';
 import 'package:touristrike/core/services/developer_settings.dart';
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/guest/guest_trip_access_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_spots_screen.dart';
 import 'package:touristrike/screens/driver/driver_home_screen.dart';
@@ -15,13 +19,19 @@ Future<void> main() async {
   await dotenv.load(fileName: '.env');
 
   await Supabase.initialize(
-    url: 'https://mvtqhsrdgtwdeootgjci.supabase.co',
+    url: AppConfig.supabaseUrl,
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dHFoc3JkZ3R3ZGVvb3RnamNpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwODYxMDcsImV4cCI6MjA4NzY2MjEwN30.TI-q2wAlBtd5qAZkZGhUo45rKFFooXfXLyB6kZu070o',
   );
 
   if (kDebugMode) {
     await DeveloperSettings.instance.initialize();
+    unawaited(
+      TourisTrikeRepository().logDeveloperTestDiagnostics(
+        bookingId: DeveloperSettings.instance.testBookingId,
+        event: 'app_start',
+      ),
+    );
   }
 
   runApp(const TourisTrikeApp());
@@ -46,16 +56,21 @@ class TourisTrikeApp extends StatelessWidget {
 
     // Debug override: allow forcing a role when running on web for quick UI checks.
     // Use query param `?force_role=tourist` or dart define `--dart-define=FORCE_ROLE=tourist`.
-    final _forceRoleQuery = Uri.base.queryParameters['force_role']?.toLowerCase();
-    final _forceRoleEnv = const String.fromEnvironment('FORCE_ROLE');
-    final _forceRole = (_forceRoleQuery ?? (_forceRoleEnv.isNotEmpty ? _forceRoleEnv : null))?.toLowerCase();
+    final forceRoleQuery = Uri.base.queryParameters['force_role']
+        ?.toLowerCase();
+    final forceRoleEnv = const String.fromEnvironment('FORCE_ROLE');
+    final forceRole =
+        (forceRoleQuery ?? (forceRoleEnv.isNotEmpty ? forceRoleEnv : null))
+            ?.toLowerCase();
     // Log for debugging when running on web so we can see why override may not apply.
     if (kIsWeb) {
       debugPrint('WEB DEBUG: Uri.base: ${Uri.base}');
-      debugPrint('WEB DEBUG: force_role query="${_forceRoleQuery}" env="${_forceRoleEnv}" resolved="${_forceRole}"');
+      debugPrint(
+        'WEB DEBUG: force_role query="$forceRoleQuery" env="$forceRoleEnv" resolved="$forceRole"',
+      );
     }
 
-    if (_forceRole == 'tourist') {
+    if (forceRole == 'tourist') {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
@@ -63,7 +78,7 @@ class TourisTrikeApp extends StatelessWidget {
       );
     }
 
-    if (_forceRole == 'driver') {
+    if (forceRole == 'driver') {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),

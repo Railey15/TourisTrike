@@ -117,6 +117,9 @@ void main() {
     final tools = File(
       'lib/screens/driver/profile/widgets/driver_developer_tools_section.dart',
     ).readAsStringSync();
+    final repository = File(
+      'lib/core/supabase/touristrike_repository.dart',
+    ).readAsStringSync();
     final migration = File(
       'supabase/migrations/20260830010000_debug_test_trip_reset.sql',
     ).readAsStringSync();
@@ -125,6 +128,12 @@ void main() {
     ).readAsStringSync();
     final automaticModeMigration = File(
       'supabase/migrations/20260831000000_automatic_developer_test_mode.sql',
+    ).readAsStringSync();
+    final diagnosticsMigration = File(
+      'supabase/migrations/20260903000000_developer_test_mode_diagnostics.sql',
+    ).readAsStringSync();
+    final testerAuthorizationMigration = File(
+      'supabase/migrations/20260903001000_authorize_tourist_test_account.sql',
     ).readAsStringSync();
 
     expect(tracking, isNot(contains('kDriverActionTestMode')));
@@ -174,5 +183,31 @@ void main() {
       automaticModeMigration,
       contains('revoke all on table public.developer_test_users'),
     );
+    expect(repository, contains('logDeveloperTestDiagnostics'));
+    expect(repository, contains('auth_user_id'));
+    expect(repository, isNot(contains('accessToken')));
+    expect(repository, isNot(contains('refreshToken')));
+    expect(diagnosticsMigration, contains('debug_get_test_mode_diagnostics'));
+    expect(diagnosticsMigration, contains('tester_allowlist_enabled'));
+    expect(diagnosticsMigration, contains('authorization_allowed'));
+    expect(
+      diagnosticsMigration,
+      contains(
+        'grant execute on function public.debug_get_test_mode_diagnostics(uuid)',
+      ),
+    );
+    expect(
+      testerAuthorizationMigration,
+      contains("'9c7091f5-8797-4e72-a85d-585d65b3b312'::uuid"),
+    );
+    expect(
+      testerAuthorizationMigration,
+      contains("lower(u.email) = 'tourist1@gmail.com'"),
+    );
+    expect(
+      testerAuthorizationMigration,
+      contains('on conflict (user_id) do update'),
+    );
+    expect(testerAuthorizationMigration, isNot(contains('auth.uid()')));
   });
 }
