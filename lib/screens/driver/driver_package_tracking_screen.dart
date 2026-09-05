@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:touristrike/widgets/live_itinerary_estimates.dart';
+import 'package:touristrike/core/services/stable_arrival_detector.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -82,6 +84,16 @@ class _DriverPackageTrackingScreenState
 
   Timer? _convoyPollTimer;
   Timer? _convoyTicker;
+  final _arrivalDetector = StableArrivalDetector(
+    radiusMeters: _proximityMeters,
+  );
+  Timer? _journeyTicker;
+  Timer? _gpsRecoveryTimer;
+  bool _gpsRecoveryBusy = false;
+  bool _automaticTransitionBusy = false;
+  String? _gpsIssue;
+  DateTime? _lastAutomaticAttempt;
+  String? _lastAutomaticKey;
 
   int _convoyConsecutiveFailures = 0;
   int _convoyLoadGeneration = 0;
@@ -335,7 +347,8 @@ class _DriverPackageTrackingScreenState
       }
     }
 
-    if (me.journeyState == ConvoyJourneyState.stopDone &&
+    if (!_bypassTransactionValidation &&
+        me.journeyState == ConvoyJourneyState.stopDone &&
         _allItineraryItemsCompleted &&
         !_hasConfirmedPayment('remaining_balance', booking.remainingBalance)) {
       return 'Waiting for remaining payment. Drop-off unlocks after secure GCash confirmation or every convoy driver confirms cash.';
@@ -366,6 +379,15 @@ class _DriverPackageTrackingScreenState
     DeveloperSettings.instance.addListener(_onDeveloperSettingsChanged);
     _initCustomMarkers();
     _load();
+    _journeyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _isBookingClosed) return;
+      setState(() {});
+      unawaited(_progressReadyJourney());
+    });
+    _gpsRecoveryTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _recoverGpsFix(),
+    );
   }
 
   void _onDeveloperSettingsChanged() {
@@ -375,6 +397,8 @@ class _DriverPackageTrackingScreenState
   @override
   void dispose() {
     DeveloperSettings.instance.removeListener(_onDeveloperSettingsChanged);
+    _journeyTicker?.cancel();
+    _gpsRecoveryTimer?.cancel();
     _activityChannel?.unsubscribe();
     _bookingChannel?.unsubscribe();
     _itineraryChannel?.unsubscribe();
@@ -840,10 +864,8 @@ class _DriverPackageTrackingScreenState
   }
 
   List<ConvoyDriverSnapshot> _blockingDriversFor(ConvoyDriverSnapshot me) {
-    if (me.journeyState != ConvoyJourneyState.atStop &&
-        me.journeyState != ConvoyJourneyState.boarded &&
-        me.journeyState != ConvoyJourneyState.stopDone &&
-        me.journeyState != ConvoyJourneyState.atDropoff) {
+    if (me.journeyState != ConvoyJourneyState.boarded &&
+        me.journeyState != ConvoyJourneyState.stopDone) {
       return const [];
     }
     final request = _stageProgressRequestFor(me);
@@ -1044,6 +1066,12 @@ class _DriverPackageTrackingScreenState
     final ok = await _checkLocationPermission();
 
     if (!ok) {
+      if (mounted) {
+        setState(
+          () => _gpsIssue =
+              'Location is unavailable. Enable GPS and location permission.',
+        );
+      }
       return;
     }
 
@@ -1051,115 +1079,423 @@ class _DriverPackageTrackingScreenState
 
     const settings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 8,
+      distanceFilter: 0,
     );
 
-    _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen((
-      position,
-    ) async {
-      final activity = _activity;
+    _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen(
+      (position) async {
+        final activity = _activity;
 
-      if (activity == null || _isBookingClosed) {
-        return;
-      }
-
-      _currentPosition = position;
-
-      final now = DateTime.now();
-      final mayUpload =
-          !_driverLocationUploadInFlight &&
-          (_lastDriverLocationUploadAt == null ||
-              now.difference(_lastDriverLocationUploadAt!) >=
-                  const Duration(seconds: 3));
-      if (!mayUpload) {
-        _buildMarkers();
-        if (_isFollowingDriver) {
-          _animateCameraFollowing(
-            LatLng(position.latitude, position.longitude),
-            position.speed,
-          );
+        if (activity == null || _isBookingClosed) {
+          return;
         }
-        return;
-      }
-      _driverLocationUploadInFlight = true;
-      _lastDriverLocationUploadAt = now;
 
-      try {
-        // Each driver always writes to their own live-location row.
-        await _repo.upsertDriverLiveLocation(
-          activityId: widget.activityId,
-          latitude: position.latitude,
-          longitude: position.longitude,
-          heading: position.heading,
-          speed: position.speed,
-        );
+        _currentPosition = position;
+        _gpsIssue = null;
 
-        // package_activities has only one legacy driver_latitude/longitude
-        // pair. On a convoy booking, only the legacy assigned driver writes
-        // those columns so convoy drivers do not overwrite one another.
-        final isLegacyWriter =
-            _convoy.length <= 1 ||
-            _booking?.assignedDriverId == _repo.currentUserId;
+        final now = DateTime.now();
+        final mayUpload =
+            !_driverLocationUploadInFlight &&
+            (_lastDriverLocationUploadAt == null ||
+                now.difference(_lastDriverLocationUploadAt!) >=
+                    const Duration(seconds: 3));
+        if (!mayUpload) {
+          _buildMarkers();
+          if (_isFollowingDriver) {
+            _animateCameraFollowing(
+              LatLng(position.latitude, position.longitude),
+              position.speed,
+            );
+          }
+          return;
+        }
+        _driverLocationUploadInFlight = true;
+        _lastDriverLocationUploadAt = now;
 
-        if (isLegacyWriter) {
-          await _repo.updateDriverLocation(
+        try {
+          // Each driver always writes to their own live-location row.
+          await _repo.upsertDriverLiveLocation(
             activityId: widget.activityId,
             latitude: position.latitude,
             longitude: position.longitude,
+            heading: position.heading,
+            speed: position.speed,
           );
-        }
 
-        if (!mounted) return;
+          await _detectAutomaticArrival(position);
 
-        final myId = _repo.currentUserId;
-        if (myId != null) {
-          _markerMotion.animateTo(
-            myId,
-            LatLng(position.latitude, position.longitude),
-            position.heading,
-            (displayed, heading) {
-              if (!mounted) return;
-              setState(() {
-                _liveMarkerPositions[myId] = displayed;
-                _liveMarkerHeadings[myId] = heading;
+          // package_activities has only one legacy driver_latitude/longitude
+          // pair. On a convoy booking, only the legacy assigned driver writes
+          // those columns so convoy drivers do not overwrite one another.
+          final isLegacyWriter =
+              _convoy.length <= 1 ||
+              _booking?.assignedDriverId == _repo.currentUserId;
+
+          if (isLegacyWriter) {
+            await _repo.updateDriverLocation(
+              activityId: widget.activityId,
+              latitude: position.latitude,
+              longitude: position.longitude,
+            );
+          }
+
+          if (!mounted) return;
+
+          final myId = _repo.currentUserId;
+          if (myId != null) {
+            _markerMotion.animateTo(
+              myId,
+              LatLng(position.latitude, position.longitude),
+              position.heading,
+              (displayed, heading) {
+                if (!mounted) return;
+                setState(() {
+                  _liveMarkerPositions[myId] = displayed;
+                  _liveMarkerHeadings[myId] = heading;
+                });
+                _buildMarkers();
+              },
+            );
+          }
+
+          if (isLegacyWriter) {
+            setState(() {
+              _activity = PackageActivity({
+                ...activity.row,
+                'driver_latitude': position.latitude,
+                'driver_longitude': position.longitude,
+                'driver_last_seen': DateTime.now().toIso8601String(),
               });
-              _buildMarkers();
-            },
-          );
-        }
-
-        if (isLegacyWriter) {
-          setState(() {
-            _activity = PackageActivity({
-              ...activity.row,
-              'driver_latitude': position.latitude,
-              'driver_longitude': position.longitude,
-              'driver_last_seen': DateTime.now().toIso8601String(),
             });
-          });
+          }
+
+          _buildMarkers();
+          _scheduleRouteRefresh();
+
+          if (_isFollowingDriver) {
+            _animateCameraFollowing(
+              LatLng(position.latitude, position.longitude),
+              position.speed,
+            );
+          }
+        } catch (e) {
+          _gpsIssue = 'Unable to sync your location. Check your connection.';
+          debugPrint('[DriverTracking:gps] Location sync failed: $e');
+
+          // Keep the local driver marker responsive even if the backend write
+          // temporarily fails.
+          if (mounted) {
+            _buildMarkers();
+          }
+        } finally {
+          _driverLocationUploadInFlight = false;
         }
-
-        _buildMarkers();
-        _scheduleRouteRefresh();
-
-        if (_isFollowingDriver) {
-          _animateCameraFollowing(
-            LatLng(position.latitude, position.longitude),
-            position.speed,
+      },
+      onError: (Object error) {
+        if (mounted) {
+          setState(
+            () => _gpsIssue =
+                'GPS updates stopped. Retry location or use arrival fallback.',
           );
         }
-      } catch (e) {
-        debugPrint('[DriverTracking:gps] Location sync failed: $e');
+      },
+    );
+  }
 
-        // Keep the local driver marker responsive even if the backend write
-        // temporarily fails.
-        if (mounted) {
-          _buildMarkers();
-        }
-      } finally {
-        _driverLocationUploadInFlight = false;
+  ({ConvoyJourneyState state, LatLng point})? get _arrivalTarget {
+    final me = _myConvoyStatus;
+    if (me == null) return null;
+    final point = switch (me.journeyState) {
+      ConvoyJourneyState.enRoutePickup => _pickupLatLng(),
+      ConvoyJourneyState.enRouteStop => _currentSpotLatLng(),
+      ConvoyJourneyState.enRouteDropoff => _dropoffLatLng(),
+      _ => null,
+    };
+    if (point == null) return null;
+    return (
+      state: switch (me.journeyState) {
+        ConvoyJourneyState.enRoutePickup => ConvoyJourneyState.atPickup,
+        ConvoyJourneyState.enRouteStop => ConvoyJourneyState.atStop,
+        _ => ConvoyJourneyState.atDropoff,
+      },
+      point: point,
+    );
+  }
+
+  Future<void> _detectAutomaticArrival(Position position) async {
+    final target = _arrivalTarget;
+    if (target == null ||
+        _bypassTransactionValidation ||
+        _automaticTransitionBusy ||
+        _actionBusy) {
+      return;
+    }
+    final key = '${target.state.dbValue}:${_myConvoyStatus?.currentStopIndex}';
+    final stable = _arrivalDetector.observe(
+      target: key,
+      distanceMeters: _haversineMeters(
+        position.latitude,
+        position.longitude,
+        target.point.latitude,
+        target.point.longitude,
+      ),
+      accuracyMeters: position.accuracy,
+      sampledAt: position.timestamp,
+      now: DateTime.now(),
+    );
+    if (!stable || !_canAttemptAutomatic(key)) return;
+    _automaticTransitionBusy = true;
+    try {
+      await _repo.advanceDriverJourneyState(
+        bookingId: _bookingId,
+        targetState: target.state,
+      );
+      _arrivalDetector.reset();
+      if (mounted) {
+        _showSnack(
+          target.state == ConvoyJourneyState.atStop
+              ? 'Arrived at tour stop. Stay timer started.'
+              : 'Arrival detected. Please confirm your passengers.',
+        );
+        await Future.wait([
+          _loadConvoy(),
+          _refreshTrackingState(logTag: 'gps-arrival'),
+        ]);
       }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _gpsIssue =
+              'Unable to verify arrival automatically. Retry or use the arrival fallback.',
+        );
+      }
+    } finally {
+      _automaticTransitionBusy = false;
+    }
+  }
+
+  bool _canAttemptAutomatic(String key) {
+    final now = DateTime.now();
+    if (_lastAutomaticKey == key &&
+        _lastAutomaticAttempt != null &&
+        now.difference(_lastAutomaticAttempt!) < const Duration(seconds: 10)) {
+      return false;
+    }
+    _lastAutomaticKey = key;
+    _lastAutomaticAttempt = now;
+    return true;
+  }
+
+  Future<void> _recoverGpsFix() async {
+    if (!mounted ||
+        _gpsRecoveryBusy ||
+        _isBookingClosed ||
+        _bypassTransactionValidation ||
+        _arrivalTarget == null) {
+      return;
+    }
+    _gpsRecoveryBusy = true;
+    try {
+      if (!await Geolocator.isLocationServiceEnabled() ||
+          !const {
+            LocationPermission.always,
+            LocationPermission.whileInUse,
+          }.contains(await Geolocator.checkPermission())) {
+        if (mounted) {
+          setState(
+            () => _gpsIssue =
+                'Enable GPS and location permission to verify arrival.',
+          );
+        }
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 7),
+      );
+      if (!mounted) return;
+      _currentPosition = position;
+      await _repo.upsertDriverLiveLocation(
+        activityId: widget.activityId,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        heading: position.heading,
+        speed: position.speed,
+      );
+      if (!mounted) return;
+      setState(
+        () => _gpsIssue = position.accuracy > 50
+            ? 'GPS accuracy is low. Move to an open area or use arrival fallback.'
+            : null,
+      );
+      await _detectAutomaticArrival(position);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _gpsIssue =
+              'Unable to verify arrival automatically. Check GPS and connection.',
+        );
+      }
+    } finally {
+      _gpsRecoveryBusy = false;
+    }
+  }
+
+  Duration get _stayRemaining {
+    final me = _myConvoyStatus;
+    if (me == null ||
+        me.journeyState != ConvoyJourneyState.atStop ||
+        (me.currentStopIndex < 0 || me.currentStopIndex >= _spots.length)) {
+      return Duration.zero;
+    }
+    return remainingStopStay(
+      arrivedAt: me.stateUpdatedAt,
+      stayMinutes: _spots[me.currentStopIndex].estimatedStayDurationMinutes,
+      now: DateTime.now(),
+    );
+  }
+
+  Future<void> _progressReadyJourney() async {
+    final me = _myConvoyStatus;
+    if (me == null ||
+        _actionBusy ||
+        _automaticTransitionBusy ||
+        _loading ||
+        !const {
+          ConvoyJourneyState.boarded,
+          ConvoyJourneyState.stopDone,
+        }.contains(me.journeyState)) {
+      return;
+    }
+    final request = _stageProgressRequestFor(me);
+    if (!_bypassTransactionValidation &&
+        (_convoyProgress?.matches(request.stage, request.stopIndex) != true ||
+            _convoyProgress?.allSatisfied != true ||
+            _serverGateNotice != null)) {
+      return;
+    }
+    if (me.journeyState == ConvoyJourneyState.stopDone &&
+        !_allItineraryItemsCompleted &&
+        me.currentStopIndex >= _spots.length - 1) {
+      return;
+    }
+    final key = 'depart:${me.journeyState.dbValue}:${me.currentStopIndex}';
+    if (!_canAttemptAutomatic(key)) return;
+    _automaticTransitionBusy = true;
+    try {
+      if (me.journeyState == ConvoyJourneyState.boarded) {
+        await _departPickup();
+      } else {
+        await _departStop();
+      }
+    } finally {
+      _automaticTransitionBusy = false;
+    }
+  }
+
+  Future<void> _manualArrivalFallback() async {
+    if (_actionBusy || _automaticTransitionBusy || _arrivalTarget == null) {
+      return;
+    }
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm arrival fallback'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Use this only when you are at the destination and automatic GPS detection failed. The server checks a recent driver or tourist location. An internet connection is required.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLength: 500,
+              decoration: const InputDecoration(
+                labelText: 'Reason (at least 10 characters)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().length >= 10) {
+                Navigator.pop(dialogContext, controller.text.trim());
+              }
+            },
+            child: const Text('Confirm arrival'),
+          ),
+        ],
+      ),
+    );
+    // The dialog's text field is disposed after its closing animation.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    controller.dispose();
+    if (!mounted || reason == null) return;
+    await _doAction(() async {
+      await _repo.confirmDriverArrivalFallback(_bookingId, reason);
+      await Future.wait([
+        _loadConvoy(),
+        _refreshTrackingState(logTag: 'manual-arrival-fallback'),
+      ]);
+      _showSnack('Arrival confirmed.');
     });
+  }
+
+  Widget _buildJourneyAutomationNotice() {
+    final me = _myConvoyStatus;
+    if (me == null) return const SizedBox.shrink();
+    final target = _arrivalTarget;
+    final stay = _stayRemaining;
+    final fallbackAvailable =
+        _gpsIssue != null ||
+        DateTime.now().difference(me.stateUpdatedAt) >
+            const Duration(minutes: 2);
+    final message = target != null
+        ? _gpsIssue ??
+              'GPS will detect arrival automatically within ${_proximityMeters.toInt()} m.'
+        : me.journeyState == ConvoyJourneyState.atStop &&
+              me.currentStopIndex >= 0 &&
+              me.currentStopIndex < _spots.length
+        ? 'Arrived ${DateFormat('h:mm a').format(me.stateUpdatedAt.toLocal())} · Time of Stay: ${_spots[me.currentStopIndex].estimatedStayDurationMinutes} min\n'
+              '${stay > Duration.zero ? '${stay.inMinutes}:${(stay.inSeconds % 60).toString().padLeft(2, '0')} remaining' : 'Stay complete. Confirm when your passengers are ready.'}'
+        : me.journeyState == ConvoyJourneyState.boarded
+        ? 'Tourist picked up. Navigation starts when the convoy is ready.'
+        : me.journeyState == ConvoyJourneyState.stopDone
+        ? 'You are ready. Waiting for convoy readiness and any required payment.'
+        : me.journeyState.label;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(message),
+            if (target != null &&
+                fallbackAvailable &&
+                !_bypassTransactionValidation)
+              Wrap(
+                children: [
+                  TextButton(
+                    onPressed: _startGpsStreaming,
+                    child: const Text('Retry GPS'),
+                  ),
+                  TextButton(
+                    onPressed: _manualArrivalFallback,
+                    child: const Text('Arrival fallback'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<bool> _checkLocationPermission() async {
@@ -1249,8 +1585,21 @@ class _DriverPackageTrackingScreenState
   bool get _hasPickedUp =>
       _activity?.pickedUpAt != null || _booking?.pickedUpAt != null;
 
-  BookingItineraryItem? get _currentItineraryItem =>
-      _spots.where((spot) => spot.spotStatus != 'completed').firstOrNull;
+  BookingItineraryItem? get _currentItineraryItem {
+    final me = _myConvoyStatus;
+    if (me != null &&
+        const {
+          ConvoyJourneyState.enRouteStop,
+          ConvoyJourneyState.atStop,
+          ConvoyJourneyState.stopDone,
+        }.contains(me.journeyState)) {
+      final index = me.journeyState == ConvoyJourneyState.stopDone
+          ? me.currentStopIndex + 1
+          : me.currentStopIndex;
+      return index >= 0 && index < _spots.length ? _spots[index] : null;
+    }
+    return _spots.where((spot) => spot.spotStatus != 'completed').firstOrNull;
+  }
 
   String get _selectedCurrentActionLabel {
     final status = _activity?.tourStatus ?? '';
@@ -1592,26 +1941,21 @@ class _DriverPackageTrackingScreenState
   }
 
   LatLng? _currentRouteDestination() {
-    final status = _activity?.tourStatus ?? '';
-    if (status == 'awaiting_remaining_payment') return null;
-
-    if (status == 'driver_accepted' ||
-        status == 'driver_en_route' ||
-        status == 'driver_arrived') {
-      return _pickupLatLng();
-    }
-    if (status == 'picked_up' ||
-        status == 'on_tour' ||
-        status == 'en_route_to_spot' ||
-        status == 'at_spot') {
-      return _allItineraryItemsCompleted
-          ? _dropoffLatLng()
-          : _currentSpotLatLng();
-    }
-    if (status == 'en_route_to_dropoff' || status == 'ready_to_complete') {
-      return _dropoffLatLng();
-    }
-    return null;
+    final me = _myConvoyStatus;
+    if (me == null) return null;
+    return switch (me.journeyState) {
+      ConvoyJourneyState.assigned ||
+      ConvoyJourneyState.enRoutePickup ||
+      ConvoyJourneyState.atPickup => _pickupLatLng(),
+      ConvoyJourneyState.boarded ||
+      ConvoyJourneyState.enRouteStop ||
+      ConvoyJourneyState.atStop => _currentSpotLatLng(),
+      ConvoyJourneyState.stopDone =>
+        _allItineraryItemsCompleted ? null : _currentSpotLatLng(),
+      ConvoyJourneyState.enRouteDropoff ||
+      ConvoyJourneyState.atDropoff => _dropoffLatLng(),
+      ConvoyJourneyState.completed => null,
+    };
   }
 
   Future<void> _fetchCurrentRoute() async {
@@ -1948,18 +2292,8 @@ class _DriverPackageTrackingScreenState
   });
 
   Future<void> _markBoarded() => _doAction(() async {
-    final pickup = _pickupLatLng();
-
-    if (!_bypassTransactionValidation &&
-        pickup != null &&
-        !_isNearTarget(pickup)) {
-      _showSnack(
-        'You must be at the pickup location to mark passengers as boarded.',
-        error: true,
-      );
-      return;
-    }
-
+    // Arrival was already verified by the server. Boarding is a human
+    // confirmation and must also work after an approved GPS fallback.
     final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.boarded);
 
     if (!advanced) return;
@@ -2017,19 +2351,9 @@ class _DriverPackageTrackingScreenState
     }
 
     final currentItem = _currentItineraryItem;
-    final bookingId = _bookingId;
-
     if (currentItem == null) {
       _showSnack('No current itinerary stop is available.', error: true);
       return;
-    }
-
-    var newlyRecorded = true;
-    if (bookingId.isNotEmpty) {
-      newlyRecorded = await _repo.markSpotActualArrival(
-        bookingId: bookingId,
-        itineraryItemId: currentItem.id.toString(),
-      );
     }
 
     final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atStop);
@@ -2037,9 +2361,7 @@ class _DriverPackageTrackingScreenState
 
     _logStatus('at_spot');
     _showSnack(
-      newlyRecorded
-          ? 'Arrived at ${currentItem.destinationName}.'
-          : 'Arrival at ${currentItem.destinationName} was already recorded.',
+      'Arrived at ${currentItem.destinationName}. Stay timer started.',
     );
   });
 
@@ -2097,6 +2419,12 @@ class _DriverPackageTrackingScreenState
       _refreshTrackingState(logTag: 'shared-stop-completed'),
     ]);
 
+    if (rpcResult['driver_ready'] == true) {
+      _showSnack(
+        'Your passengers are ready. Waiting for the rest of the convoy.',
+      );
+      return;
+    }
     final completedNow = (rpcResult['completed_items'] as num?)?.toInt() ?? 0;
     final rpcTotal =
         (rpcResult['total_items'] as num?)?.toInt() ?? _spots.length;
@@ -2171,7 +2499,7 @@ class _DriverPackageTrackingScreenState
     );
     if (!advanced) return;
 
-    _logStatus('dropped_off');
+    _logStatus('arrived_at_dropoff');
 
     final blockers = _myConvoyStatus == null
         ? const <ConvoyDriverSnapshot>[]
@@ -2612,6 +2940,7 @@ class _DriverPackageTrackingScreenState
         );
 
       case ConvoyJourneyState.enRoutePickup:
+        if (!_bypassTransactionValidation) return null;
         return _PrimaryTourAction(
           label: _testActionLabel('Arrived at Pickup'),
           description: 'Confirm once you reach the tourist pickup point.',
@@ -2621,21 +2950,17 @@ class _DriverPackageTrackingScreenState
 
       case ConvoyJourneyState.atPickup:
         return _PrimaryTourAction(
-          label: _testActionLabel('Passengers Boarded'),
+          label: _testActionLabel('Tourist Picked Up'),
           description: 'Confirm that your assigned passengers are onboard.',
           icon: Icons.groups_rounded,
           onTap: _markBoarded,
         );
 
       case ConvoyJourneyState.boarded:
-        return _PrimaryTourAction(
-          label: _testActionLabel('Depart from Pickup'),
-          description: 'All convoy drivers are ready. Depart together.',
-          icon: Icons.route_rounded,
-          onTap: _departPickup,
-        );
+        return null;
 
       case ConvoyJourneyState.enRouteStop:
+        if (!_bypassTransactionValidation) return null;
         final currentItem = _currentItineraryItem;
         if (currentItem == null) {
           return null;
@@ -2648,33 +2973,26 @@ class _DriverPackageTrackingScreenState
         );
 
       case ConvoyJourneyState.atStop:
-        final currentItem = _currentItineraryItem;
+        if (!_bypassTransactionValidation && _stayRemaining > Duration.zero) {
+          return null;
+        }
         return _PrimaryTourAction(
           label: _testActionLabel(
-            'Complete ${currentItem?.destinationName ?? 'Current Stop'}',
+            me.currentStopIndex >= _spots.length - 1
+                ? 'Finish Tour Stops'
+                : 'Proceed to Next Stop',
           ),
-          description: _bypassTransactionValidation
-              ? 'Complete this stay immediately; the configured wait is bypassed.'
-              : 'Mark this stop done when your passengers are ready.',
-          icon: Icons.check_circle_rounded,
+          description:
+              'Confirm your passengers are ready. Departure waits for the convoy.',
+          icon: Icons.route_rounded,
           onTap: _markStopDone,
         );
 
       case ConvoyJourneyState.stopDone:
-        return _PrimaryTourAction(
-          label: _testActionLabel(
-            _allItineraryItemsCompleted
-                ? 'Depart for Drop-off'
-                : 'Depart for Next Stop',
-          ),
-          description: _allItineraryItemsCompleted
-              ? 'All convoy drivers are ready. Continue to drop-off.'
-              : 'All convoy drivers are ready. Continue to the next stop.',
-          icon: Icons.directions_rounded,
-          onTap: _departStop,
-        );
+        return null;
 
       case ConvoyJourneyState.enRouteDropoff:
+        if (!_bypassTransactionValidation) return null;
         return _PrimaryTourAction(
           label: _testActionLabel('Arrived at Drop-off'),
           description: 'Confirm once your passengers reach the final drop-off.',
@@ -2684,8 +3002,8 @@ class _DriverPackageTrackingScreenState
 
       case ConvoyJourneyState.atDropoff:
         return _PrimaryTourAction(
-          label: _testActionLabel('Complete Trip'),
-          description: 'All convoy drivers are at drop-off. Finish the tour.',
+          label: _testActionLabel('Tourist Dropped Off'),
+          description: 'Confirm your assigned passengers have safely alighted.',
           icon: Icons.task_alt_rounded,
           onTap: _completeTour,
         );
@@ -2839,6 +3157,15 @@ class _DriverPackageTrackingScreenState
               ),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
               children: [
+                if (_booking != null && !_isBookingClosed)
+                  LiveItineraryEstimates(
+                    booking: _booking!,
+                    drivers: _convoy,
+                    stops: _spots,
+                    onlyDriverId: _repo.currentUserId,
+                  ),
+                _buildJourneyAutomationNotice(),
+                const SizedBox(height: 10),
                 _ModernStatusCard(
                   status: status,
                   completedCount: _completedItineraryItemsCount,
@@ -4076,10 +4403,8 @@ class _ModernSpotRow extends StatelessWidget {
                         spot.departureTime.isNotEmpty)
                       _SmallTimingChip(
                         icon: Icons.schedule_rounded,
-                        text: _buildScheduleLabel(
-                          spot.arrivalTime,
-                          spot.departureTime,
-                        ),
+                        text:
+                            'Planned: ${_buildScheduleLabel(spot.arrivalTime, spot.departureTime)}',
                       ),
                     if (spot.estimatedStayDurationMinutes > 0)
                       _SmallTimingChip(
@@ -4092,7 +4417,7 @@ class _ModernSpotRow extends StatelessWidget {
                   const SizedBox(height: 6),
                   _ActualTimeBadge(
                     icon: Icons.location_on_rounded,
-                    label: 'Arrived',
+                    label: 'First convoy arrival',
                     time: timeFormat.format(spot.actualArrivalTime!.toLocal()),
                     color: _primary,
                   ),
@@ -4101,7 +4426,7 @@ class _ModernSpotRow extends StatelessWidget {
                   const SizedBox(height: 4),
                   _ActualTimeBadge(
                     icon: Icons.check_circle_rounded,
-                    label: 'Completed',
+                    label: 'Actual departure',
                     time: timeFormat.format(
                       spot.actualDepartureTime!.toLocal(),
                     ),

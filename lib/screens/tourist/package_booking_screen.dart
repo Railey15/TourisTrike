@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:touristrike/widgets/booking_review_sheet.dart';
+import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_places_gateway.dart';
@@ -136,6 +138,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   bool _scheduleLoading = false;
   int _scheduleRevision = 0;
   int _finalTravelDurationMinutes = 0;
+  String? _scheduleError;
+  String? _scheduleValidationError;
+  bool _scheduleReady = false;
+  String? _routeKey;
+  List<ItineraryTravelLeg>? _routeLegs;
 
   // =============================================================================
   // LIFECYCLE
@@ -433,7 +440,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     setState(() {
       _selectedSpots.add(candidate);
-      _spotSelectionDirtyForSchedule = true;
+      _rebuildScheduleFromSelectedSpots();
     });
   }
 
@@ -446,7 +453,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     setState(() {
       _selectedSpots.removeWhere((item) => item.key == spot.key);
 
-      _spotSelectionDirtyForSchedule = true;
+      _rebuildScheduleFromSelectedSpots();
     });
   }
 
@@ -463,7 +470,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     setState(() {
       _selectedSpots.add(_EditableBookingSpot.copy(original));
 
-      _spotSelectionDirtyForSchedule = true;
+      _rebuildScheduleFromSelectedSpots();
     });
   }
 
@@ -479,7 +486,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
       _selectedSpots.insert(nextIndex, item);
 
-      _spotSelectionDirtyForSchedule = true;
+      _rebuildScheduleFromSelectedSpots(preserveOrder: false);
     });
   }
 
@@ -612,10 +619,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     _customizedItinerary = const [];
   }
 
-  void _rebuildScheduleFromSelectedSpots() {
+  void _rebuildScheduleFromSelectedSpots({bool preserveOrder = true}) {
+    final previousOrder = _customizedItinerary
+        .map((item) => item.localKey)
+        .toList();
+    final previousStays = {
+      for (final item in _customizedItinerary) item.localKey: item.stayMinutes,
+    };
     _disposeItineraries();
-
-    var cursorMinutes = _pickupMinutes;
 
     final suggested = <_EditableItineraryStop>[];
 
@@ -624,13 +635,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         estimatedMinutes: spot.estimatedDurationMinutes,
         recommendedMinutes: spot.recommendedVisitDurationMinutes,
       );
-
-      const initialTravelMinutes = 20;
-      final arrivalMinutes = cursorMinutes + initialTravelMinutes;
-      final departureMinutes = arrivalMinutes + stayMinutes;
-      final arrival = _storageTimeFromMinutes(arrivalMinutes);
-      final departure = _storageTimeFromMinutes(departureMinutes);
-      cursorMinutes = departureMinutes;
 
       suggested.add(
         _EditableItineraryStop(
@@ -644,10 +648,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           latitude: spot.latitude,
           longitude: spot.longitude,
           imageUrl: spot.imageUrl,
-          arrivalTime: arrival,
+          arrivalTime: '',
           stayMinutes: stayMinutes,
-          departureTime: departure,
-          travelDurationMinutes: initialTravelMinutes,
+          departureTime: '',
+          travelDurationMinutes: 0,
           routeDistanceMeters: 0,
         ),
       );
@@ -658,6 +662,22 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     _customizedItinerary = suggested
         .map(_EditableItineraryStop.cloneFrom)
         .toList(growable: true);
+    for (final item in _customizedItinerary) {
+      item.stayMinutes = previousStays[item.localKey] ?? item.stayMinutes;
+    }
+    if (preserveOrder && previousOrder.isNotEmpty) {
+      final selectedOrder = _customizedItinerary
+          .map((item) => item.localKey)
+          .toList();
+      int position(_EditableItineraryStop item) {
+        final previous = previousOrder.indexOf(item.localKey);
+        return previous >= 0
+            ? previous
+            : previousOrder.length + selectedOrder.indexOf(item.localKey);
+      }
+
+      _customizedItinerary.sort((a, b) => position(a).compareTo(position(b)));
+    }
 
     _spotSelectionDirtyForSchedule = false;
     _customizedItineraryDirty = false;
@@ -679,7 +699,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   DateTime? get _estimatedBookingEndAt {
     final date = _selectedDate;
     final itinerary = _selectedItinerary;
-    if (date == null || itinerary.isEmpty) return null;
+    if (!_scheduleReady || date == null || itinerary.isEmpty) return null;
     final departure = _storageTimeToMinutes(itinerary.last.departureTime);
     if (departure == null) return null;
     final endMinutes = departure + _finalTravelDurationMinutes;
@@ -690,50 +710,89 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     ).add(Duration(minutes: endMinutes));
   }
 
-  Future<void> _recalculateSelectedItinerary() async {
-    final pickup = _selectedPickup;
-    final itinerary = _selectedItinerary;
-    if (pickup == null || itinerary.isEmpty) return;
-
+  Future<void> _recalculateSelectedItinerary({bool retry = false}) async {
     final revision = ++_scheduleRevision;
-    if (mounted) setState(() => _scheduleLoading = true);
-
+    final pickup = _selectedPickup;
+    final dropoff = _selectedDropoff;
+    final itinerary = _selectedItinerary;
+    if (!mounted) return;
+    setState(() {
+      _scheduleReady = false;
+      _scheduleError = null;
+      _scheduleValidationError = null;
+      _scheduleLoading = false;
+      for (final item in itinerary) {
+        item.arrivalTime = '';
+        item.departureTime = '';
+      }
+    });
+    if (pickup == null ||
+        dropoff == null ||
+        itinerary.isEmpty ||
+        _selectedPickupTime == null ||
+        _selectedDate == null) {
+      return;
+    }
+    if (itinerary.any(
+      (item) => item.stayMinutes <= 0 || item.stayMinutes > 600,
+    )) {
+      setState(
+        () => _scheduleValidationError =
+            'Time of Stay must be between 1 and 600 minutes for each destination.',
+      );
+      return;
+    }
     final points = <LatLng>[
       LatLng(pickup.latitude, pickup.longitude),
       ...itinerary.map((item) => LatLng(item.latitude, item.longitude)),
-      if (_selectedDropoff case final dropoff?)
-        LatLng(dropoff.latitude, dropoff.longitude),
+      LatLng(dropoff.latitude, dropoff.longitude),
     ];
-    final legs = await _scheduleService.fetchTravelLegs(points);
-    if (!mounted || revision != _scheduleRevision) return;
-
-    final inboundLegs = legs.take(itinerary.length).toList(growable: false);
-    final timings = calculateItineraryTimings(
-      pickupMinutes: _pickupMinutes,
-      stayDurationMinutes: itinerary.map((item) => item.stayMinutes).toList(),
-      travelDurationMinutes: List<int>.generate(
-        itinerary.length,
-        (i) => i < inboundLegs.length ? inboundLegs[i].durationMinutes : 20,
-      ),
-    );
-
-    setState(() {
-      for (var i = 0; i < itinerary.length; i++) {
-        itinerary[i]
-          ..arrivalTime = _storageTimeFromMinutes(timings[i].arrivalMinutes)
-          ..departureTime = _storageTimeFromMinutes(timings[i].departureMinutes)
-          ..travelDurationMinutes = timings[i].travelDurationMinutes
-          ..routeDistanceMeters = i < inboundLegs.length
-              ? inboundLegs[i].distanceMeters
-              : 0;
+    final key = points.map((p) => '${p.latitude},${p.longitude}').join('|');
+    setState(() => _scheduleLoading = true);
+    try {
+      // Pickup/stay edits reuse this route's Maps durations. Location/order
+      // changes invalidate the key and fetch a new ordered route.
+      final legs = !retry && key == _routeKey && _routeLegs != null
+          ? _routeLegs!
+          : await _scheduleService.fetchTravelLegs(points);
+      if (!mounted || revision != _scheduleRevision) return;
+      final timings = calculateItineraryTimings(
+        pickupMinutes: _pickupMinutes,
+        stayDurationMinutes: itinerary.map((item) => item.stayMinutes).toList(),
+        travelDurationMinutes: legs
+            .take(itinerary.length)
+            .map((leg) => leg.durationMinutes)
+            .toList(),
+      );
+      setState(() {
+        _routeKey = key;
+        _routeLegs = legs;
+        if (timings.last.departureMinutes + legs.last.durationMinutes >
+            _tourEndMinutes) {
+          _scheduleValidationError = _tourHoursErrorMessage;
+          return;
+        }
+        for (var i = 0; i < itinerary.length; i++) {
+          itinerary[i]
+            ..arrivalTime = _storageTimeFromMinutes(timings[i].arrivalMinutes)
+            ..departureTime = _storageTimeFromMinutes(
+              timings[i].departureMinutes,
+            )
+            ..travelDurationMinutes = timings[i].travelDurationMinutes
+            ..routeDistanceMeters = legs[i].distanceMeters;
+        }
+        _finalTravelDurationMinutes = legs.last.durationMinutes;
+        _scheduleReady = true;
+      });
+    } on ItineraryRouteException catch (error) {
+      if (mounted && revision == _scheduleRevision) {
+        setState(() => _scheduleError = error.message);
       }
-      _finalTravelDurationMinutes = legs.length > itinerary.length
-          ? legs[itinerary.length].durationMinutes
-          : 0;
-      _scheduleLoading = false;
-      _customizedItineraryDirty =
-          _itineraryMode == _ItineraryViewMode.customize;
-    });
+    } finally {
+      if (mounted && revision == _scheduleRevision) {
+        setState(() => _scheduleLoading = false);
+      }
+    }
   }
 
   List<_EditableItineraryStop> get _selectedItinerary {
@@ -751,10 +810,21 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   int get _selectedItineraryDurationMinutes {
-    return _calculateDurationMinutes(_selectedItinerary);
+    final start = _scheduledPickupAt;
+    final end = _estimatedBookingEndAt;
+    return start == null || end == null ? 0 : end.difference(start).inMinutes;
   }
 
   String? _itineraryValidationMessage() {
+    if (_scheduleLoading) return 'Calculating route... Please wait.';
+    if (_scheduleError != null) return _scheduleError;
+    if (_scheduleValidationError != null) return _scheduleValidationError;
+    if (!_scheduleReady) {
+      return 'Choose pickup date, time and locations, then calculate your route.';
+    }
+    if (_spotSelectionDirtyForSchedule) {
+      return 'Update your itinerary before confirming.';
+    }
     final itinerary = _selectedItinerary;
 
     if (itinerary.length < _minimumSpots) {
@@ -817,7 +887,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     if (finalDepartureMinutes != null &&
-        finalDepartureMinutes > _tourEndMinutes) {
+        finalDepartureMinutes + _finalTravelDurationMinutes > _tourEndMinutes) {
       return _tourHoursErrorMessage;
     }
 
@@ -1147,6 +1217,16 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // =============================================================================
 
   Future<void> _confirm(TourPackage package) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await _reviewAndSubmit(package);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _reviewAndSubmit(TourPackage package) async {
     try {
       final active = await _repo.hasActiveTour();
 
@@ -1161,6 +1241,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
+    if (!mounted) return;
     final blocking = _confirmationBlockingMessage(package);
 
     if (blocking != null) {
@@ -1179,10 +1260,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
-    setState(() {
-      _saving = true;
-    });
-
     try {
       await _recalculateSelectedItinerary();
       if (!mounted) return;
@@ -1190,6 +1267,81 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       final recalculatedError = _itineraryValidationMessage();
       if (recalculatedError != null) {
         _snack(recalculatedError);
+        return;
+      }
+
+      final agreed = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: Colors.white,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .92,
+          maxWidth: 640,
+        ),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (sheetContext) => BookingReviewSheet(
+          summary: [
+            (label: 'Tour Package', value: package.title),
+            (label: 'Pickup', value: _selectedPickup!.address),
+            (label: 'Pickup Date', value: _dateLabel),
+            (label: 'Pickup Time', value: _pickupTimeLabel),
+            (
+              label: 'Passengers',
+              value:
+                  '$_totalParticipants ($_adults adults, $_children children)',
+            ),
+            (label: 'Tricycles', value: '$_requiredTricycles'),
+            (
+              label: 'Booking Type',
+              value: _isSameDay ? 'Same-Day Booking' : 'Advance Booking',
+            ),
+            (
+              label: 'Estimated Tour Duration',
+              value: _formatDurationLabel(_selectedItineraryDurationMinutes),
+            ),
+            (label: 'Drop-off', value: _selectedDropoff!.address),
+            (
+              label: 'Estimated Drop-off',
+              value: DateFormat(
+                'MMM d, h:mm a',
+              ).format(_estimatedBookingEndAt!),
+            ),
+            (label: 'Total', value: _money(_totalPrice(package))),
+            (
+              label: 'Downpayment Required',
+              value: _money(_downpaymentAmount(package)),
+            ),
+            (
+              label: 'Remaining Balance',
+              value: _money(_remainingBalance(package)),
+            ),
+            (label: 'Payment Method', value: 'GCash via PayMongo'),
+          ],
+          itinerary: _selectedItinerary.indexed
+              .map(
+                (entry) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ItineraryPreviewTile(
+                    index: entry.$1 + 1,
+                    item: entry.$2,
+                  ),
+                ),
+              )
+              .toList(),
+          onViewPolicies: () => Navigator.of(
+            sheetContext,
+          ).push(MaterialPageRoute<void>(builder: (_) => const TermsScreen())),
+        ),
+      );
+      if (!mounted || agreed != true) return;
+      // Time may have passed while the tourist reviewed policies. Validate
+      // again without changing the schedule or amounts they just approved.
+      final submissionError = _confirmationBlockingMessage(package);
+      if (submissionError != null) {
+        _snack(submissionError);
         return;
       }
 
@@ -1259,12 +1411,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       }
 
       _snack('Unable to create booking: $error');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
     }
   }
 
@@ -1684,24 +1830,58 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                               setState(() {
                                 _itineraryMode = mode;
                               });
+                              unawaited(_recalculateSelectedItinerary());
                             },
                           ),
 
                           const SizedBox(height: 12),
 
-                          if (_itineraryMode == _ItineraryViewMode.suggested)
+                          if (_scheduleLoading)
+                            const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Column(
+                                children: [
+                                  LinearProgressIndicator(minHeight: 2),
+                                  SizedBox(height: 8),
+                                  Text('Calculating route...'),
+                                ],
+                              ),
+                            )
+                          else if (_scheduleError != null)
+                            Column(
+                              children: [
+                                Text(
+                                  _scheduleError!,
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                                TextButton.icon(
+                                  onPressed: () =>
+                                      _recalculateSelectedItinerary(
+                                        retry: true,
+                                      ),
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('Retry route calculation'),
+                                ),
+                              ],
+                            )
+                          else if (_itineraryMode ==
+                              _ItineraryViewMode.suggested)
                             _ReadOnlyItineraryCard(
                               items: _suggestedItinerary,
-                              totalDurationLabel: _formatDurationLabel(
-                                _calculateDurationMinutes(_suggestedItinerary),
-                              ),
+                              totalDurationLabel: _scheduleReady
+                                  ? _formatDurationLabel(
+                                      _selectedItineraryDurationMinutes,
+                                    )
+                                  : 'Unavailable',
                             )
                           else
                             _EditableItineraryCard(
                               items: _customizedItinerary,
-                              currentDurationLabel: _formatDurationLabel(
-                                _calculateDurationMinutes(_customizedItinerary),
-                              ),
+                              currentDurationLabel: _scheduleReady
+                                  ? _formatDurationLabel(
+                                      _selectedItineraryDurationMinutes,
+                                    )
+                                  : 'Unavailable',
                               hasUnsavedChanges: _customizedItineraryDirty,
                               onStayChanged: (item, minutes) {
                                 setState(() {
@@ -1716,19 +1896,36 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                   _moveCustomizedItineraryStop(index, 1),
                             ),
 
-                          if (_scheduleLoading) ...[
+                          if (_scheduleReady &&
+                              _estimatedBookingEndAt != null) ...[
                             const SizedBox(height: 10),
-                            const LinearProgressIndicator(minHeight: 2),
+                            Text(
+                              'Estimated Drop-off: ${DateFormat("h:mm a").format(_estimatedBookingEndAt!)}',
+                              style: const TextStyle(
+                                color: _primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ],
+
+                          if (_scheduleValidationError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Text(
+                                _scheduleValidationError!,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            ),
 
                           const SizedBox(height: 12),
 
-                          _ItineraryGuideCard(
-                            duration: _formatDurationLabel(
-                              _selectedItineraryDurationMinutes,
+                          if (_scheduleReady)
+                            _ItineraryGuideCard(
+                              duration: _formatDurationLabel(
+                                _selectedItineraryDurationMinutes,
+                              ),
+                              stops: _selectedItinerary.length,
                             ),
-                            stops: _selectedItinerary.length,
-                          ),
                         ],
                       ),
 
@@ -1951,7 +2148,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                               ),
                               _ReviewRow(label: 'Total', value: _money(total)),
                               _ReviewRow(
-                                label: 'Pay Now',
+                                label: 'Downpayment after driver acceptance',
                                 value: _money(amountNow),
                                 emphasized: true,
                               ),
@@ -3948,7 +4145,7 @@ class _EditableItineraryCard extends StatelessWidget {
           const SizedBox(height: 4),
 
           Text(
-            'Reorder destinations and adjust their timing. Destination selection is managed in the previous step.',
+            'Reorder destinations and edit Time of Stay. Google Maps calculates travel; arrivals and departures follow your pickup time.',
             style: const TextStyle(
               color: _secondaryText,
               fontWeight: FontWeight.w600,
@@ -3976,6 +4173,7 @@ class _EditableItineraryCard extends StatelessWidget {
                 bottom: entry.key == items.length - 1 ? 0 : 10,
               ),
               child: _EditableItineraryTile(
+                key: ValueKey(entry.value.localKey),
                 index: entry.key,
                 total: items.length,
                 item: entry.value,
@@ -3995,6 +4193,7 @@ class _EditableItineraryCard extends StatelessWidget {
 
 class _EditableItineraryTile extends StatelessWidget {
   const _EditableItineraryTile({
+    super.key,
     required this.index,
     required this.total,
     required this.item,
@@ -4077,7 +4276,7 @@ class _EditableItineraryTile extends StatelessWidget {
             children: [
               Expanded(
                 child: _EditableTimeButton(
-                  label: 'Arrival',
+                  label: 'Arrival (auto)',
                   value: item.arrivalTime.isEmpty
                       ? 'Calculating'
                       : formatScheduleTimeLabel(item.arrivalTime),
@@ -4089,7 +4288,7 @@ class _EditableItineraryTile extends StatelessWidget {
 
               Expanded(
                 child: _EditableTimeButton(
-                  label: 'Departure',
+                  label: 'Departure (auto)',
                   value: item.departureTime.isEmpty
                       ? 'Calculating'
                       : formatScheduleTimeLabel(item.departureTime),
@@ -4101,19 +4300,30 @@ class _EditableItineraryTile extends StatelessWidget {
 
           const SizedBox(height: 8),
 
+          Text(
+            item.arrivalTime.isEmpty
+                ? 'Travel: —'
+                : 'Travel: ${item.travelDurationMinutes} min (Google Maps)',
+            style: const TextStyle(color: _secondaryText, fontSize: 11),
+          ),
+          const SizedBox(height: 8),
           TextFormField(
             initialValue: '${item.stayMinutes}',
             keyboardType: TextInputType.number,
             onChanged: (value) {
               final minutes = int.tryParse(value.trim());
 
-              if (minutes != null && minutes > 0) {
-                onStayChanged(minutes);
-              }
+              onStayChanged(minutes ?? 0);
             },
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            validator: (value) =>
+                (int.tryParse(value ?? '') ?? 0) > 0 &&
+                    (int.tryParse(value ?? '') ?? 0) <= 600
+                ? null
+                : 'Enter 1–600 minutes',
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
             decoration: InputDecoration(
-              labelText: 'Estimated stay',
+              labelText: 'Time of Stay',
               suffixText: 'min',
               filled: true,
               fillColor: Colors.white,
@@ -5267,7 +5477,6 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
   String? _selectedAddress;
 
   double? _selectedLat;
-  double? _selectedLng;
 
   @override
   void dispose() {
@@ -5486,7 +5695,6 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
     setState(() {
       _selectedAddress = address;
       _selectedLat = lat;
-      _selectedLng = lng;
       _suggestions = const [];
     });
 
@@ -5501,7 +5709,6 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
     setState(() {
       _selectedAddress = null;
       _selectedLat = null;
-      _selectedLng = null;
       _suggestions = const [];
     });
 
@@ -6123,21 +6330,6 @@ class _EditableItineraryStop {
 // GENERAL HELPERS
 // =============================================================================
 
-int _calculateDurationMinutes(List<_EditableItineraryStop> items) {
-  if (items.isEmpty) {
-    return 0;
-  }
-
-  final first = items.first.arrivalTime;
-  final last = items.last.departureTime;
-
-  if (first.isNotEmpty && last.isNotEmpty) {
-    return scheduleMinutesBetween(first, last);
-  }
-
-  return items.fold(0, (total, item) => total + item.stayMinutes);
-}
-
 String _formatDurationLabel(int minutes) {
   if (minutes <= 0) {
     return 'Not available';
@@ -6165,7 +6357,7 @@ String _itineraryTimingSummary({
 }) {
   final parts = <String>[];
 
-  if (travelDurationMinutes > 0) {
+  if (arrivalTime.isNotEmpty) {
     parts.add('Travel ${_formatDurationLabel(travelDurationMinutes)}');
   }
 
@@ -6455,97 +6647,6 @@ class _ImageFallback extends StatelessWidget {
       color: _softBlue,
       alignment: Alignment.center,
       child: const Icon(Icons.map_outlined, color: _primary),
-    );
-  }
-}
-
-// =============================================================================
-// TIME PICKER
-// =============================================================================
-
-class _TimePickerSheet extends StatelessWidget {
-  const _TimePickerSheet({
-    required this.title,
-    required this.options,
-    required this.selected,
-  });
-
-  final String title;
-  final List<String> options;
-  final String selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.68,
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-
-            Container(
-              width: 44,
-              height: 5,
-              decoration: BoxDecoration(
-                color: const Color(0xFFDCE3EC),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 13, 8, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: _ink,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-            ),
-
-            const Divider(height: 1),
-
-            Expanded(
-              child: ListView.builder(
-                itemCount: options.length,
-                itemBuilder: (_, index) {
-                  final option = options[index];
-
-                  final active = option == selected;
-
-                  return ListTile(
-                    onTap: () => Navigator.pop(context, option),
-                    tileColor: active ? _softBlue : null,
-                    title: Text(
-                      formatScheduleTimeLabel(option),
-                      style: TextStyle(
-                        color: active ? _primary : _ink,
-                        fontWeight: active ? FontWeight.w900 : FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                    trailing: active
-                        ? const Icon(Icons.check_rounded, color: _primary)
-                        : null,
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

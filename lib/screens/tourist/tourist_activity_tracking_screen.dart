@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'package:touristrike/widgets/live_itinerary_estimates.dart';
+import 'package:touristrike/core/models/booking_feedback.dart';
+import 'package:touristrike/widgets/booking_feedback_card.dart';
+import 'package:touristrike/core/models/booking_payment_prompt.dart';
+import 'package:touristrike/widgets/booking_payment_sheet.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -87,9 +92,20 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   List<PaymentRecord> _paymentRecords = [];
   List<PaymentAllocation> _paymentAllocations = [];
   final Set<String> _busyPaymentStages = <String>{};
+  final _paymentPrompt = ValueNotifier<BookingPaymentPrompt?>(null);
+  final _paymentPromptGate = BookingPaymentPromptGate();
+  final _remainingPrompt = ValueNotifier<BookingPaymentPrompt?>(null);
+  final _remainingPromptGate = BookingPaymentPromptGate();
+  bool _paymentSheetOpen = false;
+  bool _paymentPromptScheduled = false;
+  bool _paymentPromptRefreshing = false;
+  bool _paymentPromptRefreshAgain = false;
 
   bool _loading = true;
-  bool _reviewShown = false;
+  final _feedbackGate = BookingFeedbackGate();
+  BookingFeedback? _feedback;
+  String? _feedbackError;
+  bool _feedbackBusy = false;
   bool _serverTestModeEnabled = false;
 
   String? _error;
@@ -152,6 +168,135 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           );
 
     return matches.isEmpty ? null : matches.first;
+  }
+
+  // Serialize reads because assignment and booking events can arrive together.
+  // Failed reads must never be interpreted as permission to collect payment.
+  Future<void> _refreshPaymentPromptState() async {
+    if (!mounted) return;
+    if (_paymentPromptRefreshing) {
+      _paymentPromptRefreshAgain = true;
+      return;
+    }
+    _paymentPromptRefreshing = true;
+    try {
+      do {
+        _paymentPromptRefreshAgain = false;
+        final results = await Future.wait<dynamic>([
+          _repo.fetchPackageBookingDetails(widget.bookingId),
+          _repo.fetchPaymentRecordsFor(bookingId: widget.bookingId),
+          _repo.fetchBookingItinerary(widget.bookingId),
+          _repo.fetchConvoyRoster(widget.bookingId),
+          _repo.fetchPaymentAllocationsForBooking(widget.bookingId),
+        ]);
+        if (!mounted) return;
+        final booking = results[0] as PackageBooking?;
+        if (booking == null) return;
+        _paymentPrompt.value = BookingPaymentPrompt.fromRecords(
+          booking,
+          results[1] as List<PaymentRecord>,
+        );
+        _paymentPromptGate.observe(_paymentPrompt.value!);
+        final itinerary = results[2] as List<BookingItineraryItem>;
+        final roster = results[3] as List<ConvoyDriverSnapshot>;
+        _remainingPrompt.value = BookingPaymentPrompt.fromRecords(
+          booking,
+          results[1] as List<PaymentRecord>,
+          stage: 'remaining_balance',
+          itineraryComplete:
+              itinerary.isNotEmpty &&
+              itinerary.every((s) => s.spotStatus == 'completed'),
+          dropoffStarted: roster.any(
+            (d) => const {
+              ConvoyJourneyState.enRouteDropoff,
+              ConvoyJourneyState.atDropoff,
+              ConvoyJourneyState.completed,
+            }.contains(d.journeyState),
+          ),
+          allocations: results[4] as List<PaymentAllocation>,
+        );
+        _remainingPromptGate.observe(_remainingPrompt.value!);
+        _maybeShowPaymentPrompt();
+      } while (_paymentPromptRefreshAgain && mounted);
+    } catch (error) {
+      debugPrint('[Payments] prompt refresh failed: $error');
+    } finally {
+      _paymentPromptRefreshing = false;
+    }
+  }
+
+  void _maybeShowPaymentPrompt() {
+    if (!mounted || _loading || _paymentPromptScheduled || _paymentSheetOpen) {
+      return;
+    }
+    _paymentPromptScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _paymentPromptScheduled = false;
+      if (!mounted ||
+          _loading ||
+          _paymentSheetOpen ||
+          ModalRoute.of(context)?.isCurrent != true ||
+          _busyPaymentStages.isNotEmpty) {
+        return;
+      }
+      final state = _paymentPrompt.value;
+      if (state == null || state.booking.touristId != _repo.currentUserId) {
+        return;
+      }
+      if (_paymentPromptGate.shouldPresent(state)) {
+        unawaited(_showPaymentPrompt());
+      } else if (_remainingPrompt.value case final remaining?) {
+        if (_remainingPromptGate.shouldPresent(remaining)) {
+          unawaited(_showPaymentPrompt(remaining: true));
+        }
+      }
+    });
+  }
+
+  Future<void> _showPaymentPrompt({bool remaining = false}) async {
+    final notifier = remaining ? _remainingPrompt : _paymentPrompt;
+    final gate = remaining ? _remainingPromptGate : _paymentPromptGate;
+    final stage = remaining ? 'remaining_balance' : 'down_payment';
+    if (!mounted ||
+        _paymentSheetOpen ||
+        notifier.value?.paymentRequired != true ||
+        _busyPaymentStages.contains(stage)) {
+      return;
+    }
+    _paymentSheetOpen = true;
+    gate.markHandled();
+    try {
+      final pay = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: Colors.white,
+        constraints: BoxConstraints(
+          maxWidth: 640,
+          maxHeight: MediaQuery.sizeOf(context).height * .9,
+        ),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (sheetContext) => BookingPaymentSheet(
+          state: notifier,
+          onPay: () {
+            if (notifier.value?.paymentRequired == true) {
+              Navigator.pop(sheetContext, true);
+            }
+          },
+        ),
+      );
+      if (mounted && pay == true && notifier.value?.paymentRequired == true) {
+        if (remaining) {
+          await _chooseRemainingPayment();
+        } else {
+          await _openPayMongoCheckout(stage: 'down_payment');
+        }
+      }
+    } finally {
+      _paymentSheetOpen = false;
+    }
   }
 
   Future<void> _openPayMongoCheckout({required String stage}) async {
@@ -305,6 +450,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint('[PayMongo] app resumed; refreshing server payment status');
+      unawaited(_refreshPaymentPromptState());
       _refreshPayments();
       _refreshServerTestModeState();
     }
@@ -339,6 +485,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     _touristGpsSub?.cancel();
     _routeRefreshTimer?.cancel();
     _markerMotion.dispose();
+    _paymentPrompt.dispose();
+    _remainingPrompt.dispose();
 
     _mapCtrl?.dispose();
 
@@ -480,6 +628,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _subscribeToConvoyRoster();
       _subscribeToBooking(widget.bookingId);
       _subscribeToPayments(widget.bookingId);
+      unawaited(_refreshPaymentPromptState());
 
       _checkAndShowReviewModal();
       _startTouristGpsStreaming();
@@ -510,7 +659,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             type: PostgresChangeFilterType.eq,
             value: widget.bookingId,
           ),
-          callback: (_) => _refreshConvoyRoster(),
+          callback: (_) {
+            unawaited(_refreshConvoyRoster());
+            unawaited(_refreshPaymentPromptState());
+          },
         )
         .subscribe();
   }
@@ -623,6 +775,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 }
               },
             );
+            final updatedAt = dbDate(row['updated_at']);
+            if (updatedAt != null) {
+              setState(
+                () => _convoy = _convoy
+                    .map(
+                      (driver) => driver.driverId == driverId
+                          ? driver.withLiveLocation(
+                              latitude: lat,
+                              longitude: lng,
+                              heading:
+                                  (row['heading'] as num?)?.toDouble() ?? 0,
+                              updatedAt: updatedAt,
+                            )
+                          : driver,
+                    )
+                    .toList(),
+              );
+            }
             _scheduleRouteRefresh();
           },
         )
@@ -684,9 +854,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             type: PostgresChangeFilterType.eq,
             value: bookingId,
           ),
-          callback: (_) => _refreshSpots(logTag: 'booking-update'),
+          callback: (_) {
+            unawaited(_refreshSpots(logTag: 'booking-update'));
+            unawaited(_refreshPaymentPromptState());
+          },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          if (status == RealtimeSubscribeStatus.subscribed) {
+            unawaited(_refreshPaymentPromptState());
+          }
+        });
   }
 
   void _subscribeToPayments(String bookingId) {
@@ -748,83 +925,57 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   }
 
   Future<void> _checkAndShowReviewModal() async {
-    if (_reviewShown || !_isTourCompleted()) {
+    // Only overall booking completion can request feedback, never a legacy
+    // activity or an individual driver completing ahead of the convoy.
+    if (!mounted ||
+        !const {
+          'completed',
+          'done',
+        }.contains(_booking?.bookingStatus.toLowerCase()) ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        !_feedbackGate.reserve()) {
       return;
     }
+    await _loadFeedback(open: true);
+  }
 
-    final bookingId = _booking?.id?.toString() ?? widget.bookingId;
-
-    if (bookingId.isEmpty || _convoy.isEmpty) {
-      return;
-    }
-
-    final packageId = _booking?.packageId ?? _activity?.packageId;
-
-    final packageName = dbString(
-      _activity?.packageRow?['title'],
-      fallback: dbString(_booking?.packageRow?['title']),
-    );
-
-    var hasPackage =
-        packageId == null || await _repo.hasReviewedPackage(bookingId);
-    final unreviewedDrivers = <ConvoyDriverSnapshot>[];
-    for (final driver in _convoy) {
-      if (!await _repo.hasReviewedDriver(
-        bookingId,
-        driverId: driver.driverId,
-      )) {
-        unreviewedDrivers.add(driver);
-      }
-    }
-
-    if (unreviewedDrivers.isEmpty && hasPackage) {
-      _reviewShown = true;
-      return;
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _reviewShown = true;
-    });
-
-    var submitted = false;
-    final prompts = unreviewedDrivers.isEmpty
-        ? <ConvoyDriverSnapshot?>[null]
-        : unreviewedDrivers
-              .map<ConvoyDriverSnapshot?>((driver) => driver)
-              .toList();
-    for (final driver in prompts) {
+  Future<void> _loadFeedback({bool open = false}) async {
+    if (!mounted || _feedbackBusy) return;
+    _feedbackBusy = true;
+    try {
+      final feedback = BookingFeedback(
+        await _repo.fetchBookingFeedback(widget.bookingId),
+      );
       if (!mounted) return;
-      submitted = await DriverReviewModal.show(
-        context,
-        bookingId: bookingId,
-        driverId: driver?.driverId ?? '',
-        driverName: driver?.driverName ?? '',
-        driverAvatarUrl: driver?.avatarUrl ?? '',
-        packageId: packageId,
-        packageName: packageName.isNotEmpty ? packageName : null,
-        includeDriverReview: driver != null,
-        includePackageReview: !hasPackage,
-      );
-      if (!submitted) return;
-      hasPackage = true;
+      setState(() {
+        _feedback = feedback;
+        _feedbackError = null;
+      });
+      if (open &&
+          feedback.canReview &&
+          !feedback.complete &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        final submitted = await DriverReviewModal.show(
+          context,
+          feedback: feedback,
+        );
+        if (submitted && mounted) {
+          final saved = BookingFeedback(
+            await _repo.fetchBookingFeedback(widget.bookingId),
+          );
+          if (mounted) setState(() => _feedback = saved);
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () =>
+              _feedbackError = 'Unable to load booking feedback. Please retry.',
+        );
+      }
+    } finally {
+      _feedbackBusy = false;
     }
-
-    if (!mounted || !submitted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Thank you for your feedback!'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-    await _refreshSpots(logTag: 'review-submitted');
   }
 
   // =========================================================================
@@ -832,6 +983,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // =========================================================================
 
   Future<void> _refreshSpots({String logTag = 'refresh-spots'}) async {
+    unawaited(_refreshPaymentPromptState());
     final activity = await _repo.fetchActivityForBooking(widget.bookingId);
 
     final booking = await _repo.fetchPackageBookingDetails(widget.bookingId);
@@ -872,6 +1024,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   }
 
   Future<void> _refreshPayments() async {
+    unawaited(_refreshPaymentPromptState());
     try {
       final results = await Future.wait<dynamic>([
         _repo.fetchPaymentRecordsFor(bookingId: widget.bookingId),
@@ -1672,6 +1825,73 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           onManage: _canOfferCancellation ? _manageCancellation : null,
         ),
 
+        ValueListenableBuilder<BookingPaymentPrompt?>(
+          valueListenable: _remainingPrompt,
+          builder: (context, prompt, _) {
+            _maybeShowPaymentPrompt();
+            if (prompt?.paymentRequired != true) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _busyPaymentStages.contains('remaining_balance')
+                      ? null
+                      : () => _showPaymentPrompt(remaining: true),
+                  icon: const Icon(Icons.payments_outlined),
+                  label: Text(
+                    prompt!.cashPending
+                        ? 'View cash confirmation'
+                        : 'Pay remaining balance',
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        ValueListenableBuilder<BookingPaymentPrompt?>(
+          valueListenable: _paymentPrompt,
+          builder: (context, prompt, _) {
+            _maybeShowPaymentPrompt();
+            if (prompt?.confirmed == true) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: _success, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Downpayment confirmed',
+                        style: TextStyle(
+                          color: _success,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            if (prompt?.paymentRequired != true) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: _primary),
+                  onPressed: _busyPaymentStages.contains('down_payment')
+                      ? null
+                      : _showPaymentPrompt,
+                  icon: const Icon(Icons.payments_outlined),
+                  label: Text(
+                    'Pay ${money.format(prompt!.booking.downpaymentAmount)} downpayment',
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
         Expanded(
           child: RefreshIndicator(
             color: _primary,
@@ -1775,6 +1995,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   const SizedBox(height: 14),
                 ],
 
+                if (booking != null && !completed && _convoy.isNotEmpty)
+                  LiveItineraryEstimates(
+                    booking: booking,
+                    drivers: _convoy,
+                    stops: _spots,
+                  ),
                 if (_convoy.isNotEmpty) ...[
                   ConvoyTouristDriverList(
                     convoy: _convoy,
@@ -1878,7 +2104,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     record: downPaymentRecord,
                     actionLabel: 'Pay with GCash',
                     busy: _busyPaymentStages.contains('down_payment'),
-                    onPay: () => _openPayMongoCheckout(stage: 'down_payment'),
+                    onPay: _showPaymentPrompt,
                     onViewReceipt: _openReceipt,
                   ),
                   const SizedBox(height: 14),
@@ -1896,7 +2122,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     convoy: _convoy,
                     actionLabel: 'Choose GCash or Cash',
                     busy: _busyPaymentStages.contains('remaining_balance'),
-                    onPay: _chooseRemainingPayment,
+                    onPay: () => _showPaymentPrompt(remaining: true),
                     onViewReceipt: _openReceipt,
                   ),
                   const SizedBox(height: 14),
@@ -1905,6 +2131,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // BOOKING SUMMARY
                 // ===========================================================
+                if (completed) ...[
+                  BookingFeedbackCard(
+                    feedback: _feedback,
+                    error: _feedbackError,
+                    onReview: () => _loadFeedback(open: true),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 _BookingSummaryCard(
                   date: travelDate,
                   pickupDateTime: booking?.scheduledStartAt?.toLocal(),
@@ -3233,7 +3467,8 @@ class _TourSpotTimelineRow extends StatelessWidget {
 
     final timeFormat = DateFormat('h:mm a');
 
-    final schedule = _buildTimeLabel(spot.arrivalTime, spot.departureTime);
+    final schedule =
+        'Planned: ${_buildTimeLabel(spot.arrivalTime, spot.departureTime)}';
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3362,7 +3597,7 @@ class _TourSpotTimelineRow extends StatelessWidget {
                   _ActualStatusBadge(
                     icon: Icons.location_on_rounded,
                     text:
-                        'Arrived ${timeFormat.format(spot.actualArrivalTime!.toLocal())}',
+                        'First convoy arrival ${timeFormat.format(spot.actualArrivalTime!.toLocal())}',
                     color: _primary,
                   ),
                 ],
@@ -3373,7 +3608,7 @@ class _TourSpotTimelineRow extends StatelessWidget {
                   _ActualStatusBadge(
                     icon: Icons.check_circle_rounded,
                     text:
-                        'Completed ${timeFormat.format(spot.actualDepartureTime!.toLocal())}',
+                        'Actual departure ${timeFormat.format(spot.actualDepartureTime!.toLocal())}',
                     color: _success,
                   ),
                 ],

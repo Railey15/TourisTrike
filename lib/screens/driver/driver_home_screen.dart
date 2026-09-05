@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/core/supabase/touristrike_models.dart';
+import 'package:touristrike/widgets/driver_overview_details.dart';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -25,6 +28,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     northeast: const LatLng(15.55, 121.55),
   );
 
+  final _repo = TourisTrikeRepository();
+  Json _overview = {};
+  String? _overviewError;
+  bool _overviewLoading = true;
+  int _overviewRevision = 0;
+  RealtimeChannel? _overviewChannel;
+  Timer? _overviewDebounce;
   Map<String, dynamic>? _profile;
 
   bool _isOnline = false;
@@ -60,6 +70,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _positionSub?.cancel();
 
     _stopSearchingRideListener();
+    _overviewChannel?.unsubscribe();
+    _overviewDebounce?.cancel();
 
     super.dispose();
   }
@@ -95,6 +107,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Future<void> _bootstrap() async {
+    // Assignment metrics can load even if profile or ride loading fails.
+    unawaited(_refreshEarnings());
+    _subscribeOverview();
     await _loadProfile();
 
     _subscribeProfileRealtime();
@@ -102,8 +117,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     await _loadActiveRideOnce();
 
     _subscribeMyActiveRideRealtime();
-
-    await _refreshEarnings();
 
     if (_isOnline) {
       final ready = await _prepareLocationAndStartTracking();
@@ -125,9 +138,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Future<void> _refreshAll() async {
+    unawaited(_refreshEarnings());
     await _loadProfile();
     await _loadActiveRideOnce();
-    await _refreshEarnings();
 
     if (_isOnline) {
       final ready = await _prepareLocationAndStartTracking();
@@ -151,7 +164,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         .from('profiles')
         .select(
           'id, full_name, first_name, last_name, '
-          'profile_image_url, is_online, role',
+          'profile_image_url, is_online, role, average_rating, total_reviews',
         )
         .eq('id', _user.id)
         .maybeSingle();
@@ -600,74 +613,68 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   // =========================================================================
 
   Future<void> _refreshEarnings() async {
-    final now = DateTime.now();
-
-    final start = DateTime(now.year, now.month, now.day);
-
-    final end = start.add(const Duration(days: 1));
-
-    num sum = 0;
-
-    var trips = 0;
-    var completedTotal = 0;
-
+    final revision = ++_overviewRevision;
     try {
-      final transactionRows = await supabase
-          .from('payment_records')
-          .select('amount, created_at')
-          .eq('payee_id', _user.id)
-          .eq('status', 'confirmed')
-          .gte('created_at', start.toIso8601String())
-          .lt('created_at', end.toIso8601String());
-
-      for (final row in transactionRows) {
-        final amount = row['amount'];
-
-        if (amount is num) {
-          sum += amount;
-        }
-
-        trips++;
-      }
+      final result = await _repo.fetchDriverHomeOverview();
+      if (!mounted || revision != _overviewRevision) return;
+      setState(() {
+        _overview = result;
+        _todayEarnings = dbDouble(result['today_earnings']);
+        _todayTrips = dbInt(result['today_trips']);
+        _totalCompletedTours = dbInt(result['completed_tours']);
+        _overviewError = null;
+        _overviewLoading = false;
+      });
     } catch (_) {
-      try {
-        final activityRows = await supabase
-            .from('package_activities')
-            .select('price, updated_at')
-            .eq('driver_id', _user.id)
-            .eq('status', 'completed')
-            .gte('updated_at', start.toIso8601String())
-            .lt('updated_at', end.toIso8601String());
-
-        for (final row in activityRows) {
-          final price = row['price'];
-
-          if (price is num) {
-            sum += price;
-          }
-
-          trips++;
-        }
-      } catch (_) {}
+      if (mounted && revision == _overviewRevision) {
+        setState(() {
+          _overviewError =
+              'Unable to load your overview. Pull to refresh or retry.';
+          _overviewLoading = false;
+        });
+      }
     }
+  }
 
-    try {
-      final totalRows = await supabase
-          .from('package_activities')
-          .select('id')
-          .eq('driver_id', _user.id)
-          .eq('status', 'completed')
-          .limit(1000);
+  void _subscribeOverview() {
+    _overviewChannel?.unsubscribe();
+    var channel = supabase.channel('driver-overview:${_user.id}');
+    for (final table in [
+      'booking_drivers',
+      'driver_reviews',
+      'payment_allocations',
+    ]) {
+      channel = channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'driver_id',
+          value: _user.id,
+        ),
+        callback: (_) => _scheduleOverviewRefresh(),
+      );
+    }
+    for (final table in ['payment_records', 'package_bookings']) {
+      channel = channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        callback: (_) => _scheduleOverviewRefresh(),
+      );
+    }
+    _overviewChannel = channel.subscribe((status, error) {
+      if (status == RealtimeSubscribeStatus.subscribed) {
+        _scheduleOverviewRefresh();
+      }
+    });
+  }
 
-      completedTotal = totalRows.length;
-    } catch (_) {}
-
-    if (!mounted) return;
-
-    setState(() {
-      _todayEarnings = sum;
-      _todayTrips = trips;
-      _totalCompletedTours = completedTotal;
+  void _scheduleOverviewRefresh() {
+    _overviewDebounce?.cancel();
+    _overviewDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) unawaited(_refreshEarnings());
     });
   }
 
@@ -754,7 +761,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
                         const SizedBox(height: 11),
 
-                        _buildActiveTourAssignment(),
+                        if (_overviewLoading) const LinearProgressIndicator(),
+                        if (_overviewError != null)
+                          ListTile(
+                            title: Text(_overviewError!),
+                            trailing: IconButton(
+                              onPressed: _refreshEarnings,
+                              icon: const Icon(Icons.refresh),
+                            ),
+                          ),
+                        if (!_overviewLoading && _overviewError == null)
+                          DriverOverviewDetails(
+                            data: _overview,
+                            onRefresh: _refreshEarnings,
+                            assignmentsOnly: true,
+                            upcoming: false,
+                          ),
+                        if (_activeRide != null) _buildActiveTourAssignment(),
 
                         const SizedBox(height: 24),
 
@@ -779,6 +802,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         const SizedBox(height: 11),
 
                         _buildGuideStats(),
+                        if (!_overviewLoading && _overviewError == null)
+                          DriverOverviewDetails(
+                            data: _overview,
+                            onRefresh: _refreshEarnings,
+                          ),
                       ],
                     ),
                   ),
@@ -1044,51 +1072,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   // =========================================================================
 
   Widget _buildUpcomingTourSchedule() {
-    final tour = _activeRide;
-
-    if (tour == null) {
-      return const _DashboardEmptyState(
-        icon: Icons.calendar_month_outlined,
-        title: 'No upcoming tour yet',
-        subtitle: 'Your next assigned package will appear here automatically.',
+    if (_overviewLoading) return const LinearProgressIndicator();
+    if (_overviewError != null) {
+      return ListTile(
+        title: Text(_overviewError!),
+        trailing: IconButton(
+          onPressed: _refreshEarnings,
+          icon: const Icon(Icons.refresh),
+        ),
       );
     }
-
-    return _DashboardSurface(
-      child: Column(
-        children: [
-          _TourInfoRow(
-            icon: Icons.card_travel_outlined,
-            label: 'Tour package',
-            value: _tourPackageName(tour),
-          ),
-
-          const _InnerDivider(),
-
-          _TourInfoRow(
-            icon: Icons.schedule_outlined,
-            label: 'Schedule',
-            value: _tourTime(tour),
-          ),
-
-          const _InnerDivider(),
-
-          _TourInfoRow(
-            icon: Icons.group_outlined,
-            label: 'Tourists',
-            value:
-                '${_touristCount(tour)} ${_touristCount(tour) == 1 ? 'tourist' : 'tourists'}',
-          ),
-
-          const _InnerDivider(),
-
-          _TourInfoRow(
-            icon: Icons.location_on_outlined,
-            label: 'Pickup point',
-            value: _pickupName(tour),
-          ),
-        ],
-      ),
+    return DriverOverviewDetails(
+      data: _overview,
+      onRefresh: _refreshEarnings,
+      assignmentsOnly: true,
+      upcoming: true,
     );
   }
 
@@ -1730,30 +1728,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return value.isEmpty ? 'Destination pending' : value;
   }
 
-  String _tourTime(Map<String, dynamic> tour) {
-    final raw =
-        (tour['scheduled_at'] ?? tour['start_time'] ?? tour['created_at'] ?? '')
-            .toString();
-
-    final date = DateTime.tryParse(raw)?.toLocal();
-
-    if (date == null) {
-      return 'Schedule pending';
-    }
-
-    final hour = date.hour > 12
-        ? date.hour - 12
-        : date.hour == 0
-        ? 12
-        : date.hour;
-
-    final minute = date.minute.toString().padLeft(2, '0');
-
-    final period = date.hour >= 12 ? 'PM' : 'AM';
-
-    return '${_monthShort(date.month)} ${date.day}, ${date.year} • $hour:$minute $period';
-  }
-
   String _tourTimeShort(Map<String, dynamic> tour) {
     final raw =
         (tour['scheduled_at'] ?? tour['start_time'] ?? tour['created_at'] ?? '')
@@ -1807,13 +1781,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   String _ratingLabel() {
-    final raw = _profile?['rating'] ?? _profile?['driver_rating'];
-
-    if (raw is num && raw > 0) {
-      return raw.toStringAsFixed(1);
-    }
-
-    return 'New';
+    final count = dbInt(_overview['review_count']);
+    return count == 0
+        ? 'New'
+        : dbDouble(_overview['average_rating']).toStringAsFixed(1);
   }
 
   String _guideBadge() {
@@ -1877,29 +1848,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
 
     return 'Good evening';
-  }
-
-  String _monthShort(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    if (month < 1 || month > 12) {
-      return '';
-    }
-
-    return months[month - 1];
   }
 }
 
@@ -2174,23 +2122,6 @@ class _TourInfoRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-// =============================================================================
-// DIVIDER
-// =============================================================================
-
-class _InnerDivider extends StatelessWidget {
-  const _InnerDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 11),
-
-      child: Divider(height: 1, color: Color(0xFFEDF1F6)),
     );
   }
 }

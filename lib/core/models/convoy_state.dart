@@ -170,6 +170,30 @@ class ConvoyDriverSnapshot {
   /// compute_passenger_split in the Phase 0 migration, wired into
   /// accept_package_booking in the Phase 3 migration).
   final int assignedPassengers;
+
+  ConvoyDriverSnapshot withLiveLocation({
+    required double latitude,
+    required double longitude,
+    required double heading,
+    required DateTime updatedAt,
+  }) => ConvoyDriverSnapshot(
+    driverId: driverId,
+    driverName: driverName,
+    plateNumber: plateNumber,
+    journeyState: journeyState,
+    currentStopIndex: currentStopIndex,
+    stateUpdatedAt: stateUpdatedAt,
+    assignmentStatus: assignmentStatus,
+    lastLocationAt: updatedAt,
+    phoneNumber: phoneNumber,
+    avatarUrl: avatarUrl,
+    latitude: latitude,
+    longitude: longitude,
+    heading: heading,
+    todaName: todaName,
+    rating: rating,
+    assignedPassengers: assignedPassengers,
+  );
 }
 
 /// Authoritative aggregate returned by `get_convoy_stage_progress`.

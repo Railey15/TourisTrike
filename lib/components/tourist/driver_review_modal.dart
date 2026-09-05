@@ -1,254 +1,177 @@
 import 'package:flutter/material.dart';
+import 'package:touristrike/core/models/booking_feedback.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 
 class DriverReviewModal extends StatefulWidget {
-  const DriverReviewModal({
-    super.key,
-    required this.bookingId,
-    required this.driverId,
-    required this.driverName,
-    required this.driverAvatarUrl,
-    this.packageId,
-    this.packageName,
-    this.includeDriverReview = true,
-    this.includePackageReview = true,
-  });
-
-  final String bookingId;
-  final String driverId;
-  final String driverName;
-  final String driverAvatarUrl;
-  final dynamic packageId;
-  final String? packageName;
-  final bool includeDriverReview;
-  final bool includePackageReview;
-
+  const DriverReviewModal({super.key, required this.feedback, this.repository});
+  final BookingFeedback feedback;
+  final TourisTrikeRepository? repository;
   static Future<bool> show(
     BuildContext context, {
-    required String bookingId,
-    required String driverId,
-    required String driverName,
-    required String driverAvatarUrl,
-    dynamic packageId,
-    String? packageName,
-    bool includeDriverReview = true,
-    bool includePackageReview = true,
-  }) async {
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black54,
-      builder: (_) => DriverReviewModal(
-        bookingId: bookingId,
-        driverId: driverId,
-        driverName: driverName,
-        driverAvatarUrl: driverAvatarUrl,
-        packageId: packageId,
-        packageName: packageName,
-        includeDriverReview: includeDriverReview,
-        includePackageReview: includePackageReview,
-      ),
-    );
-    return result ?? false;
-  }
-
+    required BookingFeedback feedback,
+  }) async =>
+      await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: Colors.white,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .92,
+          maxWidth: 640,
+        ),
+        builder: (_) => DriverReviewModal(feedback: feedback),
+      ) ??
+      false;
   @override
   State<DriverReviewModal> createState() => _DriverReviewModalState();
 }
 
 class _DriverReviewModalState extends State<DriverReviewModal> {
-  final _repo = TourisTrikeRepository();
-  final _driverReviewCtrl = TextEditingController();
-  final _packageReviewCtrl = TextEditingController();
-
-  int _driverRating = 0;
+  late final TourisTrikeRepository _repo;
+  final _packageComment = TextEditingController();
+  final _comments = <String, TextEditingController>{};
+  final _ratings = <String, int>{};
   int _packageRating = 0;
   bool _submitting = false;
+  @override
+  void initState() {
+    super.initState();
+    _repo = widget.repository ?? TourisTrikeRepository();
+    for (final driver in widget.feedback.drivers.where(
+      (d) => d['review'] == null,
+    )) {
+      final id = driver['driver_id'].toString();
+      _comments[id] = TextEditingController();
+      _ratings[id] = 0;
+    }
+  }
 
   @override
   void dispose() {
-    _driverReviewCtrl.dispose();
-    _packageReviewCtrl.dispose();
+    _packageComment.dispose();
+    for (final controller in _comments.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
+  bool get _canSubmit =>
+      !_submitting &&
+      (widget.feedback.packageReview != null || _packageRating > 0) &&
+      _ratings.values.every((rating) => rating > 0);
   Future<void> _submit() async {
-    if (_submitting) return;
-    if (widget.includeDriverReview && _driverRating == 0) return;
-    if (widget.includePackageReview && _packageRating == 0) return;
-
+    if (!_canSubmit) return;
     setState(() => _submitting = true);
     try {
-      if (widget.includeDriverReview) {
-        await _repo.submitDriverReview(
-          bookingId: widget.bookingId,
-          driverId: widget.driverId,
-          rating: _driverRating,
-          reviewText: _driverReviewCtrl.text,
-        );
-      }
-      if (widget.includePackageReview) {
-        await _repo.submitPackageReview(
-          bookingId: widget.bookingId,
-          rating: _packageRating,
-          reviewText: _packageReviewCtrl.text,
-          packageId: widget.packageId,
-        );
-      }
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
+      final result = BookingFeedback(
+        await _repo.submitBookingFeedback(
+          bookingId: widget.feedback.bookingId,
+          packageRating: widget.feedback.packageReview == null
+              ? _packageRating
+              : null,
+          packageComment: _packageComment.text,
+          driverReviews: _ratings.entries
+              .map(
+                (entry) => <String, dynamic>{
+                  'driver_id': entry.key,
+                  'rating': entry.value,
+                  'review_text': _comments[entry.key]!.text,
+                },
+              )
+              .toList(),
+        ),
+      );
+      if (!result.complete) throw StateError('Incomplete feedback');
+      if (mounted) Navigator.pop(context, true);
     } catch (_) {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to submit feedback. Please try again.'),
+          content: Text(
+            'Feedback was not completed. Your entries are kept; please retry.',
+          ),
         ),
       );
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final pkgName = widget.packageName?.trim().isNotEmpty == true
-        ? widget.packageName!.trim()
-        : 'Tour Package';
-
-    return SafeArea(
-      top: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.all(Radius.circular(30)),
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_submitting,
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
         ),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(22, 18, 22, 22 + bottomInset),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'Rate Your Tour',
-                style: TextStyle(
-                  color: Color(0xFF0F172A),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 24,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Share your feedback for the package and driver before closing this trip.',
-                style: TextStyle(
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13.5,
-                  height: 1.45,
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (widget.includePackageReview) ...[
-                _ReviewSection(
-                  icon: Icons.explore_rounded,
-                  title: 'Package Rating',
-                  subtitle: pkgName,
-                  accentColor: const Color(0xFF2F6FFF),
-                  rating: _packageRating,
-                  ratingLabel: _ratingLabel(_packageRating),
-                  controller: _packageReviewCtrl,
-                  hintText: 'Tell us about the package experience...',
-                  onRatingChanged: (value) {
-                    setState(() => _packageRating = value);
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
-              if (widget.includeDriverReview) ...[
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Rate Your Tour',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'One feedback session for this booking. Rate your package and each driver, then submit together.',
+            ),
+            const SizedBox(height: 20),
+            if (widget.feedback.packageReview == null)
+              _ReviewSection(
+                icon: Icons.explore_rounded,
+                title: 'Package Rating',
+                subtitle: widget.feedback.packageName,
+                accentColor: const Color(0xFF2F6FFF),
+                rating: _packageRating,
+                ratingLabel: _packageRating == 0
+                    ? 'Tap a star to rate'
+                    : '$_packageRating/5',
+                controller: _packageComment,
+                hintText: 'Optional package feedback',
+                onRatingChanged: (value) =>
+                    setState(() => _packageRating = value),
+              )
+            else
+              const Text('Package feedback already saved'),
+            for (final driver in widget.feedback.drivers) ...[
+              const SizedBox(height: 16),
+              if (driver['review'] != null)
+                Text('${driver['name']}: feedback already saved')
+              else
                 _ReviewSection(
                   icon: Icons.person_rounded,
                   title: 'Driver Rating',
-                  subtitle: widget.driverName.trim().isEmpty
-                      ? 'Your driver'
-                      : widget.driverName.trim(),
+                  subtitle: driver['name'].toString(),
+                  avatarUrl: driver['avatar_url']?.toString() ?? '',
                   accentColor: const Color(0xFF16A34A),
-                  rating: _driverRating,
-                  ratingLabel: _ratingLabel(_driverRating),
-                  controller: _driverReviewCtrl,
-                  hintText: 'Tell us about your driver...',
-                  avatarUrl: widget.driverAvatarUrl,
-                  onRatingChanged: (value) {
-                    setState(() => _driverRating = value);
-                  },
-                ),
-              ],
-              const SizedBox(height: 22),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _canSubmit ? _submit : null,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF16A34A),
-                    disabledBackgroundColor: const Color(0xFFCBD5E1),
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                  ),
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.star_rounded, size: 18),
-                  label: Text(
-                    _submitting ? 'Submitting...' : 'Submit Feedback',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                    ),
+                  rating: _ratings[driver['driver_id']]!,
+                  ratingLabel: 'Rate this driver',
+                  controller: _comments[driver['driver_id']]!,
+                  hintText: 'Optional driver feedback',
+                  onRatingChanged: (value) => setState(
+                    () => _ratings[driver['driver_id'].toString()] = value,
                   ),
                 ),
-              ),
             ],
-          ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: _canSubmit ? _submit : null,
+              child: Text(_submitting ? 'Submitting...' : 'Submit Feedback'),
+            ),
+            TextButton(
+              onPressed: _submitting
+                  ? null
+                  : () => Navigator.pop(context, false),
+              child: const Text('Later'),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  bool get _canSubmit {
-    final driverReady = !widget.includeDriverReview || _driverRating > 0;
-    final packageReady = !widget.includePackageReview || _packageRating > 0;
-    return !_submitting && driverReady && packageReady;
-  }
-
-  String _ratingLabel(int rating) => switch (rating) {
-    1 => 'Poor',
-    2 => 'Fair',
-    3 => 'Good',
-    4 => 'Great',
-    5 => 'Excellent',
-    _ => 'Tap a star to rate',
-  };
+    ),
+  );
 }
 
 class _ReviewSection extends StatelessWidget {
@@ -392,15 +315,21 @@ class _StarRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(5, (index) {
         final value = index + 1;
-        return IconButton(
-          onPressed: () => onSelect(value),
-          iconSize: 38,
-          splashRadius: 24,
-          icon: Icon(
-            value <= selected ? Icons.star_rounded : Icons.star_outline_rounded,
-            color: value <= selected
-                ? const Color(0xFFF59E0B)
-                : const Color(0xFFCBD5E1),
+        return Expanded(
+          child: IconButton(
+            onPressed: () => onSelect(value),
+            tooltip: '$value ${value == 1 ? 'star' : 'stars'}',
+            padding: EdgeInsets.zero,
+            iconSize: 38,
+            splashRadius: 24,
+            icon: Icon(
+              value <= selected
+                  ? Icons.star_rounded
+                  : Icons.star_outline_rounded,
+              color: value <= selected
+                  ? const Color(0xFFF59E0B)
+                  : const Color(0xFFCBD5E1),
+            ),
           ),
         );
       }),

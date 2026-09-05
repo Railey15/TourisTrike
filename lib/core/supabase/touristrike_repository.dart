@@ -2619,6 +2619,45 @@ class TourisTrikeRepository {
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────
 
+  Future<Json> fetchBookingFeedback(String bookingId) async => Json.from(
+    await _client.rpc(
+          'get_booking_feedback',
+          params: {'p_booking_id': bookingId},
+        )
+        as Map,
+  );
+
+  Future<Json> submitBookingFeedback({
+    required String bookingId,
+    int? packageRating,
+    String packageComment = '',
+    required List<Json> driverReviews,
+  }) async => Json.from(
+    await _client.rpc(
+          'submit_booking_feedback',
+          params: {
+            'p_booking_id': bookingId,
+            'p_package_rating': packageRating,
+            'p_package_comment': packageComment,
+            'p_driver_reviews': driverReviews,
+          },
+        )
+        as Map,
+  );
+
+  Future<Json> fetchDriverHomeOverview() async =>
+      Json.from(await _client.rpc('get_driver_home_overview') as Map);
+
+  Future<void> confirmDriverArrivalFallback(
+    String bookingId,
+    String reason,
+  ) async {
+    await _client.rpc(
+      'confirm_driver_arrival_fallback',
+      params: {'p_booking_id': bookingId, 'p_reason': reason},
+    );
+  }
+
   Future<bool> hasReviewedDriver(String bookingId, {String? driverId}) async {
     final userId = currentUserId;
     if (userId == null) return false;

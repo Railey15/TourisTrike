@@ -49,19 +49,27 @@
         var req = {
           origin: { lat: p.originLat, lng: p.originLng },
           destination: { lat: p.destLat, lng: p.destLng },
-          travelMode: google.maps.TravelMode.DRIVING
+          travelMode: google.maps.TravelMode.DRIVING,
+          optimizeWaypoints: false
         };
         if (p.waypoints && p.waypoints.length > 0) {
           req.waypoints = p.waypoints.map(function(wp) {
-            return { location: { lat: wp.lat, lng: wp.lng }, stopover: false };
+            return { location: { lat: wp.lat, lng: wp.lng }, stopover: p.stopovers === true };
           });
+        }
+        if (p.requestTraffic === true) {
+          req.drivingOptions = { departureTime: new Date() };
         }
         var result = await svc.route(req);
         var route = result.routes[0];
         var pts = route.overview_path.map(function(ll) { return [ll.lat(), ll.lng()]; });
         var eta = (route.legs && route.legs[0] && route.legs[0].duration)
             ? route.legs[0].duration.text : null;
-        return JSON.stringify({ status: 'OK', points: pts, eta: eta });
+        return JSON.stringify({ status: 'OK', points: pts, eta: eta,
+          routes: [{ legs: route.legs.map(function(leg) {
+            return { duration: leg.duration, duration_in_traffic: leg.duration_in_traffic, distance: leg.distance };
+          }) }]
+        });
       } catch (e) {
         return JSON.stringify({ status: 'ERROR', error: e.toString() });
       }

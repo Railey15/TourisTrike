@@ -1,8 +1,8 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
+import 'itinerary_directions_mobile.dart'
+    if (dart.library.js_interop) 'itinerary_directions_web.dart';
 
 class ItineraryTravelLeg {
   const ItineraryTravelLeg({
@@ -52,96 +52,95 @@ List<ItineraryStopTiming> calculateItineraryTimings({
   });
 }
 
-class ItineraryScheduleService {
-  const ItineraryScheduleService({required this.apiKey});
+typedef ItineraryDirectionsLoader =
+    Future<Map<String, dynamic>> Function(String apiKey, List<LatLng> points);
 
+// Google returns traffic duration only without intermediate stopovers. Live
+// forecasts request individual legs, then keep the configured destination order.
+Future<Map<String, dynamic>> _fetchLiveDirections(
+  String apiKey,
+  List<LatLng> points,
+) async {
+  final responses = await Future.wait([
+    for (var i = 0; i < points.length - 1; i++)
+      fetchItineraryDirections(apiKey, [
+        points[i],
+        points[i + 1],
+      ], requestTraffic: true),
+  ]);
+  final legs = <Map<String, dynamic>>[];
+  for (final body in responses) {
+    if (body['status'] != 'OK') throw const ItineraryRouteException();
+    final route = (body['routes'] as List).first as Map;
+    final leg = Map<String, dynamic>.from(
+      (route['legs'] as List).single as Map,
+    );
+    // Google standard duration remains usable when traffic data is unavailable.
+    leg['duration'] = leg['duration_in_traffic'] ?? leg['duration'];
+    legs.add(leg);
+  }
+  return {
+    'status': 'OK',
+    'routes': [
+      {'legs': legs},
+    ],
+  };
+}
+
+class ItineraryScheduleService {
+  const ItineraryScheduleService({
+    required this.apiKey,
+    this.directionsLoader = fetchItineraryDirections,
+  });
+  const ItineraryScheduleService.live({
+    required this.apiKey,
+    this.directionsLoader = _fetchLiveDirections,
+  });
   final String apiKey;
+  final ItineraryDirectionsLoader directionsLoader;
 
   Future<List<ItineraryTravelLeg>> fetchTravelLegs(
     List<LatLng> orderedPoints,
   ) async {
     if (orderedPoints.length < 2) return const [];
-
-    final googleLegs = await _fetchGoogleDirectionsLegs(orderedPoints);
-    if (googleLegs != null && googleLegs.length == orderedPoints.length - 1) {
-      return googleLegs;
-    }
-
-    return List<ItineraryTravelLeg>.generate(orderedPoints.length - 1, (i) {
-      final meters = _haversineMeters(orderedPoints[i], orderedPoints[i + 1]);
-      // Existing TourisTrike fallback assumes an urban tricycle average of
-      // 28 km/h. Google Directions remains authoritative whenever available.
-      final minutes = math.max(1, ((meters / 1000) / 28 * 60).round());
-      return ItineraryTravelLeg(
-        durationMinutes: minutes,
-        distanceMeters: meters.round(),
-        usedGoogleMaps: false,
-      );
-    });
-  }
-
-  Future<List<ItineraryTravelLeg>?> _fetchGoogleDirectionsLegs(
-    List<LatLng> points,
-  ) async {
-    if (apiKey.trim().isEmpty) return null;
-
-    final origin = points.first;
-    final destination = points.last;
-    final waypoints = points
-        .skip(1)
-        .take(points.length - 2)
-        .map((p) => '${p.latitude},${p.longitude}')
-        .join('|');
-    final uri = Uri.parse(
-      'https://maps.googleapis.com/maps/api/directions/json'
-      '?origin=${origin.latitude},${origin.longitude}'
-      '&destination=${destination.latitude},${destination.longitude}'
-      '${waypoints.isEmpty ? '' : '&waypoints=${Uri.encodeQueryComponent(waypoints)}'}'
-      '&mode=driving&region=ph&key=$apiKey',
-    );
-
     try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200) return null;
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['status'] != 'OK') return null;
-      final routes = body['routes'] as List? ?? const [];
-      if (routes.isEmpty) return null;
-      final legs = (routes.first as Map)['legs'] as List? ?? const [];
+      final body = await directionsLoader(apiKey, orderedPoints);
+      if (body['status'] != 'OK') {
+        throw const FormatException('Route unavailable.');
+      }
+      final routes = body['routes'] as List;
+      final legs = (routes.first as Map)['legs'] as List;
+      if (legs.length != orderedPoints.length - 1) {
+        throw const FormatException('Missing route legs.');
+      }
       return legs
           .map((raw) {
             final leg = raw as Map;
-            final seconds = ((leg['duration'] as Map?)?['value'] as num?)
-                ?.toInt();
-            final meters = ((leg['distance'] as Map?)?['value'] as num?)
-                ?.toInt();
-            if (seconds == null || meters == null) {
+            final seconds = ((leg['duration'] as Map?)?['value'] as num?);
+            final meters = ((leg['distance'] as Map?)?['value'] as num?);
+            if (seconds == null ||
+                meters == null ||
+                !seconds.isFinite ||
+                !meters.isFinite ||
+                seconds < 0 ||
+                meters < 0) {
               throw const FormatException('Directions leg is incomplete.');
             }
             return ItineraryTravelLeg(
-              durationMinutes: math.max(1, (seconds / 60).ceil()),
-              distanceMeters: meters,
+              durationMinutes: (seconds / 60).ceil(),
+              distanceMeters: meters.round(),
               usedGoogleMaps: true,
             );
           })
           .toList(growable: false);
     } catch (_) {
-      return null;
+      throw const ItineraryRouteException();
     }
   }
+}
 
-  double _haversineMeters(LatLng a, LatLng b) {
-    const radiusMeters = 6371000.0;
-    final lat1 = a.latitude * math.pi / 180;
-    final lat2 = b.latitude * math.pi / 180;
-    final deltaLat = (b.latitude - a.latitude) * math.pi / 180;
-    final deltaLng = (b.longitude - a.longitude) * math.pi / 180;
-    final h =
-        math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +
-        math.cos(lat1) *
-            math.cos(lat2) *
-            math.sin(deltaLng / 2) *
-            math.sin(deltaLng / 2);
-    return radiusMeters * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
-  }
+class ItineraryRouteException implements Exception {
+  const ItineraryRouteException();
+  String get message =>
+      'Google Maps could not calculate this route. Check your connection or locations and retry.';
 }

@@ -83,7 +83,11 @@ void main() {
     final paymentUi = touristTracking
         .split('// PAYMENTS')[1]
         .split('// BOOKING SUMMARY')[0];
-    expect(paymentUi, contains("stage: 'down_payment'"));
+    expect(paymentUi, contains('onPay: _showPaymentPrompt'));
+    expect(
+      touristTracking,
+      contains("await _openPayMongoCheckout(stage: 'down_payment')"),
+    );
     expect(paymentUi, isNot(contains("bookingType == 'advanced'")));
 
     final driverGate = driverTracking
