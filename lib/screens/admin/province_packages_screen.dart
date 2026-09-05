@@ -7,11 +7,12 @@ import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_empty_state.dart';
-import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 
 class ProvincePackagesScreen extends StatefulWidget {
-  const ProvincePackagesScreen({super.key});
+  const ProvincePackagesScreen({super.key, this.initialSearch = ''});
+
+  final String initialSearch;
 
   @override
   State<ProvincePackagesScreen> createState() => _ProvincePackagesScreenState();
@@ -30,6 +31,7 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
   @override
   void initState() {
     super.initState();
+    _searchCtrl.text = widget.initialSearch;
     _future = _service.fetchProvincePackages();
     _searchCtrl.addListener(() => setState(() {}));
   }
@@ -1391,138 +1393,141 @@ class _PackageDetailsDialog extends StatelessWidget {
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: ProvincialAdminColors.line),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: .08),
-                  blurRadius: 28,
-                  offset: const Offset(0, 16),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            package.title,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              color: ProvincialAdminColors.text,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            package.city,
-                            style: const TextStyle(
-                              color: ProvincialAdminColors.muted,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                      color: ProvincialAdminColors.lightMuted,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _PackageDetailBlock(
-                        icon: Icons.payments_rounded,
-                        label: 'Price',
-                        value: priceText,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _PackageDetailBlock(
-                        icon: Icons.schedule_rounded,
-                        label: 'Duration',
-                        value: package.durationText.trim().isEmpty
-                            ? 'Not set'
-                            : package.durationText,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                const Text(
-                  'Included Spots',
-                  style: TextStyle(
-                    color: ProvincialAdminColors.text,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: ProvincialAdminColors.line),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: .08),
+                    blurRadius: 28,
+                    offset: const Offset(0, 16),
                   ),
-                ),
-                const SizedBox(height: 10),
-                FutureBuilder<List<String>>(
-                  future: spotsFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 18),
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-
-                    if (snapshot.hasError) {
-                      return _PackageSpotsMessage(
-                        icon: Icons.error_outline_rounded,
-                        message: 'Unable to load package spots right now.',
-                      );
-                    }
-
-                    final spots = snapshot.data ?? const <String>[];
-                    if (spots.isEmpty) {
-                      return _PackageSpotsMessage(
-                        icon: Icons.place_outlined,
-                        message: 'No linked spots were found for this package.',
-                      );
-                    }
-
-                    return Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FBFF),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: ProvincialAdminColors.line),
-                      ),
-                      child: Column(
-                        children: [
-                          for (var i = 0; i < spots.length; i++) ...[
-                            _PackageSpotRow(index: i + 1, title: spots[i]),
-                            if (i != spots.length - 1)
-                              const Divider(
-                                height: 16,
-                                color: ProvincialAdminColors.line,
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              package.title,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: ProvincialAdminColors.text,
+                                fontWeight: FontWeight.w900,
                               ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              package.city,
+                              style: const TextStyle(
+                                color: ProvincialAdminColors.muted,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ],
-                        ],
+                        ),
                       ),
-                    );
-                  },
-                ),
-              ],
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                        color: ProvincialAdminColors.lightMuted,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _PackageDetailBlock(
+                          icon: Icons.payments_rounded,
+                          label: 'Price',
+                          value: priceText,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _PackageDetailBlock(
+                          icon: Icons.schedule_rounded,
+                          label: 'Duration',
+                          value: package.durationText.trim().isEmpty
+                              ? 'Not set'
+                              : package.durationText,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Included Spots',
+                    style: TextStyle(
+                      color: ProvincialAdminColors.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  FutureBuilder<List<String>>(
+                    future: spotsFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 18),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+
+                      if (snapshot.hasError) {
+                        return _PackageSpotsMessage(
+                          icon: Icons.error_outline_rounded,
+                          message: 'Unable to load package spots right now.',
+                        );
+                      }
+
+                      final spots = snapshot.data ?? const <String>[];
+                      if (spots.isEmpty) {
+                        return _PackageSpotsMessage(
+                          icon: Icons.place_outlined,
+                          message:
+                              'No linked spots were found for this package.',
+                        );
+                      }
+
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FBFF),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: ProvincialAdminColors.line),
+                        ),
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < spots.length; i++) ...[
+                              _PackageSpotRow(index: i + 1, title: spots[i]),
+                              if (i != spots.length - 1)
+                                const Divider(
+                                  height: 16,
+                                  color: ProvincialAdminColors.line,
+                                ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
         ),

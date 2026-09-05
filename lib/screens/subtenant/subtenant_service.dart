@@ -80,179 +80,120 @@ class SubTenantService {
       throw StateError('Profile not found. Please complete your profile.');
     }
 
-    final profile = SubTenantProfile.fromMap(
-      Map<String, dynamic>.from(row),
-      email: user.email ?? '',
-    );
-
-    if (!profile.isSubTenant) {
+    final profileMap = Map<String, dynamic>.from(row);
+    if (stString(profileMap, const ['role']).toLowerCase() != 'subtenant') {
       throw StateError('This account is not assigned as a city admin.');
     }
 
-    if (profile.assignedCity.isEmpty) {
-      throw StateError('No assigned city found for this sub-tenant profile.');
+    final assignment = await _supabase
+        .from('subtenant_details')
+        .select('city, province, is_active, verification_status')
+        .eq('id', user.id)
+        .maybeSingle();
+    if (assignment == null || assignment['is_active'] != true) {
+      throw StateError(
+        'No active municipality assignment exists for this account.',
+      );
     }
 
-    return profile;
+    final assignmentMap = Map<String, dynamic>.from(assignment);
+    final assignedCity = stString(assignmentMap, const ['city']).trim();
+    if (assignedCity.isEmpty) {
+      throw StateError('The municipality assignment has no city value.');
+    }
+    profileMap['city'] = assignedCity;
+    final assignedProvince = stString(assignmentMap, const ['province']).trim();
+    if (assignedProvince.isNotEmpty) profileMap['province'] = assignedProvince;
+
+    return SubTenantProfile.fromMap(profileMap, email: user.email ?? '');
   }
 
   Future<SubTenantCityProfileData> loadCityProfile(
     SubTenantProfile profile,
   ) async {
-    try {
-      final row = await _supabase
-          .from('subtenant_details')
-          .select('*')
-          .eq('id', profile.id)
-          .maybeSingle();
+    final row = await _supabase
+        .from('subtenant_details')
+        .select('*')
+        .eq('id', profile.id)
+        .maybeSingle();
 
-      if (row != null) {
-        return SubTenantCityProfileData.fromMap(
-          Map<String, dynamic>.from(row),
-          profile,
-        );
-      }
-      // Table exists but no row yet — still fully usable, no notice needed.
-      return SubTenantCityProfileData.fromProfile(
+    if (row != null) {
+      return SubTenantCityProfileData.fromMap(
+        Map<String, dynamic>.from(row),
         profile,
-      ).copyWith(detailsTableAvailable: true);
-    } on PostgrestException {
-      // Table missing or access denied — surface the fallback notice.
-      return SubTenantCityProfileData.fromProfile(profile);
+      );
     }
+    throw StateError('Municipality assignment details were not found.');
   }
 
   Future<void> saveCityProfile(
     SubTenantProfile profile,
     SubTenantCityProfileData data,
   ) async {
-    final lockedCity = profile.assignedCity;
-    final province = profile.province.isEmpty ? 'Bulacan' : profile.province;
-
-    try {
-      await _supabase.from('subtenant_details').upsert({
-        'id': profile.id,
-        'city': lockedCity,
-        'province': province,
-        'description': data.description,
-        'office_name': data.tourismOfficeName,
-        'contact_person': data.contactPerson,
-        'contact_number': data.contactNumber,
-        'email': data.email,
-        'office_address': data.officeAddress,
-        'cover_image_url': data.coverImageUrl,
-        'logo_url': data.logoImageUrl,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      });
-      await _supabase
-          .from('profiles')
-          .update({
-            'full_name': data.contactPerson,
-            'mobile': data.contactNumber,
-            'address': data.officeAddress,
-            'city': lockedCity,
-            'province': province,
-            'profile_image_url': data.logoImageUrl,
-          })
-          .eq('id', profile.id);
-      await _logAudit(
-        actorId: profile.id,
-        action: 'update_city_profile',
-        tableName: 'subtenant_details',
-        recordId: profile.id,
-        description: 'Updated ${profile.assignedCity} city tourism profile.',
-      );
-      return;
-    } on PostgrestException {
-      // The fallback intentionally saves only columns known to exist in profiles.
-    }
-
+    await _supabase
+        .from('subtenant_details')
+        .update({
+          ...data.toPersistenceMap(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', profile.id)
+        .select('id')
+        .single();
     await _supabase
         .from('profiles')
         .update({
           'full_name': data.contactPerson,
-          'city': lockedCity,
-          'province': province,
           'mobile': data.contactNumber,
           'address': data.officeAddress,
           'profile_image_url': data.logoImageUrl,
         })
-        .eq('id', profile.id);
-  }
-
-  Future<SubTenantSettingsData> loadSettings(SubTenantProfile profile) async {
-    try {
-      final row = await _supabase
-          .from('admin_settings')
-          .select('*')
-          .eq('user_id', profile.id)
-          .maybeSingle();
-      if (row == null) return const SubTenantSettingsData();
-      return SubTenantSettingsData.fromMap(Map<String, dynamic>.from(row));
-    } on PostgrestException {
-      return const SubTenantSettingsData();
-    }
-  }
-
-  Future<void> saveSettings(
-    SubTenantProfile profile,
-    SubTenantSettingsData settings,
-  ) async {
-    await _supabase
-        .from('admin_settings')
-        .upsert(settings.toMap(profile.id), onConflict: 'user_id');
+        .eq('id', profile.id)
+        .select('id')
+        .single();
     await _logAudit(
       actorId: profile.id,
-      action: 'update_subtenant_settings',
-      tableName: 'admin_settings',
+      action: 'update_city_profile',
+      tableName: 'subtenant_details',
       recordId: profile.id,
-      description: 'Updated ${profile.assignedCity} subtenant settings.',
+      description: 'Updated ${profile.assignedCity} city tourism profile.',
     );
   }
 
   Future<SubTenantFareSettings> loadFareSettings(
     SubTenantProfile profile,
   ) async {
-    try {
-      final row = await _supabase
-          .from('subtenant_fare_settings')
-          .select('*')
-          .eq('subtenant_id', profile.id)
-          .eq('city', profile.assignedCity)
-          .eq('is_active', true)
-          .order('updated_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-      if (row == null) return SubTenantFareSettings.defaults(profile);
-      return SubTenantFareSettings.fromMap(
-        Map<String, dynamic>.from(row),
-        profile,
-      );
-    } on PostgrestException {
-      return SubTenantFareSettings.defaults(profile);
-    }
+    final row = await _supabase
+        .from('subtenant_fare_settings')
+        .select('*')
+        .eq('subtenant_id', profile.id)
+        .eq('city', profile.assignedCity)
+        .eq('is_active', true)
+        .order('updated_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    if (row == null) return SubTenantFareSettings.defaults(profile);
+    return SubTenantFareSettings.fromMap(
+      Map<String, dynamic>.from(row),
+      profile,
+    );
   }
 
   Future<void> saveFareSettings(
     SubTenantProfile profile,
     SubTenantFareSettings settings,
   ) async {
-    try {
-      await _supabase
-          .from('subtenant_fare_settings')
-          .upsert(settings.toMap(), onConflict: 'subtenant_id,city');
-      await _logAudit(
-        actorId: profile.id,
-        action: 'update_fare_settings',
-        tableName: 'subtenant_fare_settings',
-        recordId: profile.id,
-        description: 'Updated fare matrix for ${profile.assignedCity}.',
-      );
-    } on PostgrestException catch (_) {
-      // Table missing or permission issue — skip persisting fare settings.
-      // This keeps the UI responsive while backend schema is adjusted.
-      return;
-    }
+    await _supabase
+        .from('subtenant_fare_settings')
+        .upsert(settings.toMap(), onConflict: 'subtenant_id,city')
+        .select('id')
+        .single();
+    await _logAudit(
+      actorId: profile.id,
+      action: 'update_fare_settings',
+      tableName: 'subtenant_fare_settings',
+      recordId: profile.id,
+      description: 'Updated fare matrix for ${profile.assignedCity}.',
+    );
   }
 
   Future<String> uploadPublicAsset({
@@ -2181,8 +2122,13 @@ class SubTenantService {
         'record_id': recordId,
         'description': description,
       });
-    } on PostgrestException {
-      // Audit is best-effort; a missing/inaccessible table must not block the main operation.
+    } on PostgrestException catch (error, stack) {
+      developer.log(
+        'Subtenant audit logging failed: ${error.message}',
+        name: 'SubTenantService',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 

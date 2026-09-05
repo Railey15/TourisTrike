@@ -1,8 +1,6 @@
-import 'dart:convert' show jsonDecode;
 import 'dart:math' show atan2, cos, sin, sqrt;
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
@@ -47,141 +45,6 @@ class _GPlaceSuggestion {
   final String imageUrl;
   final double latitude;
   final double longitude;
-}
-
-const _kGoogleApiKey = 'AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k';
-
-// ignore: unused_element
-Future<Map<String, List<_GPlaceSuggestion>>> _fetchGoogleSuggestions(
-  String city,
-  String province,
-) async {
-  final where = [
-    city,
-    if (province.isNotEmpty) province,
-    'Philippines',
-  ].join(' ');
-
-  const specs = [
-    (
-      tag: 'Historical',
-      hint: 'famous historical landmarks heritage sites monuments',
-    ),
-    (tag: 'Nature', hint: 'nature parks gardens scenic tourist attractions'),
-    (tag: 'Church', hint: 'famous churches cathedrals pilgrimage sites'),
-    (tag: 'Museum', hint: 'museums cultural centers galleries'),
-    (tag: 'Sports', hint: 'sports complex stadium recreation center courts'),
-    (tag: 'Food', hint: 'popular local restaurants cafes delicacies'),
-  ];
-
-  final futures = specs.map(
-    (s) => _fetchGoogleSpotsForTag(
-      tag: s.tag,
-      query: '${s.hint} in $where',
-      city: city,
-    ),
-  );
-
-  final results = await Future.wait(futures);
-  final map = <String, List<_GPlaceSuggestion>>{};
-  for (var i = 0; i < specs.length; i++) {
-    if (results[i].isNotEmpty) {
-      map[specs[i].tag] = results[i];
-    }
-  }
-  return map;
-}
-
-Future<List<_GPlaceSuggestion>> _fetchGoogleSpotsForTag({
-  required String tag,
-  required String query,
-  required String city,
-}) async {
-  try {
-    final uri = Uri.parse(
-      'https://maps.googleapis.com/maps/api/place/textsearch/json'
-      '?query=${Uri.encodeQueryComponent(query)}'
-      '&region=ph'
-      '&key=$_kGoogleApiKey',
-    );
-
-    final res = await http.get(uri).timeout(const Duration(seconds: 12));
-    if (res.statusCode != 200) return const [];
-
-    final body = jsonDecode(res.body) as Map<String, dynamic>;
-    final status = body['status']?.toString() ?? '';
-    if (status != 'OK' && status != 'ZERO_RESULTS') return const [];
-
-    final results = (body['results'] as List?) ?? const [];
-    final spots = <_GPlaceSuggestion>[];
-
-    for (final raw in results) {
-      final item = raw as Map<String, dynamic>;
-      final loc = ((item['geometry'] as Map?)?['location'] as Map?) ?? const {};
-      final lat = ((loc['lat'] as num?) ?? 0).toDouble();
-      final lng = ((loc['lng'] as num?) ?? 0).toDouble();
-      if (lat == 0 && lng == 0) continue;
-
-      final title = (item['name'] as String?)?.trim() ?? '';
-      if (title.isEmpty) continue;
-
-      final address = (item['formatted_address'] as String?) ?? '';
-      if (!_isPlaceInSelectedCity(address: address, city: city)) {
-        continue;
-      }
-
-      final rating = ((item['rating'] as num?) ?? 4.0).toDouble();
-      final placeId = (item['place_id'] as String?) ?? title;
-      final photos = (item['photos'] as List?) ?? const [];
-      final photoRef =
-          ((photos.firstOrNull as Map?)?['photo_reference'] as String?) ?? '';
-      final imageUrl = photoRef.isEmpty
-          ? ''
-          : 'https://maps.googleapis.com/maps/api/place/photo'
-                '?maxwidth=800'
-                '&photo_reference=${Uri.encodeComponent(photoRef)}'
-                '&key=$_kGoogleApiKey';
-
-      spots.add(
-        _GPlaceSuggestion(
-          placeId: placeId,
-          title: title,
-          address: address,
-          tag: tag,
-          rating: rating,
-          imageUrl: imageUrl,
-          latitude: lat,
-          longitude: lng,
-        ),
-      );
-    }
-
-    spots.sort((a, b) => b.rating.compareTo(a.rating));
-    return spots.take(3).toList();
-  } catch (error) {
-    debugPrint('Google Places [$tag]: $error');
-    return const [];
-  }
-}
-
-bool _isPlaceInSelectedCity({required String address, required String city}) {
-  final normalizedAddress = _normalizeText(address);
-  final normalizedCity = _normalizeText(city);
-
-  if (normalizedAddress.isEmpty || normalizedCity.isEmpty) return false;
-  if (!normalizedAddress.contains('bulacan')) return false;
-  return normalizedAddress.contains(normalizedCity);
-}
-
-String _normalizeText(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll('ÃƒÂ±', 'n')
-      .replaceAll('Ã±', 'n')
-      .replaceAll('-', '')
-      .replaceAll(' ', '')
-      .replaceAll(',', '')
-      .replaceAll('.', '');
 }
 
 _GPlaceSuggestion _toGoogleSuggestion(
@@ -601,7 +464,6 @@ class _SubTenantPackageFormScreenState
         double.tryParse(_distanceCtrl.text.trim().replaceAll(',', '')) ?? 0;
     return settings.calculate(
       routeDistanceKm: distance,
-      groupSize: 1,
       waitingHours: _totalWaitingHours(),
     );
   }

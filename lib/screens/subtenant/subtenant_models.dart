@@ -157,6 +157,36 @@ class SubTenantProfile {
   bool get isSubTenant => role.toLowerCase().trim() == 'subtenant';
 }
 
+String normalizeLocalGovernmentType(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized == 'city' ? 'city' : 'municipality';
+}
+
+String localGovernmentDisplayName(String assignedLocation) {
+  var name = assignedLocation.trim();
+  name = name.replaceFirst(
+    RegExp(r'^(city|municipality)\s+of\s+', caseSensitive: false),
+    '',
+  );
+  name = name.replaceFirst(
+    RegExp(r'\s+(city|municipality)$', caseSensitive: false),
+    '',
+  );
+  return name.trim();
+}
+
+String defaultTourismOfficeName({
+  required String assignedLocation,
+  required String localGovernmentType,
+}) {
+  final location = localGovernmentDisplayName(assignedLocation);
+  if (location.isEmpty) return 'Tourism Office';
+  final officeType = normalizeLocalGovernmentType(localGovernmentType) == 'city'
+      ? 'City'
+      : 'Municipal';
+  return '$location $officeType Tourism Office';
+}
+
 bool _stBool(dynamic value, {bool fallback = false}) {
   if (value == null) return fallback;
   if (value is bool) return value;
@@ -178,6 +208,8 @@ class SubTenantCityProfileData {
     required this.officeAddress,
     required this.coverImageUrl,
     required this.logoImageUrl,
+    required this.localGovernmentType,
+    required this.officeNameCustomized,
     required this.detailsTableAvailable,
   });
 
@@ -191,6 +223,8 @@ class SubTenantCityProfileData {
   final String officeAddress;
   final String coverImageUrl;
   final String logoImageUrl;
+  final String localGovernmentType;
+  final bool officeNameCustomized;
   final bool detailsTableAvailable;
 
   factory SubTenantCityProfileData.fromProfile(SubTenantProfile profile) {
@@ -198,13 +232,18 @@ class SubTenantCityProfileData {
       city: profile.city,
       province: profile.province.isEmpty ? 'Bulacan' : profile.province,
       description: '',
-      tourismOfficeName: profile.displayName,
+      tourismOfficeName: defaultTourismOfficeName(
+        assignedLocation: profile.city,
+        localGovernmentType: 'municipality',
+      ),
       contactPerson: profile.displayName,
       contactNumber: profile.mobile,
       email: profile.email,
       officeAddress: profile.address,
       coverImageUrl: '',
       logoImageUrl: profile.profileImageUrl,
+      localGovernmentType: 'municipality',
+      officeNameCustomized: false,
       detailsTableAvailable: false,
     );
   }
@@ -213,14 +252,23 @@ class SubTenantCityProfileData {
     Map<String, dynamic> map,
     SubTenantProfile profile,
   ) {
+    final city = stString(map, const ['city'], fallback: profile.city);
+    final localGovernmentType = normalizeLocalGovernmentType(
+      stString(map, const ['local_government_type']),
+    );
+    final storedOfficeName = stString(map, const ['office_name', 'name']);
+    final officeNameCustomized = _stBool(map['office_name_customized']);
+    final generatedOfficeName = defaultTourismOfficeName(
+      assignedLocation: city,
+      localGovernmentType: localGovernmentType,
+    );
     return SubTenantCityProfileData(
-      city: stString(map, const ['city'], fallback: profile.city),
+      city: city,
       province: stString(map, const ['province'], fallback: profile.province),
       description: stString(map, const ['description']),
-      tourismOfficeName: stString(map, const [
-        'office_name',
-        'name',
-      ], fallback: profile.displayName),
+      tourismOfficeName: officeNameCustomized && storedOfficeName.isNotEmpty
+          ? storedOfficeName
+          : generatedOfficeName,
       contactPerson: stString(map, const [
         'contact_person',
         'full_name',
@@ -239,6 +287,8 @@ class SubTenantCityProfileData {
         'logo_url',
         'profile_image_url',
       ], fallback: profile.profileImageUrl),
+      localGovernmentType: localGovernmentType,
+      officeNameCustomized: officeNameCustomized,
       detailsTableAvailable: true,
     );
   }
@@ -254,6 +304,8 @@ class SubTenantCityProfileData {
     String? officeAddress,
     String? coverImageUrl,
     String? logoImageUrl,
+    String? localGovernmentType,
+    bool? officeNameCustomized,
     bool? detailsTableAvailable,
   }) {
     return SubTenantCityProfileData(
@@ -267,255 +319,24 @@ class SubTenantCityProfileData {
       officeAddress: officeAddress ?? this.officeAddress,
       coverImageUrl: coverImageUrl ?? this.coverImageUrl,
       logoImageUrl: logoImageUrl ?? this.logoImageUrl,
+      localGovernmentType: localGovernmentType ?? this.localGovernmentType,
+      officeNameCustomized: officeNameCustomized ?? this.officeNameCustomized,
       detailsTableAvailable:
           detailsTableAvailable ?? this.detailsTableAvailable,
     );
   }
-}
 
-class SubTenantSettingsData {
-  const SubTenantSettingsData({
-    this.notificationsEnabled = true,
-    this.packageAlerts = true,
-    this.touristSpotAlerts = true,
-    this.performanceReports = true,
-    this.systemNotices = true,
-    this.language = 'English',
-    this.showTotalViews = true,
-    this.showBookings = true,
-    this.showPopularDestinations = true,
-    this.showTopPackages = true,
-    this.defaultPackageVisibility = 'visible',
-    this.defaultSpotStatus = 'active',
-    this.requirePackageReview = true,
-    // multi-day packages handled separately
-    this.allowCancellation = true,
-    this.driverAutoApproval = false,
-    this.requireDriverDocuments = true,
-    this.requireTodaVerification = true,
-    this.requireSpotVerification = true,
-    this.requireMapPin = true,
-    this.requireCoverImage = true,
-    this.enableAiSuggestions = true,
-    this.diversePlaceTypes = true,
-    this.prioritizePopular = true,
-    this.prioritizeNearby = true,
-    this.prioritizeFood = true,
-    this.prioritizeNature = true,
-    this.prioritizeHistorical = true,
-    this.bookingNotifications = true,
-    this.driverNotifications = true,
-    this.reviewNotifications = true,
-    this.emailNotifications = true,
-    this.revenueTracking = true,
-    this.spotPopularityTracking = true,
-    this.driverAnalytics = true,
-    this.monthlyReports = true,
-  });
-
-  final bool notificationsEnabled;
-  final bool packageAlerts;
-  final bool touristSpotAlerts;
-  final bool performanceReports;
-  final bool systemNotices;
-  final String language;
-  final bool showTotalViews;
-  final bool showBookings;
-  final bool showPopularDestinations;
-  final bool showTopPackages;
-  final String defaultPackageVisibility;
-  final String defaultSpotStatus;
-  final bool requirePackageReview;
-  // multi-day packages handled separately
-  final bool allowCancellation;
-  final bool driverAutoApproval;
-  final bool requireDriverDocuments;
-  final bool requireTodaVerification;
-  final bool requireSpotVerification;
-  final bool requireMapPin;
-  final bool requireCoverImage;
-  final bool enableAiSuggestions;
-  final bool diversePlaceTypes;
-  final bool prioritizePopular;
-  final bool prioritizeNearby;
-  final bool prioritizeFood;
-  final bool prioritizeNature;
-  final bool prioritizeHistorical;
-  final bool bookingNotifications;
-  final bool driverNotifications;
-  final bool reviewNotifications;
-  final bool emailNotifications;
-  final bool revenueTracking;
-  final bool spotPopularityTracking;
-  final bool driverAnalytics;
-  final bool monthlyReports;
-
-  factory SubTenantSettingsData.fromMap(Map<String, dynamic> map) {
-    const defaults = SubTenantSettingsData();
-    return SubTenantSettingsData(
-      notificationsEnabled: _stBool(
-        map['notifications_enabled'],
-        fallback: defaults.notificationsEnabled,
-      ),
-      packageAlerts: _stBool(
-        map['package_alerts'],
-        fallback: defaults.packageAlerts,
-      ),
-      touristSpotAlerts: _stBool(
-        map['tourist_spot_alerts'],
-        fallback: defaults.touristSpotAlerts,
-      ),
-      performanceReports: _stBool(
-        map['performance_reports'],
-        fallback: defaults.performanceReports,
-      ),
-      systemNotices: _stBool(
-        map['system_notices'],
-        fallback: defaults.systemNotices,
-      ),
-      language: stString(map, const ['language'], fallback: defaults.language),
-      showTotalViews: _stBool(
-        map['show_total_views'],
-        fallback: defaults.showTotalViews,
-      ),
-      showBookings: _stBool(
-        map['show_bookings'],
-        fallback: defaults.showBookings,
-      ),
-      showPopularDestinations: _stBool(
-        map['show_popular_destinations'],
-        fallback: defaults.showPopularDestinations,
-      ),
-      showTopPackages: _stBool(
-        map['show_top_packages'],
-        fallback: defaults.showTopPackages,
-      ),
-      defaultPackageVisibility: stString(map, const [
-        'default_package_visibility',
-      ], fallback: defaults.defaultPackageVisibility),
-      defaultSpotStatus: stString(map, const [
-        'default_spot_status',
-      ], fallback: defaults.defaultSpotStatus),
-      requirePackageReview: _stBool(
-        map['require_package_review'],
-        fallback: defaults.requirePackageReview,
-      ),
-      // multi-day packages handled separately
-      allowCancellation: _stBool(
-        map['allow_cancellation'],
-        fallback: defaults.allowCancellation,
-      ),
-      driverAutoApproval: _stBool(
-        map['driver_auto_approval'],
-        fallback: defaults.driverAutoApproval,
-      ),
-      requireDriverDocuments: _stBool(
-        map['require_driver_documents'],
-        fallback: defaults.requireDriverDocuments,
-      ),
-      requireTodaVerification: _stBool(
-        map['require_toda_verification'],
-        fallback: defaults.requireTodaVerification,
-      ),
-      requireSpotVerification: _stBool(
-        map['require_spot_verification'],
-        fallback: defaults.requireSpotVerification,
-      ),
-      requireMapPin: _stBool(
-        map['require_map_pin'],
-        fallback: defaults.requireMapPin,
-      ),
-      requireCoverImage: _stBool(
-        map['require_cover_image'],
-        fallback: defaults.requireCoverImage,
-      ),
-      enableAiSuggestions: _stBool(
-        map['enable_ai_suggestions'],
-        fallback: defaults.enableAiSuggestions,
-      ),
-      diversePlaceTypes: _stBool(
-        map['diverse_place_types'],
-        fallback: defaults.diversePlaceTypes,
-      ),
-      prioritizePopular: _stBool(
-        map['prioritize_popular'],
-        fallback: defaults.prioritizePopular,
-      ),
-      prioritizeNearby: _stBool(
-        map['prioritize_nearby'],
-        fallback: defaults.prioritizeNearby,
-      ),
-      prioritizeFood: _stBool(
-        map['prioritize_food'],
-        fallback: defaults.prioritizeFood,
-      ),
-      prioritizeNature: _stBool(
-        map['prioritize_nature'],
-        fallback: defaults.prioritizeNature,
-      ),
-      prioritizeHistorical: _stBool(
-        map['prioritize_historical'],
-        fallback: defaults.prioritizeHistorical,
-      ),
-      bookingNotifications: _stBool(
-        map['booking_notifications'],
-        fallback: _stBool(
-          map['package_alerts'],
-          fallback: defaults.bookingNotifications,
-        ),
-      ),
-      driverNotifications: _stBool(
-        map['driver_notifications'],
-        fallback: defaults.driverNotifications,
-      ),
-      reviewNotifications: _stBool(
-        map['review_notifications'],
-        fallback: _stBool(
-          map['tourist_spot_alerts'],
-          fallback: defaults.reviewNotifications,
-        ),
-      ),
-      emailNotifications: _stBool(
-        map['email_notifications'],
-        fallback: defaults.emailNotifications,
-      ),
-      revenueTracking: _stBool(
-        map['revenue_tracking'],
-        fallback: defaults.revenueTracking,
-      ),
-      spotPopularityTracking: _stBool(
-        map['spot_popularity_tracking'],
-        fallback: defaults.spotPopularityTracking,
-      ),
-      driverAnalytics: _stBool(
-        map['driver_analytics'],
-        fallback: defaults.driverAnalytics,
-      ),
-      monthlyReports: _stBool(
-        map['monthly_reports'],
-        fallback: _stBool(
-          map['performance_reports'],
-          fallback: defaults.monthlyReports,
-        ),
-      ),
-    );
-  }
-
-  Map<String, dynamic> toMap(String userId) {
+  Map<String, dynamic> toPersistenceMap() {
     return {
-      'user_id': userId,
-      'notifications_enabled': notificationsEnabled,
-      'package_alerts': packageAlerts,
-      'tourist_spot_alerts': touristSpotAlerts,
-      'performance_reports': performanceReports,
-      'system_notices': systemNotices,
-      'language': language,
-      'show_total_views': showTotalViews,
-      'show_bookings': showBookings,
-      'show_popular_destinations': showPopularDestinations,
-      'show_top_packages': showTopPackages,
-      'allow_cancellation': allowCancellation,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
+      'description': description,
+      'office_name': tourismOfficeName,
+      'contact_person': contactPerson,
+      'contact_number': contactNumber,
+      'email': email,
+      'office_address': officeAddress,
+      'cover_image_url': coverImageUrl,
+      'logo_url': logoImageUrl,
+      'office_name_customized': officeNameCustomized,
     };
   }
 }
@@ -528,9 +349,7 @@ class SubTenantFareSettings {
     this.baseFare = 50,
     this.farePerKm = 50,
     this.minimumFare = 0,
-    // removed additionalPassengerFee and guideFee (no longer used)
     this.waitingFee = 0,
-    this.weekendSurcharge = 0,
     this.isActive = true,
   });
 
@@ -541,8 +360,6 @@ class SubTenantFareSettings {
   final double farePerKm;
   final double minimumFare;
   final double waitingFee;
-  // additionalPassengerFee and guideFee removed
-  final double weekendSurcharge;
   final bool isActive;
 
   factory SubTenantFareSettings.defaults(SubTenantProfile profile) {
@@ -570,10 +387,6 @@ class SubTenantFareSettings {
         fallback: defaults.minimumFare,
       ),
       waitingFee: stDouble(map['waiting_fee'], fallback: defaults.waitingFee),
-      weekendSurcharge: stDouble(
-        map['weekend_surcharge'],
-        fallback: defaults.weekendSurcharge,
-      ),
       isActive: _stBool(map['is_active'], fallback: defaults.isActive),
     );
   }
@@ -586,7 +399,6 @@ class SubTenantFareSettings {
       'fare_per_km': farePerKm,
       'minimum_fare': minimumFare,
       'waiting_fee': waitingFee,
-      'weekend_surcharge': weekendSurcharge,
       'is_active': isActive,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
@@ -594,29 +406,19 @@ class SubTenantFareSettings {
 
   FareCalculation calculate({
     required double routeDistanceKm,
-    required int groupSize,
-    bool includeWeekendSurcharge = false,
     double waitingHours = 1.0,
   }) {
     final normalizedDistance = routeDistanceKm < 0 ? 0.0 : routeDistanceKm;
     final distanceFee = farePerKm * normalizedDistance;
-    // additional passenger fee removed -> passenger surcharge not applied
-    final passengerFee = 0.0;
     final waitingTotal = waitingFee * (waitingHours < 0 ? 0 : waitingHours);
-    final surcharge = includeWeekendSurcharge ? weekendSurcharge : 0.0;
-    // guide fee removed -> not included in total
-    final rawTotal =
-        baseFare + distanceFee + passengerFee + waitingTotal + surcharge;
+    final rawTotal = baseFare + distanceFee + waitingTotal;
     final total = minimumFare > 0 && rawTotal < minimumFare
         ? minimumFare
         : rawTotal;
     return FareCalculation(
       baseFare: baseFare,
       distanceFee: distanceFee,
-      passengerFee: passengerFee,
       waitingFee: waitingTotal,
-      guideFee: 0.0,
-      weekendSurcharge: surcharge,
       minimumFareAdjustment: total - rawTotal,
       total: total,
     );
@@ -627,20 +429,14 @@ class FareCalculation {
   const FareCalculation({
     required this.baseFare,
     required this.distanceFee,
-    required this.passengerFee,
     required this.waitingFee,
-    required this.guideFee,
-    required this.weekendSurcharge,
     required this.minimumFareAdjustment,
     required this.total,
   });
 
   final double baseFare;
   final double distanceFee;
-  final double passengerFee;
   final double waitingFee;
-  final double guideFee;
-  final double weekendSurcharge;
   final double minimumFareAdjustment;
   final double total;
 }

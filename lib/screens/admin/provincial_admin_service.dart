@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
 
@@ -56,6 +58,196 @@ class ProvincialAdminService {
       registrations: registrations.items,
       registrationsTableAvailable: registrations.available,
     );
+  }
+
+  Future<List<AdminSearchResult>> searchProvince(String query) async {
+    await loadCurrentAdminProfile();
+    final term = query
+        .trim()
+        .replaceAll(RegExp(r'[%_,()]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (term.length < 2) return const [];
+
+    final results = await Future.wait([
+      _searchTenants(term),
+      _searchSpots(term),
+      _searchPackages(term),
+      _searchDrivers(term),
+      _searchBookings(term),
+    ]);
+    return results.expand((items) => items).toList(growable: false);
+  }
+
+  Future<List<AdminSearchResult>> _searchTenants(String term) async {
+    final rows = await _supabase
+        .from('subtenant_details')
+        .select(
+          'id,city,province,office_name,contact_person,email,office_address,'
+          'verification_status,is_active,local_government_type,'
+          'local_government_type_reviewed',
+        )
+        .or(
+          'city.ilike.%$term%,office_name.ilike.%$term%,'
+          'contact_person.ilike.%$term%,email.ilike.%$term%',
+        )
+        .order('city')
+        .limit(5);
+    return _asRows(rows)
+        .map(
+          (row) => AdminSearchResult(
+            type: AdminSearchResultType.tenant,
+            id: adminId(row['id']),
+            title: adminString(row, const ['office_name', 'city']),
+            subtitle:
+                '${adminString(row, const ['city'])} · ${adminString(row, const ['province'])}',
+            raw: row,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<AdminSearchResult>> _searchSpots(String term) async {
+    final rows = await _supabase
+        .from('tourist_spots')
+        .select('id,title,city,barangay,status,verification_status')
+        .or(
+          'title.ilike.%$term%,city.ilike.%$term%,'
+          'barangay.ilike.%$term%',
+        )
+        .order('created_at', ascending: false)
+        .limit(5);
+    return _asRows(rows)
+        .map(
+          (row) => AdminSearchResult(
+            type: AdminSearchResultType.spot,
+            id: adminId(row['id']),
+            title: adminString(row, const ['title']),
+            subtitle:
+                '${adminString(row, const ['city'])} · ${adminString(row, const ['verification_status'], fallback: 'unverified')}',
+            raw: row,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<AdminSearchResult>> _searchPackages(String term) async {
+    final rows = await _supabase
+        .from('tour_packages')
+        .select('id,title,city,status,visibility_status')
+        .or('title.ilike.%$term%,city.ilike.%$term%')
+        .order('created_at', ascending: false)
+        .limit(5);
+    return _asRows(rows)
+        .map(
+          (row) => AdminSearchResult(
+            type: AdminSearchResultType.package,
+            id: adminId(row['id']),
+            title: adminString(row, const ['title']),
+            subtitle:
+                '${adminString(row, const ['city'])} · ${adminString(row, const ['status'])}',
+            raw: row,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<AdminSearchResult>> _searchDrivers(String term) async {
+    final rows = await _supabase
+        .from('profiles')
+        .select('id,full_name,first_name,last_name,mobile,city')
+        .eq('role', 'driver')
+        .or(
+          'full_name.ilike.%$term%,first_name.ilike.%$term%,'
+          'last_name.ilike.%$term%,mobile.ilike.%$term%,'
+          'city.ilike.%$term%',
+        )
+        .order('created_at', ascending: false)
+        .limit(5);
+    return _asRows(rows)
+        .map((row) {
+          final generated = [
+            adminString(row, const ['first_name']),
+            adminString(row, const ['last_name']),
+          ].where((value) => value.isNotEmpty).join(' ');
+          return AdminSearchResult(
+            type: AdminSearchResultType.driver,
+            id: adminId(row['id']),
+            title: adminString(row, const [
+              'full_name',
+            ], fallback: generated.isEmpty ? 'Driver' : generated),
+            subtitle:
+                '${adminString(row, const ['city'], fallback: 'Unassigned')} · ${adminString(row, const ['mobile'], fallback: 'No mobile number')}',
+            raw: row,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<AdminSearchResult>> _searchBookings(String term) async {
+    dynamic query = _supabase
+        .from('package_bookings')
+        .select(
+          'id,package_id,tourist_id,status,booking_status,total_amount,'
+          'travel_date,created_at,tour_packages(title,city)',
+        );
+    final isUuid = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-'
+      r'[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    ).hasMatch(term);
+    query = !isUuid
+        ? query.or('status.ilike.%$term%,booking_status.ilike.%$term%')
+        : query.eq('id', term);
+    final rows = await query.order('created_at', ascending: false).limit(5);
+    return _asRows(rows)
+        .map((row) {
+          final nested = row['tour_packages'];
+          final package = nested is Map
+              ? Map<String, dynamic>.from(nested)
+              : const <String, dynamic>{};
+          return AdminSearchResult(
+            type: AdminSearchResultType.booking,
+            id: adminId(row['id']),
+            title: 'Booking #${adminId(row['id'])}',
+            subtitle:
+                '${adminString(package, const ['title'], fallback: 'Package')} · ${adminString(package, const ['city'], fallback: 'Unknown')}',
+            raw: {...row, 'tour_packages': package},
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<AdminNotification>> fetchAdminNotifications({
+    int limit = 30,
+  }) async {
+    final profile = await loadCurrentAdminProfile();
+    final rows = await _supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return _asRows(rows).map(AdminNotification.fromMap).toList(growable: false);
+  }
+
+  Future<void> markAdminNotificationRead(dynamic notificationId) async {
+    final profile = await loadCurrentAdminProfile();
+    await _supabase
+        .from('notifications')
+        .update({'is_read': true})
+        .eq('id', notificationId)
+        .eq('user_id', profile.id)
+        .select('id')
+        .single();
+  }
+
+  Future<void> markAllAdminNotificationsRead() async {
+    final profile = await loadCurrentAdminProfile();
+    await _supabase
+        .from('notifications')
+        .update({'is_read': true})
+        .eq('user_id', profile.id)
+        .eq('is_read', false)
+        .select('id');
   }
 
   Future<List<CityTenant>> fetchCityTenants() async {
@@ -198,17 +390,60 @@ class ProvincialAdminService {
 
     final city = baseTenant.city;
 
-    final packages = (await fetchProvincePackages())
-        .where((item) => item.city == city)
+    final packageRows = await _selectRows(
+      'tour_packages',
+      equals: {'city': city},
+      orderBy: 'created_at',
+      ascending: false,
+    );
+    final basePackages = packageRows
+        .map(ProvincePackage.fromMap)
+        .toList(growable: false);
+    final packageById = {
+      for (final package in basePackages) adminId(package.id): package,
+    };
+
+    final bookingRows = await _supabase
+        .from('package_bookings')
+        .select('*, tour_packages!inner(id,title,city)')
+        .eq('tour_packages.city', city)
+        .order('created_at', ascending: false);
+    final bookings = _asRows(bookingRows)
+        .map(
+          (row) => ProvinceBooking.fromMap(
+            row,
+            package: packageById[adminId(row['package_id'])],
+          ),
+        )
+        .toList(growable: false);
+    final bookingCounts = <String, int>{};
+    final packageRevenue = <String, double>{};
+    for (final booking in bookings) {
+      final packageId = adminId(booking.packageId);
+      bookingCounts.update(packageId, (value) => value + 1, ifAbsent: () => 1);
+      packageRevenue.update(
+        packageId,
+        (value) => value + booking.totalAmount,
+        ifAbsent: () => booking.totalAmount,
+      );
+    }
+    final packages = packageRows
+        .map(
+          (row) => ProvincePackage.fromMap(
+            row,
+            bookingsCount: bookingCounts[adminId(row['id'])] ?? 0,
+            revenue: packageRevenue[adminId(row['id'])] ?? 0,
+          ),
+        )
         .toList(growable: false);
 
-    final spots = (await fetchProvinceSpots())
-        .where((item) => item.city == city)
-        .toList(growable: false);
-
-    final bookings = (await fetchBookings(
-      packages,
-    )).where((item) => item.city == city).toList(growable: false);
+    final spotRows = await _selectRows(
+      'tourist_spots',
+      equals: {'city': city},
+      orderBy: 'created_at',
+      ascending: false,
+    );
+    final spots = spotRows.map(ProvinceSpot.fromMap).toList(growable: false);
 
     final drivers = await _selectRows(
       'profiles',
@@ -243,17 +478,21 @@ class ProvincialAdminService {
       'verified',
     }.contains(status.toLowerCase().trim());
 
-    await _supabase.from('subtenant_details').upsert({
-      'id': tenant.id,
-      'office_name': tenant.raw['office_name'] ?? tenant.adminName,
-      'city': tenant.city,
-      'province': tenant.province.isEmpty ? 'Bulacan' : tenant.province,
-      'contact_number': tenant.mobile,
-      'email': tenant.email,
-      'office_address': tenant.address,
-      'verification_status': active ? 'verified' : status,
-      'is_active': active,
-    });
+    await _supabase
+        .from('subtenant_details')
+        .upsert({
+          'id': tenant.id,
+          'office_name': tenant.raw['office_name'] ?? tenant.adminName,
+          'city': tenant.city,
+          'province': tenant.province.isEmpty ? 'Bulacan' : tenant.province,
+          'contact_number': tenant.mobile,
+          'email': tenant.email,
+          'office_address': tenant.address,
+          'verification_status': active ? 'verified' : status,
+          'is_active': active,
+        })
+        .select('id')
+        .single();
 
     await _logAudit(
       action: active ? 'activate_subtenant' : 'deactivate_subtenant',
@@ -264,34 +503,69 @@ class ProvincialAdminService {
   }
 
   Future<void> updateTenantCity(CityTenant tenant, String city) async {
-    await _supabase
-        .from('profiles')
-        .update({'city': city.trim()})
-        .eq('id', tenant.id);
-
+    final normalizedCity = city.trim();
+    if (normalizedCity.isEmpty) {
+      throw ArgumentError('City / municipality is required.');
+    }
     await _supabase
         .from('subtenant_details')
-        .update({'city': city.trim()})
-        .eq('id', tenant.id);
+        .update({'city': normalizedCity})
+        .eq('id', tenant.id)
+        .select('id')
+        .single();
+    await _logAudit(
+      action: 'update_subtenant_city',
+      tableName: 'subtenant_details',
+      recordId: tenant.id,
+      description: 'Changed assignment from ${tenant.city} to $normalizedCity.',
+    );
+  }
+
+  Future<void> updateTenantClassification(
+    CityTenant tenant,
+    String localGovernmentType,
+  ) async {
+    if (!const {'city', 'municipality'}.contains(localGovernmentType)) {
+      throw ArgumentError('Invalid local government type.');
+    }
+    await _supabase
+        .from('subtenant_details')
+        .update({
+          'local_government_type': localGovernmentType,
+          'local_government_type_reviewed': true,
+        })
+        .eq('id', tenant.id)
+        .select('id')
+        .single();
+    await _logAudit(
+      action: 'review_lgu_classification',
+      tableName: 'subtenant_details',
+      recordId: tenant.id,
+      description: 'Classified ${tenant.city} as $localGovernmentType.',
+    );
   }
 
   Future<void> verifyTenant(CityTenant tenant) async {
     final admin = await loadCurrentAdminProfile();
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await _supabase.from('subtenant_details').upsert({
-      'id': tenant.id,
-      'office_name': tenant.raw['office_name'] ?? tenant.adminName,
-      'city': tenant.city,
-      'province': tenant.province.isEmpty ? 'Bulacan' : tenant.province,
-      'contact_number': tenant.mobile,
-      'email': tenant.email,
-      'office_address': tenant.address,
-      'verification_status': 'verified',
-      'is_active': true,
-      'approved_by': admin.id,
-      'approved_at': now,
-    });
+    await _supabase
+        .from('subtenant_details')
+        .upsert({
+          'id': tenant.id,
+          'office_name': tenant.raw['office_name'] ?? tenant.adminName,
+          'city': tenant.city,
+          'province': tenant.province.isEmpty ? 'Bulacan' : tenant.province,
+          'contact_number': tenant.mobile,
+          'email': tenant.email,
+          'office_address': tenant.address,
+          'verification_status': 'verified',
+          'is_active': true,
+          'approved_by': admin.id,
+          'approved_at': now,
+        })
+        .select('id')
+        .single();
 
     await _logAudit(
       action: 'verify_subtenant',
@@ -372,7 +646,9 @@ class ProvincialAdminService {
                   ? rejectionReason.trim()
                   : null,
             })
-            .eq('id', registration.id);
+            .eq('id', registration.id)
+            .select('id')
+            .single();
       }
 
       if (normalizedStatus == 'approved') {
@@ -489,24 +765,24 @@ class ProvincialAdminService {
       );
     }
 
-    try {
-      await _supabase.from('subtenant_details').upsert({
-        'id': registration.userId,
-        'office_name': registration.officeName,
-        'city': registration.city,
-        'province': 'Bulacan',
-        'contact_person': registration.contactPerson,
-        'contact_number': registration.contactNumber,
-        'email': registration.email,
-        'office_address': registration.address,
-        'verification_status': 'verified',
-        'is_active': true,
-        'approved_by': adminIdValue,
-        'approved_at': reviewedAtIso,
-      });
-    } on PostgrestException {
-      // Do not block approval if subtenant_details RLS is not ready.
-    }
+    await _supabase
+        .from('subtenant_details')
+        .upsert({
+          'id': registration.userId,
+          'office_name': registration.officeName,
+          'city': registration.city,
+          'province': 'Bulacan',
+          'contact_person': registration.contactPerson,
+          'contact_number': registration.contactNumber,
+          'email': registration.email,
+          'office_address': registration.address,
+          'verification_status': 'verified',
+          'is_active': true,
+          'approved_by': adminIdValue,
+          'approved_at': reviewedAtIso,
+        })
+        .select('id')
+        .single();
   }
 
   Future<List<ProvincePackage>> fetchProvincePackages() async {
@@ -576,7 +852,9 @@ class ProvincialAdminService {
     await _supabase
         .from('tour_packages')
         .update({'status': status})
-        .eq('id', package.id);
+        .eq('id', package.id)
+        .select('id')
+        .single();
 
     await _logAudit(
       action: 'update_package_status',
@@ -593,7 +871,9 @@ class ProvincialAdminService {
     await _supabase
         .from('tour_packages')
         .update({'visibility_status': visibility})
-        .eq('id', package.id);
+        .eq('id', package.id)
+        .select('id')
+        .single();
 
     await _logAudit(
       action: 'update_package_visibility',
@@ -617,13 +897,30 @@ class ProvincialAdminService {
     await _supabase
         .from('tourist_spots')
         .update({'status': 'archived'})
-        .eq('id', spot.id);
+        .eq('id', spot.id)
+        .select('id')
+        .single();
 
     await _logAudit(
       action: 'archive_spot',
       tableName: 'tourist_spots',
       recordId: adminId(spot.id),
       description: 'Archived tourist spot ${spot.title}.',
+    );
+  }
+
+  Future<void> unarchiveSpot(ProvinceSpot spot) async {
+    await _supabase
+        .from('tourist_spots')
+        .update({'status': 'active'})
+        .eq('id', spot.id)
+        .select('id')
+        .single();
+    await _logAudit(
+      action: 'unarchive_spot',
+      tableName: 'tourist_spots',
+      recordId: adminId(spot.id),
+      description: 'Restored tourist spot ${spot.title}.',
     );
   }
 
@@ -638,7 +935,9 @@ class ProvincialAdminService {
           'verified_at': now,
           'verification_status': 'verified',
         })
-        .eq('id', spot.id);
+        .eq('id', spot.id)
+        .select('id')
+        .single();
 
     await _logAudit(
       action: 'verify_spot',
@@ -652,7 +951,9 @@ class ProvincialAdminService {
     await _supabase
         .from('tourist_spots')
         .update({'verification_status': 'flagged'})
-        .eq('id', spot.id);
+        .eq('id', spot.id)
+        .select('id')
+        .single();
 
     await _logAudit(
       action: 'flag_spot',
@@ -1105,50 +1406,6 @@ class ProvincialAdminService {
     );
   }
 
-  Future<AdminSettingsData> loadSettings() async {
-    final profile = await loadCurrentAdminProfile();
-
-    try {
-      final row = await _supabase
-          .from('admin_settings')
-          .select('*')
-          .eq('user_id', profile.id)
-          .maybeSingle();
-
-      if (row == null) return AdminSettingsData.defaults();
-
-      return AdminSettingsData.fromMap(Map<String, dynamic>.from(row));
-    } on PostgrestException {
-      return AdminSettingsData.defaults(available: false);
-    }
-  }
-
-  Future<void> saveSettings(AdminSettingsData data) async {
-    final profile = await loadCurrentAdminProfile();
-
-    await _supabase.from('admin_settings').upsert({
-      'user_id': profile.id,
-      'notifications_enabled': data.notifications,
-      'package_alerts': data.packageAlerts,
-      'tourist_spot_alerts': data.touristSpotAlerts,
-      'performance_reports': data.performanceReports,
-      'system_notices': data.systemNotices,
-      'language': data.language,
-      'show_total_views': data.dashboardWidgets['Total Views'] ?? true,
-      'show_bookings': data.dashboardWidgets['Bookings'] ?? true,
-      'show_popular_destinations':
-          data.dashboardWidgets['Popular Destinations'] ?? true,
-      'show_top_packages': data.dashboardWidgets['Top Packages'] ?? true,
-    });
-
-    await _logAudit(
-      action: 'update_admin_settings',
-      tableName: 'admin_settings',
-      recordId: profile.id,
-      description: 'Updated provincial admin settings.',
-    );
-  }
-
   Future<void> _logAudit({
     required String action,
     required String tableName,
@@ -1165,8 +1422,13 @@ class ProvincialAdminService {
         'record_id': recordId,
         'description': description,
       });
-    } on PostgrestException {
-      // Audit logging is best-effort only.
+    } on PostgrestException catch (error, stack) {
+      developer.log(
+        'Admin audit logging failed: ${error.message}',
+        name: 'ProvincialAdminService',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 
@@ -1188,8 +1450,13 @@ class ProvincialAdminService {
         'type': 'city_admin_application',
         'is_read': false,
       });
-    } on PostgrestException {
-      // Notifications are best-effort only.
+    } on PostgrestException catch (error, stack) {
+      developer.log(
+        'Applicant notification failed: ${error.message}',
+        name: 'ProvincialAdminService',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 

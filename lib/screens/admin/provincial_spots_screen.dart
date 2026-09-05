@@ -10,7 +10,9 @@ import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 
 class ProvincialSpotsScreen extends StatefulWidget {
-  const ProvincialSpotsScreen({super.key});
+  const ProvincialSpotsScreen({super.key, this.initialSearch = ''});
+
+  final String initialSearch;
 
   @override
   State<ProvincialSpotsScreen> createState() => _ProvincialSpotsScreenState();
@@ -26,16 +28,66 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
   String _spotStatusFilter = 'all';
   String _verificationFilter = 'all';
 
-  void _showSpotDetails(ProvinceSpot spot) {
-    showDialog(
+  Future<void> _showSpotDetails(ProvinceSpot spot) async {
+    final action = await showDialog<String>(
       context: context,
       builder: (context) => _SpotDetailsDialog(spot: spot),
     );
+    if (action == null || !mounted) return;
+    await _moderateSpot(spot, action);
+  }
+
+  Future<void> _moderateSpot(ProvinceSpot spot, String action) async {
+    final verb = switch (action) {
+      'verify' => 'verify',
+      'flag' => 'flag',
+      'archive' => 'archive',
+      'unarchive' => 'restore',
+      _ => action,
+    };
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${verb[0].toUpperCase()}${verb.substring(1)} spot?'),
+        content: Text('This will $verb “${spot.title}” for ${spot.city}.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(verb[0].toUpperCase() + verb.substring(1)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      switch (action) {
+        case 'verify':
+          await _service.verifySpot(spot);
+        case 'flag':
+          await _service.flagSpot(spot);
+        case 'archive':
+          await _service.archiveSpot(spot);
+        case 'unarchive':
+          await _service.unarchiveSpot(spot);
+      }
+      if (!mounted) return;
+      showAdminSnack(context, 'Tourist spot updated.', error: false);
+      await _reload();
+    } catch (error) {
+      if (!mounted) return;
+      showAdminSnack(context, 'Unable to update tourist spot: $error');
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    _searchCtrl.text = widget.initialSearch;
     _future = _service.fetchProvinceSpots();
     _searchCtrl.addListener(() => setState(() {}));
   }
@@ -53,73 +105,50 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
   List<ProvinceSpot> _filtered(List<ProvinceSpot> spots) {
     final query = _searchCtrl.text.trim().toLowerCase();
 
-    return spots.where((spot) {
-      final city = spot.city.trim();
-      final status = spot.status.toLowerCase().trim();
-      final verification = spot.verificationStatus.toLowerCase().trim();
-
-      // City filter
-      final matchesCity = _cityFilter == 'all' || city == _cityFilter;
-
-      // Spot status filter
-      final matchesSpotStatus = _spotStatusFilter == 'all' ||
-          (_spotStatusFilter == 'active' && status == 'active') ||
-          (_spotStatusFilter == 'maintenance' && status == 'maintenance') ||
-          (_spotStatusFilter == 'archived' && status == 'archived');
-
-      // Verification filter
-      final matchesVerification = _verificationFilter == 'all' ||
-          (_verificationFilter == 'verified' && verification == 'verified') ||
-          (_verificationFilter == 'unverified' &&
-              verification != 'verified' &&
-              verification != 'flagged') ||
-          (_verificationFilter == 'flagged' && verification == 'flagged');
-
-      if (!matchesCity || !matchesSpotStatus || !matchesVerification) {
-        return false;
-      }
-
-      if (query.isEmpty) return true;
-
-      final searchable = [
-        spot.title,
-        spot.description,
-        spot.city,
-        spot.barangay,
-        spot.status,
-        spot.verificationStatus,
-      ].join(' ').toLowerCase();
-
-      return searchable.contains(query);
-    }).toList(growable: false);
-  }
-
-  int _countCity(List<ProvinceSpot> spots) {
-    if (_cityFilter == 'all') return spots.length;
-    return spots.where((spot) => spot.city.trim() == _cityFilter).length;
-  }
-
-  int _countSpotStatus(List<ProvinceSpot> spots, String filter) {
-    if (filter == 'all') return spots.length;
     return spots
-        .where((spot) => spot.status.toLowerCase().trim() == filter)
-        .length;
-  }
+        .where((spot) {
+          final city = spot.city.trim();
+          final status = spot.status.toLowerCase().trim();
+          final verification = spot.verificationStatus.toLowerCase().trim();
 
-  int _countVerification(List<ProvinceSpot> spots, String filter) {
-    if (filter == 'all') return spots.length;
+          // City filter
+          final matchesCity = _cityFilter == 'all' || city == _cityFilter;
 
-    return spots.where((spot) {
-      final verification = spot.verificationStatus.toLowerCase().trim();
+          // Spot status filter
+          final matchesSpotStatus =
+              _spotStatusFilter == 'all' ||
+              (_spotStatusFilter == 'active' && status == 'active') ||
+              (_spotStatusFilter == 'maintenance' && status == 'maintenance') ||
+              (_spotStatusFilter == 'archived' && status == 'archived');
 
-      if (filter == 'verified') return verification == 'verified';
-      if (filter == 'flagged') return verification == 'flagged';
-      if (filter == 'unverified') {
-        return verification != 'verified' && verification != 'flagged';
-      }
+          // Verification filter
+          final matchesVerification =
+              _verificationFilter == 'all' ||
+              (_verificationFilter == 'verified' &&
+                  verification == 'verified') ||
+              (_verificationFilter == 'unverified' &&
+                  verification != 'verified' &&
+                  verification != 'flagged') ||
+              (_verificationFilter == 'flagged' && verification == 'flagged');
 
-      return false;
-    }).length;
+          if (!matchesCity || !matchesSpotStatus || !matchesVerification) {
+            return false;
+          }
+
+          if (query.isEmpty) return true;
+
+          final searchable = [
+            spot.title,
+            spot.description,
+            spot.city,
+            spot.barangay,
+            spot.status,
+            spot.verificationStatus,
+          ].join(' ').toLowerCase();
+
+          return searchable.contains(query);
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -147,17 +176,18 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
           final allSpots = snapshot.data ?? const <ProvinceSpot>[];
           final spots = _filtered(allSpots);
 
-          final cities = allSpots
-              .map((item) => item.city)
-              .where((city) => city.trim().isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
+          final cities =
+              allSpots
+                  .map((item) => item.city)
+                  .where((city) => city.trim().isNotEmpty)
+                  .toSet()
+                  .toList()
+                ..sort();
 
           final avgRating = allSpots.isEmpty
               ? 0.0
               : allSpots.fold<double>(0, (sum, spot) => sum + spot.rating) /
-                  allSpots.length;
+                    allSpots.length;
 
           return RefreshIndicator(
             onRefresh: () async => _reload(),
@@ -175,18 +205,21 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
                   _TourismHero(
                     total: allSpots.length,
                     active: allSpots
-                        .where((s) =>
-                            s.status.toLowerCase().trim() == 'active')
+                        .where((s) => s.status.toLowerCase().trim() == 'active')
                         .length,
                     verified: allSpots
-                        .where((s) =>
-                            s.verificationStatus.toLowerCase().trim() ==
-                            'verified')
+                        .where(
+                          (s) =>
+                              s.verificationStatus.toLowerCase().trim() ==
+                              'verified',
+                        )
                         .length,
                     flagged: allSpots
-                        .where((s) =>
-                            s.verificationStatus.toLowerCase().trim() ==
-                            'flagged')
+                        .where(
+                          (s) =>
+                              s.verificationStatus.toLowerCase().trim() ==
+                              'flagged',
+                        )
                         .length,
                     averageRating: avgRating,
                   ),
@@ -227,10 +260,7 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
                       ),
                     )
                   else
-                    _SpotGrid(
-                      spots: spots,
-                      onViewDetails: _showSpotDetails,
-                    ),
+                    _SpotGrid(spots: spots, onViewDetails: _showSpotDetails),
                 ],
               ),
             ),
@@ -594,15 +624,11 @@ class _SearchField extends StatelessWidget {
           contentPadding: const EdgeInsets.symmetric(horizontal: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.line,
-            ),
+            borderSide: const BorderSide(color: ProvincialAdminColors.line),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.line,
-            ),
+            borderSide: const BorderSide(color: ProvincialAdminColors.line),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
@@ -864,7 +890,9 @@ class _FilterDropdownState extends State<_FilterDropdown> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
-                color: _isOpen ? const Color(0xFFF1F6FF) : const Color(0xFFF8FBFF),
+                color: _isOpen
+                    ? const Color(0xFFF1F6FF)
+                    : const Color(0xFFF8FBFF),
                 borderRadius: BorderRadius.circular(17),
                 border: Border.all(
                   color: _isOpen
@@ -913,10 +941,7 @@ class _FilterDropdownState extends State<_FilterDropdown> {
 }
 
 class _FilterSection extends StatelessWidget {
-  const _FilterSection({
-    required this.title,
-    required this.children,
-  });
+  const _FilterSection({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
@@ -1006,10 +1031,7 @@ class _FilterOption extends StatelessWidget {
 }
 
 class _SpotGrid extends StatelessWidget {
-  const _SpotGrid({
-    required this.spots,
-    required this.onViewDetails,
-  });
+  const _SpotGrid({required this.spots, required this.onViewDetails});
 
   final List<ProvinceSpot> spots;
   final ValueChanged<ProvinceSpot> onViewDetails;
@@ -1045,10 +1067,7 @@ class _SpotGrid extends StatelessWidget {
 }
 
 class _SpotCard extends StatelessWidget {
-  const _SpotCard({
-    required this.spot,
-    required this.onViewDetails,
-  });
+  const _SpotCard({required this.spot, required this.onViewDetails});
 
   final ProvinceSpot spot;
   final VoidCallback onViewDetails;
@@ -1176,7 +1195,7 @@ class _SpotImage extends StatelessWidget {
           : Image.network(
               url,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Icon(
+              errorBuilder: (_, _, _) => const Icon(
                 Icons.travel_explore_rounded,
                 color: ProvincialAdminColors.blue,
                 size: 28,
@@ -1237,17 +1256,16 @@ class _SpotInfo extends StatelessWidget {
 }
 
 class _VerificationBox extends StatelessWidget {
-  const _VerificationBox({
-    required this.verified,
-    required this.status,
-  });
+  const _VerificationBox({required this.verified, required this.status});
 
   final bool verified;
   final String status;
 
   @override
   Widget build(BuildContext context) {
-    final color = verified ? ProvincialAdminColors.green : ProvincialAdminColors.amber;
+    final color = verified
+        ? ProvincialAdminColors.green
+        : ProvincialAdminColors.amber;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -1304,14 +1322,13 @@ class _SpotDetailsDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final verified = spot.verificationStatus.toLowerCase().trim() == 'verified';
-    final color =
-        verified ? ProvincialAdminColors.green : ProvincialAdminColors.amber;
+    final color = verified
+        ? ProvincialAdminColors.green
+        : ProvincialAdminColors.amber;
 
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -1336,7 +1353,7 @@ class _SpotDetailsDialog extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'View-only information',
+                          'Review details and moderation status',
                           style: TextStyle(
                             color: ProvincialAdminColors.muted,
                             fontSize: 12,
@@ -1372,7 +1389,7 @@ class _SpotDetailsDialog extends StatelessWidget {
                     : Image.network(
                         spot.imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
+                        errorBuilder: (_, _, _) => const Icon(
                           Icons.travel_explore_rounded,
                           color: ProvincialAdminColors.blue,
                           size: 56,
@@ -1499,27 +1516,46 @@ class _SpotDetailsDialog extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
-              // Close button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: ProvincialAdminColors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                alignment: WrapAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                  if (!verified)
+                    FilledButton.icon(
+                      onPressed: () => Navigator.pop(context, 'verify'),
+                      icon: const Icon(Icons.verified_rounded),
+                      label: const Text('Verify'),
+                    ),
+                  if (spot.verificationStatus.toLowerCase() != 'flagged')
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context, 'flag'),
+                      icon: const Icon(Icons.flag_rounded),
+                      label: const Text('Flag'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      spot.status.toLowerCase() == 'archived'
+                          ? 'unarchive'
+                          : 'archive',
+                    ),
+                    icon: Icon(
+                      spot.status.toLowerCase() == 'archived'
+                          ? Icons.restore_rounded
+                          : Icons.archive_rounded,
+                    ),
+                    label: Text(
+                      spot.status.toLowerCase() == 'archived'
+                          ? 'Restore'
+                          : 'Archive',
                     ),
                   ),
-                  child: const Text(
-                    'Close',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
+                ],
               ),
             ],
           ),

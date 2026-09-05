@@ -159,6 +159,8 @@ class CityTenant {
     required this.bookingsCount,
     required this.driversCount,
     required this.verified,
+    required this.localGovernmentType,
+    required this.localGovernmentTypeReviewed,
     required this.raw,
   });
 
@@ -176,6 +178,8 @@ class CityTenant {
   final int bookingsCount;
   final int driversCount;
   final bool verified;
+  final String localGovernmentType;
+  final bool localGovernmentTypeReviewed;
   final Map<String, dynamic> raw;
 
   factory CityTenant.fromProfile(
@@ -211,11 +215,7 @@ class CityTenant {
         'office_name',
         'name',
       ], fallback: generatedName.isEmpty ? 'Subtenant Admin' : generatedName),
-      email: adminString(map, const [
-        'email',
-        'contact_email',
-        'office_email',
-      ]),
+      email: adminString(map, const ['email', 'contact_email', 'office_email']),
       mobile: adminString(map, const ['mobile', 'contact_number']),
       address: adminString(map, const ['address', 'office_address']),
       status: status,
@@ -229,6 +229,11 @@ class CityTenant {
           map['is_verified'] == true ||
           detailsStatus == 'approved' ||
           detailsStatus == 'verified',
+      localGovernmentType: adminString(map, const [
+        'local_government_type',
+      ], fallback: 'municipality'),
+      localGovernmentTypeReviewed:
+          map['local_government_type_reviewed'] == true,
       raw: map,
     );
   }
@@ -255,7 +260,56 @@ class CityTenant {
       bookingsCount: bookingsCount ?? this.bookingsCount,
       driversCount: driversCount ?? this.driversCount,
       verified: verified,
+      localGovernmentType: localGovernmentType,
+      localGovernmentTypeReviewed: localGovernmentTypeReviewed,
       raw: raw,
+    );
+  }
+}
+
+enum AdminSearchResultType { tenant, spot, package, driver, booking }
+
+class AdminSearchResult {
+  const AdminSearchResult({
+    required this.type,
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.raw,
+  });
+
+  final AdminSearchResultType type;
+  final String id;
+  final String title;
+  final String subtitle;
+  final Map<String, dynamic> raw;
+}
+
+class AdminNotification {
+  const AdminNotification({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.isRead,
+    required this.createdAt,
+  });
+
+  final dynamic id;
+  final String title;
+  final String body;
+  final String type;
+  final bool isRead;
+  final DateTime? createdAt;
+
+  factory AdminNotification.fromMap(Map<String, dynamic> map) {
+    return AdminNotification(
+      id: map['id'],
+      title: adminString(map, const ['title'], fallback: 'Notification'),
+      body: adminString(map, const ['body']),
+      type: adminString(map, const ['type']),
+      isRead: map['is_read'] == true,
+      createdAt: adminDate(map['created_at']),
     );
   }
 }
@@ -529,8 +583,9 @@ class CityRegistration {
       contactNumber: adminString(map, const ['contact_number', 'mobile']),
       email: adminString(map, const ['email']),
       address: adminString(map, const ['office_address', 'address']),
-      status: adminString(map, const ['status'], fallback: 'pending')
-          .toLowerCase(),
+      status: adminString(map, const [
+        'status',
+      ], fallback: 'pending').toLowerCase(),
       submittedAt: adminDate(map['submitted_at'] ?? map['created_at']),
       reviewedAt: adminDate(map['reviewed_at']),
       reviewedBy: adminId(map['reviewed_by']),
@@ -740,103 +795,5 @@ class FeedbackTrendData {
   List<ProvinceFeedback> get lowRated {
     final rows = feedback.where((item) => item.rating > 0 && item.rating < 3);
     return rows.take(10).toList(growable: false);
-  }
-}
-
-class AdminSettingsData {
-  const AdminSettingsData({
-    required this.available,
-    required this.notifications,
-    required this.packageAlerts,
-    required this.touristSpotAlerts,
-    required this.performanceReports,
-    required this.systemNotices,
-    required this.language,
-    required this.dashboardWidgets,
-  });
-
-  final bool available;
-  final bool notifications;
-  final bool packageAlerts;
-  final bool touristSpotAlerts;
-  final bool performanceReports;
-  final bool systemNotices;
-  final String language;
-  final Map<String, bool> dashboardWidgets;
-
-  factory AdminSettingsData.defaults({bool available = true}) {
-    return AdminSettingsData(
-      available: available,
-      notifications: true,
-      packageAlerts: true,
-      touristSpotAlerts: true,
-      performanceReports: true,
-      systemNotices: true,
-      language: 'English',
-      dashboardWidgets: const {
-        'Total Views': true,
-        'Bookings': true,
-        'Popular Destinations': true,
-        'Top Packages': true,
-      },
-    );
-  }
-
-  factory AdminSettingsData.fromMap(Map<String, dynamic> map) {
-    final widgets = <String, bool>{
-      'Total Views': map['show_total_views'] != false,
-      'Bookings': map['show_bookings'] != false,
-      'Popular Destinations': map['show_popular_destinations'] != false,
-      'Top Packages': map['show_top_packages'] != false,
-    };
-
-    return AdminSettingsData(
-      available: true,
-      notifications: map['notifications_enabled'] != false,
-      packageAlerts: map['package_alerts'] != false,
-      touristSpotAlerts: map['tourist_spot_alerts'] != false,
-      performanceReports: map['performance_reports'] != false,
-      systemNotices: map['system_notices'] != false,
-      language: adminString(map, const ['language'], fallback: 'English'),
-      dashboardWidgets: widgets,
-    );
-  }
-
-  AdminSettingsData copyWith({
-    bool? available,
-    bool? notifications,
-    bool? packageAlerts,
-    bool? touristSpotAlerts,
-    bool? performanceReports,
-    bool? systemNotices,
-    String? language,
-    Map<String, bool>? dashboardWidgets,
-  }) {
-    return AdminSettingsData(
-      available: available ?? this.available,
-      notifications: notifications ?? this.notifications,
-      packageAlerts: packageAlerts ?? this.packageAlerts,
-      touristSpotAlerts: touristSpotAlerts ?? this.touristSpotAlerts,
-      performanceReports: performanceReports ?? this.performanceReports,
-      systemNotices: systemNotices ?? this.systemNotices,
-      language: language ?? this.language,
-      dashboardWidgets: dashboardWidgets ?? Map<String, bool>.from(this.dashboardWidgets),
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'notifications_enabled': notifications,
-      'package_alerts': packageAlerts,
-      'tourist_spot_alerts': touristSpotAlerts,
-      'performance_reports': performanceReports,
-      'system_notices': systemNotices,
-      'language': language,
-      'show_total_views': dashboardWidgets['Total Views'] ?? true,
-      'show_bookings': dashboardWidgets['Bookings'] ?? true,
-      'show_popular_destinations':
-          dashboardWidgets['Popular Destinations'] ?? true,
-      'show_top_packages': dashboardWidgets['Top Packages'] ?? true,
-    };
   }
 }

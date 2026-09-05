@@ -46,7 +46,7 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
       _reload();
     } catch (e) {
       if (!mounted) return;
-      showAdminSnack(context, 'Status update needs profiles.status: $e');
+      showAdminSnack(context, 'Unable to update tenant status: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -61,7 +61,76 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
       _reload();
     } catch (e) {
       if (!mounted) return;
-      showAdminSnack(context, 'Verification needs profiles.verified: $e');
+      showAdminSnack(context, 'Unable to verify tenant: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _reviewClassification(CityTenantDetailsData data) async {
+    var selected = data.tenant.localGovernmentType == 'city'
+        ? 'city'
+        : 'municipality';
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Review LGU classification'),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${data.tenant.city}\n${data.tenant.raw['office_name'] ?? data.tenant.adminName}',
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: selected,
+                  decoration: const InputDecoration(
+                    labelText: 'Classification',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'city', child: Text('City')),
+                    DropdownMenuItem(
+                      value: 'municipality',
+                      child: Text('Municipality'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => selected = value);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: const Text('Save classification'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (value == null) return;
+    setState(() => _saving = true);
+    try {
+      await _service.updateTenantClassification(data.tenant, value);
+      if (!mounted) return;
+      showAdminSnack(context, 'LGU classification saved.', error: false);
+      _reload();
+    } catch (error) {
+      if (!mounted) return;
+      showAdminSnack(context, 'Unable to save classification: $error');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -146,11 +215,11 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
               );
 
               void openReports() => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProvinceReportsScreen(),
-                    ),
-                  );
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ProvinceReportsScreen(),
+                ),
+              );
 
               final profileCard = _ProfileCard(
                 data: data,
@@ -159,6 +228,7 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
                 onDeactivate: () => _setStatus(data, 'inactive'),
                 onVerify: () => _verify(data),
                 onReports: openReports,
+                onReviewClassification: () => _reviewClassification(data),
                 fullHeight: isWide,
               );
 
@@ -174,11 +244,7 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
                       const SizedBox(height: 16),
                       profileCard,
                       const SizedBox(height: 16),
-                      _RecentPanel(
-                        data: data,
-                        money: money,
-                        narrow: true,
-                      ),
+                      _RecentPanel(data: data, money: money, narrow: true),
                     ],
                   ),
                 );
@@ -275,6 +341,7 @@ class _ProfileCard extends StatelessWidget {
     required this.onDeactivate,
     required this.onVerify,
     required this.onReports,
+    required this.onReviewClassification,
     required this.fullHeight,
   });
 
@@ -284,6 +351,7 @@ class _ProfileCard extends StatelessWidget {
   final VoidCallback onDeactivate;
   final VoidCallback onVerify;
   final VoidCallback onReports;
+  final VoidCallback onReviewClassification;
   final bool fullHeight;
 
   @override
@@ -332,10 +400,13 @@ class _ProfileCard extends StatelessWidget {
             saving: saving,
             isVerified: isVerified,
             isActive: isActive,
+            classificationReviewed: tenant.localGovernmentTypeReviewed,
+            classification: tenant.localGovernmentType,
             onVerify: onVerify,
             onActivate: onActivate,
             onDeactivate: onDeactivate,
             onReports: onReports,
+            onReviewClassification: onReviewClassification,
           ),
         ],
       ),
@@ -396,13 +467,13 @@ class _GradientHeader extends StatelessWidget {
               top: 10,
               right: 14,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(999),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.32)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.32),
+                  ),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -600,19 +671,25 @@ class _ActionSection extends StatelessWidget {
     required this.saving,
     required this.isVerified,
     required this.isActive,
+    required this.classificationReviewed,
+    required this.classification,
     required this.onVerify,
     required this.onActivate,
     required this.onDeactivate,
     required this.onReports,
+    required this.onReviewClassification,
   });
 
   final bool saving;
   final bool isVerified;
   final bool isActive;
+  final bool classificationReviewed;
+  final String classification;
   final VoidCallback onVerify;
   final VoidCallback onActivate;
   final VoidCallback onDeactivate;
   final VoidCallback onReports;
+  final VoidCallback onReviewClassification;
 
   @override
   Widget build(BuildContext context) {
@@ -621,6 +698,41 @@ class _ActionSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: classificationReviewed
+                  ? ProvincialAdminColors.backgroundAlt
+                  : const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: ProvincialAdminColors.line),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  classificationReviewed
+                      ? Icons.location_city_rounded
+                      : Icons.rule_rounded,
+                  color: ProvincialAdminColors.blue,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    classificationReviewed
+                        ? 'Classification: ${classification == 'city' ? 'City' : 'Municipality'}'
+                        : 'City / Municipality classification needs review',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                TextButton(
+                  onPressed: saving ? null : onReviewClassification,
+                  child: const Text('Review'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           if (!isVerified) ...[
             FilledButton.icon(
               onPressed: saving ? null : onVerify,
@@ -782,11 +894,7 @@ class _RecentPanel extends StatelessWidget {
 
     if (narrow) {
       return Column(
-        children: [
-          packagesCard,
-          const SizedBox(height: 16),
-          bookingsCard,
-        ],
+        children: [packagesCard, const SizedBox(height: 16), bookingsCard],
       );
     }
 
@@ -838,12 +946,18 @@ class _ListCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _ListCardHeader(
-                title: title, subtitle: subtitle, icon: icon, count: count),
+              title: title,
+              subtitle: subtitle,
+              icon: icon,
+              count: count,
+            ),
             const Divider(
-                height: 1, thickness: 0.5, color: ProvincialAdminColors.line),
+              height: 1,
+              thickness: 0.5,
+              color: ProvincialAdminColors.line,
+            ),
             if (children.isEmpty)
-              Padding(
-                  padding: const EdgeInsets.all(16), child: emptyWidget)
+              Padding(padding: const EdgeInsets.all(16), child: emptyWidget)
             else ...[
               ...children,
               const SizedBox(height: 8),
@@ -859,9 +973,16 @@ class _ListCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _ListCardHeader(
-              title: title, subtitle: subtitle, icon: icon, count: count),
+            title: title,
+            subtitle: subtitle,
+            icon: icon,
+            count: count,
+          ),
           const Divider(
-              height: 1, thickness: 0.5, color: ProvincialAdminColors.line),
+            height: 1,
+            thickness: 0.5,
+            color: ProvincialAdminColors.line,
+          ),
           Expanded(
             child: children.isEmpty
                 ? Center(
@@ -872,7 +993,9 @@ class _ListCard extends StatelessWidget {
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 8),
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
                     itemCount: children.length,
                     separatorBuilder: (_, _) => const Divider(
                       height: 1,
@@ -950,8 +1073,7 @@ class _ListCardHeader extends StatelessWidget {
           if (count > 0) ...[
             const SizedBox(width: 8),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
               decoration: BoxDecoration(
                 color: ProvincialAdminColors.blue.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(999),
@@ -1083,10 +1205,7 @@ class _PackageListItemState extends State<_PackageListItem> {
 // ─── Booking list item ────────────────────────────────────────────────────────
 
 class _BookingListItem extends StatefulWidget {
-  const _BookingListItem({
-    required this.booking,
-    required this.money,
-  });
+  const _BookingListItem({required this.booking, required this.money});
 
   final ProvinceBooking booking;
   final NumberFormat money;
@@ -1282,14 +1401,15 @@ class _EmptySection extends StatelessWidget {
 
 Color _statusToColor(String status) {
   return switch (status.toLowerCase().trim()) {
-    'active' || 'published' || 'completed' || 'verified' =>
-      ProvincialAdminColors.green,
+    'active' ||
+    'published' ||
+    'completed' ||
+    'verified' => ProvincialAdminColors.green,
     'inactive' ||
     'deactivated' ||
     'cancelled' ||
     'rejected' ||
-    'hidden' =>
-      ProvincialAdminColors.red,
+    'hidden' => ProvincialAdminColors.red,
     'pending' || 'under_review' || 'review' => ProvincialAdminColors.amber,
     'draft' => ProvincialAdminColors.lightMuted,
     _ => ProvincialAdminColors.blue,

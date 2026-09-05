@@ -3,16 +3,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
 import 'package:touristrike/screens/admin/city_tenants_screen.dart';
+import 'package:touristrike/screens/admin/city_tenant_details_screen.dart';
 import 'package:touristrike/screens/admin/feedback_trends_screen.dart';
 import 'package:touristrike/screens/admin/province_packages_screen.dart';
 import 'package:touristrike/screens/admin/province_reports_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_dashboard_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
-import 'package:touristrike/screens/admin/provincial_admin_settings_screen.dart';
 import 'package:touristrike/screens/admin/provincial_spots_screen.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_empty_state.dart';
+import 'package:touristrike/screens/admin/widgets/admin_header_tools.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_sidebar.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
@@ -70,6 +71,30 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
     );
   }
 
+  void _openTenant(String tenantId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CityTenantDetailsScreen(tenantId: tenantId),
+      ),
+    );
+  }
+
+  void _openSpots(String query) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProvincialSpotsScreen(initialSearch: query),
+      ),
+    );
+  }
+
+  void _openPackages(String query) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProvincePackagesScreen(initialSearch: query),
+      ),
+    );
+  }
+
   Widget _pageForDestination(ProvincialAdminDestination destination) {
     switch (destination) {
       case ProvincialAdminDestination.dashboard:
@@ -86,8 +111,6 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
         return const ProvinceReportsScreen();
       case ProvincialAdminDestination.feedback:
         return const FeedbackTrendsScreen();
-      case ProvincialAdminDestination.settings:
-        return const ProvincialAdminSettingsScreen();
     }
   }
 
@@ -117,7 +140,19 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
             current: widget.current,
             title: widget.title,
             profile: profile,
-            actions: widget.actions,
+            actions: [
+              AdminGlobalSearchButton(
+                compact: true,
+                onOpenTenant: _openTenant,
+                onOpenSpots: _openSpots,
+                onOpenPackages: _openPackages,
+              ),
+              AdminNotificationButton(
+                userId: profile.id,
+                onNavigate: _navigate,
+              ),
+              ...widget.actions,
+            ],
             floatingActionButton: widget.floatingActionButton,
             onNavigate: _navigate,
             onLogout: _logout,
@@ -168,6 +203,15 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
                             subtitle: widget.subtitle,
                             profile: profile,
                             actions: widget.actions,
+                            search: AdminGlobalSearchButton(
+                              onOpenTenant: _openTenant,
+                              onOpenSpots: _openSpots,
+                              onOpenPackages: _openPackages,
+                            ),
+                            notifications: AdminNotificationButton(
+                              userId: profile.id,
+                              onNavigate: _navigate,
+                            ),
                           ),
                           Expanded(
                             child: ClipRRect(
@@ -263,6 +307,8 @@ class _DesktopHeader extends StatelessWidget {
     required this.title,
     required this.profile,
     required this.actions,
+    required this.search,
+    required this.notifications,
     this.subtitle,
   });
 
@@ -270,6 +316,8 @@ class _DesktopHeader extends StatelessWidget {
   final String? subtitle;
   final ProvincialAdminProfile profile;
   final List<Widget> actions;
+  final Widget search;
+  final Widget notifications;
 
   @override
   Widget build(BuildContext context) {
@@ -302,18 +350,8 @@ class _DesktopHeader extends StatelessWidget {
             ),
           ],
           const SizedBox(width: 14),
-          if (desktop) ...[const _HeaderSearch(), const SizedBox(width: 12)],
-          Tooltip(
-            message: 'Notifications',
-            child: IconButton.filledTonal(
-              onPressed: () {},
-              icon: const Icon(Icons.notifications_none_rounded),
-              style: IconButton.styleFrom(
-                backgroundColor: const Color(0xFFEAF4FF),
-                foregroundColor: ProvincialAdminColors.blue,
-              ),
-            ),
-          ),
+          if (desktop) ...[search, const SizedBox(width: 12)],
+          notifications,
           if (desktop) ...[
             const SizedBox(width: 10),
             _ProfileChip(profile: profile),
@@ -362,44 +400,6 @@ class _HeaderTitle extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-class _HeaderSearch extends StatelessWidget {
-  const _HeaderSearch();
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 330, minWidth: 220),
-      child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FBFF),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: ProvincialAdminColors.line),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.search_rounded, color: ProvincialAdminColors.lightMuted),
-            SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                'Search province data...',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: ProvincialAdminColors.lightMuted,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

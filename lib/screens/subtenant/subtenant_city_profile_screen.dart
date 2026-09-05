@@ -31,16 +31,10 @@ class _SubTenantCityProfileScreenState
   final _addressCtrl = TextEditingController();
   final _coverCtrl = TextEditingController();
   final _logoCtrl = TextEditingController();
-  final _websiteCtrl = TextEditingController();
-  final _facebookCtrl = TextEditingController();
-  final _hotlineCtrl = TextEditingController();
-  final _sloganCtrl = TextEditingController();
-  final _welcomeCtrl = TextEditingController();
   final _baseFareCtrl = TextEditingController();
   final _farePerKmCtrl = TextEditingController();
   final _minimumFareCtrl = TextEditingController();
   final _waitingFeeCtrl = TextEditingController();
-  final _weekendSurchargeCtrl = TextEditingController();
 
   SubTenantProfile? _profile;
 
@@ -49,59 +43,14 @@ class _SubTenantCityProfileScreenState
   bool _hydrating = false;
   int _selectedIndex = 0;
 
-  String _defaultVisibility = 'visible';
-  String _defaultSpotStatus = 'active';
-  bool _notificationsEnabled = true;
-  bool _packageAlerts = true;
-  bool _touristSpotAlerts = true;
-  bool _performanceReports = true;
-  bool _systemNotices = true;
-  bool _showTotalViews = true;
-  bool _showBookings = true;
-  bool _showPopularDestinations = true;
-  bool _showTopPackages = true;
-
-  bool _enableAiSuggestions = true;
-  bool _diversePlaceTypes = true;
-  bool _prioritizePopular = true;
-  bool _prioritizeNearby = true;
-  bool _prioritizeFood = true;
-  bool _prioritizeNature = true;
-  bool _prioritizeHistorical = true;
-
-  bool _requireSpotVerification = true;
-  bool _requireMapPin = true;
-  bool _requireCoverImage = true;
-
-  // booking flags removed
-  bool _allowCancellation = true;
-
-  bool _driverAutoApproval = false;
-  bool _requireDriverDocuments = true;
-  bool _requireTodaVerification = true;
-
-  bool _bookingNotifications = true;
-  bool _driverNotifications = true;
-  bool _reviewNotifications = true;
-  bool _emailNotifications = true;
-
-  bool _revenueTracking = true;
-  bool _spotPopularityTracking = true;
-  bool _driverAnalytics = true;
-  bool _monthlyReports = true;
+  bool _officeNameCustomized = false;
+  String _generatedOfficeName = '';
+  String _localGovernmentType = 'municipality';
 
   final List<_SettingsSection> _sections = const [
-    _SettingsSection('General', Icons.settings_rounded),
-    _SettingsSection('Tourism Office', Icons.business_rounded),
+    _SettingsSection('Office Settings', Icons.business_rounded),
     _SettingsSection('Branding', Icons.palette_rounded),
     _SettingsSection('Fare Matrix', Icons.payments_rounded),
-    _SettingsSection('Packages', Icons.inventory_2_rounded),
-    // Bookings settings removed
-    _SettingsSection('Drivers', Icons.directions_bike_rounded),
-    _SettingsSection('Tourist Spots', Icons.place_rounded),
-    _SettingsSection('AI Suggestions', Icons.auto_awesome_rounded),
-    _SettingsSection('Notifications', Icons.notifications_rounded),
-    _SettingsSection('Analytics', Icons.analytics_rounded),
     _SettingsSection('Security', Icons.security_rounded),
   ];
 
@@ -119,16 +68,10 @@ class _SubTenantCityProfileScreenState
       _addressCtrl,
       _coverCtrl,
       _logoCtrl,
-      _websiteCtrl,
-      _facebookCtrl,
-      _hotlineCtrl,
-      _sloganCtrl,
-      _welcomeCtrl,
       _baseFareCtrl,
       _farePerKmCtrl,
       _minimumFareCtrl,
       _waitingFeeCtrl,
-      _weekendSurchargeCtrl,
     ]) {
       controller.addListener(_markDirty);
     }
@@ -136,6 +79,9 @@ class _SubTenantCityProfileScreenState
 
   void _markDirty() {
     if (_hydrating) return;
+    _officeNameCustomized =
+        _officeNameCtrl.text.trim().toLowerCase() !=
+        _generatedOfficeName.toLowerCase();
     if (!_dirty && mounted) setState(() => _dirty = true);
   }
 
@@ -143,17 +89,17 @@ class _SubTenantCityProfileScreenState
     final profile = await _service.loadCurrentProfile();
     final results = await Future.wait([
       _service.loadCityProfile(profile),
-      _service.loadSettings(profile),
       _service.loadFareSettings(profile),
     ]);
     final details = results[0] as SubTenantCityProfileData;
-    final settings = results[1] as SubTenantSettingsData;
-    final fare = results[2] as SubTenantFareSettings;
+    final fare = results[1] as SubTenantFareSettings;
 
     _profile = profile;
     _hydrating = true;
     _cityCtrl.text = profile.assignedCity;
-    _provinceCtrl.text = profile.province.isEmpty ? 'Bulacan' : profile.province;
+    _provinceCtrl.text = profile.province.isEmpty
+        ? 'Bulacan'
+        : profile.province;
     _descriptionCtrl.text = details.description;
     _officeNameCtrl.text = details.tourismOfficeName;
     _contactPersonCtrl.text = details.contactPerson;
@@ -162,49 +108,20 @@ class _SubTenantCityProfileScreenState
     _addressCtrl.text = details.officeAddress;
     _coverCtrl.text = details.coverImageUrl;
     _logoCtrl.text = details.logoImageUrl;
-    _defaultVisibility = settings.defaultPackageVisibility;
-    _defaultSpotStatus = settings.defaultSpotStatus;
-    _notificationsEnabled = settings.notificationsEnabled;
-    _packageAlerts = settings.packageAlerts;
-    _touristSpotAlerts = settings.touristSpotAlerts;
-    _performanceReports = settings.performanceReports;
-    _systemNotices = settings.systemNotices;
-    _showTotalViews = settings.showTotalViews;
-    _showBookings = settings.showBookings;
-    _showPopularDestinations = settings.showPopularDestinations;
-    _showTopPackages = settings.showTopPackages;
-    // booking flags removed from settings load
-    _allowCancellation = settings.allowCancellation;
-    _driverAutoApproval = settings.driverAutoApproval;
-    _requireDriverDocuments = settings.requireDriverDocuments;
-    _requireTodaVerification = settings.requireTodaVerification;
-    _requireSpotVerification = settings.requireSpotVerification;
-    _requireMapPin = settings.requireMapPin;
-    _requireCoverImage = settings.requireCoverImage;
-    _enableAiSuggestions = settings.enableAiSuggestions;
-    _diversePlaceTypes = settings.diversePlaceTypes;
-    _prioritizePopular = settings.prioritizePopular;
-    _prioritizeNearby = settings.prioritizeNearby;
-    _prioritizeFood = settings.prioritizeFood;
-    _prioritizeNature = settings.prioritizeNature;
-    _prioritizeHistorical = settings.prioritizeHistorical;
-    _bookingNotifications = settings.bookingNotifications;
-    _driverNotifications = settings.driverNotifications;
-    _reviewNotifications = settings.reviewNotifications;
-    _emailNotifications = settings.emailNotifications;
-    _revenueTracking = settings.revenueTracking;
-    _spotPopularityTracking = settings.spotPopularityTracking;
-    _driverAnalytics = settings.driverAnalytics;
-    _monthlyReports = settings.monthlyReports;
+    _generatedOfficeName = defaultTourismOfficeName(
+      assignedLocation: profile.assignedCity,
+      localGovernmentType: details.localGovernmentType,
+    );
+    _localGovernmentType = details.localGovernmentType;
+    _officeNameCustomized = details.officeNameCustomized;
     _baseFareCtrl.text = _moneyText(fare.baseFare);
     _farePerKmCtrl.text = _moneyText(fare.farePerKm);
     _minimumFareCtrl.text = _moneyText(fare.minimumFare);
     _waitingFeeCtrl.text = _moneyText(fare.waitingFee);
-    _weekendSurchargeCtrl.text = _moneyText(fare.weekendSurcharge);
     _hydrating = false;
     _dirty = false;
 
-    return _SettingsLoad(profile: profile, details: details, settings: settings, fare: fare);
+    return _SettingsLoad(profile: profile, details: details, fare: fare);
   }
 
   void _reload() {
@@ -226,16 +143,10 @@ class _SubTenantCityProfileScreenState
     _addressCtrl.dispose();
     _coverCtrl.dispose();
     _logoCtrl.dispose();
-    _websiteCtrl.dispose();
-    _facebookCtrl.dispose();
-    _hotlineCtrl.dispose();
-    _sloganCtrl.dispose();
-    _welcomeCtrl.dispose();
     _baseFareCtrl.dispose();
     _farePerKmCtrl.dispose();
     _minimumFareCtrl.dispose();
     _waitingFeeCtrl.dispose();
-    _weekendSurchargeCtrl.dispose();
     super.dispose();
   }
 
@@ -248,42 +159,11 @@ class _SubTenantCityProfileScreenState
     return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
   }
 
-  SubTenantSettingsData _settingsFromState() {
-    return SubTenantSettingsData(
-      notificationsEnabled: _notificationsEnabled,
-      packageAlerts: _packageAlerts,
-      touristSpotAlerts: _touristSpotAlerts,
-      performanceReports: _performanceReports,
-      systemNotices: _systemNotices,
-      showTotalViews: _showTotalViews,
-      showBookings: _showBookings,
-      showPopularDestinations: _showPopularDestinations,
-      showTopPackages: _showTopPackages,
-      defaultPackageVisibility: _defaultVisibility,
-      defaultSpotStatus: _defaultSpotStatus,
-      allowCancellation: _allowCancellation,
-      driverAutoApproval: _driverAutoApproval,
-      requireDriverDocuments: _requireDriverDocuments,
-      requireTodaVerification: _requireTodaVerification,
-      requireSpotVerification: _requireSpotVerification,
-      requireMapPin: _requireMapPin,
-      requireCoverImage: _requireCoverImage,
-      enableAiSuggestions: _enableAiSuggestions,
-      diversePlaceTypes: _diversePlaceTypes,
-      prioritizePopular: _prioritizePopular,
-      prioritizeNearby: _prioritizeNearby,
-      prioritizeFood: _prioritizeFood,
-      prioritizeNature: _prioritizeNature,
-      prioritizeHistorical: _prioritizeHistorical,
-      bookingNotifications: _bookingNotifications,
-      driverNotifications: _driverNotifications,
-      reviewNotifications: _reviewNotifications,
-      emailNotifications: _emailNotifications,
-      revenueTracking: _revenueTracking,
-      spotPopularityTracking: _spotPopularityTracking,
-      driverAnalytics: _driverAnalytics,
-      monthlyReports: _monthlyReports,
-    );
+  String? _nonNegativeMoneyValidator(String? value) {
+    final parsed = double.tryParse((value ?? '').trim().replaceAll(',', ''));
+    if (parsed == null) return 'Enter a valid amount';
+    if (parsed < 0) return 'Amount cannot be negative';
+    return null;
   }
 
   SubTenantFareSettings _fareFromState(SubTenantProfile profile) {
@@ -294,7 +174,6 @@ class _SubTenantCityProfileScreenState
       farePerKm: _moneyValue(_farePerKmCtrl),
       minimumFare: _moneyValue(_minimumFareCtrl),
       waitingFee: _moneyValue(_waitingFeeCtrl),
-      weekendSurcharge: _moneyValue(_weekendSurchargeCtrl),
     );
   }
 
@@ -321,10 +200,11 @@ class _SubTenantCityProfileScreenState
           officeAddress: _addressCtrl.text.trim(),
           coverImageUrl: _coverCtrl.text.trim(),
           logoImageUrl: _logoCtrl.text.trim(),
+          localGovernmentType: _localGovernmentType,
+          officeNameCustomized: _officeNameCustomized,
           detailsTableAvailable: true,
         ),
       );
-      await _service.saveSettings(profile, _settingsFromState());
       await _service.saveFareSettings(profile, _fareFromState(profile));
 
       if (!mounted) return;
@@ -343,7 +223,7 @@ class _SubTenantCityProfileScreenState
     return SubTenantAdminShell(
       currentIndex: 6,
       title: 'Settings',
-      subtitle: 'Manage your city tourism office, AI, booking, driver, and platform preferences.',
+      subtitle: 'Manage your tourism office profile and active fare settings.',
       actions: [
         if (_dirty)
           Container(
@@ -396,15 +276,10 @@ class _SubTenantCityProfileScreenState
                         _HeaderPreview(
                           details: data.details,
                           officeNameCtrl: _officeNameCtrl,
-                          sloganCtrl: _sloganCtrl,
                           logoCtrl: _logoCtrl,
                           coverCtrl: _coverCtrl,
                         ),
                         const SizedBox(height: 12),
-                        if (!data.details.detailsTableAvailable) ...[
-                          const _ProfileNotice(),
-                          const SizedBox(height: 12),
-                        ],
                         Expanded(
                           child: LayoutBuilder(
                             builder: (context, constraints) {
@@ -457,15 +332,10 @@ class _SubTenantCityProfileScreenState
                       _HeaderPreview(
                         details: data.details,
                         officeNameCtrl: _officeNameCtrl,
-                        sloganCtrl: _sloganCtrl,
                         logoCtrl: _logoCtrl,
                         coverCtrl: _coverCtrl,
                       ),
                       const SizedBox(height: 16),
-                      if (!data.details.detailsTableAvailable) ...[
-                        const _ProfileNotice(),
-                        const SizedBox(height: 16),
-                      ],
                       _MobileSettingsTabs(
                         sections: _sections,
                         selectedIndex: _selectedIndex,
@@ -493,36 +363,23 @@ class _SubTenantCityProfileScreenState
   Widget _selectedContent(_SettingsLoad data) {
     switch (_selectedIndex) {
       case 0:
-        return _generalSettings();
+        return _officeSettings();
       case 1:
-        return _tourismOfficeSettings();
-      case 2:
         return _brandingSettings();
-      case 3:
+      case 2:
         return _fareMatrixSettings(data.profile);
-      case 4:
-        return _packageSettings();
-      case 5:
-        return _driverSettings();
-      case 6:
-        return _touristSpotSettings();
-      case 7:
-        return _aiSettings();
-      case 8:
-        return _notificationSettings();
-      case 9:
-        return _analyticsSettings();
-      case 10:
+      case 3:
         return _securitySettings(data.profile);
       default:
-        return _generalSettings();
+        return _officeSettings();
     }
   }
 
-  Widget _generalSettings() {
+  Widget _officeSettings() {
     return _SettingsContent(
-      title: 'General Settings',
-      subtitle: 'Basic public identity and tenant-locked location.',
+      title: 'Office Settings',
+      subtitle:
+          'Public office identity and contact details. Assignment is managed by the Provincial Admin.',
       children: [
         _TwoColumn(
           left: SubTenantTextField(
@@ -550,15 +407,7 @@ class _SubTenantCityProfileScreenState
           validator: (value) =>
               (value ?? '').trim().isEmpty ? 'Required' : null,
         ),
-      ],
-    );
-  }
-
-  Widget _tourismOfficeSettings() {
-    return _SettingsContent(
-      title: 'Tourism Office',
-      subtitle: 'Contact details used in tourist-facing pages and support.',
-      children: [
+        const SizedBox(height: 14),
         SubTenantTextField(
           controller: _contactCtrl,
           label: 'Contact Number',
@@ -575,6 +424,12 @@ class _SubTenantCityProfileScreenState
           controller: _addressCtrl,
           label: 'Office Address',
           maxLines: 3,
+        ),
+        const SizedBox(height: 14),
+        SubTenantTextField(
+          controller: _descriptionCtrl,
+          label: 'Office Description',
+          maxLines: 4,
         ),
       ],
     );
@@ -605,23 +460,25 @@ class _SubTenantCityProfileScreenState
 
   Widget _fareMatrixSettings(SubTenantProfile profile) {
     final fare = _fareFromState(profile);
-    final sample = fare.calculate(routeDistanceKm: 8, groupSize: 4);
+    final sample = fare.calculate(routeDistanceKm: 8);
 
     return _SettingsContent(
       title: 'Fare Matrix',
       subtitle:
-          'Pricing basis used to suggest package budgets from route distance and group size.',
+          'Pricing basis used to suggest package budgets from route distance and waiting time.',
       children: [
         _TwoColumn(
           left: SubTenantTextField(
             controller: _baseFareCtrl,
             label: 'Base Fare (PHP)',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: _nonNegativeMoneyValidator,
           ),
           right: SubTenantTextField(
             controller: _farePerKmCtrl,
             label: 'Fare per Kilometer',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: _nonNegativeMoneyValidator,
           ),
         ),
         const SizedBox(height: 14),
@@ -630,469 +487,17 @@ class _SubTenantCityProfileScreenState
             controller: _minimumFareCtrl,
             label: 'Minimum Fare',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: _nonNegativeMoneyValidator,
           ),
           right: SubTenantTextField(
             controller: _waitingFeeCtrl,
             label: 'Waiting Fee (PHP / hour)',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: _nonNegativeMoneyValidator,
           ),
-        ),
-        const SizedBox(height: 14),
-        SubTenantTextField(
-          controller: _weekendSurchargeCtrl,
-          label: 'Weekend / Holiday Surcharge',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
         ),
         const SizedBox(height: 16),
         _FarePreview(calculation: sample),
-      ],
-    );
-  }
-
-  Widget _packageSettings() {
-    return _SettingsContent(
-      title: 'Package Settings',
-      subtitle: 'Default visibility rules for day-tour packages created by this city.',
-      children: [
-        _DropdownTile(
-          title: 'Default Package Visibility',
-          value: _defaultVisibility,
-          items: const {
-            'visible': 'Visible',
-            'hidden': 'Hidden',
-          },
-          onChanged: (value) {
-            setState(() {
-              _defaultVisibility = value;
-              _dirty = true;
-            });
-          },
-        ),
-      ],
-    );
-  }
-  
-
-  Widget _driverSettings() {
-    return _SettingsContent(
-      title: 'Driver Settings',
-      subtitle: 'Local rules for verified tricycle tour guides.',
-      children: [
-        _SwitchTile(
-          icon: Icons.verified_user_rounded,
-          title: 'Auto-approve Drivers',
-          subtitle: 'New drivers are approved automatically.',
-          value: _driverAutoApproval,
-          onChanged: (value) {
-            setState(() {
-              _driverAutoApproval = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.description_rounded,
-          title: 'Require Driver Documents',
-          subtitle: 'License, vehicle, and clearance documents are required.',
-          value: _requireDriverDocuments,
-          onChanged: (value) {
-            setState(() {
-              _requireDriverDocuments = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.groups_rounded,
-          title: 'Require TODA Verification',
-          subtitle: 'Driver must be verified under a local TODA.',
-          value: _requireTodaVerification,
-          onChanged: (value) {
-            setState(() {
-              _requireTodaVerification = value;
-              _dirty = true;
-            });
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _touristSpotSettings() {
-    return _SettingsContent(
-      title: 'Tourist Spot Settings',
-      subtitle: 'Rules for manual spot creation and publishing.',
-      children: [
-        _DropdownTile(
-          title: 'Default Spot Status',
-          value: _defaultSpotStatus,
-          items: const {
-            'active': 'Active',
-            'maintenance': 'Maintenance',
-            'archived': 'Archived',
-          },
-          onChanged: (value) {
-            setState(() {
-              _defaultSpotStatus = value;
-              _dirty = true;
-            });
-          },
-        ),
-        const SizedBox(height: 12),
-        _SwitchTile(
-          icon: Icons.verified_rounded,
-          title: 'Require Spot Verification',
-          subtitle: 'New tourist spots start as pending.',
-          value: _requireSpotVerification,
-          onChanged: (value) {
-            setState(() {
-              _requireSpotVerification = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.location_on_rounded,
-          title: 'Require Map Pin',
-          subtitle: 'Latitude and longitude must come from a map pin.',
-          value: _requireMapPin,
-          onChanged: (value) {
-            setState(() {
-              _requireMapPin = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.image_rounded,
-          title: 'Require Cover Image',
-          subtitle: 'Spots need an image before publishing.',
-          value: _requireCoverImage,
-          onChanged: (value) {
-            setState(() {
-              _requireCoverImage = value;
-              _dirty = true;
-            });
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _aiSettings() {
-    return _SettingsContent(
-      title: 'AI Suggestions',
-      subtitle: 'Configure the local AI recommendation engine for packages and tourist discovery.',
-      children: [
-        _SwitchTile(
-          icon: Icons.auto_awesome_rounded,
-          title: 'Enable AI Smart Suggestions',
-          subtitle: 'Suggest spots for packages and tourist screens.',
-          value: _enableAiSuggestions,
-          onChanged: (value) {
-            setState(() {
-              _enableAiSuggestions = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.category_rounded,
-          title: 'Suggest Diverse Place Types',
-          subtitle: 'Balance nature, food, sports, historical, church, and museum spots.',
-          value: _diversePlaceTypes,
-          onChanged: (value) {
-            setState(() {
-              _diversePlaceTypes = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.trending_up_rounded,
-          title: 'Prioritize Popular Spots',
-          subtitle: 'Use views and frequent package usage as ranking signals.',
-          value: _prioritizePopular,
-          onChanged: (value) {
-            setState(() {
-              _prioritizePopular = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.near_me_rounded,
-          title: 'Prioritize Nearby Spots',
-          subtitle: 'Recommend locations close to selected itinerary stops.',
-          value: _prioritizeNearby,
-          onChanged: (value) {
-            setState(() {
-              _prioritizeNearby = value;
-              _dirty = true;
-            });
-          },
-        ),
-        const SizedBox(height: 10),
-        _PreferenceGrid(
-          items: [
-            _PreferenceItem(
-              label: 'Food',
-              selected: _prioritizeFood,
-              icon: Icons.restaurant_rounded,
-              onTap: () {
-                setState(() {
-                  _prioritizeFood = !_prioritizeFood;
-                  _dirty = true;
-                });
-              },
-            ),
-            _PreferenceItem(
-              label: 'Nature',
-              selected: _prioritizeNature,
-              icon: Icons.terrain_rounded,
-              onTap: () {
-                setState(() {
-                  _prioritizeNature = !_prioritizeNature;
-                  _dirty = true;
-                });
-              },
-            ),
-            _PreferenceItem(
-              label: 'Historical',
-              selected: _prioritizeHistorical,
-              icon: Icons.account_balance_rounded,
-              onTap: () {
-                setState(() {
-                  _prioritizeHistorical = !_prioritizeHistorical;
-                  _dirty = true;
-                });
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _notificationSettings() {
-    return _SettingsContent(
-      title: 'Notifications',
-      subtitle: 'Choose which updates the city admin receives.',
-      children: [
-        _SwitchTile(
-          icon: Icons.notifications_active_rounded,
-          title: 'Notifications',
-          subtitle: 'Master switch for in-app city admin notifications.',
-          value: _notificationsEnabled,
-          onChanged: (value) {
-            setState(() {
-              _notificationsEnabled = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.inventory_2_rounded,
-          title: 'Package Alerts',
-          subtitle: 'Package publishing and booking-related package updates.',
-          value: _packageAlerts,
-          onChanged: (value) {
-            setState(() {
-              _packageAlerts = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.place_rounded,
-          title: 'Tourist Spot Alerts',
-          subtitle: 'Spot verification and tourism data changes.',
-          value: _touristSpotAlerts,
-          onChanged: (value) {
-            setState(() {
-              _touristSpotAlerts = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.campaign_rounded,
-          title: 'System Notices',
-          subtitle: 'Operational notices from TourisTrike admins.',
-          value: _systemNotices,
-          onChanged: (value) {
-            setState(() {
-              _systemNotices = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.confirmation_number_rounded,
-          title: 'Booking Notifications',
-          subtitle: 'New bookings, cancellations, and updates.',
-          value: _bookingNotifications,
-          onChanged: (value) {
-            setState(() {
-              _bookingNotifications = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.directions_bike_rounded,
-          title: 'Driver Notifications',
-          subtitle: 'Driver applications and assignment updates.',
-          value: _driverNotifications,
-          onChanged: (value) {
-            setState(() {
-              _driverNotifications = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.reviews_rounded,
-          title: 'Review Notifications',
-          subtitle: 'Tourist ratings and feedback.',
-          value: _reviewNotifications,
-          onChanged: (value) {
-            setState(() {
-              _reviewNotifications = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.email_rounded,
-          title: 'Email Notifications',
-          subtitle: 'Send important alerts to the office email.',
-          value: _emailNotifications,
-          onChanged: (value) {
-            setState(() {
-              _emailNotifications = value;
-              _dirty = true;
-            });
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _analyticsSettings() {
-    return _SettingsContent(
-      title: 'Analytics',
-      subtitle: 'Enable reports that help the LGU monitor tourism performance.',
-      children: [
-        _SwitchTile(
-          icon: Icons.summarize_rounded,
-          title: 'Performance Reports',
-          subtitle: 'Enable weekly, monthly, and yearly reporting widgets.',
-          value: _performanceReports,
-          onChanged: (value) {
-            setState(() {
-              _performanceReports = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.payments_rounded,
-          title: 'Revenue Tracking',
-          subtitle: 'Track estimated revenue from completed bookings.',
-          value: _revenueTracking,
-          onChanged: (value) {
-            setState(() {
-              _revenueTracking = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.place_rounded,
-          title: 'Spot Popularity Tracking',
-          subtitle: 'Track views and package usage of tourist spots.',
-          value: _spotPopularityTracking,
-          onChanged: (value) {
-            setState(() {
-              _spotPopularityTracking = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.badge_rounded,
-          title: 'Driver Analytics',
-          subtitle: 'Monitor driver assignments, ratings, and completed tours.',
-          value: _driverAnalytics,
-          onChanged: (value) {
-            setState(() {
-              _driverAnalytics = value;
-              _dirty = true;
-            });
-          },
-        ),
-        _SwitchTile(
-          icon: Icons.summarize_rounded,
-          title: 'Generate Monthly Reports',
-          subtitle: 'Prepare monthly tourism performance summaries.',
-          value: _monthlyReports,
-          onChanged: (value) {
-            setState(() {
-              _monthlyReports = value;
-              _dirty = true;
-            });
-          },
-        ),
-        const SizedBox(height: 10),
-        _PreferenceGrid(
-          items: [
-            _PreferenceItem(
-              label: 'Total Views',
-              selected: _showTotalViews,
-              icon: Icons.visibility_rounded,
-              onTap: () {
-                setState(() {
-                  _showTotalViews = !_showTotalViews;
-                  _dirty = true;
-                });
-              },
-            ),
-            _PreferenceItem(
-              label: 'Bookings',
-              selected: _showBookings,
-              icon: Icons.receipt_long_rounded,
-              onTap: () {
-                setState(() {
-                  _showBookings = !_showBookings;
-                  _dirty = true;
-                });
-              },
-            ),
-            _PreferenceItem(
-              label: 'Popular Spots',
-              selected: _showPopularDestinations,
-              icon: Icons.trending_up_rounded,
-              onTap: () {
-                setState(() {
-                  _showPopularDestinations = !_showPopularDestinations;
-                  _dirty = true;
-                });
-              },
-            ),
-            _PreferenceItem(
-              label: 'Top Packages',
-              selected: _showTopPackages,
-              icon: Icons.inventory_2_rounded,
-              onTap: () {
-                setState(() {
-                  _showTopPackages = !_showTopPackages;
-                  _dirty = true;
-                });
-              },
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1185,60 +590,61 @@ class _SettingsNav extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: List.generate(sections.length, (index) {
-            final section = sections[index];
-            final selected = index == selectedIndex;
+                  final section = sections[index];
+                  final selected = index == selectedIndex;
 
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => onSelected(index),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 11,
-                  ),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? SubTenantColors.blue.withValues(alpha: .10)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: selected
-                          ? SubTenantColors.blue.withValues(alpha: .22)
-                          : Colors.transparent,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        section.icon,
-                        size: 18,
-                        color: selected
-                            ? SubTenantColors.blue
-                            : SubTenantColors.muted,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          section.label,
-                          style: TextStyle(
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => onSelected(index),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? SubTenantColors.blue.withValues(alpha: .10)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
                             color: selected
-                                ? SubTenantColors.blue
-                                : SubTenantColors.text,
-                            fontSize: 13,
-                            fontWeight:
-                                selected ? FontWeight.w900 : FontWeight.w700,
+                                ? SubTenantColors.blue.withValues(alpha: .22)
+                                : Colors.transparent,
                           ),
                         ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              section.icon,
+                              size: 18,
+                              color: selected
+                                  ? SubTenantColors.blue
+                                  : SubTenantColors.muted,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                section.label,
+                                style: TextStyle(
+                                  color: selected
+                                      ? SubTenantColors.blue
+                                      : SubTenantColors.text,
+                                  fontSize: 13,
+                                  fontWeight: selected
+                                      ? FontWeight.w900
+                                      : FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
+                    ),
+                  );
+                }),
               ),
             ),
           ),
@@ -1266,7 +672,7 @@ class _MobileSettingsTabs extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: sections.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final selected = index == selectedIndex;
           final section = sections[index];
@@ -1313,31 +719,26 @@ class _HeaderPreview extends StatelessWidget {
   const _HeaderPreview({
     required this.details,
     required this.officeNameCtrl,
-    required this.sloganCtrl,
     required this.logoCtrl,
     required this.coverCtrl,
   });
 
   final SubTenantCityProfileData details;
   final TextEditingController officeNameCtrl;
-  final TextEditingController sloganCtrl;
   final TextEditingController logoCtrl;
   final TextEditingController coverCtrl;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([
-        officeNameCtrl,
-        sloganCtrl,
-        logoCtrl,
-        coverCtrl,
-      ]),
-      builder: (_, __) {
-        final cover =
-            coverCtrl.text.trim().isEmpty ? details.coverImageUrl : coverCtrl.text.trim();
-        final logo =
-            logoCtrl.text.trim().isEmpty ? details.logoImageUrl : logoCtrl.text.trim();
+      listenable: Listenable.merge([officeNameCtrl, logoCtrl, coverCtrl]),
+      builder: (_, _) {
+        final cover = coverCtrl.text.trim().isEmpty
+            ? details.coverImageUrl
+            : coverCtrl.text.trim();
+        final logo = logoCtrl.text.trim().isEmpty
+            ? details.logoImageUrl
+            : logoCtrl.text.trim();
         final office = officeNameCtrl.text.trim().isEmpty
             ? details.tourismOfficeName
             : officeNameCtrl.text.trim();
@@ -1406,7 +807,9 @@ class _HeaderPreview extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        office.isEmpty ? '${details.province} Tourism Office' : office,
+                        office.isEmpty
+                            ? '${details.province} Tourism Office'
+                            : office,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1414,17 +817,6 @@ class _HeaderPreview extends StatelessWidget {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (sloganCtrl.text.trim().isNotEmpty)
-                        Text(
-                          sloganCtrl.text.trim(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: .82),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -1550,47 +942,76 @@ class _SaveBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DashboardSectionCard(
-      child: Row(
-        children: [
-          Icon(
-            dirty ? Icons.edit_note_rounded : Icons.check_circle_rounded,
-            color: dirty ? const Color(0xFFF59E0B) : const Color(0xFF16A34A),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              dirty ? 'You have unsaved changes.' : 'All changes are saved.',
-              style: const TextStyle(
-                color: SubTenantColors.muted,
-                fontWeight: FontWeight.w800,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final status = Row(
+            children: [
+              Icon(
+                dirty ? Icons.edit_note_rounded : Icons.check_circle_rounded,
+                color: dirty
+                    ? const Color(0xFFF59E0B)
+                    : const Color(0xFF16A34A),
               ),
-            ),
-          ),
-          TextButton(
-            onPressed: saving || !dirty ? null : onCancel,
-            child: const Text('Cancel'),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 170,
-            child: SubTenantGradientButton(
-              label: 'Save Settings',
-              icon: Icons.save_rounded,
-              loading: saving,
-              onPressed: dirty ? onSave : null,
-            ),
-          ),
-        ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  dirty
+                      ? 'You have unsaved changes.'
+                      : 'All changes are saved.',
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          );
+          final actions = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextButton(
+                onPressed: saving || !dirty ? null : onCancel,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 170,
+                child: SubTenantGradientButton(
+                  label: 'Save Settings',
+                  icon: Icons.save_rounded,
+                  loading: saving,
+                  onPressed: dirty ? onSave : null,
+                ),
+              ),
+            ],
+          );
+
+          if (constraints.maxWidth < 560) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                status,
+                const SizedBox(height: 12),
+                Align(alignment: Alignment.centerRight, child: actions),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: status),
+              const SizedBox(width: 16),
+              actions,
+            ],
+          );
+        },
       ),
     );
   }
 }
 
 class _TwoColumn extends StatelessWidget {
-  const _TwoColumn({
-    required this.left,
-    required this.right,
-  });
+  const _TwoColumn({required this.left, required this.right});
 
   final Widget left;
   final Widget right;
@@ -1598,13 +1019,7 @@ class _TwoColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!Responsive.isDesktop(context)) {
-      return Column(
-        children: [
-          left,
-          const SizedBox(height: 14),
-          right,
-        ],
-      );
+      return Column(children: [left, const SizedBox(height: 14), right]);
     }
 
     return Row(
@@ -1617,203 +1032,8 @@ class _TwoColumn extends StatelessWidget {
   }
 }
 
-class _SwitchTile extends StatelessWidget {
-  const _SwitchTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: SubTenantColors.backgroundAlt,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SubTenantColors.line),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: SubTenantColors.blue.withValues(alpha: .09),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: SubTenantColors.blue),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: SubTenantColors.text,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            activeColor: SubTenantColors.blue,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DropdownTile extends StatelessWidget {
-  const _DropdownTile({
-    required this.title,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  final String title;
-  final String value;
-  final Map<String, String> items;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: SubTenantColors.text,
-            fontWeight: FontWeight.w900,
-            fontSize: 13,
-          ),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: value,
-          isExpanded: true,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 14,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: SubTenantColors.line),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: SubTenantColors.line),
-            ),
-          ),
-          items: items.entries
-              .map(
-                (entry) => DropdownMenuItem(
-                  value: entry.key,
-                  child: Text(entry.value),
-                ),
-              )
-              .toList(),
-          onChanged: (value) {
-            if (value != null) onChanged(value);
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _PreferenceGrid extends StatelessWidget {
-  const _PreferenceGrid({required this.items});
-
-  final List<_PreferenceItem> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: items.map((item) {
-        return InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: item.onTap,
-          child: Container(
-            width: 160,
-            padding: const EdgeInsets.all(13),
-            decoration: BoxDecoration(
-              color: item.selected
-                  ? SubTenantColors.blue.withValues(alpha: .10)
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: item.selected
-                    ? SubTenantColors.blue.withValues(alpha: .25)
-                    : SubTenantColors.line,
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  item.icon,
-                  color: item.selected
-                      ? SubTenantColors.blue
-                      : SubTenantColors.muted,
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    item.label,
-                    style: TextStyle(
-                      color: item.selected
-                          ? SubTenantColors.blue
-                          : SubTenantColors.text,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
 class _ImagePreviewRow extends StatelessWidget {
-  const _ImagePreviewRow({
-    required this.coverCtrl,
-    required this.logoCtrl,
-  });
+  const _ImagePreviewRow({required this.coverCtrl, required this.logoCtrl});
 
   final TextEditingController coverCtrl;
   final TextEditingController logoCtrl;
@@ -1822,7 +1042,7 @@ class _ImagePreviewRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([coverCtrl, logoCtrl]),
-      builder: (_, __) {
+      builder: (_, _) {
         return _TwoColumn(
           left: _ImageBox(label: 'Cover Preview', url: coverCtrl.text.trim()),
           right: _ImageBox(label: 'Logo Preview', url: logoCtrl.text.trim()),
@@ -1833,10 +1053,7 @@ class _ImagePreviewRow extends StatelessWidget {
 }
 
 class _ImageBox extends StatelessWidget {
-  const _ImageBox({
-    required this.label,
-    required this.url,
-  });
+  const _ImageBox({required this.label, required this.url});
 
   final String label;
   final String url;
@@ -1865,7 +1082,7 @@ class _ImageBox extends StatelessWidget {
               url,
               fit: BoxFit.cover,
               width: double.infinity,
-              errorBuilder: (_, __, ___) => Center(
+              errorBuilder: (_, _, _) => Center(
                 child: Text(
                   'Invalid $label',
                   style: const TextStyle(color: SubTenantColors.lightMuted),
@@ -1927,31 +1144,6 @@ class _SecurityTile extends StatelessWidget {
   }
 }
 
-class _ProfileNotice extends StatelessWidget {
-  const _ProfileNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    return DashboardSectionCard(
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline_rounded, color: SubTenantColors.blue),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'subtenant_details is not available. Contact and address fields will save to profiles as a fallback.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: SubTenantColors.muted,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SettingsSection {
   const _SettingsSection(this.label, this.icon);
 
@@ -1959,30 +1151,14 @@ class _SettingsSection {
   final IconData icon;
 }
 
-class _PreferenceItem {
-  const _PreferenceItem({
-    required this.label,
-    required this.selected,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final IconData icon;
-  final VoidCallback onTap;
-}
-
 class _SettingsLoad {
   const _SettingsLoad({
     required this.profile,
     required this.details,
-    required this.settings,
     required this.fare,
   });
 
   final SubTenantProfile profile;
   final SubTenantCityProfileData details;
-  final SubTenantSettingsData settings;
   final SubTenantFareSettings fare;
 }

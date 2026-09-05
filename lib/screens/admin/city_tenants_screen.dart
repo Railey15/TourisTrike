@@ -59,34 +59,43 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
   List<CityTenant> _filtered(List<CityTenant> tenants) {
     final query = _searchCtrl.text.trim().toLowerCase();
 
-    return tenants.where((tenant) {
-      final status = tenant.status.toLowerCase().trim();
+    return tenants
+        .where((tenant) {
+          final status = tenant.status.toLowerCase().trim();
 
-      final matchesStatus = _status == 'all' ||
-          (_status == 'active' &&
-              ['active', 'approved', 'verified'].contains(status)) ||
-          (_status == 'inactive' &&
-              ['inactive', 'disabled', 'deactivated', 'suspended']
-                  .contains(status)) ||
-          (_status == 'pending' && status == 'pending') ||
-          (_status == 'verified' && tenant.verified);
+          final matchesStatus =
+              _status == 'all' ||
+              (_status == 'active' &&
+                  ['active', 'approved', 'verified'].contains(status)) ||
+              (_status == 'inactive' &&
+                  [
+                    'inactive',
+                    'disabled',
+                    'deactivated',
+                    'suspended',
+                  ].contains(status)) ||
+              (_status == 'pending' && status == 'pending') ||
+              (_status == 'verified' && tenant.verified) ||
+              (_status == 'classification' &&
+                  !tenant.localGovernmentTypeReviewed);
 
-      if (!matchesStatus) return false;
+          if (!matchesStatus) return false;
 
-      if (query.isEmpty) return true;
+          if (query.isEmpty) return true;
 
-      final searchable = [
-        tenant.city,
-        tenant.province,
-        tenant.adminName,
-        tenant.email,
-        tenant.mobile,
-        tenant.address,
-        tenant.status,
-      ].join(' ').toLowerCase();
+          final searchable = [
+            tenant.city,
+            tenant.province,
+            tenant.adminName,
+            tenant.email,
+            tenant.mobile,
+            tenant.address,
+            tenant.status,
+          ].join(' ').toLowerCase();
 
-      return searchable.contains(query);
-    }).toList(growable: false);
+          return searchable.contains(query);
+        })
+        .toList(growable: false);
   }
 
   int _countByStatus(List<CityTenant> tenants, String statusFilter) {
@@ -100,12 +109,19 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
       }
 
       if (statusFilter == 'inactive') {
-        return ['inactive', 'disabled', 'deactivated', 'suspended']
-            .contains(status);
+        return [
+          'inactive',
+          'disabled',
+          'deactivated',
+          'suspended',
+        ].contains(status);
       }
 
       if (statusFilter == 'pending') return status == 'pending';
       if (statusFilter == 'verified') return tenant.verified;
+      if (statusFilter == 'classification') {
+        return !tenant.localGovernmentTypeReviewed;
+      }
 
       return false;
     }).length;
@@ -115,18 +131,20 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
     List<CityRegistration> registrations,
   ) {
     final query = _searchCtrl.text.trim().toLowerCase();
-    return registrations.where((r) {
-      if (r.status.toLowerCase().trim() != 'pending') return false;
-      if (query.isEmpty) return true;
-      return [
-        r.city,
-        r.officeName,
-        r.contactPerson,
-        r.contactNumber,
-        r.email,
-        r.address,
-      ].join(' ').toLowerCase().contains(query);
-    }).toList(growable: false);
+    return registrations
+        .where((r) {
+          if (r.status.toLowerCase().trim() != 'pending') return false;
+          if (query.isEmpty) return true;
+          return [
+            r.city,
+            r.officeName,
+            r.contactPerson,
+            r.contactNumber,
+            r.email,
+            r.address,
+          ].join(' ').toLowerCase().contains(query);
+        })
+        .toList(growable: false);
   }
 
   Future<void> _setStatus(CityTenant tenant, String status) async {
@@ -156,9 +174,7 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
           controller: controller,
           decoration: InputDecoration(
             labelText: 'City / Municipality',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
           autofocus: true,
         ),
@@ -229,9 +245,7 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
           decoration: InputDecoration(
             labelText: 'Rejection reason (optional)',
             alignLabelWithHint: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
         actions: [
@@ -319,15 +333,15 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
             'all': _countByStatus(allTenants, 'all'),
             'active': _countByStatus(allTenants, 'active'),
             'inactive': _countByStatus(allTenants, 'inactive'),
-            'pending':
-                _countByStatus(allTenants, 'pending') + pendingRegCount,
+            'pending': _countByStatus(allTenants, 'pending') + pendingRegCount,
             'verified': _countByStatus(allTenants, 'verified'),
+            'classification': _countByStatus(allTenants, 'classification'),
           };
 
           final pendingRegistrations =
               (_status == 'pending' && registrationsResult.available)
-                  ? _filteredPendingRegistrations(allRegistrations)
-                  : <CityRegistration>[];
+              ? _filteredPendingRegistrations(allRegistrations)
+              : <CityRegistration>[];
 
           final showingPendingTab = _status == 'pending';
 
@@ -462,10 +476,7 @@ class _CityTenantWorkbenchData {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.subtitle,
-  });
+  const _SectionHeader({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -762,15 +773,11 @@ class _TenantToolbar extends StatelessWidget {
           contentPadding: const EdgeInsets.symmetric(horizontal: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.line,
-            ),
+            borderSide: const BorderSide(color: ProvincialAdminColors.line),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.line,
-            ),
+            borderSide: const BorderSide(color: ProvincialAdminColors.line),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(17),
@@ -799,8 +806,9 @@ class _TenantToolbar extends StatelessWidget {
       ),
       child: Flex(
         direction: desktop ? Axis.horizontal : Axis.vertical,
-        crossAxisAlignment:
-            desktop ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
+        crossAxisAlignment: desktop
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.stretch,
         children: [
           if (desktop) Expanded(child: searchField) else searchField,
           SizedBox(width: desktop ? 14 : 0, height: desktop ? 0 : 12),
@@ -834,6 +842,7 @@ class _FilterChips extends StatelessWidget {
       ('inactive', 'Inactive'),
       ('pending', 'Pending'),
       ('verified', 'Verified'),
+      ('classification', 'Needs classification'),
     ];
 
     return SingleChildScrollView(
@@ -867,8 +876,9 @@ class _FilterChips extends StatelessWidget {
                     Text(
                       label,
                       style: TextStyle(
-                        color:
-                            active ? Colors.white : ProvincialAdminColors.muted,
+                        color: active
+                            ? Colors.white
+                            : ProvincialAdminColors.muted,
                         fontSize: 12.5,
                         fontWeight: FontWeight.w900,
                       ),
@@ -961,8 +971,11 @@ class _TenantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final active = ['active', 'approved', 'verified']
-        .contains(tenant.status.toLowerCase().trim());
+    final active = [
+      'active',
+      'approved',
+      'verified',
+    ].contains(tenant.status.toLowerCase().trim());
 
     return Material(
       color: Colors.white,
@@ -1038,8 +1051,23 @@ class _TenantCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  AdminStatusPill(status: tenant.status),
-                  
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      AdminStatusPill(status: tenant.status),
+                      if (!tenant.localGovernmentTypeReviewed) ...[
+                        const SizedBox(height: 5),
+                        const Text(
+                          'Classification review',
+                          style: TextStyle(
+                            color: ProvincialAdminColors.amber,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: 14),
@@ -1059,8 +1087,9 @@ class _TenantCard extends StatelessWidget {
                     child: _TenantInfo(
                       icon: Icons.phone_rounded,
                       label: 'Contact',
-                      value:
-                          tenant.mobile.isEmpty ? 'No contact' : tenant.mobile,
+                      value: tenant.mobile.isEmpty
+                          ? 'No contact'
+                          : tenant.mobile,
                     ),
                   ),
                 ],
@@ -1103,7 +1132,6 @@ class _TenantCard extends StatelessWidget {
     );
   }
 }
-
 
 class _RegistrationsTable extends StatelessWidget {
   const _RegistrationsTable({
@@ -1693,7 +1721,8 @@ class _DetailTile extends StatelessWidget {
             ],
           ),
         ),
-        if (!isLast) const Divider(height: 1, color: ProvincialAdminColors.line),
+        if (!isLast)
+          const Divider(height: 1, color: ProvincialAdminColors.line),
       ],
     );
   }

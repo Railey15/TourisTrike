@@ -88,25 +88,24 @@ class CitySpotSuggestionService {
   CitySpotSuggestionService({String? apiKey})
     : apiKey = apiKey ?? resolveApiKey();
 
-  static const String defaultGoogleMapsApiKey =
-      'AIzaSyDwbxBRuIRTbYWA3i5PtX7V6dYQ3fAqE1k';
   static const LatLng defaultBulacanCenter = LatLng(14.9597, 120.9206);
 
   final String apiKey;
 
-  /// Prefer `GOOGLE_MAPS_API_KEY` or `GOOGLE_PLACES_API_KEY` from `.env`
-  /// (Places API + billing enabled). Falls back to [defaultGoogleMapsApiKey].
+  /// Reads `GOOGLE_MAPS_API_KEY` or `GOOGLE_PLACES_API_KEY` from `.env`.
+  /// Callers receive an empty key when configuration is unavailable.
   static String resolveApiKey() {
     try {
-      final fromEnv = (dotenv.env['GOOGLE_MAPS_API_KEY'] ??
-              dotenv.env['GOOGLE_PLACES_API_KEY'] ??
-              '')
-          .trim();
+      final fromEnv =
+          (dotenv.env['GOOGLE_MAPS_API_KEY'] ??
+                  dotenv.env['GOOGLE_PLACES_API_KEY'] ??
+                  '')
+              .trim();
       if (fromEnv.isNotEmpty) return fromEnv;
     } catch (_) {
       // dotenv may not be loaded in tests.
     }
-    return defaultGoogleMapsApiKey;
+    return '';
   }
 
   Future<List<CitySpotSuggestion>> fetchSuggestions({
@@ -117,7 +116,7 @@ class CitySpotSuggestionService {
     Set<String> excludeTitles = const {},
   }) async {
     final trimmedCity = city.trim();
-    if (trimmedCity.isEmpty) return const [];
+    if (trimmedCity.isEmpty || apiKey.trim().isEmpty) return const [];
 
     final effectiveProvince = province.trim().isEmpty
         ? 'Bulacan'
@@ -193,7 +192,11 @@ class CitySpotSuggestionService {
   }) async {
     final trimmedQuery = query.trim();
     final trimmedCity = city.trim();
-    if (trimmedQuery.length < 3 || trimmedCity.isEmpty) return const [];
+    if (trimmedQuery.length < 3 ||
+        trimmedCity.isEmpty ||
+        apiKey.trim().isEmpty) {
+      return const [];
+    }
 
     final effectiveProvince = province.trim().isEmpty
         ? 'Bulacan'
@@ -241,6 +244,7 @@ class CitySpotSuggestionService {
     String? apiKey,
   }) {
     final key = apiKey ?? resolveApiKey();
+    if (key.trim().isEmpty) return '';
     final marker = Uri.encodeComponent('$latitude,$longitude');
     return 'https://maps.googleapis.com/maps/api/staticmap'
         '?center=$marker'
@@ -539,9 +543,9 @@ class CitySpotSuggestionService {
     final lat = ((location?['lat'] as num?) ?? suggestion.latitude).toDouble();
     final lng = ((location?['lng'] as num?) ?? suggestion.longitude).toDouble();
     final address =
-        (details['formatted_address'] as String?)?.trim() ??
-        suggestion.address;
-    final components = (details['address_components'] as List?)
+        (details['formatted_address'] as String?)?.trim() ?? suggestion.address;
+    final components =
+        (details['address_components'] as List?)
             ?.whereType<Map>()
             .map((entry) => Map<String, dynamic>.from(entry))
             .toList(growable: false) ??
@@ -561,12 +565,13 @@ class CitySpotSuggestionService {
       return suggestion;
     }
 
-    final rating = ((details['rating'] as num?) ?? suggestion.rating).toDouble();
+    final rating = ((details['rating'] as num?) ?? suggestion.rating)
+        .toDouble();
     final photoRows = (details['photos'] as List?) ?? const [];
     final photoRef = photoRows.isEmpty
         ? suggestion.photoReference
         : ((photoRows.first as Map)['photo_reference'] as String?) ??
-            suggestion.photoReference;
+              suggestion.photoReference;
     final imageUrl = photoRef.isEmpty
         ? suggestion.imageUrl
         : 'https://maps.googleapis.com/maps/api/place/photo'
@@ -578,9 +583,9 @@ class CitySpotSuggestionService {
       (details['name'] as String?)?.trim() ?? suggestion.title,
       suggestion.category,
     );
-    final editorial = ((details['editorial_summary'] as Map?)?['overview']
-            as String?)
-        ?.trim();
+    final editorial =
+        ((details['editorial_summary'] as Map?)?['overview'] as String?)
+            ?.trim();
 
     return CitySpotSuggestion(
       id: (details['place_id'] as String?) ?? suggestion.id,
