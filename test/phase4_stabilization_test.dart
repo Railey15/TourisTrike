@@ -18,6 +18,7 @@ void main() {
   late String adminHeader;
   late String allSubtenantCode;
   late String citySuggestionService;
+  late String googlePlacesWebGateway;
 
   setUpAll(() {
     phase1 = _read(
@@ -45,6 +46,9 @@ void main() {
         .map((file) => file.readAsStringSync())
         .join('\n');
     citySuggestionService = _read('lib/core/places/city_spot_suggestions.dart');
+    googlePlacesWebGateway = _read(
+      'lib/core/places/google_places_gateway_web.dart',
+    );
   });
 
   test('Phase 1-4 migrations declare a strict dependency chain', () {
@@ -221,10 +225,11 @@ void main() {
 
   test('Google Places configuration has no hardcoded fallback key', () {
     expect(citySuggestionService, isNot(contains('AIza')));
+    expect(citySuggestionService, contains('resolveGoogleMapsApiKey().trim()'));
     expect(
-      citySuggestionService,
-      contains("dotenv.env['GOOGLE_MAPS_API_KEY']"),
+      googlePlacesWebGateway,
+      contains("resolveGoogleMapsApiKey() => '';"),
     );
-    expect(citySuggestionService, contains("return '';"));
+    expect(googlePlacesWebGateway, isNot(contains('maps.googleapis.com')));
   });
 }

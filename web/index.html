@@ -33,7 +33,9 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAjeYJX5R6zmdEFDW2G-s4aQJcDjmKNggU"></script>
+  <!-- Replaced at deploy time with a separate, HTTP-referrer-restricted
+       Maps JavaScript API key. Never put the server Places key here. -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=__GOOGLE_MAPS_BROWSER_API_KEY__"></script>
   <script>
     // Called from Dart (dart:js_interop_unsafe). Accepts a single JSON params string,
     // returns a Promise<string> with a JSON result.

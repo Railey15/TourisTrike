@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+
 import 'package:touristrike/screens/admin/admin_models.dart';
 import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
@@ -12,2600 +14,139 @@ import 'package:touristrike/screens/admin/provincial_admin_service.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants / colors
+// ─────────────────────────────────────────────────────────────────────────────
+
 const _allCities = 'All Cities';
 
-class ProvinceReportsScreen extends StatefulWidget {
-  const ProvinceReportsScreen({super.key});
-
-  @override
-  State<ProvinceReportsScreen> createState() => _ProvinceReportsScreenState();
-}
-
-class _ProvinceReportsScreenState extends State<ProvinceReportsScreen> {
-  final ProvincialAdminService _service = ProvincialAdminService();
-
-  late Future<AdminReportData> _future;
-  _ReportsTab _tab = _ReportsTab.overview;
-  _ProvinceReportType _exportType = _ProvinceReportType.overview;
-  String _exportCity = _allCities;
-  _ReportDatePreset _exportDatePreset = _ReportDatePreset.monthly;
-  DateTimeRange? _customRange;
-  final Set<_ReportSection> _exportSections = _ReportSection.values.toSet();
-  _ReportSnapshot? _exportPreview;
-  bool _isExporting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _service.fetchReports();
-  }
-
-  void _reload() {
-    setState(() {
-      _exportPreview = null;
-      _future = _service.fetchReports();
-    });
-  }
-
-  void _setExportType(_ProvinceReportType type) {
-    setState(() {
-      _exportType = type;
-      _exportPreview = null;
-    });
-  }
-
-  void _setExportCity(String? city) {
-    if (city == null) return;
-    setState(() {
-      _exportCity = city;
-      _exportPreview = null;
-    });
-  }
-
-  void _setExportDatePreset(_ReportDatePreset preset) {
-    setState(() {
-      _exportDatePreset = preset;
-      _exportPreview = null;
-    });
-    if (preset == _ReportDatePreset.custom && _customRange == null) {
-      _pickCustomRange();
-    }
-  }
-
-  void _toggleExportSection(_ReportSection section, bool selected) {
-    setState(() {
-      if (selected) {
-        _exportSections.add(section);
-      } else {
-        _exportSections.remove(section);
-      }
-      _exportPreview = null;
-    });
-  }
-
-  Future<void> _pickCustomRange() async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: now.add(const Duration(days: 365)),
-      initialDateRange:
-          _customRange ??
-          DateTimeRange(start: DateTime(now.year, now.month, 1), end: now),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-              primary: ProvincialAdminColors.deepBlue,
-              secondary: ProvincialAdminColors.blue,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked == null) return;
-    setState(() {
-      _exportDatePreset = _ReportDatePreset.custom;
-      _customRange = picked;
-      _exportPreview = null;
-    });
-  }
-
-  void _generatePreview(AdminReportData data) {
-    setState(() => _exportPreview = _buildReportSnapshot(data, _exportConfig));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Report preview generated.')));
-  }
-
-  Future<void> _exportPdf(AdminReportData data) async {
-    if (_isExporting) return;
-
-    final report = _exportPreview ?? _buildReportSnapshot(data, _exportConfig);
-
-    setState(() {
-      _isExporting = true;
-      _exportPreview = report;
-    });
-
-    try {
-      final bytes = await _buildPdf(report);
-      await Printing.sharePdf(bytes: bytes, filename: _pdfFileName(report));
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('PDF report is ready.')));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Unable to export PDF: $error')));
-    } finally {
-      if (mounted) setState(() => _isExporting = false);
-    }
-  }
-
-  _ReportConfig get _exportConfig {
-    return _ReportConfig(
-      type: _exportType,
-      city: _exportCity,
-      datePreset: _exportDatePreset,
-      customRange: _customRange,
-      sections: _exportSections.toSet(),
-    );
-  }
-
-  _ReportConfig _tabConfig(_ReportsTab tab) {
-    return _ReportConfig(
-      type: tab.reportType ?? _ProvinceReportType.overview,
-      city: _allCities,
-      datePreset: _ReportDatePreset.monthly,
-      customRange: null,
-      sections: _ReportSection.values.toSet(),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ProvincialAdminShell(
-      current: ProvincialAdminDestination.reports,
-      title: 'Reports',
-      subtitle: 'Province-wide tourism reports organized by category.',
-      
-      child: FutureBuilder<AdminReportData>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const AdminLoadingView();
-          }
-
-          if (snapshot.hasError) {
-            return AdminErrorView(
-              message: snapshot.error.toString(),
-              onRetry: _reload,
-            );
-          }
-
-          final data = snapshot.data!;
-          final cityOptions = [_allCities, ..._availableCities(data)];
-          if (!cityOptions.contains(_exportCity)) {
-            _exportCity = _allCities;
-          }
-
-          final dashboard = _buildReportSnapshot(data, _tabConfig(_tab));
-          final exportPreview = _exportPreview;
-
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final desktop = constraints.maxWidth >= 1050;
-              if (!desktop) {
-                return _MobileReportsLayout(
-                  data: data,
-                  tab: _tab,
-                  dashboard: dashboard,
-                  cityOptions: cityOptions,
-                  exportConfig: _exportConfig,
-                  exportPreview: exportPreview,
-                  isExporting: _isExporting,
-                  onTabChanged: (tab) => setState(() => _tab = tab),
-                  onExportTypeChanged: _setExportType,
-                  onExportCityChanged: _setExportCity,
-                  onExportDatePresetChanged: _setExportDatePreset,
-                  onPickCustomRange: _pickCustomRange,
-                  onExportSectionChanged: _toggleExportSection,
-                  onGeneratePreview: () => _generatePreview(data),
-                  onExportPdf: () => _exportPdf(data),
-                );
-              }
-
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
-                child: SizedBox(
-                  height: constraints.maxHeight - 38,
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: 96,
-                        child: _ReportsHero(report: dashboard, tab: _tab),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 88,
-                        child: _SummaryMetricRow(metrics: dashboard.metrics),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 48,
-                        child: _ReportsTabBar(
-                          selected: _tab,
-                          onChanged: (tab) => setState(() => _tab = tab),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Expanded(
-                        child: _ReportsTabContent(
-                          data: data,
-                          tab: _tab,
-                          report: dashboard,
-                          cityOptions: cityOptions,
-                          exportConfig: _exportConfig,
-                          exportPreview: exportPreview,
-                          isExporting: _isExporting,
-                          onExportTypeChanged: _setExportType,
-                          onExportCityChanged: _setExportCity,
-                          onExportDatePresetChanged: _setExportDatePreset,
-                          onPickCustomRange: _pickCustomRange,
-                          onExportSectionChanged: _toggleExportSection,
-                          onGeneratePreview: () => _generatePreview(data),
-                          onExportPdf: () => _exportPdf(data),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  List<String> _availableCities(AdminReportData data) {
-    final cities =
-        <String>{
-              ...data.tenants.map((item) => item.city),
-              ...data.packages.map((item) => item.city),
-              ...data.spots.map((item) => item.city),
-              ...data.bookings.map((item) => item.city),
-              ...data.feedback.map((item) => item.city),
-            }
-            .map((city) => city.trim())
-            .where((city) => city.isNotEmpty && city.toLowerCase() != 'unknown')
-            .toSet()
-            .toList()
-          ..sort();
-    return cities;
-  }
-
-  _ReportSnapshot _buildReportSnapshot(
-    AdminReportData data,
-    _ReportConfig config,
-  ) {
-    final generatedAt = DateTime.now();
-    final window = config.resolveWindow(generatedAt);
-
-    bool cityMatches(String city) {
-      return config.city == _allCities || _sameCity(city, config.city);
-    }
-
-    final tenants = data.tenants
-        .where((item) => cityMatches(item.city))
-        .toList(growable: false);
-    final packages = data.packages
-        .where((item) => cityMatches(item.city))
-        .toList(growable: false);
-    final spots = data.spots
-        .where((item) => cityMatches(item.city))
-        .toList(growable: false);
-    final bookings = data.bookings
-        .where((item) {
-          final date = item.travelDate ?? item.createdAt;
-          return cityMatches(item.city) && window.contains(date);
-        })
-        .toList(growable: false);
-    final feedback = data.feedback
-        .where((item) {
-          return cityMatches(item.city) && window.contains(item.createdAt);
-        })
-        .toList(growable: false);
-
-    final cityRows = _buildCityRows(
-      tenants: tenants,
-      packages: packages,
-      spots: spots,
-      bookings: bookings,
-      feedback: feedback,
-    );
-
-    final completed = bookings
-        .where((item) => item.status.toLowerCase() == 'completed')
-        .length;
-    final cancelled = bookings
-        .where((item) => item.status.toLowerCase() == 'cancelled')
-        .length;
-    final revenue = bookings.fold<double>(
-      0,
-      (sum, booking) => booking.status.toLowerCase() == 'completed'
-          ? sum + booking.totalAmount
-          : sum,
-    );
-    final drivers = tenants.fold<int>(
-      0,
-      (sum, tenant) => sum + tenant.driversCount,
-    );
-    final averageRating = feedback.isEmpty
-        ? 0.0
-        : feedback.fold<double>(0, (sum, item) => sum + item.rating) /
-              feedback.length;
-
-    final metrics = <_SummaryMetric>[
-      _SummaryMetric(
-        label: 'Bookings',
-        value: '${bookings.length}',
-        helper: '${window.shortLabel} activity',
-        icon: Icons.receipt_long_rounded,
-        color: ProvincialAdminColors.blue,
-      ),
-      _SummaryMetric(
-        label: 'Revenue',
-        value: _money(revenue),
-        helper: 'completed bookings',
-        icon: Icons.payments_rounded,
-        color: ProvincialAdminColors.amber,
-      ),
-      _SummaryMetric(
-        label: 'Tourism Assets',
-        value: '${packages.length} / ${spots.length}',
-        helper: 'packages and spots',
-        icon: Icons.map_rounded,
-        color: ProvincialAdminColors.purple,
-      ),
-      _SummaryMetric(
-        label: 'Coverage',
-        value: '${tenants.length} cities',
-        helper: '$drivers drivers, ${feedback.length} reviews',
-        icon: Icons.location_city_rounded,
-        color: ProvincialAdminColors.cyan,
-      ),
-    ];
-
-    return _ReportSnapshot(
-      config: config,
-      generatedAt: generatedAt,
-      window: window,
-      title: config.type.label,
-      metrics: metrics,
-      cityRows: cityRows,
-      tenants: tenants,
-      packages: packages,
-      spots: spots,
-      bookings: bookings,
-      feedback: feedback,
-      totalBookings: bookings.length,
-      completedBookings: completed,
-      cancelledBookings: cancelled,
-      totalRevenue: revenue,
-      totalPackages: packages.length,
-      totalSpots: spots.length,
-      totalDrivers: drivers,
-      totalFeedback: feedback.length,
-      averageRating: averageRating,
-    );
-  }
-
-  List<_CityPerformanceRow> _buildCityRows({
-    required List<CityTenant> tenants,
-    required List<ProvincePackage> packages,
-    required List<ProvinceSpot> spots,
-    required List<ProvinceBooking> bookings,
-    required List<ProvinceFeedback> feedback,
-  }) {
-    final cityNames = <String>{
-      ...tenants.map((item) => item.city),
-      ...packages.map((item) => item.city),
-      ...spots.map((item) => item.city),
-      ...bookings.map((item) => item.city),
-      ...feedback.map((item) => item.city),
-    }.map((city) => city.trim().isEmpty ? 'Unassigned' : city.trim()).toSet();
-
-    final rows = <_CityPerformanceRow>[];
-    for (final city in cityNames) {
-      final cityTenants = tenants.where((item) => _sameCity(item.city, city));
-      final cityPackages = packages.where((item) => _sameCity(item.city, city));
-      final citySpots = spots.where((item) => _sameCity(item.city, city));
-      final cityBookings = bookings.where((item) => _sameCity(item.city, city));
-      final cityFeedback = feedback.where((item) => _sameCity(item.city, city));
-      final completed = cityBookings
-          .where((item) => item.status.toLowerCase() == 'completed')
-          .length;
-      final cancelled = cityBookings
-          .where((item) => item.status.toLowerCase() == 'cancelled')
-          .length;
-      final revenue = cityBookings.fold<double>(
-        0,
-        (sum, booking) => booking.status.toLowerCase() == 'completed'
-            ? sum + booking.totalAmount
-            : sum,
-      );
-      final ratings = cityFeedback.where((item) => item.rating > 0).toList();
-      final averageRating = ratings.isEmpty
-          ? 0.0
-          : ratings.fold<double>(0, (sum, item) => sum + item.rating) /
-                ratings.length;
-
-      rows.add(
-        _CityPerformanceRow(
-          city: city,
-          bookings: cityBookings.length,
-          completed: completed,
-          cancelled: cancelled,
-          revenue: revenue,
-          packages: cityPackages.length,
-          spots: citySpots.length,
-          drivers: cityTenants.fold<int>(
-            0,
-            (sum, tenant) => sum + tenant.driversCount,
-          ),
-          feedbackCount: cityFeedback.length,
-          averageRating: averageRating,
-        ),
-      );
-    }
-
-    rows.sort((a, b) {
-      final bookingCompare = b.bookings.compareTo(a.bookings);
-      if (bookingCompare != 0) return bookingCompare;
-      return b.revenue.compareTo(a.revenue);
-    });
-
-    return rows;
-  }
-
-  Future<Uint8List> _buildPdf(_ReportSnapshot report) async {
-    final doc = pw.Document();
-    final tables = _tablesForReport(report);
-    final generatedLabel = DateFormat(
-      'MMM d, y h:mm a',
-    ).format(report.generatedAt);
-    final blue = PdfColor.fromInt(0xFF1E63E9);
-    final text = PdfColor.fromInt(0xFF0F172A);
-    final muted = PdfColor.fromInt(0xFF64748B);
-
-    pw.Widget detail(String label, String value) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.only(bottom: 5),
-        child: pw.Row(
-          children: [
-            pw.SizedBox(
-              width: 105,
-              child: pw.Text(
-                label,
-                style: pw.TextStyle(
-                  fontSize: 9,
-                  color: muted,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ),
-            pw.Expanded(
-              child: pw.Text(
-                value,
-                style: pw.TextStyle(fontSize: 9, color: text),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    pw.Widget metric(_SummaryMetric item) {
-      return pw.Container(
-        width: 150,
-        padding: const pw.EdgeInsets.all(10),
-        decoration: pw.BoxDecoration(
-          border: pw.Border.all(color: PdfColors.blue100),
-          borderRadius: pw.BorderRadius.circular(8),
-        ),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(item.label, style: pw.TextStyle(fontSize: 8, color: muted)),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              item.value,
-              style: pw.TextStyle(
-                fontSize: 14,
-                color: text,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-            pw.SizedBox(height: 3),
-            pw.Text(
-              item.helper,
-              style: pw.TextStyle(fontSize: 8, color: muted),
-            ),
-          ],
-        ),
-      );
-    }
-
-    pw.Widget table(_ReportTable table) {
-      final rows = table.rows.isEmpty
-          ? [
-              List<String>.generate(
-                table.columns.length,
-                (index) => index == 0 ? table.emptyMessage : '',
-              ),
-            ]
-          : table.rows.take(40).toList();
-
-      return pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(
-            table.title,
-            style: pw.TextStyle(
-              color: text,
-              fontSize: 13,
-              fontWeight: pw.FontWeight.bold,
-            ),
-          ),
-          pw.SizedBox(height: 3),
-          pw.Text(
-            table.subtitle,
-            style: pw.TextStyle(color: muted, fontSize: 8),
-          ),
-          pw.SizedBox(height: 8),
-          pw.TableHelper.fromTextArray(
-            border: pw.TableBorder.all(color: PdfColors.grey300, width: .5),
-            headerDecoration: pw.BoxDecoration(color: PdfColors.blue50),
-            headerStyle: pw.TextStyle(
-              color: blue,
-              fontSize: 8,
-              fontWeight: pw.FontWeight.bold,
-            ),
-            cellStyle: pw.TextStyle(color: text, fontSize: 7.5),
-            cellPadding: const pw.EdgeInsets.symmetric(
-              horizontal: 5,
-              vertical: 4,
-            ),
-            headers: table.columns,
-            data: rows,
-          ),
-          pw.SizedBox(height: 16),
-        ],
-      );
-    }
-
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(30, 30, 30, 34),
-        footer: (context) => pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text(
-              'Generated by TourisTrike Provincial Admin - $generatedLabel',
-              style: pw.TextStyle(color: muted, fontSize: 8),
-            ),
-            pw.Text(
-              'Page ${context.pageNumber} of ${context.pagesCount}',
-              style: pw.TextStyle(color: muted, fontSize: 8),
-            ),
-          ],
-        ),
-        build: (context) => [
-          pw.Container(
-            padding: const pw.EdgeInsets.all(16),
-            decoration: pw.BoxDecoration(
-              color: PdfColors.blue50,
-              border: pw.Border.all(color: PdfColors.blue100),
-              borderRadius: pw.BorderRadius.circular(10),
-            ),
-            child: pw.Row(
-              children: [
-                pw.Container(
-                  width: 42,
-                  height: 42,
-                  alignment: pw.Alignment.center,
-                  decoration: pw.BoxDecoration(
-                    color: blue,
-                    borderRadius: pw.BorderRadius.circular(8),
-                  ),
-                  child: pw.Text(
-                    'TT',
-                    style: pw.TextStyle(
-                      color: PdfColors.white,
-                      fontSize: 15,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ),
-                pw.SizedBox(width: 12),
-                pw.Expanded(
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'TourisTrike / Bulacan Provincial Tourism',
-                        style: pw.TextStyle(
-                          color: blue,
-                          fontSize: 11,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        report.title,
-                        style: pw.TextStyle(
-                          color: text,
-                          fontSize: 20,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        'Formal provincial tourism report generated from selected administrative filters.',
-                        style: pw.TextStyle(color: muted, fontSize: 9),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 16),
-          pw.Container(
-            padding: const pw.EdgeInsets.all(12),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.grey300),
-              borderRadius: pw.BorderRadius.circular(8),
-            ),
-            child: pw.Column(
-              children: [
-                detail('Date Generated', generatedLabel),
-                detail('City/Subtenant', report.config.city),
-                detail('Report Type', report.config.type.label),
-                detail('Date Range', report.window.label),
-                detail(
-                  'Included Sections',
-                  report.config.sections.map((item) => item.label).join(', '),
-                ),
-              ],
-            ),
-          ),
-          if (report.config.sections.contains(_ReportSection.summaryCards)) ...[
-            pw.SizedBox(height: 18),
-            pw.Text(
-              'Summary Section',
-              style: pw.TextStyle(
-                color: text,
-                fontSize: 14,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: report.metrics.map(metric).toList(),
-            ),
-          ],
-          if (report.config.sections.contains(_ReportSection.charts)) ...[
-            pw.SizedBox(height: 18),
-            table(_chartDataTable(report)),
-          ],
-          if (tables.isEmpty) ...[
-            pw.SizedBox(height: 18),
-            pw.Text(
-              'No table sections were included, or no matching rows were found.',
-              style: pw.TextStyle(color: muted, fontSize: 9),
-            ),
-          ] else ...[
-            pw.SizedBox(height: 18),
-            ...tables.map(table),
-          ],
-        ],
-      ),
-    );
-
-    return doc.save();
-  }
-
-  String _pdfFileName(_ReportSnapshot report) {
-    final type = _slug(report.config.type.label);
-    final city = _slug(report.config.city);
-    final stamp = DateFormat('yyyyMMdd-HHmm').format(report.generatedAt);
-    return 'touristrike-bulacan-$type-$city-$stamp.pdf';
-  }
-}
-
-class _MobileReportsLayout extends StatelessWidget {
-  const _MobileReportsLayout({
-    required this.data,
-    required this.tab,
-    required this.dashboard,
-    required this.cityOptions,
-    required this.exportConfig,
-    required this.exportPreview,
-    required this.isExporting,
-    required this.onTabChanged,
-    required this.onExportTypeChanged,
-    required this.onExportCityChanged,
-    required this.onExportDatePresetChanged,
-    required this.onPickCustomRange,
-    required this.onExportSectionChanged,
-    required this.onGeneratePreview,
-    required this.onExportPdf,
-  });
-
-  final AdminReportData data;
-  final _ReportsTab tab;
-  final _ReportSnapshot dashboard;
-  final List<String> cityOptions;
-  final _ReportConfig exportConfig;
-  final _ReportSnapshot? exportPreview;
-  final bool isExporting;
-  final ValueChanged<_ReportsTab> onTabChanged;
-  final ValueChanged<_ProvinceReportType> onExportTypeChanged;
-  final ValueChanged<String?> onExportCityChanged;
-  final ValueChanged<_ReportDatePreset> onExportDatePresetChanged;
-  final VoidCallback onPickCustomRange;
-  final void Function(_ReportSection section, bool selected)
-  onExportSectionChanged;
-  final VoidCallback onGeneratePreview;
-  final VoidCallback onExportPdf;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 132,
-            child: _ReportsHero(report: dashboard, tab: tab),
-          ),
-          const SizedBox(height: 12),
-          _SummaryMetricWrap(metrics: dashboard.metrics),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 48,
-            child: _ReportsTabBar(selected: tab, onChanged: onTabChanged),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: tab == _ReportsTab.export ? 700 : 580,
-            child: _ReportsTabContent(
-              data: data,
-              tab: tab,
-              report: dashboard,
-              cityOptions: cityOptions,
-              exportConfig: exportConfig,
-              exportPreview: exportPreview,
-              isExporting: isExporting,
-              onExportTypeChanged: onExportTypeChanged,
-              onExportCityChanged: onExportCityChanged,
-              onExportDatePresetChanged: onExportDatePresetChanged,
-              onPickCustomRange: onPickCustomRange,
-              onExportSectionChanged: onExportSectionChanged,
-              onGeneratePreview: onGeneratePreview,
-              onExportPdf: onExportPdf,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReportsHero extends StatelessWidget {
-  const _ReportsHero({required this.report, required this.tab});
-
-  final _ReportSnapshot report;
-  final _ReportsTab tab;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-      decoration: BoxDecoration(
-        gradient: ProvincialAdminColors.gradient,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [provincialAdminShadow(alpha: .075)],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .18),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: .25)),
-            ),
-            child: Icon(tab.icon, color: Colors.white, size: 26),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: 'PROVINCIAL REPORTS\n',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: .86),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: .4,
-                      height: 1.5,
-                    ),
-                  ),
-                  TextSpan(
-                    text: '${tab.label} Dashboard\n',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 25,
-                      fontWeight: FontWeight.w900,
-                      height: 1.2,
-                    ),
-                  ),
-                  TextSpan(
-                    text: '${report.config.city} - ${report.window.label}',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: .92),
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 12),
-          _HeroChip(
-            icon: Icons.receipt_long_rounded,
-            value: '${report.totalBookings}',
-            label: 'Bookings',
-          ),
-          const SizedBox(width: 10),
-          _HeroChip(
-            icon: Icons.payments_rounded,
-            value: _money(report.totalRevenue),
-            label: 'Revenue',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeroChip extends StatelessWidget {
-  const _HeroChip({
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 145,
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .14),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.white.withValues(alpha: .22)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white, size: 17),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '$value\n',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w900,
-                      height: 1.25,
-                    ),
-                  ),
-                  TextSpan(
-                    text: label,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: .85),
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryMetricRow extends StatelessWidget {
-  const _SummaryMetricRow({required this.metrics});
-
-  final List<_SummaryMetric> metrics;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (var i = 0; i < metrics.length; i++) ...[
-          Expanded(child: _MetricCard(item: metrics[i])),
-          if (i != metrics.length - 1) const SizedBox(width: 12),
-        ],
-      ],
-    );
-  }
-}
-
-class _SummaryMetricWrap extends StatelessWidget {
-  const _SummaryMetricWrap({required this.metrics});
-
-  final List<_SummaryMetric> metrics;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const gap = 10.0;
-        final columns = constraints.maxWidth >= 700 ? 2 : 1;
-        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: metrics
-              .map(
-                (item) => SizedBox(
-                  width: width,
-                  height: 86,
-                  child: _MetricCard(item: item),
-                ),
-              )
-              .toList(),
-        );
-      },
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.item});
-
-  final _SummaryMetric item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: ProvincialAdminColors.line),
-        boxShadow: [provincialAdminShadow(alpha: .032)],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: item.color.withValues(alpha: .12),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Icon(item.icon, color: item.color, size: 20),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${item.value}\n',
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.text,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      height: 1.2,
-                    ),
-                  ),
-                  TextSpan(
-                    text: '${item.label}\n',
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.text,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w900,
-                      height: 1.35,
-                    ),
-                  ),
-                  TextSpan(
-                    text: item.helper,
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.muted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReportsTabBar extends StatelessWidget {
-  const _ReportsTabBar({required this.selected, required this.onChanged});
-
-  final _ReportsTab selected;
-  final ValueChanged<_ReportsTab> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: ProvincialAdminColors.line),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: _ReportsTab.values.map((tab) {
-            final active = tab == selected;
-            return Padding(
-              padding: const EdgeInsets.only(right: 5),
-              child: Tooltip(
-                message: tab.label,
-                child: InkWell(
-                  onTap: () => onChanged(tab),
-                  borderRadius: BorderRadius.circular(13),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: active
-                          ? ProvincialAdminColors.deepBlue
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          tab.icon,
-                          size: 17,
-                          color: active
-                              ? Colors.white
-                              : ProvincialAdminColors.muted,
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          tab.label,
-                          style: TextStyle(
-                            color: active
-                                ? Colors.white
-                                : ProvincialAdminColors.text,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReportsTabContent extends StatelessWidget {
-  const _ReportsTabContent({
-    required this.data,
-    required this.tab,
-    required this.report,
-    required this.cityOptions,
-    required this.exportConfig,
-    required this.exportPreview,
-    required this.isExporting,
-    required this.onExportTypeChanged,
-    required this.onExportCityChanged,
-    required this.onExportDatePresetChanged,
-    required this.onPickCustomRange,
-    required this.onExportSectionChanged,
-    required this.onGeneratePreview,
-    required this.onExportPdf,
-  });
-
-  final AdminReportData data;
-  final _ReportsTab tab;
-  final _ReportSnapshot report;
-  final List<String> cityOptions;
-  final _ReportConfig exportConfig;
-  final _ReportSnapshot? exportPreview;
-  final bool isExporting;
-  final ValueChanged<_ProvinceReportType> onExportTypeChanged;
-  final ValueChanged<String?> onExportCityChanged;
-  final ValueChanged<_ReportDatePreset> onExportDatePresetChanged;
-  final VoidCallback onPickCustomRange;
-  final void Function(_ReportSection section, bool selected)
-  onExportSectionChanged;
-  final VoidCallback onGeneratePreview;
-  final VoidCallback onExportPdf;
-
-  @override
-  Widget build(BuildContext context) {
-    switch (tab) {
-      case _ReportsTab.overview:
-        return _OverviewTab(report: report);
-      case _ReportsTab.bookings:
-        return _TwoCardTab(
-          first: _DashboardCard(
-            title: 'Booking Status',
-            subtitle: 'Outcomes within the selected month.',
-            icon: Icons.donut_large_rounded,
-            color: ProvincialAdminColors.blue,
-            child: _StatusBreakdown(report: report),
-          ),
-          second: _DashboardCard(
-            title: 'Recent Bookings',
-            subtitle: 'Latest booking records.',
-            icon: Icons.receipt_long_rounded,
-            color: ProvincialAdminColors.cyan,
-            child: _CompactTable(table: _bookingTable(report.bookings)),
-          ),
-        );
-      case _ReportsTab.revenue:
-        return _TwoCardTab(
-          first: _DashboardCard(
-            title: 'Revenue by City',
-            subtitle: 'Completed booking value grouped by LGU.',
-            icon: Icons.location_city_rounded,
-            color: ProvincialAdminColors.green,
-            child: _CompactTable(table: _revenueByCityTable(report.cityRows)),
-          ),
-          second: _DashboardCard(
-            title: 'Package Revenue',
-            subtitle: 'Top packages by completed revenue.',
-            icon: Icons.payments_rounded,
-            color: ProvincialAdminColors.amber,
-            child: _CompactTable(table: _packageRevenueTable(report)),
-          ),
-        );
-      case _ReportsTab.packages:
-        return _TwoCardTab(
-          first: _DashboardCard(
-            title: 'Package Performance',
-            subtitle: 'Booking activity by tour package.',
-            icon: Icons.inventory_2_rounded,
-            color: ProvincialAdminColors.green,
-            child: _CompactTable(table: _packagePerformanceTable(report)),
-          ),
-          second: _DashboardCard(
-            title: 'Packages by City',
-            subtitle: 'Distribution of listed tours.',
-            icon: Icons.bar_chart_rounded,
-            color: ProvincialAdminColors.blue,
-            child: _RankedRows(rows: _countPackagesByCity(report.packages)),
-          ),
-        );
-      case _ReportsTab.spots:
-        return _TwoCardTab(
-          first: _DashboardCard(
-            title: 'Spot Inventory',
-            subtitle: 'Submitted tourist spots by city.',
-            icon: Icons.place_rounded,
-            color: ProvincialAdminColors.cyan,
-            child: _CompactTable(table: _spotCityTable(report)),
-          ),
-          second: _DashboardCard(
-            title: 'Top Tourist Spots',
-            subtitle: 'Spot records sorted by available rating.',
-            icon: Icons.star_rounded,
-            color: ProvincialAdminColors.amber,
-            child: _CompactTable(table: _topSpotTable(report.spots)),
-          ),
-        );
-      case _ReportsTab.drivers:
-        return _TwoCardTab(
-          first: _DashboardCard(
-            title: 'Driver Coverage',
-            subtitle: 'Registered drivers by city/subtenant.',
-            icon: Icons.directions_bike_rounded,
-            color: ProvincialAdminColors.deepBlue,
-            child: _CompactTable(table: _driverCoverageTable(report)),
-          ),
-          second: _DashboardCard(
-            title: 'Coverage Ranking',
-            subtitle: 'Cities with the most registered drivers.',
-            icon: Icons.leaderboard_rounded,
-            color: ProvincialAdminColors.purple,
-            child: _RankedRows(rows: _countDriversByCity(report.tenants)),
-          ),
-        );
-      case _ReportsTab.feedback:
-        return _TwoCardTab(
-          first: _DashboardCard(
-            title: 'Ratings by City',
-            subtitle: 'Review volume and average rating.',
-            icon: Icons.forum_rounded,
-            color: ProvincialAdminColors.purple,
-            child: _CompactTable(table: _feedbackCityTable(report.cityRows)),
-          ),
-          second: _DashboardCard(
-            title: 'Recent Feedback',
-            subtitle: 'Latest tourist comments.',
-            icon: Icons.rate_review_rounded,
-            color: ProvincialAdminColors.blue,
-            child: _CompactTable(table: _recentFeedbackTable(report.feedback)),
-          ),
-        );
-      case _ReportsTab.export:
-        return _ExportTab(
-          cityOptions: cityOptions,
-          config: exportConfig,
-          preview: exportPreview,
-          isExporting: isExporting,
-          onTypeChanged: onExportTypeChanged,
-          onCityChanged: onExportCityChanged,
-          onDatePresetChanged: onExportDatePresetChanged,
-          onPickCustomRange: onPickCustomRange,
-          onSectionChanged: onExportSectionChanged,
-          onGeneratePreview: onGeneratePreview,
-          onExportPdf: onExportPdf,
-        );
-    }
-  }
-}
-
-class _OverviewTab extends StatelessWidget {
-  const _OverviewTab({required this.report});
-
-  final _ReportSnapshot report;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          flex: 7,
-          child: _DashboardCard(
-            title: 'City Performance',
-            subtitle: 'Bookings, revenue, assets, drivers, and feedback.',
-            icon: Icons.analytics_rounded,
-            color: ProvincialAdminColors.blue,
-            child: _CompactTable(table: _cityPerformanceTable(report.cityRows)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          flex: 5,
-          child: Column(
-            children: [
-              Expanded(
-                child: _DashboardCard(
-                  title: 'Booking Outcome',
-                  subtitle: 'Completed, cancelled, and pending tours.',
-                  icon: Icons.donut_large_rounded,
-                  color: ProvincialAdminColors.green,
-                  child: _StatusBreakdown(report: report),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _DashboardCard(
-                  title: 'Tourism Coverage',
-                  subtitle: 'Inventory and operating coverage.',
-                  icon: Icons.map_rounded,
-                  color: ProvincialAdminColors.purple,
-                  child: _CoverageSummary(report: report),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TwoCardTab extends StatelessWidget {
-  const _TwoCardTab({required this.first, required this.second});
-
-  final Widget first;
-  final Widget second;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: first),
-        const SizedBox(width: 12),
-        Expanded(child: second),
-      ],
-    );
-  }
-}
-
-class _DashboardCard extends StatelessWidget {
-  const _DashboardCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-    required this.child,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: ProvincialAdminColors.line),
-        boxShadow: [provincialAdminShadow(alpha: .032)],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 39,
-                height: 39,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '$title\n',
-                        style: const TextStyle(
-                          color: ProvincialAdminColors.text,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          height: 1.25,
-                        ),
-                      ),
-                      TextSpan(
-                        text: subtitle,
-                        style: const TextStyle(
-                          color: ProvincialAdminColors.muted,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 13),
-          Expanded(child: child),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusBreakdown extends StatelessWidget {
-  const _StatusBreakdown({required this.report});
-
-  final _ReportSnapshot report;
-
-  @override
-  Widget build(BuildContext context) {
-    final pending =
-        (report.totalBookings -
-                report.completedBookings -
-                report.cancelledBookings)
-            .clamp(0, report.totalBookings);
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _ProgressRow(
-          label: 'Completed',
-          value: report.completedBookings,
-          total: report.totalBookings,
-          color: ProvincialAdminColors.green,
-        ),
-        const SizedBox(height: 13),
-        _ProgressRow(
-          label: 'Cancelled',
-          value: report.cancelledBookings,
-          total: report.totalBookings,
-          color: ProvincialAdminColors.red,
-        ),
-        const SizedBox(height: 13),
-        _ProgressRow(
-          label: 'Other / Pending',
-          value: pending,
-          total: report.totalBookings,
-          color: ProvincialAdminColors.amber,
-        ),
-      ],
-    );
-  }
-}
-
-class _CoverageSummary extends StatelessWidget {
-  const _CoverageSummary({required this.report});
-
-  final _ReportSnapshot report;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      _CoverageItem(
-        icon: Icons.location_city_rounded,
-        label: 'Cities',
-        value: '${report.tenants.length}',
-      ),
-      _CoverageItem(
-        icon: Icons.inventory_2_rounded,
-        label: 'Packages',
-        value: '${report.totalPackages}',
-      ),
-      _CoverageItem(
-        icon: Icons.place_rounded,
-        label: 'Spots',
-        value: '${report.totalSpots}',
-      ),
-      _CoverageItem(
-        icon: Icons.directions_bike_rounded,
-        label: 'Drivers',
-        value: '${report.totalDrivers}',
-      ),
-      _CoverageItem(
-        icon: Icons.forum_rounded,
-        label: 'Feedback',
-        value: report.averageRating == 0
-            ? '${report.totalFeedback}'
-            : '${report.totalFeedback} - ${report.averageRating.toStringAsFixed(1)} avg',
-      ),
-    ];
-
-    return GridView.builder(
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 3.6,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-      ),
-      itemBuilder: (context, index) => _CoverageTile(item: items[index]),
-    );
-  }
-}
-
-class _CoverageTile extends StatelessWidget {
-  const _CoverageTile({required this.item});
-
-  final _CoverageItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ProvincialAdminColors.line),
-      ),
-      child: Row(
-        children: [
-          Icon(item.icon, color: ProvincialAdminColors.blue, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${item.value}\n',
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.text,
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w900,
-                      height: 1.15,
-                    ),
-                  ),
-                  TextSpan(
-                    text: item.label,
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.muted,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProgressRow extends StatelessWidget {
-  const _ProgressRow({
-    required this.label,
-    required this.value,
-    required this.total,
-    required this.color,
-  });
+const _paperWorkspace = Color(0xFFF1F5F9);
+const _paperBorder = Color(0xFFDCE4EE);
+const _paperText = Color(0xFF172033);
+const _paperMuted = Color(0xFF667085);
+const _paperSoft = Color(0xFFF8FAFC);
+
+const _green = Color(0xFF16A34A);
+const _amber = Color(0xFFF59E0B);
+const _purple = Color(0xFF7C3AED);
+const _cyan = Color(0xFF0EA5E9);
+const _red = Color(0xFFDC2626);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tabs
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum _ReportTab {
+  overview(
+    'Overview',
+    'Provincial Tourism Summary Report',
+    Icons.dashboard_outlined,
+  ),
+  bookings(
+    'Bookings',
+    'Provincial Booking Activity Report',
+    Icons.receipt_long_outlined,
+  ),
+  revenue(
+    'Revenue',
+    'Provincial Revenue Report',
+    Icons.payments_outlined,
+  ),
+  packages(
+    'Packages',
+    'Tourism Package Performance Report',
+    Icons.inventory_2_outlined,
+  ),
+  spots(
+    'Tourist Spots',
+    'Tourist Spot Report',
+    Icons.place_outlined,
+  ),
+  drivers(
+    'Drivers',
+    'Driver Coverage Report',
+    Icons.badge_outlined,
+  ),
+  feedback(
+    'Feedback',
+    'Visitor Feedback and Ratings Report',
+    Icons.star_outline_rounded,
+  );
+
+  const _ReportTab(
+    this.label,
+    this.reportTitle,
+    this.icon,
+  );
 
   final String label;
-  final int value;
-  final int total;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final percent = total == 0 ? 0.0 : value / total;
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.text,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            Text(
-              '$value - ${(percent * 100).round()}%',
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 7),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: percent.clamp(.04, 1),
-            minHeight: 8,
-            color: color,
-            backgroundColor: const Color(0xFFEAF2FF),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ExportTab extends StatelessWidget {
-  const _ExportTab({
-    required this.cityOptions,
-    required this.config,
-    required this.preview,
-    required this.isExporting,
-    required this.onTypeChanged,
-    required this.onCityChanged,
-    required this.onDatePresetChanged,
-    required this.onPickCustomRange,
-    required this.onSectionChanged,
-    required this.onGeneratePreview,
-    required this.onExportPdf,
-  });
-
-  final List<String> cityOptions;
-  final _ReportConfig config;
-  final _ReportSnapshot? preview;
-  final bool isExporting;
-  final ValueChanged<_ProvinceReportType> onTypeChanged;
-  final ValueChanged<String?> onCityChanged;
-  final ValueChanged<_ReportDatePreset> onDatePresetChanged;
-  final VoidCallback onPickCustomRange;
-  final void Function(_ReportSection section, bool selected) onSectionChanged;
-  final VoidCallback onGeneratePreview;
-  final VoidCallback onExportPdf;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 410,
-          child: _DashboardCard(
-            title: 'PDF Report Builder',
-            subtitle: 'Customize one formal report at a time.',
-            icon: Icons.tune_rounded,
-            color: ProvincialAdminColors.deepBlue,
-            child: _ExportControls(
-              cityOptions: cityOptions,
-              config: config,
-              isExporting: isExporting,
-              onTypeChanged: onTypeChanged,
-              onCityChanged: onCityChanged,
-              onDatePresetChanged: onDatePresetChanged,
-              onPickCustomRange: onPickCustomRange,
-              onSectionChanged: onSectionChanged,
-              onGeneratePreview: onGeneratePreview,
-              onExportPdf: onExportPdf,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _DashboardCard(
-            title: 'Export Preview',
-            subtitle: 'Preview the generated report before exporting.',
-            icon: Icons.article_rounded,
-            color: ProvincialAdminColors.green,
-            child: preview == null
-                ? const _EmptyBox(
-                    icon: Icons.preview_rounded,
-                    title: 'No preview generated yet.',
-                    message:
-                        'Choose filters, then select Generate Preview to review the report.',
-                  )
-                : _ExportPreview(report: preview!),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ExportControls extends StatelessWidget {
-  const _ExportControls({
-    required this.cityOptions,
-    required this.config,
-    required this.isExporting,
-    required this.onTypeChanged,
-    required this.onCityChanged,
-    required this.onDatePresetChanged,
-    required this.onPickCustomRange,
-    required this.onSectionChanged,
-    required this.onGeneratePreview,
-    required this.onExportPdf,
-  });
-
-  final List<String> cityOptions;
-  final _ReportConfig config;
-  final bool isExporting;
-  final ValueChanged<_ProvinceReportType> onTypeChanged;
-  final ValueChanged<String?> onCityChanged;
-  final ValueChanged<_ReportDatePreset> onDatePresetChanged;
-  final VoidCallback onPickCustomRange;
-  final void Function(_ReportSection section, bool selected) onSectionChanged;
-  final VoidCallback onGeneratePreview;
-  final VoidCallback onExportPdf;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _FieldLabel('Report Type'),
-        _ReportDropdown<_ProvinceReportType>(
-          value: config.type,
-          items: _ProvinceReportType.values
-              .map(
-                (item) =>
-                    DropdownMenuItem(value: item, child: Text(item.label)),
-              )
-              .toList(),
-          onChanged: (value) {
-            if (value != null) onTypeChanged(value);
-          },
-        ),
-        const SizedBox(height: 10),
-        _FieldLabel('City/Subtenant'),
-        _ReportDropdown<String>(
-          value: config.city,
-          items: cityOptions
-              .map((city) => DropdownMenuItem(value: city, child: Text(city)))
-              .toList(),
-          onChanged: onCityChanged,
-        ),
-        const SizedBox(height: 10),
-        _FieldLabel('Date Range'),
-        _ReportDropdown<_ReportDatePreset>(
-          value: config.datePreset,
-          items: _ReportDatePreset.values
-              .map(
-                (item) =>
-                    DropdownMenuItem(value: item, child: Text(item.label)),
-              )
-              .toList(),
-          onChanged: (value) {
-            if (value != null) onDatePresetChanged(value);
-          },
-        ),
-        if (config.datePreset == _ReportDatePreset.custom) ...[
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onPickCustomRange,
-            style: _outlinedButtonStyle,
-            icon: const Icon(Icons.date_range_rounded, size: 17),
-            label: Text(config.resolveWindow(DateTime.now()).label),
-          ),
-        ],
-        const SizedBox(height: 12),
-        _FieldLabel('Included Sections'),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: _ReportSection.values.map((section) {
-                final selected = config.sections.contains(section);
-                return FilterChip(
-                  selected: selected,
-                  visualDensity: VisualDensity.compact,
-                  label: Text(section.label),
-                  onSelected: (value) => onSectionChanged(section, value),
-                  selectedColor: ProvincialAdminColors.blue.withValues(
-                    alpha: .13,
-                  ),
-                  checkmarkColor: ProvincialAdminColors.deepBlue,
-                  side: BorderSide(
-                    color: selected
-                        ? ProvincialAdminColors.blue.withValues(alpha: .35)
-                        : ProvincialAdminColors.line,
-                  ),
-                  labelStyle: TextStyle(
-                    color: selected
-                        ? ProvincialAdminColors.deepBlue
-                        : ProvincialAdminColors.muted,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: onGeneratePreview,
-                style: _primaryButtonStyle,
-                icon: const Icon(Icons.playlist_add_check_rounded, size: 18),
-                label: const Text('Generate Preview'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 52,
-              height: 46,
-              child: OutlinedButton(
-                onPressed: isExporting ? null : onExportPdf,
-                style: _iconButtonStyle,
-                child: isExporting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.picture_as_pdf_rounded, size: 20),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _ExportPreview extends StatelessWidget {
-  const _ExportPreview({required this.report});
-
-  final _ReportSnapshot report;
-
-  @override
-  Widget build(BuildContext context) {
-    final tables = _tablesForReport(report);
-    final table = tables.isEmpty ? null : tables.first;
-
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FBFF),
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: ProvincialAdminColors.line),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: ProvincialAdminColors.blue.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: const Icon(
-                  Icons.account_balance_rounded,
-                  color: ProvincialAdminColors.deepBlue,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      const TextSpan(
-                        text: 'TourisTrike / Bulacan Provincial Tourism\n',
-                        style: TextStyle(
-                          color: ProvincialAdminColors.text,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          height: 1.35,
-                        ),
-                      ),
-                      TextSpan(
-                        text:
-                            '${report.title} - ${report.config.city} - ${report.window.shortLabel}',
-                        style: const TextStyle(
-                          color: ProvincialAdminColors.muted,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 74,
-          child: Row(
-            children: report.metrics.take(3).map((metric) {
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _MiniMetric(item: metric),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Expanded(
-          child: table == null
-              ? const _EmptyBox(
-                  icon: Icons.table_rows_rounded,
-                  title: 'No preview table available.',
-                  message:
-                      'The PDF will still include the selected summary sections.',
-                )
-              : _CompactTable(table: table, maxRows: 4),
-        ),
-        if (tables.length > 1) ...[
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '${tables.length - 1} additional table section(s) will be included in the PDF.',
-              style: const TextStyle(
-                color: ProvincialAdminColors.muted,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _MiniMetric extends StatelessWidget {
-  const _MiniMetric({required this.item});
-
-  final _SummaryMetric item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ProvincialAdminColors.line),
-      ),
-      child: Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: '${item.value}\n',
-              style: const TextStyle(
-                color: ProvincialAdminColors.text,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                height: 1.25,
-              ),
-            ),
-            TextSpan(
-              text: item.label,
-              style: const TextStyle(
-                color: ProvincialAdminColors.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                height: 1.35,
-              ),
-            ),
-          ],
-        ),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-}
-
-class _CompactTable extends StatelessWidget {
-  const _CompactTable({required this.table, this.maxRows = 6});
-
-  final _ReportTable table;
-  final int maxRows;
-
-  @override
-  Widget build(BuildContext context) {
-    if (table.rows.isEmpty) {
-      return _EmptyBox(
-        icon: Icons.inbox_rounded,
-        title: table.emptyMessage,
-        message: 'Try another date range or city/subtenant.',
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowHeight: 42,
-                dataRowMinHeight: 42,
-                dataRowMaxHeight: 48,
-                columnSpacing: 24,
-                headingRowColor: WidgetStateProperty.all(
-                  const Color(0xFFF1F7FF),
-                ),
-                headingTextStyle: const TextStyle(
-                  color: ProvincialAdminColors.deepBlue,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                ),
-                dataTextStyle: const TextStyle(
-                  color: ProvincialAdminColors.text,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-                columns: table.columns
-                    .map((column) => DataColumn(label: Text(column)))
-                    .toList(),
-                rows: table.rows.take(maxRows).map((row) {
-                  return DataRow(
-                    cells: row
-                        .map(
-                          (cell) => DataCell(
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 210),
-                              child: Text(
-                                cell,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-        ),
-        if (table.rows.length > maxRows) ...[
-          const SizedBox(height: 8),
-          Text(
-            '${table.rows.length - maxRows} more row(s) available in export.',
-            style: const TextStyle(
-              color: ProvincialAdminColors.muted,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _RankedRows extends StatelessWidget {
-  const _RankedRows({required this.rows});
-
-  final Map<String, int> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    if (rows.isEmpty) {
-      return const _EmptyBox(
-        icon: Icons.bar_chart_rounded,
-        title: 'No records found.',
-        message: 'Data will appear when city tenants submit records.',
-      );
-    }
-
-    final entries = rows.entries.take(6).toList();
-    final max = entries.first.value == 0 ? 1 : entries.first.value;
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: entries.map((entry) {
-        final index = entries.indexOf(entry);
-        final factor = entry.value / max;
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: index == entries.length - 1 ? 0 : 10,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: index == 0
-                      ? ProvincialAdminColors.amber
-                      : const Color(0xFFE8EEF7),
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  '${index + 1}',
-                  style: TextStyle(
-                    color: index == 0
-                        ? Colors.white
-                        : ProvincialAdminColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            entry.key,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: ProvincialAdminColors.text,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          '${entry.value}',
-                          style: const TextStyle(
-                            color: ProvincialAdminColors.amber,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: factor.clamp(.05, 1),
-                        minHeight: 8,
-                        color: ProvincialAdminColors.amber,
-                        backgroundColor: const Color(0xFFEAF2FF),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _EmptyBox extends StatelessWidget {
-  const _EmptyBox({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
+  final String reportTitle;
   final IconData icon;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: ProvincialAdminColors.line),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            color: ProvincialAdminColors.lightMuted.withValues(alpha: .78),
-            size: 30,
-          ),
-          const SizedBox(height: 9),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: ProvincialAdminColors.text,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: ProvincialAdminColors.muted,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-class _FieldLabel extends StatelessWidget {
-  const _FieldLabel(this.text);
+enum _DatePreset {
+  daily('Today'),
+  weekly('This Week'),
+  monthly('This Month'),
+  yearly('This Year'),
+  allTime('All Time'),
+  custom('Custom Range');
 
-  final String text;
+  const _DatePreset(this.label);
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: ProvincialAdminColors.text,
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
+  final String label;
 }
 
-class _ReportDropdown<T> extends StatelessWidget {
-  const _ReportDropdown({
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
+// ─────────────────────────────────────────────────────────────────────────────
+// Date window
+// ─────────────────────────────────────────────────────────────────────────────
 
-  final T? value;
-  final List<DropdownMenuItem<T>> items;
-  final ValueChanged<T?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return DropdownButtonFormField<T>(
-      initialValue: value,
-      isExpanded: true,
-      items: items,
-      onChanged: onChanged,
-      icon: const Icon(Icons.keyboard_arrow_down_rounded),
-      decoration: InputDecoration(
-        filled: true,
-        fillColor: const Color(0xFFF8FBFF),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 11,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(color: ProvincialAdminColors.line),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(
-            color: ProvincialAdminColors.blue,
-            width: 1.2,
-          ),
-        ),
-      ),
-      style: const TextStyle(
-        color: ProvincialAdminColors.text,
-        fontSize: 12.5,
-        fontWeight: FontWeight.w800,
-      ),
-    );
-  }
-}
-
-enum _ReportsTab {
-  overview,
-  bookings,
-  revenue,
-  packages,
-  spots,
-  drivers,
-  feedback,
-  export,
-}
-
-extension _ReportsTabLabel on _ReportsTab {
-  String get label {
-    switch (this) {
-      case _ReportsTab.overview:
-        return 'Overview';
-      case _ReportsTab.bookings:
-        return 'Bookings';
-      case _ReportsTab.revenue:
-        return 'Revenue';
-      case _ReportsTab.packages:
-        return 'Packages';
-      case _ReportsTab.spots:
-        return 'Tourist Spots';
-      case _ReportsTab.drivers:
-        return 'Drivers';
-      case _ReportsTab.feedback:
-        return 'Feedback';
-      case _ReportsTab.export:
-        return 'Export';
-    }
-  }
-
-  IconData get icon {
-    switch (this) {
-      case _ReportsTab.overview:
-        return Icons.dashboard_rounded;
-      case _ReportsTab.bookings:
-        return Icons.receipt_long_rounded;
-      case _ReportsTab.revenue:
-        return Icons.payments_rounded;
-      case _ReportsTab.packages:
-        return Icons.inventory_2_rounded;
-      case _ReportsTab.spots:
-        return Icons.place_rounded;
-      case _ReportsTab.drivers:
-        return Icons.directions_bike_rounded;
-      case _ReportsTab.feedback:
-        return Icons.forum_rounded;
-      case _ReportsTab.export:
-        return Icons.picture_as_pdf_rounded;
-    }
-  }
-
-  _ProvinceReportType? get reportType {
-    switch (this) {
-      case _ReportsTab.overview:
-        return _ProvinceReportType.overview;
-      case _ReportsTab.bookings:
-        return _ProvinceReportType.booking;
-      case _ReportsTab.revenue:
-        return _ProvinceReportType.revenue;
-      case _ReportsTab.packages:
-        return _ProvinceReportType.packagePerformance;
-      case _ReportsTab.spots:
-        return _ProvinceReportType.spotPerformance;
-      case _ReportsTab.drivers:
-        return _ProvinceReportType.driverPerformance;
-      case _ReportsTab.feedback:
-        return _ProvinceReportType.feedbackRatings;
-      case _ReportsTab.export:
-        return null;
-    }
-  }
-}
-
-enum _ProvinceReportType {
-  overview,
-  booking,
-  revenue,
-  packagePerformance,
-  spotPerformance,
-  driverPerformance,
-  feedbackRatings,
-  cancellation,
-}
-
-extension _ProvinceReportTypeLabel on _ProvinceReportType {
-  String get label {
-    switch (this) {
-      case _ProvinceReportType.overview:
-        return 'Overview Report';
-      case _ProvinceReportType.booking:
-        return 'Booking Report';
-      case _ProvinceReportType.revenue:
-        return 'Revenue Report';
-      case _ProvinceReportType.packagePerformance:
-        return 'Package Performance Report';
-      case _ProvinceReportType.spotPerformance:
-        return 'Tourist Spot Performance Report';
-      case _ProvinceReportType.driverPerformance:
-        return 'Driver Performance Report';
-      case _ProvinceReportType.feedbackRatings:
-        return 'Feedback and Ratings Report';
-      case _ProvinceReportType.cancellation:
-        return 'Cancellation Report';
-    }
-  }
-}
-
-enum _ReportDatePreset { daily, weekly, monthly, yearly, custom }
-
-extension _ReportDatePresetLabel on _ReportDatePreset {
-  String get label {
-    switch (this) {
-      case _ReportDatePreset.daily:
-        return 'Daily';
-      case _ReportDatePreset.weekly:
-        return 'Weekly';
-      case _ReportDatePreset.monthly:
-        return 'Monthly';
-      case _ReportDatePreset.yearly:
-        return 'Yearly';
-      case _ReportDatePreset.custom:
-        return 'Custom Date Range';
-    }
-  }
-}
-
-enum _ReportSection {
-  summaryCards,
-  charts,
-  tables,
-  revenueData,
-  bookingData,
-  packageData,
-  touristSpotData,
-  driverData,
-  feedbackData,
-}
-
-extension _ReportSectionLabel on _ReportSection {
-  String get label {
-    switch (this) {
-      case _ReportSection.summaryCards:
-        return 'Summary cards';
-      case _ReportSection.charts:
-        return 'Charts';
-      case _ReportSection.tables:
-        return 'Tables';
-      case _ReportSection.revenueData:
-        return 'Revenue data';
-      case _ReportSection.bookingData:
-        return 'Booking data';
-      case _ReportSection.packageData:
-        return 'Package data';
-      case _ReportSection.touristSpotData:
-        return 'Tourist spot data';
-      case _ReportSection.driverData:
-        return 'Driver data';
-      case _ReportSection.feedbackData:
-        return 'Feedback data';
-    }
-  }
-}
-
-class _ReportConfig {
-  const _ReportConfig({
-    required this.type,
-    required this.city,
-    required this.datePreset,
-    required this.customRange,
-    required this.sections,
-  });
-
-  final _ProvinceReportType type;
-  final String city;
-  final _ReportDatePreset datePreset;
-  final DateTimeRange? customRange;
-  final Set<_ReportSection> sections;
-
-  _DateWindow resolveWindow(DateTime now) {
-    DateTime start;
-    DateTime end;
-    String label;
-    String shortLabel;
-
-    switch (datePreset) {
-      case _ReportDatePreset.daily:
-        start = DateTime(now.year, now.month, now.day);
-        end = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-        shortLabel = 'Today';
-        label = 'Daily - ${_date(start)}';
-      case _ReportDatePreset.weekly:
-        start = DateTime(
-          now.year,
-          now.month,
-          now.day,
-        ).subtract(Duration(days: now.weekday - 1));
-        end = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
-        shortLabel = 'This Week';
-        label = 'Weekly - ${_date(start)} to ${_date(end)}';
-      case _ReportDatePreset.monthly:
-        start = DateTime(now.year, now.month, 1);
-        end = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
-        shortLabel = DateFormat.yMMMM().format(start);
-        label = 'Monthly - $shortLabel';
-      case _ReportDatePreset.yearly:
-        start = DateTime(now.year, 1, 1);
-        end = DateTime(now.year, 12, 31, 23, 59, 59, 999);
-        shortLabel = '${now.year}';
-        label = 'Yearly - $shortLabel';
-      case _ReportDatePreset.custom:
-        final range =
-            customRange ??
-            DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
-        start = DateTime(range.start.year, range.start.month, range.start.day);
-        end = DateTime(
-          range.end.year,
-          range.end.month,
-          range.end.day,
-          23,
-          59,
-          59,
-          999,
-        );
-        shortLabel = '${_date(start)} to ${_date(end)}';
-        label = 'Custom - $shortLabel';
-    }
-
-    return _DateWindow(
-      start: start,
-      end: end,
-      label: label,
-      shortLabel: shortLabel,
-    );
-  }
-}
-
-class _DateWindow {
-  const _DateWindow({
+class _ReportWindow {
+  const _ReportWindow({
     required this.start,
     required this.end,
     required this.label,
-    required this.shortLabel,
   });
 
   final DateTime start;
   final DateTime end;
   final String label;
-  final String shortLabel;
 
   bool contains(DateTime? date) {
     if (date == null) return false;
+
     return !date.isBefore(start) && !date.isAfter(end);
+  }
+
+  String get formatted {
+    if (label == 'All Time') {
+      return 'All available records';
+    }
+
+    return '${DateFormat.yMMMd().format(start)} – '
+        '${DateFormat.yMMMd().format(end)}';
   }
 }
 
-class _ReportSnapshot {
-  const _ReportSnapshot({
-    required this.config,
-    required this.generatedAt,
+// ─────────────────────────────────────────────────────────────────────────────
+// Report models
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ProvinceSnapshot {
+  const _ProvinceSnapshot({
+    required this.cityFilter,
     required this.window,
-    required this.title,
-    required this.metrics,
-    required this.cityRows,
+    required this.generatedAt,
     required this.tenants,
     required this.packages,
     required this.spots,
     required this.bookings,
     required this.feedback,
+    required this.cityRows,
     required this.totalBookings,
     required this.completedBookings,
     required this.cancelledBookings,
+    required this.pendingBookings,
     required this.totalRevenue,
     required this.totalPackages,
     required this.totalSpots,
@@ -2614,42 +155,31 @@ class _ReportSnapshot {
     required this.averageRating,
   });
 
-  final _ReportConfig config;
+  final String cityFilter;
+  final _ReportWindow window;
   final DateTime generatedAt;
-  final _DateWindow window;
-  final String title;
-  final List<_SummaryMetric> metrics;
-  final List<_CityPerformanceRow> cityRows;
+
   final List<CityTenant> tenants;
   final List<ProvincePackage> packages;
   final List<ProvinceSpot> spots;
   final List<ProvinceBooking> bookings;
   final List<ProvinceFeedback> feedback;
+
+  final List<_CityPerformanceRow> cityRows;
+
   final int totalBookings;
   final int completedBookings;
   final int cancelledBookings;
+  final int pendingBookings;
+
   final double totalRevenue;
+
   final int totalPackages;
   final int totalSpots;
   final int totalDrivers;
   final int totalFeedback;
+
   final double averageRating;
-}
-
-class _SummaryMetric {
-  const _SummaryMetric({
-    required this.label,
-    required this.value,
-    required this.helper,
-    required this.icon,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final String helper;
-  final IconData icon;
-  final Color color;
 }
 
 class _CityPerformanceRow {
@@ -2667,629 +197,4022 @@ class _CityPerformanceRow {
   });
 
   final String city;
+
   final int bookings;
   final int completed;
   final int cancelled;
+
   final double revenue;
+
   final int packages;
   final int spots;
   final int drivers;
+
   final int feedbackCount;
   final double averageRating;
 }
 
-class _ReportTable {
-  const _ReportTable({
+class _PaperMetric {
+  const _PaperMetric({
+    required this.label,
+    required this.value,
+    required this.helper,
+  });
+
+  final String label;
+  final String value;
+  final String helper;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+class ProvinceReportsScreen extends StatefulWidget {
+  const ProvinceReportsScreen({super.key});
+
+  @override
+  State<ProvinceReportsScreen> createState() =>
+      _ProvinceReportsScreenState();
+}
+
+class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
+    with SingleTickerProviderStateMixin {
+  final ProvincialAdminService _service = ProvincialAdminService();
+
+  late Future<AdminReportData> _future;
+  late TabController _tabController;
+
+  String _selectedCity = _allCities;
+  _DatePreset _datePreset = _DatePreset.monthly;
+
+  DateTimeRange? _customRange;
+
+  bool _isExporting = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _tabController = TabController(
+      length: _ReportTab.values.length,
+      vsync: this,
+    );
+
+    _future = _service.fetchReports();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
+    setState(() {
+      _future = _service.fetchReports();
+    });
+  }
+
+  void _setCity(String? city) {
+    if (city == null) return;
+
+    setState(() {
+      _selectedCity = city;
+    });
+  }
+
+  void _setDatePreset(_DatePreset preset) {
+    if (preset == _DatePreset.custom) {
+      _pickCustomRange();
+      return;
+    }
+
+    setState(() {
+      _datePreset = preset;
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: now.add(
+        const Duration(days: 365),
+      ),
+      initialDateRange: _customRange ??
+          DateTimeRange(
+            start: DateTime(
+              now.year,
+              now.month,
+              1,
+            ),
+            end: now,
+          ),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme:
+                Theme.of(context).colorScheme.copyWith(
+                      primary:
+                          ProvincialAdminColors.deepBlue,
+                    ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (range == null || !mounted) return;
+
+    setState(() {
+      _customRange = range;
+      _datePreset = _DatePreset.custom;
+    });
+  }
+
+  _ReportWindow _resolveWindow() {
+    final now = DateTime.now();
+
+    switch (_datePreset) {
+      case _DatePreset.daily:
+        return _ReportWindow(
+          start: DateTime(
+            now.year,
+            now.month,
+            now.day,
+          ),
+          end: DateTime(
+            now.year,
+            now.month,
+            now.day,
+            23,
+            59,
+            59,
+            999,
+          ),
+          label: 'Today',
+        );
+
+      case _DatePreset.weekly:
+        final start = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(
+          Duration(
+            days: now.weekday - 1,
+          ),
+        );
+
+        return _ReportWindow(
+          start: start,
+          end: DateTime(
+            now.year,
+            now.month,
+            now.day,
+            23,
+            59,
+            59,
+            999,
+          ),
+          label: 'This Week',
+        );
+
+      case _DatePreset.monthly:
+        return _ReportWindow(
+          start: DateTime(
+            now.year,
+            now.month,
+            1,
+          ),
+          end: DateTime(
+            now.year,
+            now.month + 1,
+            0,
+            23,
+            59,
+            59,
+            999,
+          ),
+          label: 'This Month',
+        );
+
+      case _DatePreset.yearly:
+        return _ReportWindow(
+          start: DateTime(
+            now.year,
+            1,
+            1,
+          ),
+          end: DateTime(
+            now.year,
+            12,
+            31,
+            23,
+            59,
+            59,
+            999,
+          ),
+          label: 'This Year',
+        );
+
+      case _DatePreset.allTime:
+        return _ReportWindow(
+          start: DateTime(2020),
+          end: DateTime(
+            now.year + 1,
+            12,
+            31,
+          ),
+          label: 'All Time',
+        );
+
+      case _DatePreset.custom:
+        final range = _customRange ??
+            DateTimeRange(
+              start: DateTime(
+                now.year,
+                now.month,
+                1,
+              ),
+              end: now,
+            );
+
+        return _ReportWindow(
+          start: DateTime(
+            range.start.year,
+            range.start.month,
+            range.start.day,
+          ),
+          end: DateTime(
+            range.end.year,
+            range.end.month,
+            range.end.day,
+            23,
+            59,
+            59,
+            999,
+          ),
+          label: 'Custom Range',
+        );
+    }
+  }
+
+  List<String> _availableCities(
+    AdminReportData data,
+  ) {
+    final result = <String>{
+      ...data.tenants.map((e) => e.city),
+      ...data.packages.map((e) => e.city),
+      ...data.spots.map((e) => e.city),
+      ...data.bookings.map((e) => e.city),
+      ...data.feedback.map((e) => e.city),
+    }
+        .map(
+          (city) => city.trim(),
+        )
+        .where(
+          (city) =>
+              city.isNotEmpty &&
+              city.toLowerCase() != 'unknown',
+        )
+        .toSet()
+        .toList();
+
+    result.sort();
+
+    return [
+      _allCities,
+      ...result,
+    ];
+  }
+
+  _ProvinceSnapshot _buildSnapshot(
+    AdminReportData data,
+  ) {
+    final window = _resolveWindow();
+
+    bool cityMatches(String value) {
+      if (_selectedCity == _allCities) {
+        return true;
+      }
+
+      return _sameCity(
+        value,
+        _selectedCity,
+      );
+    }
+
+    final tenants = data.tenants
+        .where(
+          (item) => cityMatches(item.city),
+        )
+        .toList();
+
+    final packages = data.packages
+        .where(
+          (item) => cityMatches(item.city),
+        )
+        .toList();
+
+    final spots = data.spots
+        .where(
+          (item) => cityMatches(item.city),
+        )
+        .toList();
+
+    final bookings = data.bookings.where(
+      (item) {
+        final date =
+            item.travelDate ?? item.createdAt;
+
+        return cityMatches(item.city) &&
+            window.contains(date);
+      },
+    ).toList();
+
+    final feedback = data.feedback.where(
+      (item) {
+        return cityMatches(item.city) &&
+            window.contains(item.createdAt);
+      },
+    ).toList();
+
+    final completed = bookings
+        .where(
+          (item) =>
+              item.status.toLowerCase() ==
+              'completed',
+        )
+        .length;
+
+    final cancelled = bookings
+        .where(
+          (item) =>
+              item.status.toLowerCase() ==
+              'cancelled',
+        )
+        .length;
+
+    final pending = math.max(
+      0,
+      bookings.length -
+          completed -
+          cancelled,
+    );
+
+    final revenue = bookings.fold<double>(
+      0,
+      (sum, booking) {
+        if (booking.status.toLowerCase() !=
+            'completed') {
+          return sum;
+        }
+
+        return sum + booking.totalAmount;
+      },
+    );
+
+    final drivers = tenants.fold<int>(
+      0,
+      (sum, tenant) =>
+          sum + tenant.driversCount,
+    );
+
+    final ratedFeedback = feedback
+        .where(
+          (item) => item.rating > 0,
+        )
+        .toList();
+
+    final averageRating =
+        ratedFeedback.isEmpty
+            ? 0.0
+            : ratedFeedback.fold<double>(
+                    0,
+                    (sum, item) =>
+                        sum + item.rating,
+                  ) /
+                ratedFeedback.length;
+
+    final cityRows = _buildCityRows(
+      tenants: tenants,
+      packages: packages,
+      spots: spots,
+      bookings: bookings,
+      feedback: feedback,
+    );
+
+    return _ProvinceSnapshot(
+      cityFilter: _selectedCity,
+      window: window,
+      generatedAt: DateTime.now(),
+      tenants: tenants,
+      packages: packages,
+      spots: spots,
+      bookings: bookings,
+      feedback: feedback,
+      cityRows: cityRows,
+      totalBookings: bookings.length,
+      completedBookings: completed,
+      cancelledBookings: cancelled,
+      pendingBookings: pending,
+      totalRevenue: revenue,
+      totalPackages: packages.length,
+      totalSpots: spots.length,
+      totalDrivers: drivers,
+      totalFeedback: feedback.length,
+      averageRating: averageRating,
+    );
+  }
+
+  List<_CityPerformanceRow> _buildCityRows({
+    required List<CityTenant> tenants,
+    required List<ProvincePackage> packages,
+    required List<ProvinceSpot> spots,
+    required List<ProvinceBooking> bookings,
+    required List<ProvinceFeedback> feedback,
+  }) {
+    final cities = <String>{
+      ...tenants.map((e) => e.city),
+      ...packages.map((e) => e.city),
+      ...spots.map((e) => e.city),
+      ...bookings.map((e) => e.city),
+      ...feedback.map((e) => e.city),
+    }
+        .map(
+          (city) => city.trim().isEmpty
+              ? 'Unassigned'
+              : city.trim(),
+        )
+        .toSet();
+
+    final rows = <_CityPerformanceRow>[];
+
+    for (final city in cities) {
+      final cityTenants = tenants.where(
+        (e) => _sameCity(e.city, city),
+      );
+
+      final cityPackages = packages.where(
+        (e) => _sameCity(e.city, city),
+      );
+
+      final citySpots = spots.where(
+        (e) => _sameCity(e.city, city),
+      );
+
+      final cityBookings = bookings
+          .where(
+            (e) => _sameCity(e.city, city),
+          )
+          .toList();
+
+      final cityFeedback = feedback
+          .where(
+            (e) => _sameCity(e.city, city),
+          )
+          .toList();
+
+      final completed = cityBookings
+          .where(
+            (e) =>
+                e.status.toLowerCase() ==
+                'completed',
+          )
+          .length;
+
+      final cancelled = cityBookings
+          .where(
+            (e) =>
+                e.status.toLowerCase() ==
+                'cancelled',
+          )
+          .length;
+
+      final revenue =
+          cityBookings.fold<double>(
+        0,
+        (sum, item) {
+          if (item.status.toLowerCase() !=
+              'completed') {
+            return sum;
+          }
+
+          return sum + item.totalAmount;
+        },
+      );
+
+      final ratings = cityFeedback
+          .where(
+            (e) => e.rating > 0,
+          )
+          .toList();
+
+      final avgRating =
+          ratings.isEmpty
+              ? 0.0
+              : ratings.fold<double>(
+                      0,
+                      (sum, item) =>
+                          sum + item.rating,
+                    ) /
+                  ratings.length;
+
+      rows.add(
+        _CityPerformanceRow(
+          city: city,
+          bookings: cityBookings.length,
+          completed: completed,
+          cancelled: cancelled,
+          revenue: revenue,
+          packages: cityPackages.length,
+          spots: citySpots.length,
+          drivers: cityTenants.fold<int>(
+            0,
+            (sum, tenant) =>
+                sum + tenant.driversCount,
+          ),
+          feedbackCount:
+              cityFeedback.length,
+          averageRating: avgRating,
+        ),
+      );
+    }
+
+    rows.sort(
+      (a, b) {
+        final bookingComparison =
+            b.bookings.compareTo(
+          a.bookings,
+        );
+
+        if (bookingComparison != 0) {
+          return bookingComparison;
+        }
+
+        return b.revenue.compareTo(
+          a.revenue,
+        );
+      },
+    );
+
+    return rows;
+  }
+
+  Future<void> _downloadCurrentReport(
+    _ProvinceSnapshot snapshot,
+  ) async {
+    if (_isExporting) return;
+
+    final tab =
+        _ReportTab.values[_tabController.index];
+
+    setState(() {
+      _isExporting = true;
+    });
+
+    try {
+      final bytes = await _buildPdf(
+        snapshot,
+        tab,
+      );
+
+      final fileName =
+          'touristrike-bulacan-'
+          '${_slug(tab.label)}-'
+          '${_slug(snapshot.cityFilter)}-'
+          '${DateFormat('yyyyMMdd').format(DateTime.now())}'
+          '.pdf';
+
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: fileName,
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to generate PDF: $error',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExporting = false;
+        });
+      }
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // PDF
+  // ───────────────────────────────────────────────────────────────────────────
+
+  Future<Uint8List> _buildPdf(
+    _ProvinceSnapshot report,
+    _ReportTab tab,
+  ) async {
+    final document = pw.Document();
+
+    final dark =
+        PdfColor.fromHex('#172033');
+
+    final muted =
+        PdfColor.fromHex('#667085');
+
+    final blue =
+        PdfColor.fromHex('#1557D6');
+
+    final soft =
+        PdfColor.fromHex('#F8FAFC');
+
+    final money = NumberFormat.currency(
+      symbol: 'PHP ',
+      decimalDigits: 0,
+    );
+
+    pw.Widget metric(
+      String label,
+      String value,
+      String helper,
+    ) {
+      return pw.Container(
+        width: 150,
+        padding: const pw.EdgeInsets.all(9),
+        decoration: pw.BoxDecoration(
+          color: soft,
+          borderRadius:
+              pw.BorderRadius.circular(4),
+          border: pw.Border.all(
+            color: PdfColors.grey300,
+          ),
+        ),
+        child: pw.Column(
+          crossAxisAlignment:
+              pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              label,
+              style: pw.TextStyle(
+                fontSize: 7.5,
+                color: muted,
+              ),
+            ),
+            pw.SizedBox(height: 3),
+            pw.Text(
+              value,
+              style: pw.TextStyle(
+                color: dark,
+                fontSize: 13,
+                fontWeight:
+                    pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 3),
+            pw.Text(
+              helper,
+              style: pw.TextStyle(
+                color: muted,
+                fontSize: 7,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget section(
+      String title, {
+      String? subtitle,
+    }) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.only(
+          top: 16,
+          bottom: 7,
+        ),
+        child: pw.Column(
+          crossAxisAlignment:
+              pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              title,
+              style: pw.TextStyle(
+                color: dark,
+                fontSize: 11,
+                fontWeight:
+                    pw.FontWeight.bold,
+              ),
+            ),
+            if (subtitle != null) ...[
+              pw.SizedBox(height: 2),
+              pw.Text(
+                subtitle,
+                style: pw.TextStyle(
+                  color: muted,
+                  fontSize: 7.5,
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    pw.Widget table({
+      required List<String> columns,
+      required List<List<String>> rows,
+      required String emptyMessage,
+    }) {
+      if (rows.isEmpty) {
+        return pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.all(12),
+          decoration: pw.BoxDecoration(
+            color: soft,
+            border: pw.Border.all(
+              color: PdfColors.grey300,
+            ),
+          ),
+          child: pw.Text(
+            emptyMessage,
+            style: pw.TextStyle(
+              fontSize: 8,
+              color: muted,
+            ),
+          ),
+        );
+      }
+
+      return pw.TableHelper.fromTextArray(
+        headers: columns,
+        data: rows,
+        border: pw.TableBorder.all(
+          color: PdfColors.grey300,
+          width: .5,
+        ),
+        headerDecoration:
+            pw.BoxDecoration(
+          color: soft,
+        ),
+        headerStyle: pw.TextStyle(
+          color: dark,
+          fontSize: 7.5,
+          fontWeight: pw.FontWeight.bold,
+        ),
+        cellStyle: pw.TextStyle(
+          color: dark,
+          fontSize: 7.2,
+        ),
+        cellPadding:
+            const pw.EdgeInsets.symmetric(
+          horizontal: 5,
+          vertical: 5,
+        ),
+      );
+    }
+
+    List<pw.Widget> body() {
+      switch (tab) {
+        case _ReportTab.overview:
+          return [
+            section(
+              'Executive Summary',
+              subtitle:
+                  'Province-wide tourism performance for the selected reporting period.',
+            ),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Bookings',
+                  '${report.totalBookings}',
+                  'Recorded bookings',
+                ),
+                metric(
+                  'Completed',
+                  '${report.completedBookings}',
+                  'Completed transactions',
+                ),
+                metric(
+                  'Revenue',
+                  money.format(
+                    report.totalRevenue,
+                  ),
+                  'Completed bookings',
+                ),
+                metric(
+                  'Packages',
+                  '${report.totalPackages}',
+                  'Tourism packages',
+                ),
+                metric(
+                  'Tourist Spots',
+                  '${report.totalSpots}',
+                  'Registered destinations',
+                ),
+                metric(
+                  'Drivers',
+                  '${report.totalDrivers}',
+                  'Registered drivers',
+                ),
+              ],
+            ),
+            section(
+              'City / Municipality Performance',
+            ),
+            table(
+              columns: const [
+                'City',
+                'Bookings',
+                'Completed',
+                'Revenue',
+                'Packages',
+                'Spots',
+                'Drivers',
+                'Rating',
+              ],
+              rows: report.cityRows.map(
+                (row) {
+                  return [
+                    row.city,
+                    '${row.bookings}',
+                    '${row.completed}',
+                    money.format(
+                      row.revenue,
+                    ),
+                    '${row.packages}',
+                    '${row.spots}',
+                    '${row.drivers}',
+                    row.averageRating == 0
+                        ? 'N/A'
+                        : row.averageRating
+                            .toStringAsFixed(1),
+                  ];
+                },
+              ).toList(),
+              emptyMessage:
+                  'No city performance records available.',
+            ),
+          ];
+
+        case _ReportTab.bookings:
+          return [
+            section('Booking Summary'),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Total Bookings',
+                  '${report.totalBookings}',
+                  'All booking states',
+                ),
+                metric(
+                  'Completed',
+                  '${report.completedBookings}',
+                  _percentageFromCount(
+                    report.completedBookings,
+                    report.totalBookings,
+                  ),
+                ),
+                metric(
+                  'Cancelled',
+                  '${report.cancelledBookings}',
+                  _percentageFromCount(
+                    report.cancelledBookings,
+                    report.totalBookings,
+                  ),
+                ),
+                metric(
+                  'Pending / Other',
+                  '${report.pendingBookings}',
+                  _percentageFromCount(
+                    report.pendingBookings,
+                    report.totalBookings,
+                  ),
+                ),
+              ],
+            ),
+            section('Booking Records'),
+            table(
+              columns: const [
+                'Date',
+                'City',
+                'Tourist',
+                'Package',
+                'Status',
+                'Amount',
+              ],
+              rows: report.bookings.map(
+                (booking) {
+                  return [
+                    _date(
+                      booking.travelDate ??
+                          booking.createdAt,
+                    ),
+                    booking.city,
+                    _shortText(
+                      booking.touristName,
+                      20,
+                    ),
+                    _shortText(
+                      booking.packageTitle,
+                      24,
+                    ),
+                    adminTitleCase(
+                      booking.status,
+                    ),
+                    money.format(
+                      booking.totalAmount,
+                    ),
+                  ];
+                },
+              ).toList(),
+              emptyMessage:
+                  'No bookings were recorded during this reporting period.',
+            ),
+          ];
+
+        case _ReportTab.revenue:
+          return [
+            section('Revenue Summary'),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Completed Revenue',
+                  money.format(
+                    report.totalRevenue,
+                  ),
+                  'Completed bookings',
+                ),
+                metric(
+                  'Completed Bookings',
+                  '${report.completedBookings}',
+                  'Revenue-generating bookings',
+                ),
+                metric(
+                  'Average Value',
+                  report.completedBookings == 0
+                      ? money.format(0)
+                      : money.format(
+                          report.totalRevenue /
+                              report.completedBookings,
+                        ),
+                  'Average completed booking',
+                ),
+              ],
+            ),
+            section('Revenue by City / Municipality'),
+            table(
+              columns: const [
+                'City',
+                'Completed',
+                'Revenue',
+                'Average Value',
+              ],
+              rows: report.cityRows
+                  .where(
+                    (row) =>
+                        row.completed > 0 ||
+                        row.revenue > 0,
+                  )
+                  .map(
+                    (row) => [
+                      row.city,
+                      '${row.completed}',
+                      money.format(
+                        row.revenue,
+                      ),
+                      row.completed == 0
+                          ? money.format(0)
+                          : money.format(
+                              row.revenue /
+                                  row.completed,
+                            ),
+                    ],
+                  )
+                  .toList(),
+              emptyMessage:
+                  'No completed booking revenue is available.',
+            ),
+          ];
+
+        case _ReportTab.packages:
+          final stats =
+              _packageStats(report.bookings);
+
+          return [
+            section('Package Summary'),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Packages',
+                  '${report.totalPackages}',
+                  'Registered packages',
+                ),
+                metric(
+                  'Bookings',
+                  '${report.totalBookings}',
+                  'Selected period',
+                ),
+                metric(
+                  'Revenue',
+                  money.format(
+                    report.totalRevenue,
+                  ),
+                  'Completed bookings',
+                ),
+              ],
+            ),
+            section(
+              'Package Performance',
+            ),
+            table(
+              columns: const [
+                'Package',
+                'City',
+                'Bookings',
+                'Revenue',
+                'Budget',
+                'Status',
+              ],
+              rows: report.packages.map(
+                (package) {
+                  final stat = stats[
+                          _packageKey(
+                            package.id,
+                            package.title,
+                          )] ??
+                      _MutableStats();
+
+                  return [
+                    _shortText(
+                      package.title,
+                      25,
+                    ),
+                    package.city,
+                    '${stat.count}',
+                    money.format(
+                      stat.amount,
+                    ),
+                    package.estimatedBudget == 0
+                        ? 'N/A'
+                        : money.format(
+                            package.estimatedBudget,
+                          ),
+                    adminTitleCase(
+                      package.status,
+                    ),
+                  ];
+                },
+              ).toList(),
+              emptyMessage:
+                  'No tourism package records found.',
+            ),
+          ];
+
+        case _ReportTab.spots:
+          return [
+            section('Tourist Spot Summary'),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Tourist Spots',
+                  '${report.totalSpots}',
+                  'Registered destinations',
+                ),
+                metric(
+                  'Cities Covered',
+                  '${report.cityRows.where((e) => e.spots > 0).length}',
+                  'With tourist spots',
+                ),
+              ],
+            ),
+            section('Tourist Spot Records'),
+            table(
+              columns: const [
+                'Tourist Spot',
+                'City',
+                'Barangay',
+                'Rating',
+                'Verification',
+              ],
+              rows: report.spots.map(
+                (spot) {
+                  return [
+                    _shortText(
+                      spot.title,
+                      28,
+                    ),
+                    spot.city,
+                    spot.barangay.isEmpty
+                        ? 'N/A'
+                        : spot.barangay,
+                    spot.rating == 0
+                        ? 'N/A'
+                        : spot.rating
+                            .toStringAsFixed(1),
+                    adminTitleCase(
+                      spot.verificationStatus,
+                    ),
+                  ];
+                },
+              ).toList(),
+              emptyMessage:
+                  'No tourist spot records found.',
+            ),
+          ];
+
+        case _ReportTab.drivers:
+          return [
+            section('Driver Coverage Summary'),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Registered Drivers',
+                  '${report.totalDrivers}',
+                  'Across selected LGUs',
+                ),
+                metric(
+                  'Municipal Offices',
+                  '${report.tenants.length}',
+                  'Included subtenants',
+                ),
+              ],
+            ),
+            section('Driver Coverage'),
+            table(
+              columns: const [
+                'City',
+                'Admin Office',
+                'Drivers',
+                'Bookings',
+                'Packages',
+                'Status',
+              ],
+              rows: report.tenants.map(
+                (tenant) {
+                  final row = report.cityRows
+                      .where(
+                        (e) => _sameCity(
+                          e.city,
+                          tenant.city,
+                        ),
+                      )
+                      .toList();
+
+                  final bookings =
+                      row.isEmpty
+                          ? tenant.bookingsCount
+                          : row.first.bookings;
+
+                  return [
+                    tenant.city,
+                    tenant.adminName,
+                    '${tenant.driversCount}',
+                    '$bookings',
+                    '${tenant.packagesCount}',
+                    adminTitleCase(
+                      tenant.status,
+                    ),
+                  ];
+                },
+              ).toList(),
+              emptyMessage:
+                  'No driver coverage records found.',
+            ),
+          ];
+
+        case _ReportTab.feedback:
+          return [
+            section('Feedback Summary'),
+            pw.Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metric(
+                  'Feedback',
+                  '${report.totalFeedback}',
+                  'Submitted reviews',
+                ),
+                metric(
+                  'Average Rating',
+                  report.averageRating == 0
+                      ? 'N/A'
+                      : '${report.averageRating.toStringAsFixed(1)} / 5',
+                  'Province-wide average',
+                ),
+              ],
+            ),
+            section('Ratings by City'),
+            table(
+              columns: const [
+                'City',
+                'Feedback',
+                'Average Rating',
+                'Bookings',
+              ],
+              rows: report.cityRows
+                  .where(
+                    (row) =>
+                        row.feedbackCount > 0,
+                  )
+                  .map(
+                    (row) => [
+                      row.city,
+                      '${row.feedbackCount}',
+                      row.averageRating == 0
+                          ? 'N/A'
+                          : row.averageRating
+                              .toStringAsFixed(1),
+                      '${row.bookings}',
+                    ],
+                  )
+                  .toList(),
+              emptyMessage:
+                  'No visitor ratings were submitted.',
+            ),
+            section('Recent Feedback'),
+            table(
+              columns: const [
+                'Date',
+                'City',
+                'Reviewer',
+                'Subject',
+                'Rating',
+                'Comment',
+              ],
+              rows: report.feedback.map(
+                (item) => [
+                  _date(item.createdAt),
+                  item.city,
+                  _shortText(
+                    item.reviewerName,
+                    18,
+                  ),
+                  _shortText(
+                    item.subjectName,
+                    18,
+                  ),
+                  item.rating == 0
+                      ? 'N/A'
+                      : item.rating
+                          .toStringAsFixed(1),
+                  _shortText(
+                    item.comment,
+                    38,
+                  ),
+                ],
+              ).toList(),
+              emptyMessage:
+                  'No feedback records were submitted.',
+            ),
+          ];
+      }
+    }
+
+    document.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(
+          36,
+          36,
+          36,
+          36,
+        ),
+        header: (_) {
+          return pw.Column(
+            children: [
+              pw.Row(
+                children: [
+                  pw.Container(
+                    width: 40,
+                    height: 40,
+                    alignment:
+                        pw.Alignment.center,
+                    decoration:
+                        pw.BoxDecoration(
+                      border: pw.Border.all(
+                        color: blue,
+                      ),
+                      borderRadius:
+                          pw.BorderRadius.circular(
+                        6,
+                      ),
+                    ),
+                    child: pw.Text(
+                      'TT',
+                      style: pw.TextStyle(
+                        color: blue,
+                        fontSize: 13,
+                        fontWeight:
+                            pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 10),
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment:
+                          pw.CrossAxisAlignment
+                              .start,
+                      children: [
+                        pw.Text(
+                          'TOURISTRIKE',
+                          style: pw.TextStyle(
+                            color: dark,
+                            fontSize: 15,
+                            fontWeight:
+                                pw.FontWeight
+                                    .bold,
+                          ),
+                        ),
+                        pw.Text(
+                          'Bulacan Provincial Tourism Office',
+                          style: pw.TextStyle(
+                            color: muted,
+                            fontSize: 8,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.Column(
+                    crossAxisAlignment:
+                        pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(
+                        'OFFICIAL PROVINCIAL REPORT',
+                        style: pw.TextStyle(
+                          color: blue,
+                          fontSize: 7.5,
+                          fontWeight:
+                              pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Generated ${DateFormat.yMMMd().format(report.generatedAt)}',
+                        style: pw.TextStyle(
+                          color: muted,
+                          fontSize: 7,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Divider(
+                color: PdfColors.grey300,
+              ),
+              pw.SizedBox(height: 12),
+              pw.Text(
+                tab.reportTitle.toUpperCase(),
+                textAlign:
+                    pw.TextAlign.center,
+                style: pw.TextStyle(
+                  color: dark,
+                  fontSize: 14,
+                  fontWeight:
+                      pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                report.cityFilter ==
+                        _allCities
+                    ? 'Province of Bulacan'
+                    : '${report.cityFilter}, Bulacan',
+                style: pw.TextStyle(
+                  color: dark,
+                  fontSize: 10,
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              pw.Text(
+                'Reporting Period: ${report.window.formatted}',
+                style: pw.TextStyle(
+                  color: muted,
+                  fontSize: 8,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+            ],
+          );
+        },
+        footer: (context) {
+          return pw.Column(
+            children: [
+              pw.Divider(
+                color: PdfColors.grey300,
+              ),
+              pw.SizedBox(height: 5),
+              pw.Row(
+                mainAxisAlignment:
+                    pw.MainAxisAlignment
+                        .spaceBetween,
+                children: [
+                  pw.Text(
+                    'TourisTrike • Bulacan Provincial Tourism Office',
+                    style: pw.TextStyle(
+                      color: muted,
+                      fontSize: 7,
+                    ),
+                  ),
+                  pw.Text(
+                    'Page ${context.pageNumber} of ${context.pagesCount}',
+                    style: pw.TextStyle(
+                      color: muted,
+                      fontSize: 7,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+        build: (_) => body(),
+      ),
+    );
+
+    return document.save();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ProvincialAdminShell(
+      current:
+          ProvincialAdminDestination.reports,
+      title: 'Provincial Reports',
+      subtitle:
+          'Official province-wide tourism reports and performance records.',
+      child: FutureBuilder<AdminReportData>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
+            return const AdminLoadingView();
+          }
+
+          if (snapshot.hasError) {
+            return AdminErrorView(
+              message:
+                  snapshot.error.toString(),
+              onRetry: _reload,
+            );
+          }
+
+          final data = snapshot.data!;
+
+          final cities =
+              _availableCities(data);
+
+          if (!cities.contains(
+            _selectedCity,
+          )) {
+            _selectedCity = _allCities;
+          }
+
+          final report =
+              _buildSnapshot(data);
+
+          return Container(
+            color: _paperWorkspace,
+            child: Column(
+              children: [
+                _ReportsToolbar(
+                  snapshot: report,
+                  cityOptions: cities,
+                  onCityChanged: _setCity,
+                  onDateChanged:
+                      _setDatePreset,
+                  onDownload: () =>
+                      _downloadCurrentReport(
+                    report,
+                  ),
+                  isDownloading:
+                      _isExporting,
+                ),
+                _ReportsTabBar(
+                  controller:
+                      _tabController,
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller:
+                        _tabController,
+                    children: [
+                      _OverviewReport(
+                        snapshot: report,
+                      ),
+                      _BookingsReport(
+                        snapshot: report,
+                      ),
+                      _RevenueReport(
+                        snapshot: report,
+                      ),
+                      _PackagesReport(
+                        snapshot: report,
+                      ),
+                      _SpotsReport(
+                        snapshot: report,
+                      ),
+                      _DriversReport(
+                        snapshot: report,
+                      ),
+                      _FeedbackReport(
+                        snapshot: report,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Toolbar
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ReportsToolbar extends StatelessWidget {
+  const _ReportsToolbar({
+    required this.snapshot,
+    required this.cityOptions,
+    required this.onCityChanged,
+    required this.onDateChanged,
+    required this.onDownload,
+    required this.isDownloading,
+  });
+
+  final _ProvinceSnapshot snapshot;
+  final List<String> cityOptions;
+
+  final ValueChanged<String?>
+      onCityChanged;
+
+  final ValueChanged<_DatePreset>
+      onDateChanged;
+
+  final VoidCallback onDownload;
+
+  final bool isDownloading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(
+        18,
+        14,
+        18,
+        12,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact =
+              constraints.maxWidth < 850;
+
+          final identity = Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color:
+                      ProvincialAdminColors.blue
+                          .withValues(
+                    alpha: .08,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.account_balance_outlined,
+                  color:
+                      ProvincialAdminColors
+                          .blue,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 11),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Province of Bulacan',
+                      style: TextStyle(
+                        color: _paperText,
+                        fontSize: 15,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Provincial Tourism Reports',
+                      style: TextStyle(
+                        color: _paperMuted,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          final controls = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment:
+                WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 160,
+                child:
+                    DropdownButtonFormField<
+                        String>(
+                  initialValue:
+                      snapshot.cityFilter,
+                  isExpanded: true,
+                  decoration:
+                      _toolbarInputDecoration(
+                    Icons.location_city_outlined,
+                  ),
+                  style: const TextStyle(
+                    color: _paperText,
+                    fontSize: 10.5,
+                    fontWeight:
+                        FontWeight.w600,
+                  ),
+                  items: cityOptions
+                      .map(
+                        (city) =>
+                            DropdownMenuItem(
+                          value: city,
+                          child: Text(
+                            city,
+                            overflow:
+                                TextOverflow
+                                    .ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged:
+                      onCityChanged,
+                ),
+              ),
+              Container(
+                height: 38,
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 11,
+                ),
+                decoration: BoxDecoration(
+                  color: _paperSoft,
+                  borderRadius:
+                      BorderRadius.circular(9),
+                  border: Border.all(
+                    color: _paperBorder,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize:
+                      MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.calendar_month_outlined,
+                      color: _paperMuted,
+                      size: 15,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      snapshot.window.formatted,
+                      style:
+                          const TextStyle(
+                        color: _paperText,
+                        fontSize: 10.5,
+                        fontWeight:
+                            FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<
+                  _DatePreset>(
+                tooltip:
+                    'Change reporting period',
+                onSelected:
+                    onDateChanged,
+                shape:
+                    RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+                itemBuilder: (_) {
+                  return _DatePreset.values
+                      .map(
+                    (preset) {
+                      return PopupMenuItem(
+                        value: preset,
+                        child: Text(
+                          preset.label,
+                        ),
+                      );
+                    },
+                  ).toList();
+                },
+                child: Container(
+                  height: 38,
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.circular(9),
+                    border: Border.all(
+                      color: _paperBorder,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize:
+                        MainAxisSize.min,
+                    children: [
+                      Text(
+                        snapshot.window.label,
+                        style:
+                            const TextStyle(
+                          color: _paperText,
+                          fontSize: 10.5,
+                          fontWeight:
+                              FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons
+                            .keyboard_arrow_down_rounded,
+                        color: _paperMuted,
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: isDownloading
+                    ? null
+                    : onDownload,
+                icon: isDownloading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child:
+                            CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.download_rounded,
+                        size: 16,
+                      ),
+                label: Text(
+                  isDownloading
+                      ? 'Generating...'
+                      : 'Download PDF',
+                ),
+                style:
+                    ElevatedButton.styleFrom(
+                  elevation: 0,
+                  minimumSize:
+                      const Size(0, 38),
+                  backgroundColor:
+                      ProvincialAdminColors
+                          .deepBlue,
+                  foregroundColor:
+                      Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 14,
+                  ),
+                  shape:
+                      RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(9),
+                  ),
+                  textStyle:
+                      const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                identity,
+                const SizedBox(height: 12),
+                controls,
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(
+                child: identity,
+              ),
+              const SizedBox(width: 16),
+              controls,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+InputDecoration _toolbarInputDecoration(
+  IconData icon,
+) {
+  return InputDecoration(
+    prefixIcon: Icon(
+      icon,
+      size: 16,
+      color: _paperMuted,
+    ),
+    filled: true,
+    fillColor: _paperSoft,
+    isDense: true,
+    contentPadding:
+        const EdgeInsets.symmetric(
+      vertical: 10,
+    ),
+    enabledBorder:
+        OutlineInputBorder(
+      borderRadius:
+          BorderRadius.circular(9),
+      borderSide:
+          const BorderSide(
+        color: _paperBorder,
+      ),
+    ),
+    focusedBorder:
+        OutlineInputBorder(
+      borderRadius:
+          BorderRadius.circular(9),
+      borderSide:
+          const BorderSide(
+        color:
+            ProvincialAdminColors.blue,
+      ),
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tabs
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ReportsTabBar extends StatelessWidget {
+  const _ReportsTabBar({
+    required this.controller,
+  });
+
+  final TabController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(
+        18,
+        0,
+        18,
+        10,
+      ),
+      child: Container(
+        height: 46,
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: _paperSoft,
+          borderRadius:
+              BorderRadius.circular(10),
+          border: Border.all(
+            color: _paperBorder,
+          ),
+        ),
+        child: TabBar(
+          controller: controller,
+          isScrollable: true,
+          tabAlignment:
+              TabAlignment.start,
+          dividerColor:
+              Colors.transparent,
+          indicatorSize:
+              TabBarIndicatorSize.tab,
+          indicator:
+              BoxDecoration(
+            color: Colors.white,
+            borderRadius:
+                BorderRadius.circular(8),
+            border: Border.all(
+              color: _paperBorder,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black
+                    .withValues(
+                  alpha: .04,
+                ),
+                blurRadius: 4,
+                offset:
+                    const Offset(0, 1),
+              ),
+            ],
+          ),
+          labelColor:
+              ProvincialAdminColors
+                  .deepBlue,
+          unselectedLabelColor:
+              _paperMuted,
+          labelStyle:
+              const TextStyle(
+            fontSize: 11,
+            fontWeight:
+                FontWeight.w700,
+          ),
+          unselectedLabelStyle:
+              const TextStyle(
+            fontSize: 11,
+            fontWeight:
+                FontWeight.w600,
+          ),
+          tabs:
+              _ReportTab.values.map(
+            (tab) {
+              return Tab(
+                height: 36,
+                child: Row(
+                  mainAxisSize:
+                      MainAxisSize.min,
+                  children: [
+                    Icon(
+                      tab.icon,
+                      size: 15,
+                    ),
+                    const SizedBox(
+                      width: 6,
+                    ),
+                    Text(
+                      tab.label,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ).toList(),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Overview
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _OverviewReport
+    extends StatelessWidget {
+  const _OverviewReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Provincial Tourism Summary Report',
+        location:
+            snapshot.cityFilter ==
+                    _allCities
+                ? 'Province of Bulacan'
+                : '${snapshot.cityFilter}, Bulacan',
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title: 'Executive Summary',
+            subtitle:
+                'Overall tourism activity and administrative coverage for the selected reporting period.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label: 'Bookings',
+                value:
+                    '${snapshot.totalBookings}',
+                helper:
+                    'Recorded bookings',
+              ),
+              _PaperMetric(
+                label: 'Completed',
+                value:
+                    '${snapshot.completedBookings}',
+                helper:
+                    _percentageFromCount(
+                  snapshot
+                      .completedBookings,
+                  snapshot.totalBookings,
+                ),
+              ),
+              _PaperMetric(
+                label: 'Revenue',
+                value: _money(
+                  snapshot.totalRevenue,
+                ),
+                helper:
+                    'Completed bookings',
+              ),
+              _PaperMetric(
+                label: 'Packages',
+                value:
+                    '${snapshot.totalPackages}',
+                helper:
+                    'Tourism packages',
+              ),
+              _PaperMetric(
+                label: 'Tourist Spots',
+                value:
+                    '${snapshot.totalSpots}',
+                helper:
+                    'Registered destinations',
+              ),
+              _PaperMetric(
+                label: 'Drivers',
+                value:
+                    '${snapshot.totalDrivers}',
+                helper:
+                    'Registered drivers',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          _PaperSectionTitle(
+            title:
+                'City / Municipality Performance',
+            subtitle:
+                '${snapshot.cityRows.length} LGU record(s) included.',
+          ),
+          _PaperTable(
+            columns: const [
+              'City',
+              'Bookings',
+              'Completed',
+              'Revenue',
+              'Packages',
+              'Spots',
+              'Drivers',
+              'Rating',
+            ],
+            columnFlex: const [
+              4,
+              2,
+              2,
+              3,
+              2,
+              2,
+              2,
+              2,
+            ],
+            rows: snapshot.cityRows
+                .take(9)
+                .map(
+                  (row) => [
+                    row.city,
+                    '${row.bookings}',
+                    '${row.completed}',
+                    _money(
+                      row.revenue,
+                    ),
+                    '${row.packages}',
+                    '${row.spots}',
+                    '${row.drivers}',
+                    row.averageRating == 0
+                        ? '—'
+                        : row.averageRating
+                            .toStringAsFixed(
+                              1,
+                            ),
+                  ],
+                )
+                .toList(),
+          ),
+          if (snapshot.cityRows.length >
+              9)
+            _MoreRowsNote(
+              remaining:
+                  snapshot.cityRows.length -
+                      9,
+            ),
+          const SizedBox(height: 26),
+          _OverviewNotes(
+            snapshot: snapshot,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bookings
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _BookingsReport
+    extends StatelessWidget {
+  const _BookingsReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Provincial Booking Activity Report',
+        location:
+            _locationLabel(snapshot),
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title: 'Booking Summary',
+            subtitle:
+                'Booking activity recorded during the selected reporting period.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label:
+                    'Total Bookings',
+                value:
+                    '${snapshot.totalBookings}',
+                helper:
+                    'All booking states',
+              ),
+              _PaperMetric(
+                label: 'Completed',
+                value:
+                    '${snapshot.completedBookings}',
+                helper:
+                    _percentageFromCount(
+                  snapshot
+                      .completedBookings,
+                  snapshot.totalBookings,
+                ),
+              ),
+              _PaperMetric(
+                label: 'Cancelled',
+                value:
+                    '${snapshot.cancelledBookings}',
+                helper:
+                    _percentageFromCount(
+                  snapshot
+                      .cancelledBookings,
+                  snapshot.totalBookings,
+                ),
+              ),
+              _PaperMetric(
+                label:
+                    'Pending / Other',
+                value:
+                    '${snapshot.pendingBookings}',
+                helper:
+                    'Other booking states',
+              ),
+              _PaperMetric(
+                label: 'Revenue',
+                value: _money(
+                  snapshot.totalRevenue,
+                ),
+                helper:
+                    'Completed bookings',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          _PaperSectionTitle(
+            title: 'Booking Records',
+            subtitle:
+                '${snapshot.bookings.length} booking record(s) found.',
+          ),
+          if (snapshot.bookings.isEmpty)
+            const _PaperEmptyState(
+              message:
+                  'No bookings were recorded during this reporting period.',
+            )
+          else
+            _PaperTable(
+              columns: const [
+                'Date',
+                'City',
+                'Tourist',
+                'Package',
+                'Status',
+                'Amount',
+              ],
+              columnFlex: const [
+                2,
+                2,
+                3,
+                4,
+                2,
+                2,
+              ],
+              rows: snapshot.bookings
+                  .take(9)
+                  .map(
+                    (booking) => [
+                      _date(
+                        booking.travelDate ??
+                            booking.createdAt,
+                      ),
+                      booking.city,
+                      _shortText(
+                        booking
+                            .touristName,
+                        18,
+                      ),
+                      _shortText(
+                        booking
+                            .packageTitle,
+                        24,
+                      ),
+                      adminTitleCase(
+                        booking.status,
+                      ),
+                      _money(
+                        booking
+                            .totalAmount,
+                      ),
+                    ],
+                  )
+                  .toList(),
+            ),
+          if (snapshot.bookings.length >
+              9)
+            _MoreRowsNote(
+              remaining:
+                  snapshot.bookings.length -
+                      9,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Revenue
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RevenueReport
+    extends StatelessWidget {
+  const _RevenueReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final average =
+        snapshot.completedBookings == 0
+            ? 0
+            : snapshot.totalRevenue /
+                snapshot.completedBookings;
+
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Provincial Revenue Report',
+        location:
+            _locationLabel(snapshot),
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title: 'Revenue Summary',
+            subtitle:
+                'Revenue generated from completed tourism package bookings.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label:
+                    'Completed Revenue',
+                value: _money(
+                  snapshot.totalRevenue,
+                ),
+                helper:
+                    'Completed bookings',
+              ),
+              _PaperMetric(
+                label:
+                    'Completed Bookings',
+                value:
+                    '${snapshot.completedBookings}',
+                helper:
+                    'Revenue-generating bookings',
+              ),
+              _PaperMetric(
+                label:
+                    'Average Booking Value',
+                value:
+                    _money(average),
+                helper:
+                    'Per completed booking',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          const _PaperSectionTitle(
+            title:
+                'Revenue by City / Municipality',
+          ),
+          _PaperTable(
+            columns: const [
+              'City',
+              'Completed',
+              'Revenue',
+              'Average Value',
+            ],
+            columnFlex: const [
+              4,
+              2,
+              3,
+              3,
+            ],
+            rows: snapshot.cityRows
+                .where(
+                  (row) =>
+                      row.completed > 0 ||
+                      row.revenue > 0,
+                )
+                .take(10)
+                .map(
+                  (row) => [
+                    row.city,
+                    '${row.completed}',
+                    _money(
+                      row.revenue,
+                    ),
+                    row.completed == 0
+                        ? _money(0)
+                        : _money(
+                            row.revenue /
+                                row.completed,
+                          ),
+                  ],
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Packages
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PackagesReport
+    extends StatelessWidget {
+  const _PackagesReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final stats =
+        _packageStats(snapshot.bookings);
+
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Tourism Package Performance Report',
+        location:
+            _locationLabel(snapshot),
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title: 'Package Summary',
+            subtitle:
+                'Tourism package inventory and booking performance.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label: 'Packages',
+                value:
+                    '${snapshot.totalPackages}',
+                helper:
+                    'Registered packages',
+              ),
+              _PaperMetric(
+                label:
+                    'Period Bookings',
+                value:
+                    '${snapshot.totalBookings}',
+                helper:
+                    'Selected period',
+              ),
+              _PaperMetric(
+                label: 'Revenue',
+                value: _money(
+                  snapshot.totalRevenue,
+                ),
+                helper:
+                    'Completed bookings',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          _PaperSectionTitle(
+            title:
+                'Package Performance',
+            subtitle:
+                '${snapshot.packages.length} package(s) listed.',
+          ),
+          if (snapshot.packages.isEmpty)
+            const _PaperEmptyState(
+              message:
+                  'No tourism packages were found.',
+            )
+          else
+            _PaperTable(
+              columns: const [
+                'Package',
+                'City',
+                'Bookings',
+                'Revenue',
+                'Budget',
+                'Status',
+              ],
+              columnFlex: const [
+                4,
+                2,
+                2,
+                3,
+                3,
+                2,
+              ],
+              rows: snapshot.packages
+                  .take(9)
+                  .map(
+                    (package) {
+                      final stat =
+                          stats[
+                                  _packageKey(
+                                    package
+                                        .id,
+                                    package
+                                        .title,
+                                  )] ??
+                              _MutableStats();
+
+                      return [
+                        _shortText(
+                          package.title,
+                          26,
+                        ),
+                        package.city,
+                        '${stat.count}',
+                        _money(
+                          stat.amount,
+                        ),
+                        package.estimatedBudget ==
+                                0
+                            ? '—'
+                            : _money(
+                                package
+                                    .estimatedBudget,
+                              ),
+                        adminTitleCase(
+                          package.status,
+                        ),
+                      ];
+                    },
+                  )
+                  .toList(),
+            ),
+          if (snapshot.packages.length >
+              9)
+            _MoreRowsNote(
+              remaining:
+                  snapshot.packages.length -
+                      9,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tourist spots
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SpotsReport
+    extends StatelessWidget {
+  const _SpotsReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final verified =
+        snapshot.spots.where(
+      (spot) {
+        final status =
+            spot.verificationStatus
+                .toLowerCase();
+
+        return status == 'verified' ||
+            status == 'approved';
+      },
+    ).length;
+
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Tourist Spot Report',
+        location:
+            _locationLabel(snapshot),
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title:
+                'Tourist Spot Summary',
+            subtitle:
+                'Tourism destinations registered within the selected provincial coverage.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label:
+                    'Registered Spots',
+                value:
+                    '${snapshot.totalSpots}',
+                helper:
+                    'Tourist destinations',
+              ),
+              _PaperMetric(
+                label:
+                    'Verified Spots',
+                value: '$verified',
+                helper:
+                    'Verified / approved',
+              ),
+              _PaperMetric(
+                label:
+                    'Cities Covered',
+                value:
+                    '${snapshot.cityRows.where((row) => row.spots > 0).length}',
+                helper:
+                    'With spot records',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          _PaperSectionTitle(
+            title:
+                'Tourist Spot Records',
+            subtitle:
+                '${snapshot.spots.length} destination(s) listed.',
+          ),
+          if (snapshot.spots.isEmpty)
+            const _PaperEmptyState(
+              message:
+                  'No tourist spot records were found.',
+            )
+          else
+            _PaperTable(
+              columns: const [
+                'Tourist Spot',
+                'City',
+                'Barangay',
+                'Rating',
+                'Verification',
+              ],
+              columnFlex: const [
+                4,
+                2,
+                3,
+                2,
+                3,
+              ],
+              rows: snapshot.spots
+                  .take(10)
+                  .map(
+                    (spot) => [
+                      _shortText(
+                        spot.title,
+                        30,
+                      ),
+                      spot.city,
+                      spot.barangay.isEmpty
+                          ? '—'
+                          : spot.barangay,
+                      spot.rating == 0
+                          ? '—'
+                          : spot.rating
+                              .toStringAsFixed(
+                                1,
+                              ),
+                      adminTitleCase(
+                        spot
+                            .verificationStatus,
+                      ),
+                    ],
+                  )
+                  .toList(),
+            ),
+          if (snapshot.spots.length >
+              10)
+            _MoreRowsNote(
+              remaining:
+                  snapshot.spots.length -
+                      10,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drivers
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DriversReport
+    extends StatelessWidget {
+  const _DriversReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Driver Coverage Report',
+        location:
+            _locationLabel(snapshot),
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title:
+                'Driver Coverage Summary',
+            subtitle:
+                'Driver-tour guide coverage by municipal or city tourism office.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label:
+                    'Registered Drivers',
+                value:
+                    '${snapshot.totalDrivers}',
+                helper:
+                    'Province coverage',
+              ),
+              _PaperMetric(
+                label:
+                    'Municipal Offices',
+                value:
+                    '${snapshot.tenants.length}',
+                helper:
+                    'Included subtenants',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          _PaperSectionTitle(
+            title:
+                'Driver Coverage Records',
+            subtitle:
+                '${snapshot.tenants.length} tourism office record(s) found.',
+          ),
+          if (snapshot.tenants.isEmpty)
+            const _PaperEmptyState(
+              message:
+                  'No city or municipality driver coverage records were found.',
+            )
+          else
+            _PaperTable(
+              columns: const [
+                'City',
+                'Admin Office',
+                'Drivers',
+                'Bookings',
+                'Packages',
+                'Status',
+              ],
+              columnFlex: const [
+                3,
+                4,
+                2,
+                2,
+                2,
+                2,
+              ],
+              rows: snapshot.tenants
+                  .take(10)
+                  .map(
+                    (tenant) {
+                      final matches =
+                          snapshot.cityRows
+                              .where(
+                        (row) =>
+                            _sameCity(
+                          row.city,
+                          tenant.city,
+                        ),
+                      );
+
+                      final bookings =
+                          matches.isEmpty
+                              ? tenant
+                                  .bookingsCount
+                              : matches
+                                  .first
+                                  .bookings;
+
+                      return [
+                        tenant.city,
+                        _shortText(
+                          tenant.adminName,
+                          26,
+                        ),
+                        '${tenant.driversCount}',
+                        '$bookings',
+                        '${tenant.packagesCount}',
+                        adminTitleCase(
+                          tenant.status,
+                        ),
+                      ];
+                    },
+                  )
+                  .toList(),
+            ),
+          if (snapshot.tenants.length >
+              10)
+            _MoreRowsNote(
+              remaining:
+                  snapshot.tenants.length -
+                      10,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Feedback
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FeedbackReport
+    extends StatelessWidget {
+  const _FeedbackReport({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ReportWorkspace(
+      child: _PaperReport(
+        reportTitle:
+            'Visitor Feedback and Ratings Report',
+        location:
+            _locationLabel(snapshot),
+        period:
+            snapshot.window.formatted,
+        children: [
+          const _PaperSectionTitle(
+            title: 'Feedback Summary',
+            subtitle:
+                'Tourist feedback and rating activity during the selected reporting period.',
+          ),
+          _MetricGrid(
+            metrics: [
+              _PaperMetric(
+                label:
+                    'Feedback Entries',
+                value:
+                    '${snapshot.totalFeedback}',
+                helper:
+                    'Submitted reviews',
+              ),
+              _PaperMetric(
+                label:
+                    'Average Rating',
+                value:
+                    snapshot.averageRating ==
+                            0
+                        ? '—'
+                        : snapshot
+                            .averageRating
+                            .toStringAsFixed(
+                              1,
+                            ),
+                helper:
+                    snapshot.averageRating ==
+                            0
+                        ? 'No ratings yet'
+                        : 'Out of 5.0',
+              ),
+            ],
+          ),
+          const SizedBox(height: 26),
+          const _PaperSectionTitle(
+            title: 'Ratings by City',
+          ),
+          _PaperTable(
+            columns: const [
+              'City',
+              'Feedback',
+              'Average Rating',
+              'Bookings',
+            ],
+            columnFlex: const [
+              4,
+              2,
+              3,
+              2,
+            ],
+            rows: snapshot.cityRows
+                .where(
+                  (row) =>
+                      row.feedbackCount > 0,
+                )
+                .take(8)
+                .map(
+                  (row) => [
+                    row.city,
+                    '${row.feedbackCount}',
+                    row.averageRating == 0
+                        ? '—'
+                        : row.averageRating
+                            .toStringAsFixed(
+                              1,
+                            ),
+                    '${row.bookings}',
+                  ],
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 26),
+          const _PaperSectionTitle(
+            title: 'Recent Feedback',
+          ),
+          if (snapshot.feedback.isEmpty)
+            const _PaperEmptyState(
+              message:
+                  'No visitor feedback was submitted during this reporting period.',
+            )
+          else
+            _PaperTable(
+              columns: const [
+                'Date',
+                'City',
+                'Reviewer',
+                'Subject',
+                'Rating',
+                'Comment',
+              ],
+              columnFlex: const [
+                2,
+                2,
+                3,
+                3,
+                2,
+                5,
+              ],
+              rows: snapshot.feedback
+                  .take(6)
+                  .map(
+                    (item) => [
+                      _date(
+                        item.createdAt,
+                      ),
+                      item.city,
+                      _shortText(
+                        item.reviewerName,
+                        18,
+                      ),
+                      _shortText(
+                        item.subjectName,
+                        18,
+                      ),
+                      item.rating == 0
+                          ? '—'
+                          : item.rating
+                              .toStringAsFixed(
+                                1,
+                              ),
+                      _shortText(
+                        item.comment,
+                        38,
+                      ),
+                    ],
+                  )
+                  .toList(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paper workspace
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ReportWorkspace
+    extends StatelessWidget {
+  const _ReportWorkspace({
+    required this.child,
+  });
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: _paperWorkspace,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          22,
+          24,
+          22,
+          42,
+        ),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paper report
+//
+// Uses an explicit page height.
+//
+// This avoids the Spacer / IntrinsicHeight / unbounded-scroll issues that
+// caused the Flutter Web mouse_tracker and RenderBox layout exceptions.
+//
+// Screen preview is intentionally one fixed paper page. Long tables show a
+// limited number of rows here; the downloaded PDF contains all rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaperReport
+    extends StatelessWidget {
+  const _PaperReport({
+    required this.reportTitle,
+    required this.location,
+    required this.period,
+    required this.children,
+  });
+
+  final String reportTitle;
+  final String location;
+  final String period;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (
+        context,
+        constraints,
+      ) {
+        final width = math.min(
+          820.0,
+          constraints.maxWidth,
+        );
+
+        final compact =
+            width < 600;
+
+        return SizedBox(
+          width: width,
+          height: compact
+              ? 1000
+              : 1080,
+          child: Container(
+            padding:
+                EdgeInsets.fromLTRB(
+              compact ? 24 : 50,
+              compact ? 28 : 42,
+              compact ? 24 : 50,
+              compact ? 22 : 28,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(
+                color: _paperBorder,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black
+                      .withValues(
+                    alpha: .08,
+                  ),
+                  blurRadius: 22,
+                  offset:
+                      const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.stretch,
+              children: [
+                _PaperHeader(
+                  reportTitle:
+                      reportTitle,
+                  location: location,
+                  period: period,
+                ),
+                SizedBox(
+                  height:
+                      compact ? 22 : 30,
+                ),
+
+                // Bounded page => Expanded is safe here.
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics:
+                        const ClampingScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment
+                              .stretch,
+                      children: children,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                _PaperFooter(
+                  location: location,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paper header
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaperHeader
+    extends StatelessWidget {
+  const _PaperHeader({
+    required this.reportTitle,
+    required this.location,
+    required this.period,
+  });
+
+  final String reportTitle;
+  final String location;
+  final String period;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color:
+                    ProvincialAdminColors
+                        .blue
+                        .withValues(
+                  alpha: .08,
+                ),
+                borderRadius:
+                    BorderRadius.circular(
+                  8,
+                ),
+                border: Border.all(
+                  color:
+                      ProvincialAdminColors
+                          .blue
+                          .withValues(
+                    alpha: .18,
+                  ),
+                ),
+              ),
+              child: const Icon(
+                Icons.travel_explore_rounded,
+                color:
+                    ProvincialAdminColors
+                        .blue,
+                size: 23,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'TOURISTRIKE',
+                    style: TextStyle(
+                      color: _paperText,
+                      fontSize: 18,
+                      fontWeight:
+                          FontWeight.w900,
+                      letterSpacing: .5,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Bulacan Provincial Tourism Office',
+                    style: TextStyle(
+                      color: _paperMuted,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.end,
+              children: [
+                const Text(
+                  'OFFICIAL PROVINCIAL REPORT',
+                  style: TextStyle(
+                    color:
+                        ProvincialAdminColors
+                            .blue,
+                    fontSize: 8.5,
+                    fontWeight:
+                        FontWeight.w800,
+                    letterSpacing: .5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Generated ${DateFormat.yMMMd().format(DateTime.now())}',
+                  style:
+                      const TextStyle(
+                    color: _paperMuted,
+                    fontSize: 8.5,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 17),
+        const Divider(
+          height: 1,
+          color: _paperBorder,
+        ),
+        const SizedBox(height: 24),
+        Text(
+          reportTitle.toUpperCase(),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: _paperText,
+            fontSize: 17,
+            fontWeight:
+                FontWeight.w900,
+            letterSpacing: .25,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          location,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: _paperText,
+            fontSize: 11.5,
+            fontWeight:
+                FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Reporting Period: $period',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: _paperMuted,
+            fontSize: 9.5,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Footer
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaperFooter
+    extends StatelessWidget {
+  const _PaperFooter({
+    required this.location,
+  });
+
+  final String location;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize:
+          MainAxisSize.min,
+      children: [
+        Container(
+          height: 1,
+          color: _paperBorder,
+        ),
+        const SizedBox(height: 9),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'TourisTrike • $location',
+                style:
+                    const TextStyle(
+                  color: _paperMuted,
+                  fontSize: 8,
+                ),
+              ),
+            ),
+            const Text(
+              'Bulacan Provincial Tourism Report',
+              style: TextStyle(
+                color: _paperMuted,
+                fontSize: 8,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section title
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaperSectionTitle
+    extends StatelessWidget {
+  const _PaperSectionTitle({
     required this.title,
-    required this.subtitle,
-    required this.columns,
-    required this.rows,
-    required this.emptyMessage,
+    this.subtitle,
   });
 
   final String title;
-  final String subtitle;
-  final List<String> columns;
-  final List<List<String>> rows;
-  final String emptyMessage;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          const EdgeInsets.only(
+        bottom: 11,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: _paperText,
+              fontSize: 13,
+              fontWeight:
+                  FontWeight.w800,
+            ),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              subtitle!,
+              style:
+                  const TextStyle(
+                color: _paperMuted,
+                fontSize: 9.2,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
-class _CoverageItem {
-  const _CoverageItem({
-    required this.icon,
-    required this.label,
-    required this.value,
+// ─────────────────────────────────────────────────────────────────────────────
+// Metrics
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MetricGrid
+    extends StatelessWidget {
+  const _MetricGrid({
+    required this.metrics,
   });
 
-  final IconData icon;
-  final String label;
-  final String value;
+  final List<_PaperMetric> metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (
+        context,
+        constraints,
+      ) {
+        final columns =
+            constraints.maxWidth >=
+                    620
+                ? 3
+                : 2;
+
+        const gap = 8.0;
+
+        final width =
+            (constraints.maxWidth -
+                    gap *
+                        (columns - 1)) /
+                columns;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: metrics
+              .map(
+                (metric) => SizedBox(
+                  width: width,
+                  child: Container(
+                    padding:
+                        const EdgeInsets
+                            .all(11),
+                    decoration:
+                        BoxDecoration(
+                      color: _paperSoft,
+                      borderRadius:
+                          BorderRadius
+                              .circular(5),
+                      border:
+                          Border.all(
+                        color:
+                            _paperBorder,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment
+                              .start,
+                      children: [
+                        Text(
+                          metric.label,
+                          style:
+                              const TextStyle(
+                            color:
+                                _paperMuted,
+                            fontSize: 8.7,
+                            fontWeight:
+                                FontWeight
+                                    .w600,
+                          ),
+                        ),
+                        const SizedBox(
+                          height: 4,
+                        ),
+                        Text(
+                          metric.value,
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow
+                                  .ellipsis,
+                          style:
+                              const TextStyle(
+                            color:
+                                _paperText,
+                            fontSize: 15,
+                            fontWeight:
+                                FontWeight
+                                    .w800,
+                          ),
+                        ),
+                        const SizedBox(
+                          height: 3,
+                        ),
+                        Text(
+                          metric.helper,
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow
+                                  .ellipsis,
+                          style:
+                              const TextStyle(
+                            color:
+                                _paperMuted,
+                            fontSize: 8,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
 }
 
-class _MutableReportStats {
+// ─────────────────────────────────────────────────────────────────────────────
+// Full-width paper table
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaperTable
+    extends StatelessWidget {
+  const _PaperTable({
+    required this.columns,
+    required this.rows,
+    this.columnFlex,
+  });
+
+  final List<String> columns;
+  final List<List<String>> rows;
+  final List<int>? columnFlex;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return const _PaperEmptyState(
+        message:
+            'No matching records were found for this report.',
+      );
+    }
+
+    final flex =
+        columnFlex != null &&
+                columnFlex!.length ==
+                    columns.length
+            ? columnFlex!
+            : List<int>.filled(
+                columns.length,
+                1,
+              );
+
+    final widths =
+        <int, TableColumnWidth>{};
+
+    for (var index = 0;
+        index < columns.length;
+        index++) {
+      widths[index] =
+          FlexColumnWidth(
+        flex[index].toDouble(),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: _paperBorder,
+        ),
+        borderRadius:
+            BorderRadius.circular(5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Table(
+        columnWidths: widths,
+        defaultVerticalAlignment:
+            TableCellVerticalAlignment
+                .middle,
+        border: const TableBorder(
+          horizontalInside:
+              BorderSide(
+            color: _paperBorder,
+            width: .8,
+          ),
+          verticalInside:
+              BorderSide(
+            color: Color(
+              0xFFEEF2F6,
+            ),
+            width: .6,
+          ),
+        ),
+        children: [
+          TableRow(
+            decoration:
+                const BoxDecoration(
+              color: _paperSoft,
+            ),
+            children: columns
+                .map(
+                  (column) =>
+                      _PaperTableCell(
+                    text: column,
+                    header: true,
+                  ),
+                )
+                .toList(),
+          ),
+          for (var rowIndex = 0;
+              rowIndex < rows.length;
+              rowIndex++)
+            TableRow(
+              decoration:
+                  BoxDecoration(
+                color:
+                    rowIndex.isEven
+                        ? Colors.white
+                        : const Color(
+                            0xFFFCFDFE,
+                          ),
+              ),
+              children:
+                  rows[rowIndex]
+                      .map(
+                        (cell) =>
+                            _PaperTableCell(
+                          text: cell,
+                        ),
+                      )
+                      .toList(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaperTableCell
+    extends StatelessWidget {
+  const _PaperTableCell({
+    required this.text,
+    this.header = false,
+  });
+
+  final String text;
+  final bool header;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        minHeight:
+            header ? 38 : 40,
+      ),
+      alignment:
+          Alignment.centerLeft,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 9,
+      ),
+      child: Text(
+        text,
+        maxLines: 2,
+        overflow:
+            TextOverflow.ellipsis,
+        style: TextStyle(
+          color: header
+              ? _paperText
+              : const Color(
+                  0xFF475467,
+                ),
+          fontSize:
+              header ? 8.8 : 8.7,
+          fontWeight: header
+              ? FontWeight.w700
+              : FontWeight.w500,
+          height: 1.3,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notes
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _OverviewNotes
+    extends StatelessWidget {
+  const _OverviewNotes({
+    required this.snapshot,
+  });
+
+  final _ProvinceSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final completion =
+        snapshot.totalBookings == 0
+            ? 0.0
+            : snapshot
+                    .completedBookings /
+                snapshot.totalBookings;
+
+    final notes = <String>[
+      if (snapshot.totalBookings == 0)
+        'No tourism bookings were recorded during this reporting period.'
+      else
+        '${snapshot.completedBookings} of ${snapshot.totalBookings} bookings were completed (${_percentDouble(completion)}).',
+      '${snapshot.totalPackages} tourism packages and ${snapshot.totalSpots} tourist spots are included in the selected coverage.',
+      '${snapshot.totalDrivers} registered driver-tour guides are represented in the report.',
+      if (snapshot.totalFeedback == 0)
+        'No visitor feedback was submitted during this reporting period.'
+      else
+        '${snapshot.totalFeedback} feedback entries produced an average rating of ${snapshot.averageRating.toStringAsFixed(1)} out of 5.',
+    ];
+
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        const _PaperSectionTitle(
+          title: 'Report Notes',
+          subtitle:
+              'Automatically summarized from available provincial records.',
+        ),
+        Container(
+          padding:
+              const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: _paperSoft,
+            borderRadius:
+                BorderRadius.circular(5),
+            border: Border.all(
+              color: _paperBorder,
+            ),
+          ),
+          child: Column(
+            children: notes
+                .map(
+                  (note) => Padding(
+                    padding:
+                        const EdgeInsets
+                            .only(
+                      bottom: 7,
+                    ),
+                    child: Row(
+                      crossAxisAlignment:
+                          CrossAxisAlignment
+                              .start,
+                      children: [
+                        Container(
+                          width: 5,
+                          height: 5,
+                          margin:
+                              const EdgeInsets
+                                  .only(
+                            top: 5,
+                          ),
+                          decoration:
+                              const BoxDecoration(
+                            color:
+                                ProvincialAdminColors
+                                    .blue,
+                            shape:
+                                BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(
+                          width: 8,
+                        ),
+                        Expanded(
+                          child: Text(
+                            note,
+                            style:
+                                const TextStyle(
+                              color:
+                                  _paperMuted,
+                              fontSize:
+                                  9.2,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty / additional rows
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaperEmptyState
+    extends StatelessWidget {
+  const _PaperEmptyState({
+    required this.message,
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _paperSoft,
+        borderRadius:
+            BorderRadius.circular(5),
+        border: Border.all(
+          color: _paperBorder,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.description_outlined,
+            color: _paperMuted,
+            size: 17,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style:
+                  const TextStyle(
+                color: _paperMuted,
+                fontSize: 9.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoreRowsNote
+    extends StatelessWidget {
+  const _MoreRowsNote({
+    required this.remaining,
+  });
+
+  final int remaining;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          const EdgeInsets.only(
+        top: 8,
+      ),
+      child: Text(
+        '+ $remaining additional record(s) are included in the downloadable PDF.',
+        style: const TextStyle(
+          color: _paperMuted,
+          fontSize: 8.5,
+          fontStyle:
+              FontStyle.italic,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MutableStats {
   int count = 0;
   double amount = 0;
 }
 
-class _PackageReportRow {
-  const _PackageReportRow({
-    required this.title,
-    required this.city,
-    required this.status,
-    required this.bookings,
-    required this.revenue,
-    this.budget = 0,
-  });
+Map<String, _MutableStats>
+    _packageStats(
+  List<ProvinceBooking> bookings,
+) {
+  final stats =
+      <String, _MutableStats>{};
 
-  final String title;
-  final String city;
-  final String status;
-  final int bookings;
-  final double revenue;
-  final double budget;
-}
-
-List<_ReportTable> _tablesForReport(_ReportSnapshot report) {
-  if (!report.config.sections.contains(_ReportSection.tables)) {
-    return const [];
-  }
-
-  bool wants(_ReportSection section) =>
-      report.config.sections.contains(section);
-
-  switch (report.config.type) {
-    case _ProvinceReportType.overview:
-      return [
-        _cityPerformanceTable(report.cityRows),
-        if (wants(_ReportSection.bookingData))
-          _bookingStatusTable(report.bookings),
-        if (wants(_ReportSection.revenueData))
-          _revenueByCityTable(report.cityRows),
-      ];
-    case _ProvinceReportType.booking:
-      return wants(_ReportSection.bookingData)
-          ? [
-              _bookingTable(report.bookings),
-              _bookingStatusTable(report.bookings),
-            ]
-          : const [];
-    case _ProvinceReportType.revenue:
-      return wants(_ReportSection.revenueData)
-          ? [_revenueByCityTable(report.cityRows), _packageRevenueTable(report)]
-          : const [];
-    case _ProvinceReportType.packagePerformance:
-      return wants(_ReportSection.packageData)
-          ? [_packagePerformanceTable(report)]
-          : const [];
-    case _ProvinceReportType.spotPerformance:
-      return wants(_ReportSection.touristSpotData)
-          ? [_spotCityTable(report), _topSpotTable(report.spots)]
-          : const [];
-    case _ProvinceReportType.driverPerformance:
-      return wants(_ReportSection.driverData)
-          ? [_driverCoverageTable(report)]
-          : const [];
-    case _ProvinceReportType.feedbackRatings:
-      return wants(_ReportSection.feedbackData)
-          ? [
-              _feedbackCityTable(report.cityRows),
-              _recentFeedbackTable(report.feedback),
-            ]
-          : const [];
-    case _ProvinceReportType.cancellation:
-      return wants(_ReportSection.bookingData)
-          ? [
-              _cancellationSummaryTable(report.cityRows),
-              _cancelledBookingsTable(report.bookings),
-            ]
-          : const [];
-  }
-}
-
-_ReportTable _cityPerformanceTable(List<_CityPerformanceRow> rows) {
-  return _ReportTable(
-    title: 'City Performance Summary',
-    subtitle: 'Bookings, revenue, assets, drivers, and feedback by LGU.',
-    columns: const [
-      'City/Subtenant',
-      'Bookings',
-      'Completed',
-      'Revenue',
-      'Packages',
-      'Spots',
-      'Drivers',
-      'Rating',
-    ],
-    rows: rows
-        .map(
-          (row) => [
-            row.city,
-            '${row.bookings}',
-            '${row.completed}',
-            _money(row.revenue),
-            '${row.packages}',
-            '${row.spots}',
-            '${row.drivers}',
-            row.averageRating == 0
-                ? 'N/A'
-                : row.averageRating.toStringAsFixed(1),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No city performance records found.',
-  );
-}
-
-_ReportTable _bookingTable(List<ProvinceBooking> bookings) {
-  final rows = [...bookings]
-    ..sort((a, b) {
-      final left = a.travelDate ?? a.createdAt ?? DateTime(1900);
-      final right = b.travelDate ?? b.createdAt ?? DateTime(1900);
-      return right.compareTo(left);
-    });
-
-  return _ReportTable(
-    title: 'Booking Transactions',
-    subtitle: 'Recent booking records for the selected period.',
-    columns: const ['Date', 'City', 'Tourist', 'Package', 'Status', 'Amount'],
-    rows: rows
-        .map(
-          (booking) => [
-            _date(booking.travelDate ?? booking.createdAt),
-            booking.city,
-            booking.touristName,
-            booking.packageTitle,
-            adminTitleCase(booking.status),
-            _money(booking.totalAmount),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No bookings matched this view.',
-  );
-}
-
-_ReportTable _bookingStatusTable(List<ProvinceBooking> bookings) {
-  final counts = <String, int>{};
   for (final booking in bookings) {
-    final status = booking.status.trim().isEmpty ? 'pending' : booking.status;
-    counts.update(status, (value) => value + 1, ifAbsent: () => 1);
-  }
-  final rows = counts.entries.toList()
-    ..sort((a, b) => b.value.compareTo(a.value));
-
-  return _ReportTable(
-    title: 'Booking Status Distribution',
-    subtitle: 'Summarized booking outcomes.',
-    columns: const ['Status', 'Count', 'Share'],
-    rows: rows
-        .map(
-          (entry) => [
-            adminTitleCase(entry.key),
-            '${entry.value}',
-            _percent(entry.value, bookings.length),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No booking status data available.',
-  );
-}
-
-_ReportTable _revenueByCityTable(List<_CityPerformanceRow> rows) {
-  final revenueRows =
-      rows.where((row) => row.revenue > 0 || row.completed > 0).toList()
-        ..sort((a, b) => b.revenue.compareTo(a.revenue));
-
-  return _ReportTable(
-    title: 'Revenue by City/Subtenant',
-    subtitle: 'Completed booking value grouped by LGU.',
-    columns: const ['City/Subtenant', 'Completed', 'Revenue', 'Avg. Value'],
-    rows: revenueRows
-        .map(
-          (row) => [
-            row.city,
-            '${row.completed}',
-            _money(row.revenue),
-            row.completed == 0
-                ? _money(0)
-                : _money(row.revenue / row.completed),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No completed booking revenue found.',
-  );
-}
-
-_ReportTable _packageRevenueTable(_ReportSnapshot report) {
-  final stats = _packageStats(report.bookings, completedOnly: true);
-  final rows = report.packages.map((item) {
-    final stat =
-        stats[_packageKey(item.id, item.title)] ?? _MutableReportStats();
-    return _PackageReportRow(
-      title: item.title,
-      city: item.city,
-      status: item.status,
-      bookings: stat.count,
-      revenue: stat.amount,
+    final key = _packageKey(
+      booking.packageId,
+      booking.packageTitle,
     );
-  }).toList()..sort((a, b) => b.revenue.compareTo(a.revenue));
 
-  return _ReportTable(
-    title: 'Package Revenue Performance',
-    subtitle: 'Completed revenue by package.',
-    columns: const ['Package', 'City', 'Bookings', 'Revenue', 'Status'],
-    rows: rows
-        .where((row) => row.revenue > 0 || row.bookings > 0)
-        .map(
-          (row) => [
-            row.title,
-            row.city,
-            '${row.bookings}',
-            _money(row.revenue),
-            adminTitleCase(row.status),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No package revenue found.',
-  );
-}
-
-_ReportTable _packagePerformanceTable(_ReportSnapshot report) {
-  final stats = _packageStats(report.bookings);
-  final rows = report.packages.map((item) {
-    final stat =
-        stats[_packageKey(item.id, item.title)] ?? _MutableReportStats();
-    return _PackageReportRow(
-      title: item.title,
-      city: item.city,
-      status: item.status,
-      bookings: stat.count,
-      revenue: stat.amount,
-      budget: item.estimatedBudget,
+    final item = stats.putIfAbsent(
+      key,
+      () => _MutableStats(),
     );
-  }).toList()..sort((a, b) => b.bookings.compareTo(a.bookings));
 
-  return _ReportTable(
-    title: 'Package Performance',
-    subtitle: 'Booking activity and completed revenue by package.',
-    columns: const [
-      'Package',
-      'City',
-      'Bookings',
-      'Revenue',
-      'Budget',
-      'Status',
-    ],
-    rows: rows
-        .map(
-          (row) => [
-            row.title,
-            row.city,
-            '${row.bookings}',
-            _money(row.revenue),
-            row.budget == 0 ? 'N/A' : _money(row.budget),
-            adminTitleCase(row.status),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No package records found.',
-  );
-}
+    item.count++;
 
-_ReportTable _spotCityTable(_ReportSnapshot report) {
-  return _ReportTable(
-    title: 'Tourist Spot Inventory by City',
-    subtitle: 'Submitted and verified tourist spots by LGU.',
-    columns: const ['City/Subtenant', 'Spots', 'Verified', 'Avg. Rating'],
-    rows: report.cityRows.where((row) => row.spots > 0).map((row) {
-      final citySpots = report.spots.where(
-        (spot) => _sameCity(spot.city, row.city),
-      );
-      final verified = citySpots.where((spot) {
-        final status = spot.verificationStatus.toLowerCase();
-        return status == 'verified' || status == 'approved';
-      }).length;
-      final ratings = citySpots.where((spot) => spot.rating > 0).toList();
-      final avg = ratings.isEmpty
-          ? 0.0
-          : ratings.fold<double>(0, (sum, spot) => sum + spot.rating) /
-                ratings.length;
-      return [
-        row.city,
-        '${row.spots}',
-        '$verified',
-        avg == 0 ? 'N/A' : avg.toStringAsFixed(1),
-      ];
-    }).toList(),
-    emptyMessage: 'No tourist spot inventory found.',
-  );
-}
-
-_ReportTable _topSpotTable(List<ProvinceSpot> spots) {
-  final rows = [...spots]..sort((a, b) => b.rating.compareTo(a.rating));
-  return _ReportTable(
-    title: 'Tourist Spot Performance',
-    subtitle: 'Spot records sorted by available rating.',
-    columns: const ['Tourist Spot', 'City', 'Barangay', 'Rating', 'Status'],
-    rows: rows
-        .map(
-          (spot) => [
-            spot.title,
-            spot.city,
-            spot.barangay.isEmpty ? 'N/A' : spot.barangay,
-            spot.rating == 0 ? 'N/A' : spot.rating.toStringAsFixed(1),
-            adminTitleCase(spot.verificationStatus),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No tourist spot records found.',
-  );
-}
-
-_ReportTable _driverCoverageTable(_ReportSnapshot report) {
-  return _ReportTable(
-    title: 'Driver Coverage by City/Subtenant',
-    subtitle: 'Registered driver counts and city context.',
-    columns: const [
-      'City/Subtenant',
-      'Admin Office',
-      'Drivers',
-      'Bookings',
-      'Packages',
-      'Status',
-    ],
-    rows: report.tenants.map((tenant) {
-      final cityRow = report.cityRows.where(
-        (row) => _sameCity(row.city, tenant.city),
-      );
-      final bookings = cityRow.isEmpty
-          ? tenant.bookingsCount
-          : cityRow.first.bookings;
-      return [
-        tenant.city,
-        tenant.adminName,
-        '${tenant.driversCount}',
-        '$bookings',
-        '${tenant.packagesCount}',
-        adminTitleCase(tenant.status),
-      ];
-    }).toList(),
-    emptyMessage: 'No driver coverage records found.',
-  );
-}
-
-_ReportTable _feedbackCityTable(List<_CityPerformanceRow> rows) {
-  final feedbackRows = rows.where((row) => row.feedbackCount > 0).toList()
-    ..sort((a, b) => b.feedbackCount.compareTo(a.feedbackCount));
-
-  return _ReportTable(
-    title: 'Feedback and Ratings by City',
-    subtitle: 'Review volume and average rating by LGU.',
-    columns: const ['City/Subtenant', 'Feedback', 'Avg. Rating', 'Bookings'],
-    rows: feedbackRows
-        .map(
-          (row) => [
-            row.city,
-            '${row.feedbackCount}',
-            row.averageRating == 0
-                ? 'N/A'
-                : row.averageRating.toStringAsFixed(1),
-            '${row.bookings}',
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No feedback records found.',
-  );
-}
-
-_ReportTable _recentFeedbackTable(List<ProvinceFeedback> feedback) {
-  final rows = [...feedback]
-    ..sort((a, b) {
-      final left = a.createdAt ?? DateTime(1900);
-      final right = b.createdAt ?? DateTime(1900);
-      return right.compareTo(left);
-    });
-
-  return _ReportTable(
-    title: 'Recent Feedback Details',
-    subtitle: 'Latest tourist comments and rating subjects.',
-    columns: const ['Date', 'City', 'Reviewer', 'Subject', 'Rating', 'Comment'],
-    rows: rows
-        .map(
-          (item) => [
-            _date(item.createdAt),
-            item.city,
-            item.reviewerName,
-            item.subjectName,
-            item.rating == 0 ? 'N/A' : item.rating.toStringAsFixed(1),
-            _shortText(item.comment, 64),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No feedback details found.',
-  );
-}
-
-_ReportTable _cancellationSummaryTable(List<_CityPerformanceRow> rows) {
-  final cancellationRows = rows.where((row) => row.cancelled > 0).toList()
-    ..sort((a, b) => b.cancelled.compareTo(a.cancelled));
-
-  return _ReportTable(
-    title: 'Cancellation Summary by City',
-    subtitle: 'Cancelled booking counts by LGU.',
-    columns: const ['City/Subtenant', 'Cancelled', 'Bookings', 'Rate'],
-    rows: cancellationRows
-        .map(
-          (row) => [
-            row.city,
-            '${row.cancelled}',
-            '${row.bookings}',
-            _percent(row.cancelled, row.bookings),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No cancellations found.',
-  );
-}
-
-_ReportTable _cancelledBookingsTable(List<ProvinceBooking> bookings) {
-  final rows =
-      bookings
-          .where((booking) => booking.status.toLowerCase() == 'cancelled')
-          .toList()
-        ..sort((a, b) {
-          final left = a.travelDate ?? a.createdAt ?? DateTime(1900);
-          final right = b.travelDate ?? b.createdAt ?? DateTime(1900);
-          return right.compareTo(left);
-        });
-
-  return _ReportTable(
-    title: 'Cancelled Booking Records',
-    subtitle: 'Cancelled transactions and estimated booking value.',
-    columns: const ['Date', 'City', 'Tourist', 'Package', 'Amount'],
-    rows: rows
-        .map(
-          (booking) => [
-            _date(booking.travelDate ?? booking.createdAt),
-            booking.city,
-            booking.touristName,
-            booking.packageTitle,
-            _money(booking.totalAmount),
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No cancelled booking records found.',
-  );
-}
-
-_ReportTable _chartDataTable(_ReportSnapshot report) {
-  return _ReportTable(
-    title: 'Chart Data Summary',
-    subtitle: 'Tabular source data for chart sections.',
-    columns: const [
-      'City/Subtenant',
-      'Bookings',
-      'Revenue',
-      'Packages',
-      'Spots',
-    ],
-    rows: report.cityRows
-        .map(
-          (row) => [
-            row.city,
-            '${row.bookings}',
-            _money(row.revenue),
-            '${row.packages}',
-            '${row.spots}',
-          ],
-        )
-        .toList(),
-    emptyMessage: 'No chart source data found.',
-  );
-}
-
-Map<String, int> _countPackagesByCity(List<ProvincePackage> rows) {
-  final counts = <String, int>{};
-  for (final item in rows) {
-    final city = item.city.trim().isEmpty ? 'Unassigned' : item.city;
-    counts.update(city, (value) => value + 1, ifAbsent: () => 1);
-  }
-  return _sortedMap(counts);
-}
-
-Map<String, int> _countDriversByCity(List<CityTenant> rows) {
-  final counts = <String, int>{};
-  for (final item in rows) {
-    final city = item.city.trim().isEmpty ? 'Unassigned' : item.city;
-    counts[city] = item.driversCount;
-  }
-  return _sortedMap(counts);
-}
-
-Map<String, int> _sortedMap(Map<String, int> source) {
-  final entries = source.entries.toList()
-    ..sort((a, b) => b.value.compareTo(a.value));
-  return {for (final entry in entries) entry.key: entry.value};
-}
-
-Map<String, _MutableReportStats> _packageStats(
-  List<ProvinceBooking> bookings, {
-  bool completedOnly = false,
-}) {
-  final stats = <String, _MutableReportStats>{};
-  for (final booking in bookings) {
-    if (completedOnly && booking.status.toLowerCase() != 'completed') continue;
-    final key = _packageKey(booking.packageId, booking.packageTitle);
-    final stat = stats.putIfAbsent(key, () => _MutableReportStats());
-    stat.count++;
-    if (booking.status.toLowerCase() == 'completed') {
-      stat.amount += booking.totalAmount;
+    if (booking.status.toLowerCase() ==
+        'completed') {
+      item.amount +=
+          booking.totalAmount;
     }
   }
+
   return stats;
 }
 
-String _money(num value) {
-  return NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0).format(value);
-}
+String _packageKey(
+  dynamic id,
+  String title,
+) {
+  final value =
+      adminId(id).trim();
 
-String _date(DateTime? value) {
-  if (value == null) return 'N/A';
-  return DateFormat.yMMMd().format(value);
-}
+  if (value.isNotEmpty) {
+    return value;
+  }
 
-String _percent(int value, int total) {
-  if (total <= 0) return '0%';
-  return '${((value / total) * 100).round()}%';
-}
-
-String _normalize(String value) => value.trim().toLowerCase();
-
-bool _sameCity(String left, String right) =>
-    _normalize(left) == _normalize(right);
-
-String _packageKey(dynamic id, String title) {
-  final value = adminId(id).trim();
-  if (value.isNotEmpty) return value;
   return 'title:${_normalize(title)}';
 }
 
-String _shortText(String value, int maxLength) {
-  final clean = value.trim().replaceAll(RegExp(r'\s+'), ' ');
-  if (clean.isEmpty) return 'N/A';
-  if (clean.length <= maxLength) return clean;
-  return '${clean.substring(0, maxLength - 3)}...';
+String _locationLabel(
+  _ProvinceSnapshot snapshot,
+) {
+  if (snapshot.cityFilter ==
+      _allCities) {
+    return 'Province of Bulacan';
+  }
+
+  return '${snapshot.cityFilter}, Bulacan';
+}
+
+String _money(num value) {
+  return NumberFormat.currency(
+    symbol: '₱',
+    decimalDigits: 0,
+  ).format(value);
+}
+
+String _date(DateTime? value) {
+  if (value == null) {
+    return 'N/A';
+  }
+
+  return DateFormat(
+    'MMM d, yyyy',
+  ).format(value);
+}
+
+String _percentageFromCount(
+  int value,
+  int total,
+) {
+  if (total <= 0) {
+    return '0%';
+  }
+
+  return '${((value / total) * 100).round()}%';
+}
+
+String _percentDouble(
+  double value,
+) {
+  return '${(value * 100).round()}%';
+}
+
+String _normalize(String value) {
+  return value
+      .trim()
+      .toLowerCase();
+}
+
+bool _sameCity(
+  String left,
+  String right,
+) {
+  return _normalize(left) ==
+      _normalize(right);
+}
+
+String _shortText(
+  String value,
+  int maxLength,
+) {
+  final clean = value
+      .trim()
+      .replaceAll(
+        RegExp(r'\s+'),
+        ' ',
+      );
+
+  if (clean.isEmpty) {
+    return 'N/A';
+  }
+
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+
+  return '${clean.substring(0, maxLength - 1)}…';
 }
 
 String _slug(String value) {
-  final normalized = value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
-  return normalized.replaceAll(RegExp(r'^-+|-+$'), '');
-}
+  final result = value
+      .toLowerCase()
+      .replaceAll(
+        RegExp(r'[^a-z0-9]+'),
+        '-',
+      )
+      .replaceAll(
+        RegExp(r'^-+|-+$'),
+        '',
+      );
 
-ButtonStyle get _primaryButtonStyle {
-  return ElevatedButton.styleFrom(
-    backgroundColor: ProvincialAdminColors.deepBlue,
-    foregroundColor: Colors.white,
-    elevation: 0,
-    padding: const EdgeInsets.symmetric(vertical: 14),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-    textStyle: const TextStyle(fontWeight: FontWeight.w900),
-  );
-}
-
-ButtonStyle get _outlinedButtonStyle {
-  return OutlinedButton.styleFrom(
-    foregroundColor: ProvincialAdminColors.deepBlue,
-    side: const BorderSide(color: ProvincialAdminColors.line),
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-  );
-}
-
-ButtonStyle get _iconButtonStyle {
-  return OutlinedButton.styleFrom(
-    foregroundColor: ProvincialAdminColors.deepBlue,
-    side: const BorderSide(color: ProvincialAdminColors.line),
-    padding: EdgeInsets.zero,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-  );
+  return result;
 }

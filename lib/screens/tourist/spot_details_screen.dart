@@ -1,10 +1,9 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/google_places_gateway.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_saved_places_state.dart';
 
@@ -67,6 +66,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
   bool? _liveOpenNow;
   String? _googleMapsUrl;
   bool _loadingGoogleDetails = false;
+  String? _proxyMapImageUrl;
 
   TouristSpotDetailsData get spot => widget.spot;
   String get googleMapsApiKey => widget.googleMapsApiKey;
@@ -94,17 +94,13 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
 
   String get _mapsUrl => _googleMapsUrl ?? _fallbackMapsUrl;
 
-  String get _mapImage {
-    final marker = Uri.encodeComponent('${spot.latitude},${spot.longitude}');
-    return 'https://maps.googleapis.com/maps/api/staticmap'
-        '?center=$marker'
-        '&zoom=16'
-        '&size=900x520'
-        '&scale=2'
-        '&maptype=roadmap'
-        '&markers=color:red%7C$marker'
-        '&key=$googleMapsApiKey';
-  }
+  String get _mapImage =>
+      _proxyMapImageUrl ??
+      CitySpotSuggestionService.buildStaticMapUrl(
+        latitude: spot.latitude,
+        longitude: spot.longitude,
+        apiKey: googleMapsApiKey,
+      );
 
   String get _aboutText {
     final category = spot.tag.toLowerCase();
@@ -116,8 +112,9 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
     return TouristSavedPlace(
       id: 'google-${spot.id}',
       label: spot.title,
-      address:
-          spot.address.isEmpty ? '${spot.municipality}, Bulacan' : spot.address,
+      address: spot.address.isEmpty
+          ? '${spot.municipality}, Bulacan'
+          : spot.address,
       tag: spot.tag,
       latitude: spot.latitude,
       longitude: spot.longitude,
@@ -149,7 +146,6 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
   bool _isNumericOnly(String value) => RegExp(r'^\d+$').hasMatch(value);
 
   Future<void> _loadGooglePlaceDetails() async {
-    if (googleMapsApiKey.trim().isEmpty) return;
     if (_effectivePlaceId.isEmpty) return;
     if (_effectivePlaceId.contains('sample')) return;
     if (_isNumericOnly(_effectivePlaceId)) return;
@@ -157,18 +153,11 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
     setState(() => _loadingGoogleDetails = true);
 
     try {
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/place/details/json',
-        {
-          'place_id': _effectivePlaceId,
-          'fields': 'rating,user_ratings_total,opening_hours,url',
-          'key': googleMapsApiKey,
-        },
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = await GooglePlacesGateway(apiKey: googleMapsApiKey)
+          .request('details', {
+            'place_id': _effectivePlaceId,
+            'fields': 'rating,user_ratings_total,opening_hours,url,geometry',
+          });
       final result = data['result'] as Map<String, dynamic>?;
 
       if (result == null) return;
@@ -182,6 +171,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
             (result['user_ratings_total'] as num?)?.toInt() ?? _liveReviewCount;
         _liveOpenNow = openingHours?['open_now'] as bool?;
         _googleMapsUrl = result['url'] as String?;
+        _proxyMapImageUrl = result['_proxy_static_map_url'] as String?;
       });
     } catch (_) {
       // Keep fallback data from Explore screen.
@@ -452,7 +442,9 @@ class _SpotHeroImage extends StatelessWidget {
                     height: 8,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: index == 0 ? 1 : .55),
+                      color: Colors.white.withValues(
+                        alpha: index == 0 ? 1 : .55,
+                      ),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -480,17 +472,16 @@ class _SpotHeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final address =
-        spot.address.isEmpty ? '${spot.municipality}, Bulacan' : spot.address;
+    final address = spot.address.isEmpty
+        ? '${spot.municipality}, Bulacan'
+        : spot.address;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(30, 28, 30, 24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(34),
-        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(34)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -827,10 +818,7 @@ class _DetailStat extends StatelessWidget {
 }
 
 class _MapPreview extends StatelessWidget {
-  const _MapPreview({
-    required this.imageUrl,
-    required this.onTap,
-  });
+  const _MapPreview({required this.imageUrl, required this.onTap});
 
   final String imageUrl;
   final VoidCallback onTap;
@@ -851,10 +839,23 @@ class _MapPreview extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Image.network(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
+                if (imageUrl.isNotEmpty)
+                  Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      color: const Color(0xFFEAF2FF),
+                      child: const Center(
+                        child: Icon(
+                          Icons.map_rounded,
+                          color: Color(0xFF2A86FF),
+                          size: 42,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Container(
                     color: const Color(0xFFEAF2FF),
                     child: const Center(
                       child: Icon(
@@ -864,7 +865,6 @@ class _MapPreview extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
                 Container(color: Colors.black.withValues(alpha: 0.04)),
                 Center(
                   child: Container(
@@ -922,8 +922,9 @@ class _ReviewsSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final countText =
-        reviewCount > 0 ? _compactCount(reviewCount) : 'No reviews yet';
+    final countText = reviewCount > 0
+        ? _compactCount(reviewCount)
+        : 'No reviews yet';
 
     return Container(
       width: double.infinity,

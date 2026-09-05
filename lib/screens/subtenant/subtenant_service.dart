@@ -503,45 +503,37 @@ class SubTenantService {
         if (spot.spot.title.trim().isNotEmpty) spot.spot.title.trim(),
     }.toList(growable: false);
 
-    try {
-      final baseResults = await suggestionService.fetchSuggestions(
+    final baseResults = await suggestionService.fetchSuggestions(
+      city: city,
+      province: province,
+      center: center,
+      limit: 12,
+      excludeTitles: selectedSpots.map((item) => item.spot.title).toSet(),
+    );
+    developer.log(
+      '[GooglePlaces] Base suggestions fetched: ${baseResults.length}',
+      name: 'SubTenantService',
+    );
+    for (final suggestion in baseResults) {
+      if (seenIds.add(suggestion.id)) suggestions.add(suggestion);
+    }
+
+    for (final term in searchTerms) {
+      final scopedQuery = '$term in $city, $province';
+      final results = await suggestionService.searchPlaces(
+        query: scopedQuery,
         city: city,
         province: province,
         center: center,
-        limit: 12,
-        excludeTitles: selectedSpots.map((item) => item.spot.title).toSet(),
+        limit: 6,
       );
       developer.log(
-        '[GooglePlaces] Base suggestions fetched: ${baseResults.length}',
+        '[PlacesAPI] Query "$scopedQuery" returned ${results.length}',
         name: 'SubTenantService',
       );
-      for (final suggestion in baseResults) {
+      for (final suggestion in results) {
         if (seenIds.add(suggestion.id)) suggestions.add(suggestion);
       }
-
-      for (final term in searchTerms) {
-        final scopedQuery = '$term in $city, $province';
-        final results = await suggestionService.searchPlaces(
-          query: scopedQuery,
-          city: city,
-          province: province,
-          center: center,
-          limit: 6,
-        );
-        developer.log(
-          '[PlacesAPI] Query "$scopedQuery" returned ${results.length}',
-          name: 'SubTenantService',
-        );
-        for (final suggestion in results) {
-          if (seenIds.add(suggestion.id)) suggestions.add(suggestion);
-        }
-      }
-    } catch (error, stack) {
-      developer.log(
-        '[GooglePlaces] Smart suggestion fetch failed: $error',
-        name: 'SubTenantService',
-        stackTrace: stack,
-      );
     }
 
     if (suggestions.isEmpty) {

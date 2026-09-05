@@ -85,6 +85,9 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
   List<CitySpotSuggestion> _placeSuggestions = const [];
   List<CitySpotSuggestion> _addressSuggestions = const [];
   List<CitySpotSuggestion> _liveSuggestions = const [];
+  String? _placeSearchError;
+  String? _addressSearchError;
+  String? _liveSearchError;
   SubTenantProfile? _addressProfile;
 
   GoogleMapController? _mapController;
@@ -272,8 +275,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       // widget.initialSuggestion directly so category/barangay matching always
       // runs after data loads (fixes early-prefill leaving _categoryId null).
       final initial = widget.initialSuggestion!;
-      final selected =
-          _findSuggestionById(suggestions, initial.id) ?? initial;
+      final selected = _findSuggestionById(suggestions, initial.id) ?? initial;
       await _applySuggestion(
         selected,
         categories,
@@ -488,27 +490,38 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     final query = _titleCtrl.text.trim();
     _placeSearchTimer?.cancel();
     if (profile == null || query.length < 3) {
-      if (_placeSuggestions.isNotEmpty && mounted) {
-        setState(() => _placeSuggestions = const []);
+      if ((_placeSuggestions.isNotEmpty || _placeSearchError != null) &&
+          mounted) {
+        setState(() {
+          _placeSuggestions = const [];
+          _placeSearchError = null;
+        });
       }
       return;
     }
 
     _placeSearchTimer = Timer(const Duration(milliseconds: 550), () async {
       if (!mounted) return;
-      setState(() => _placeSearching = true);
+      setState(() {
+        _placeSearching = true;
+        _placeSearchError = null;
+      });
       try {
-        final suggestions = await CitySpotSuggestionService()
-            .searchPlaces(
-              query: query,
-              city: profile.assignedCity,
-              province: profile.province,
-              center: _municipalityCenter(profile.assignedCity),
-            );
+        final suggestions = await CitySpotSuggestionService().searchPlaces(
+          query: query,
+          city: profile.assignedCity,
+          province: profile.province,
+          center: _municipalityCenter(profile.assignedCity),
+        );
         if (!mounted || _titleCtrl.text.trim() != query) return;
         setState(() => _placeSuggestions = suggestions);
-      } catch (_) {
-        if (mounted) setState(() => _placeSuggestions = const []);
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _placeSuggestions = const [];
+            _placeSearchError = error.toString();
+          });
+        }
       } finally {
         if (mounted) setState(() => _placeSearching = false);
       }
@@ -521,14 +534,21 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     final query = _suggestedSpotCtrl.text.trim();
     _liveSearchTimer?.cancel();
     if (profile == null || query.length < 3) {
-      if (_liveSuggestions.isNotEmpty && mounted) {
-        setState(() => _liveSuggestions = const []);
+      if ((_liveSuggestions.isNotEmpty || _liveSearchError != null) &&
+          mounted) {
+        setState(() {
+          _liveSuggestions = const [];
+          _liveSearchError = null;
+        });
       }
       return;
     }
     _liveSearchTimer = Timer(const Duration(milliseconds: 500), () async {
       if (!mounted) return;
-      setState(() => _liveSearching = true);
+      setState(() {
+        _liveSearching = true;
+        _liveSearchError = null;
+      });
       try {
         final results = await CitySpotSuggestionService().searchPlaces(
           query: query,
@@ -539,8 +559,13 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         );
         if (!mounted || _suggestedSpotCtrl.text.trim() != query) return;
         setState(() => _liveSuggestions = results);
-      } catch (_) {
-        if (mounted) setState(() => _liveSuggestions = const []);
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _liveSuggestions = const [];
+            _liveSearchError = error.toString();
+          });
+        }
       } finally {
         if (mounted) setState(() => _liveSearching = false);
       }
@@ -582,27 +607,38 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     final query = _addressCtrl.text.trim();
     _addressSearchTimer?.cancel();
     if (profile == null || query.length < 4) {
-      if (_addressSuggestions.isNotEmpty && mounted) {
-        setState(() => _addressSuggestions = const []);
+      if ((_addressSuggestions.isNotEmpty || _addressSearchError != null) &&
+          mounted) {
+        setState(() {
+          _addressSuggestions = const [];
+          _addressSearchError = null;
+        });
       }
       return;
     }
 
     _addressSearchTimer = Timer(const Duration(milliseconds: 550), () async {
       if (!mounted) return;
-      setState(() => _addressSearching = true);
+      setState(() {
+        _addressSearching = true;
+        _addressSearchError = null;
+      });
       try {
-        final suggestions = await CitySpotSuggestionService()
-            .searchPlaces(
-              query: query,
-              city: profile.assignedCity,
-              province: profile.province,
-              center: _municipalityCenter(profile.assignedCity),
-            );
+        final suggestions = await CitySpotSuggestionService().searchPlaces(
+          query: query,
+          city: profile.assignedCity,
+          province: profile.province,
+          center: _municipalityCenter(profile.assignedCity),
+        );
         if (!mounted || _addressCtrl.text.trim() != query) return;
         setState(() => _addressSuggestions = suggestions);
-      } catch (_) {
-        if (mounted) setState(() => _addressSuggestions = const []);
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _addressSuggestions = const [];
+            _addressSearchError = error.toString();
+          });
+        }
       } finally {
         if (mounted) setState(() => _addressSearching = false);
       }
@@ -1086,8 +1122,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         }
         return null;
       case 1:
-        final barangay =
-            _selectedBarangay?.trim() ?? _barangayCtrl.text.trim();
+        final barangay = _selectedBarangay?.trim() ?? _barangayCtrl.text.trim();
         if (barangay.isEmpty) return 'Please select a barangay.';
         if (_latCtrl.text.trim().isEmpty || _lngCtrl.text.trim().isEmpty) {
           return 'Please pin the tourist spot location on the map.';
@@ -1232,9 +1267,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
           ),
           decoration: const BoxDecoration(
             color: Colors.white,
-            border: Border(
-              top: BorderSide(color: SubTenantColors.line),
-            ),
+            border: Border(top: BorderSide(color: SubTenantColors.line)),
           ),
           child: Row(
             children: [
@@ -1335,24 +1368,27 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: _suggestedSpotCtrl,
-                    decoration: _inputDecoration(
-                      hint: 'Search spots in ${data.profile.assignedCity}…',
-                    ).copyWith(
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: SubTenantColors.blue,
-                        size: 20,
-                      ),
-                      suffixIcon: _liveSearching
-                          ? const Padding(
-                              padding: EdgeInsets.all(14),
-                              child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            )
-                          : _suggestedSpotCtrl.text.isNotEmpty
+                    decoration:
+                        _inputDecoration(
+                          hint: 'Search spots in ${data.profile.assignedCity}…',
+                        ).copyWith(
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            color: SubTenantColors.blue,
+                            size: 20,
+                          ),
+                          suffixIcon: _liveSearching
+                              ? const Padding(
+                                  padding: EdgeInsets.all(14),
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                )
+                              : _suggestedSpotCtrl.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(
                                     Icons.clear_rounded,
@@ -1369,21 +1405,27 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                                   },
                                 )
                               : null,
-                    ),
+                        ),
                   ),
                   const SizedBox(height: 8),
                   () {
                     final query = _suggestedSpotCtrl.text.trim();
                     final visible = _liveSuggestions.isNotEmpty
                         ? _liveSuggestions
-                        : (query.isEmpty ? data.suggestions : const <CitySpotSuggestion>[]);
-                    final showPanel = _liveSearching ||
+                        : (query.isEmpty
+                              ? data.suggestions
+                              : const <CitySpotSuggestion>[]);
+                    final showPanel =
+                        _liveSearching ||
+                        _liveSearchError != null ||
                         visible.isNotEmpty ||
                         (query.length >= 3 && !_liveSearching);
                     if (!showPanel) return const SizedBox.shrink();
                     return _SuggestionPanel(
                       loading: _liveSearching,
                       suggestions: visible,
+                      errorMessage: _liveSearchError,
+                      onRetry: _scheduleLiveSearch,
                       emptyMessage: query.length >= 3
                           ? 'No spots found for "$query" in ${data.profile.assignedCity}.'
                           : 'Type at least 3 characters to search Google Places.',
@@ -1440,11 +1482,15 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                     ? 'Spot name is required.'
                     : null,
               ),
-              if (_placeSearching || _placeSuggestions.isNotEmpty) ...[
+              if (_placeSearching ||
+                  _placeSuggestions.isNotEmpty ||
+                  _placeSearchError != null) ...[
                 const SizedBox(height: 8),
                 _SuggestionPanel(
                   loading: _placeSearching,
                   suggestions: _placeSuggestions,
+                  errorMessage: _placeSearchError,
+                  onRetry: _schedulePlaceSearch,
                   emptyMessage: 'No matching spots found for your search.',
                   onSelected: (s) => _applyPlaceSuggestion(s, data),
                 ),
@@ -1475,10 +1521,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                       child: Text('Select category'),
                     ),
                     ...data.categories.map(
-                      (c) => DropdownMenuItem(
-                        value: c.id,
-                        child: Text(c.name),
-                      ),
+                      (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
                     ),
                   ],
                   onChanged: (value) => setState(() => _categoryId = value),
@@ -1553,9 +1596,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                   ),
                 ],
               ),
-              if (!_editing) ...[
-                
-              ],
+              if (!_editing) ...[],
             ],
           ),
         ),
@@ -1658,15 +1699,17 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                 hint: 'Street, landmark, or nearby reference',
                 maxLines: 2,
               ),
-              if (_addressSearching || _addressSuggestions.isNotEmpty) ...[
+              if (_addressSearching ||
+                  _addressSuggestions.isNotEmpty ||
+                  _addressSearchError != null) ...[
                 const SizedBox(height: 8),
                 _SuggestionPanel(
                   loading: _addressSearching,
                   suggestions: _addressSuggestions,
-                  emptyMessage:
-                      'No matching address suggestions were found.',
-                  onSelected: (s) =>
-                      _applyAddressSuggestion(s, data.barangays),
+                  errorMessage: _addressSearchError,
+                  onRetry: _scheduleAddressSearch,
+                  emptyMessage: 'No matching address suggestions were found.',
+                  onSelected: (s) => _applyAddressSuggestion(s, data.barangays),
                 ),
               ],
               const SizedBox(height: 12),
@@ -1764,9 +1807,8 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                       controller: _latCtrl,
                       label: 'Latitude',
                       enabled: false,
-                      validator: (value) => (value ?? '').trim().isEmpty
-                          ? 'Pin required.'
-                          : null,
+                      validator: (value) =>
+                          (value ?? '').trim().isEmpty ? 'Pin required.' : null,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1775,9 +1817,8 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                       controller: _lngCtrl,
                       label: 'Longitude',
                       enabled: false,
-                      validator: (value) => (value ?? '').trim().isEmpty
-                          ? 'Pin required.'
-                          : null,
+                      validator: (value) =>
+                          (value ?? '').trim().isEmpty ? 'Pin required.' : null,
                     ),
                   ),
                 ],
@@ -1945,7 +1986,9 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.upload_file_rounded),
-            label: Text(_uploadingImage ? 'Uploading...' : 'Upload from Device'),
+            label: Text(
+              _uploadingImage ? 'Uploading...' : 'Upload from Device',
+            ),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
               side: const BorderSide(color: SubTenantColors.line),
@@ -1973,8 +2016,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       ),
       (
         label: 'Location pinned',
-        ok: _latCtrl.text.trim().isNotEmpty &&
-            _lngCtrl.text.trim().isNotEmpty,
+        ok: _latCtrl.text.trim().isNotEmpty && _lngCtrl.text.trim().isNotEmpty,
       ),
       (label: 'Image added', ok: _imageCtrl.text.trim().isNotEmpty),
     ];
@@ -1982,10 +2024,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (!isWide) ...[
-          _previewCard(),
-          const SizedBox(height: 14),
-        ],
+        if (!isWide) ...[_previewCard(), const SizedBox(height: 14)],
         SubTenantDashboardCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2148,7 +2187,9 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFFDCFCE7),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF16A34A).withValues(alpha: .3)),
+        border: Border.all(
+          color: const Color(0xFF16A34A).withValues(alpha: .3),
+        ),
       ),
       child: Row(
         children: [
@@ -2305,8 +2346,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         width: double.infinity,
         decoration: BoxDecoration(
           color: const Color(0xFFE4ECF7),
-          borderRadius:
-              compact ? BorderRadius.zero : BorderRadius.circular(16),
+          borderRadius: compact ? BorderRadius.zero : BorderRadius.circular(16),
         ),
         child: const Center(
           child: Icon(
@@ -2319,8 +2359,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     }
 
     return ClipRRect(
-      borderRadius:
-          compact ? BorderRadius.zero : BorderRadius.circular(16),
+      borderRadius: compact ? BorderRadius.zero : BorderRadius.circular(16),
       child: Image.network(
         url,
         height: height,
@@ -2503,8 +2542,8 @@ class _StepIndicator extends StatelessWidget {
               color: isDone
                   ? SubTenantColors.blue
                   : isCurrent
-                      ? SubTenantColors.blue.withValues(alpha: .12)
-                      : const Color(0xFFF1F5F9),
+                  ? SubTenantColors.blue.withValues(alpha: .12)
+                  : const Color(0xFFF1F5F9),
               border: Border.all(
                 color: (isDone || isCurrent)
                     ? SubTenantColors.blue
@@ -2629,12 +2668,16 @@ class _SuggestionPanel extends StatelessWidget {
     required this.suggestions,
     required this.onSelected,
     this.emptyMessage = 'No matching suggestions were found.',
+    this.errorMessage,
+    this.onRetry,
   });
 
   final bool loading;
   final List<CitySpotSuggestion> suggestions;
   final ValueChanged<CitySpotSuggestion> onSelected;
   final String emptyMessage;
+  final String? errorMessage;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -2662,7 +2705,28 @@ class _SuggestionPanel extends StatelessWidget {
               ),
             ),
           ],
-          if (!loading && suggestions.isEmpty) ...[
+          if (!loading && errorMessage != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      errorMessage!,
+                      style: const TextStyle(
+                        color: Color(0xFFB91C1C),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (onRetry != null)
+                    TextButton(onPressed: onRetry, child: const Text('Retry')),
+                ],
+              ),
+            ),
+          ],
+          if (!loading && errorMessage == null && suggestions.isEmpty) ...[
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Text(

@@ -48,4 +48,5 @@ app.*.map.json
 # Secrets
 .env
 .env.example
+ios/Flutter/Secrets.xcconfig
 node_modules/

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
@@ -9,8 +10,31 @@ import 'package:touristrike/screens/subtenant/subtenant_workspace_search.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Local design colors
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _pageBackground = Color(0xFFF4F7FB);
+
+const _softBlue = Color(0xFFF1F6FF);
+const _softGreen = Color(0xFFF0FDF4);
+const _softAmber = Color(0xFFFFFBEB);
+const _softRed = Color(0xFFFEF2F2);
+const _softPurple = Color(0xFFF7F3FF);
+
+const _green = Color(0xFF16A34A);
+const _amber = Color(0xFFF59E0B);
+const _red = Color(0xFFDC2626);
+const _purple = Color(0xFF7C3AED);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen
+// ─────────────────────────────────────────────────────────────────────────────
+
 class SubTenantPackagesScreen extends StatefulWidget {
-  const SubTenantPackagesScreen({super.key});
+  const SubTenantPackagesScreen({
+    super.key,
+  });
 
   @override
   State<SubTenantPackagesScreen> createState() =>
@@ -19,66 +43,150 @@ class SubTenantPackagesScreen extends StatefulWidget {
 
 class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   final SubTenantService _service = SubTenantService();
+
   final TextEditingController _searchCtrl = TextEditingController();
-  final _workspaceSearch = SubTenantWorkspaceSearchController.instance;
+
+  final SubTenantWorkspaceSearchController _workspaceSearch =
+      SubTenantWorkspaceSearchController.instance;
 
   late Future<_PackageListLoad> _future;
+
   String _status = 'all';
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Lifecycle
+  // ───────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
+
     _future = _load();
-    _searchCtrl.addListener(() => setState(() {}));
-    _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
+
+    _searchCtrl.addListener(
+      _handleLocalSearchChanged,
+    );
+
+    _workspaceSearch.addListener(
+      _handleWorkspaceSearchChanged,
+    );
   }
 
   @override
   void dispose() {
-    _workspaceSearch.removeListener(_handleWorkspaceSearchChanged);
+    _searchCtrl.removeListener(
+      _handleLocalSearchChanged,
+    );
+
+    _workspaceSearch.removeListener(
+      _handleWorkspaceSearchChanged,
+    );
+
     _searchCtrl.dispose();
+
     super.dispose();
   }
 
+  void _handleLocalSearchChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _handleWorkspaceSearchChanged() {
-    if (!mounted || _workspaceSearch.activeScope != 2) return;
+    if (!mounted ||
+        _workspaceSearch.activeScope != 2) {
+      return;
+    }
+
     setState(() {});
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Loading
+  // ───────────────────────────────────────────────────────────────────────────
+
   Future<_PackageListLoad> _load() async {
-    final profile = await _service.loadCurrentProfile();
-    final packages = await _service.fetchPackages(profile);
-    return _PackageListLoad(profile: profile, packages: packages);
+    final profile =
+        await _service.loadCurrentProfile();
+
+    final packages =
+        await _service.fetchPackages(
+      profile,
+    );
+
+    return _PackageListLoad(
+      profile: profile,
+      packages: packages,
+    );
   }
 
-  void _reload() {
-    final nextFuture = _load();
+  Future<void> _reload() async {
+    late Future<_PackageListLoad> nextFuture;
+
     setState(() {
+      nextFuture = _load();
       _future = nextFuture;
     });
+
+    await nextFuture;
   }
 
-  Future<void> _openForm([SubTenantPackage? package]) async {
-    final changed = await Navigator.push(
+  // ───────────────────────────────────────────────────────────────────────────
+  // Navigation
+  // ───────────────────────────────────────────────────────────────────────────
+
+  Future<void> _openForm([
+    SubTenantPackage? package,
+  ]) async {
+    final changed =
+        await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SubTenantPackageFormScreen(package: package),
+        builder: (_) {
+          return SubTenantPackageFormScreen(
+            package: package,
+          );
+        },
       ),
     );
-    if (!mounted) return;
-    if (changed == true) _reload();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (changed == true) {
+      await _reload();
+    }
   }
 
-  Future<void> _openItinerary(SubTenantPackage package) async {
-    final changed = await Navigator.push(
+  Future<void> _openItinerary(
+    SubTenantPackage package,
+  ) async {
+    final changed =
+        await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SubTenantPackageItineraryScreen(package: package),
+        builder: (_) {
+          return SubTenantPackageItineraryScreen(
+            package: package,
+          );
+        },
       ),
     );
-    if (!mounted) return;
-    if (changed == true) _reload();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (changed == true) {
+      await _reload();
+    }
   }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Publication
+  // ───────────────────────────────────────────────────────────────────────────
 
   Future<void> _setPublished(
     SubTenantProfile profile,
@@ -86,139 +194,354 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
     bool published,
   ) async {
     try {
-      await _service.setPackagePublicationState(profile, package, published);
-      if (!mounted) return;
+      await _service.setPackagePublicationState(
+        profile,
+        package,
+        published,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
       showSubTenantSnack(
         context,
-        published ? 'Package published.' : 'Package unpublished.',
+        published
+            ? 'Package published.'
+            : 'Package unpublished.',
         error: false,
       );
-      _reload();
-    } catch (e) {
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Failed to update package: $e');
+
+      await _reload();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      showSubTenantSnack(
+        context,
+        'Failed to update package: $error',
+      );
     }
   }
 
-  List<SubTenantPackage> _filtered(List<SubTenantPackage> packages) {
-    final query = [
-      _searchCtrl.text.trim(),
-      _workspaceSearch.queryFor(2),
-    ].where((value) => value.isNotEmpty).join(' ').toLowerCase();
+  // ───────────────────────────────────────────────────────────────────────────
+  // Filtering
+  // ───────────────────────────────────────────────────────────────────────────
 
-    return packages.where((item) {
-      final publication = _publicationState(item);
-      final matchesSearch =
-          query.isEmpty ||
-          item.title.toLowerCase().contains(query) ||
-          item.subtitle.toLowerCase().contains(query) ||
-          item.city.toLowerCase().contains(query) ||
-          publication.contains(query) ||
-          item.priceText.toLowerCase().contains(query) ||
-          item.durationText.toLowerCase().contains(query);
-
-      final matchesStatus = _status == 'all' || publication == _status;
-
-      return matchesSearch && matchesStatus;
-    }).toList(growable: false);
-  }
-
-  String _publicationState(SubTenantPackage package) {
-    return package.status == 'published' && package.visibilityStatus == 'visible'
+  String _publicationState(
+    SubTenantPackage package,
+  ) {
+    return package.status
+                    .trim()
+                    .toLowerCase() ==
+                'published' &&
+            package.visibilityStatus
+                    .trim()
+                    .toLowerCase() ==
+                'visible'
         ? 'published'
         : 'unpublished';
   }
 
-  Future<void> _openFilters(List<SubTenantPackage> allPackages) async {
-    final result = await showModalBottomSheet<_PackageFilterResult>(
+  List<SubTenantPackage> _filtered(
+    List<SubTenantPackage> packages,
+  ) {
+    final query = [
+      _searchCtrl.text.trim(),
+      _workspaceSearch.queryFor(2),
+    ].where(
+      (value) => value.isNotEmpty,
+    ).join(' ').toLowerCase();
+
+    return packages.where(
+      (item) {
+        final publication =
+            _publicationState(
+          item,
+        );
+
+        final matchesSearch =
+            query.isEmpty ||
+            item.title
+                .toLowerCase()
+                .contains(query) ||
+            item.subtitle
+                .toLowerCase()
+                .contains(query) ||
+            item.city
+                .toLowerCase()
+                .contains(query) ||
+            publication.contains(
+              query,
+            ) ||
+            item.priceText
+                .toLowerCase()
+                .contains(query) ||
+            item.durationText
+                .toLowerCase()
+                .contains(query);
+
+        final matchesStatus =
+            _status == 'all' ||
+            publication == _status;
+
+        return matchesSearch &&
+            matchesStatus;
+      },
+    ).toList(
+      growable: false,
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Filter dialog
+  // ───────────────────────────────────────────────────────────────────────────
+
+  Future<void> _openFilters(
+    List<SubTenantPackage> allPackages,
+  ) async {
+    final result =
+        await showModalBottomSheet<_PackageFilterResult>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      backgroundColor:
+          Colors.transparent,
       builder: (_) {
         return _PackageFilterSheet(
           status: _status,
-          total: allPackages.length,
-          published: allPackages
-              .where((item) => _publicationState(item) == 'published')
-              .length,
-          unpublished: allPackages
-              .where((item) => _publicationState(item) == 'unpublished')
-              .length,
+          total:
+              allPackages.length,
+          published:
+              allPackages.where(
+            (item) {
+              return _publicationState(
+                    item,
+                  ) ==
+                  'published';
+            },
+          ).length,
+          unpublished:
+              allPackages.where(
+            (item) {
+              return _publicationState(
+                    item,
+                  ) ==
+                  'unpublished';
+            },
+          ).length,
         );
       },
     );
 
-    if (result == null) return;
+    if (result == null) {
+      return;
+    }
 
     setState(() {
       _status = result.status;
     });
   }
 
+  void _clearSearch() {
+    _searchCtrl.clear();
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Build
+  // ───────────────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final mobile = Responsive.isMobile(context);
+    final mobile =
+        Responsive.isMobile(context);
 
     return SubTenantAdminShell(
       currentIndex: 2,
       title: 'Packages',
-      subtitle: 'Create, publish, hide, and maintain city tour packages.',
+      subtitle:
+          'Create, publish, hide, and maintain city tour packages.',
       actions: [
         if (!mobile)
           FilledButton.icon(
-            onPressed: () => _openForm(),
-            icon: const Icon(Icons.add_box_rounded),
-            label: const Text('Create Package'),
-            style: FilledButton.styleFrom(
-              backgroundColor: SubTenantColors.blue,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+            onPressed: () {
+              _openForm();
+            },
+            icon: const Icon(
+              Icons.add_box_rounded,
+              size: 18,
+            ),
+            label:
+                const Text(
+              'Create Package',
+            ),
+            style:
+                FilledButton.styleFrom(
+              backgroundColor:
+                  SubTenantColors.blue,
+              foregroundColor:
+                  Colors.white,
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 14,
+              ),
+              shape:
+                  RoundedRectangleBorder(
+                borderRadius:
+                    BorderRadius.circular(
+                  13,
+                ),
               ),
             ),
           ),
       ],
-      floatingActionButton: mobile
-          ? FloatingActionButton(
-              heroTag: 'subtenant_package_add_fab',
-              backgroundColor: SubTenantColors.blue,
-              foregroundColor: Colors.white,
-              onPressed: () => _openForm(),
-              child: const Icon(Icons.add_rounded),
-            )
-          : null,
-      child: FutureBuilder<_PackageListLoad>(
+      floatingActionButton:
+          mobile
+              ? FloatingActionButton(
+                  heroTag:
+                      'subtenant_package_add_fab',
+                  backgroundColor:
+                      SubTenantColors.blue,
+                  foregroundColor:
+                      Colors.white,
+                  onPressed: () {
+                    _openForm();
+                  },
+                  child:
+                      const Icon(
+                    Icons.add_rounded,
+                  ),
+                )
+              : null,
+      child:
+          FutureBuilder<_PackageListLoad>(
         future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+        builder: (
+          context,
+          snapshot,
+        ) {
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
             return const SubTenantLoadingView();
           }
 
           if (snapshot.hasError) {
             return SubTenantErrorView(
-              message: snapshot.error.toString(),
+              message:
+                  snapshot.error.toString(),
               onRetry: _reload,
             );
           }
 
-          final load = snapshot.data!;
-          final packages = _filtered(load.packages);
+          final load =
+              snapshot.data!;
 
-          return RefreshIndicator(
-            onRefresh: () async => _reload(),
-            child: _PackagesBody(
-              profile: load.profile,
-              allPackages: load.packages,
-              packages: packages,
-              searchCtrl: _searchCtrl,
-              status: _status,
-              onOpenFilters: () => _openFilters(load.packages),
-              onCreate: () => _openForm(),
-              onEdit: _openForm,
-              onItinerary: _openItinerary,
-              onPublishedChanged: (package, published) =>
-                  _setPublished(load.profile, package, published),
+          final packages =
+              _filtered(
+            load.packages,
+          );
+
+          return ColoredBox(
+            color: _pageBackground,
+            child:
+                RefreshIndicator(
+              onRefresh: _reload,
+              child:
+                  SingleChildScrollView(
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
+                padding:
+                    EdgeInsets.fromLTRB(
+                  mobile ? 14 : 18,
+                  mobile ? 12 : 16,
+                  mobile ? 14 : 18,
+                  32,
+                ),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+                  children: [
+                    _PackageToolbar(
+                      controller:
+                          _searchCtrl,
+                      filterStatus:
+                          _status,
+                      onOpenFilters: () {
+                        _openFilters(
+                          load.packages,
+                        );
+                      },
+                      onClearSearch:
+                          _clearSearch,
+                    ),
+
+                    const SizedBox(
+                      height: 20,
+                    ),
+
+                    _PackageSectionHeader(
+                      city:
+                          load.profile.assignedCity,
+                      resultCount:
+                          packages.length,
+                      totalCount:
+                          load.packages.length,
+                      filterStatus:
+                          _status,
+                    ),
+
+                    const SizedBox(
+                      height: 12,
+                    ),
+
+                    if (packages.isEmpty)
+                      _PackageEmptyState(
+                        city:
+                            load.profile.assignedCity,
+                        filtered:
+                            _status != 'all' ||
+                                _searchCtrl.text
+                                    .trim()
+                                    .isNotEmpty,
+                        onCreate:
+                            () {
+                          _openForm();
+                        },
+                        onReset:
+                            () {
+                          setState(() {
+                            _status =
+                                'all';
+                            _searchCtrl
+                                .clear();
+                          });
+                        },
+                      )
+                    else
+                      _PackageGrid(
+                        packages:
+                            packages,
+                        onEdit:
+                            _openForm,
+                        onItinerary:
+                            _openItinerary,
+                        onPublishedChanged:
+                            (
+                          package,
+                          published,
+                        ) {
+                          _setPublished(
+                            load.profile,
+                            package,
+                            published,
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
             ),
           );
         },
@@ -227,296 +550,374 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   }
 }
 
-class _PackagesBody extends StatelessWidget {
-  const _PackagesBody({
-    required this.profile,
-    required this.allPackages,
-    required this.packages,
-    required this.searchCtrl,
-    required this.status,
-    required this.onOpenFilters,
-    required this.onCreate,
-    required this.onEdit,
-    required this.onItinerary,
-    required this.onPublishedChanged,
-  });
-
-  final SubTenantProfile profile;
-  final List<SubTenantPackage> allPackages;
-  final List<SubTenantPackage> packages;
-  final TextEditingController searchCtrl;
-  final String status;
-  final String visibility = 'all';
-  final VoidCallback onOpenFilters;
-  final VoidCallback onCreate;
-  final ValueChanged<SubTenantPackage> onEdit;
-  final ValueChanged<SubTenantPackage> onItinerary;
-  final void Function(SubTenantPackage package, bool published)
-      onPublishedChanged;
-
-  String get _filterLabel {
-    if (status == 'all') return 'Filters';
-    return _pretty(status);
-  }
-
-  String _pretty(String value) {
-    if (value == 'all') return 'All';
-    return value
-        .split('_')
-        .map((word) =>
-            word.isEmpty ? '' : '${word[0].toUpperCase()}${word.substring(1)}')
-        .join(' ');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
-
-    if (!desktop) {
-      return SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics(),
-        ),
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 26),
-        child: Column(
-          children: [
-            _PackageToolbar(
-              controller: searchCtrl,
-              filterLabel: _filterLabel,
-              resultCount: packages.length,
-              totalCount: allPackages.length,
-              onOpenFilters: onOpenFilters,
-            ),
-            const SizedBox(height: 12),
-            if (packages.isEmpty)
-              EmptyStateCard(
-                icon: Icons.inventory_2_outlined,
-                title: 'No packages found',
-                message:
-                    'Only packages for ${profile.assignedCity} are shown here.',
-                actionLabel: 'Create Package',
-                onAction: onCreate,
-              )
-            else
-              _PackageGrid(
-                packages: packages,
-                onEdit: onEdit,
-                onItinerary: onItinerary,
-                onPublishedChanged: onPublishedChanged,
-              ),
-          ],
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Column(
-        children: [
-          _PackageToolbar(
-            controller: searchCtrl,
-            filterLabel: _filterLabel,
-            resultCount: packages.length,
-            totalCount: allPackages.length,
-            onOpenFilters: onOpenFilters,
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: packages.isEmpty
-                ? EmptyStateCard(
-                    icon: Icons.inventory_2_outlined,
-                    title: 'No packages found',
-                    message:
-                        'Only packages for ${profile.assignedCity} are shown here.',
-                    actionLabel: 'Create Package',
-                    onAction: onCreate,
-                  )
-                : _PanelCard(
-                    padding: const EdgeInsets.all(12),
-                    child: Scrollbar(
-                      thumbVisibility: true,
-                      child: SingleChildScrollView(
-                        child: _PackageGrid(
-                          packages: packages,
-                          onEdit: onEdit,
-                          onItinerary: onItinerary,
-                          onPublishedChanged: onPublishedChanged,
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Search / filters
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PackageToolbar extends StatelessWidget {
   const _PackageToolbar({
     required this.controller,
-    required this.filterLabel,
-    required this.resultCount,
-    required this.totalCount,
+    required this.filterStatus,
     required this.onOpenFilters,
+    required this.onClearSearch,
   });
 
   final TextEditingController controller;
-  final String filterLabel;
-  final int resultCount;
-  final int totalCount;
+
+  final String filterStatus;
+
   final VoidCallback onOpenFilters;
+  final VoidCallback onClearSearch;
 
-  @override
-  Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
-    final countLabel = resultCount == totalCount
-        ? '$totalCount package${totalCount == 1 ? '' : 's'}'
-        : '$resultCount of $totalCount packages';
+  String get _filterLabel {
+    switch (filterStatus) {
+      case 'published':
+        return 'Published';
 
-    return _PanelCard(
-      child: desktop
-          ? Row(
-              children: [
-                Expanded(
-                  child: SubTenantSearchBar(
-                    controller: controller,
-                    hintText: 'Search package title, subtitle, status...',
-                    onChanged: (_) {},
-                  ),
-                ),
-                const SizedBox(width: 12),
-                _ToolbarButton(
-                  icon: Icons.tune_rounded,
-                  label: filterLabel,
-                  onTap: onOpenFilters,
-                ),
-                const SizedBox(width: 10),
-                _ResultPill(label: countLabel),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SubTenantSearchBar(
-                  controller: controller,
-                  hintText: 'Search packages...',
-                  onChanged: (_) {},
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ToolbarButton(
-                        icon: Icons.tune_rounded,
-                        label: filterLabel,
-                        onTap: onOpenFilters,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                _ResultPill(label: countLabel),
-              ],
-            ),
-    );
+      case 'unpublished':
+        return 'Unpublished';
+
+      default:
+        return 'Filters';
+    }
   }
-}
-
-class _ToolbarButton extends StatelessWidget {
-  const _ToolbarButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFF7FAFF),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: SubTenantColors.line),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 18, color: SubTenantColors.blue),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SubTenantColors.text,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: SubTenantColors.muted,
-                size: 18,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResultPill extends StatelessWidget {
-  const _ResultPill({required this.label});
-
-  final String label;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      width: double.infinity,
+      padding:
+          const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: SubTenantColors.blue.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: SubTenantColors.blue.withValues(alpha: 0.14)),
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(16),
+        border: Border.all(
+          color:
+              SubTenantColors.line,
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.inventory_2_rounded,
-            size: 16,
-            color: SubTenantColors.blue,
-          ),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: const TextStyle(
-              color: SubTenantColors.blue,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
+      child: LayoutBuilder(
+        builder: (
+          context,
+          constraints,
+        ) {
+          final horizontal =
+              constraints.maxWidth >=
+                  720;
+
+          final search =
+              SizedBox(
+            height: 46,
+            child: TextField(
+              controller:
+                  controller,
+              textInputAction:
+                  TextInputAction.search,
+              decoration:
+                  InputDecoration(
+                hintText:
+                    'Search package title, subtitle, price or duration...',
+                hintStyle:
+                    const TextStyle(
+                  color:
+                      SubTenantColors
+                          .lightMuted,
+                  fontSize: 10.5,
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+                prefixIcon:
+                    const Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color:
+                      SubTenantColors
+                          .lightMuted,
+                ),
+                suffixIcon:
+                    controller.text
+                            .trim()
+                            .isNotEmpty
+                        ? IconButton(
+                            tooltip:
+                                'Clear search',
+                            onPressed:
+                                onClearSearch,
+                            icon:
+                                const Icon(
+                              Icons
+                                  .close_rounded,
+                              size: 16,
+                            ),
+                          )
+                        : null,
+                filled: true,
+                fillColor:
+                    const Color(
+                  0xFFF8FAFC,
+                ),
+                contentPadding:
+                    const EdgeInsets
+                        .symmetric(
+                  horizontal: 12,
+                ),
+                enabledBorder:
+                    OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius
+                          .circular(
+                    11,
+                  ),
+                  borderSide:
+                      const BorderSide(
+                    color:
+                        SubTenantColors
+                            .line,
+                  ),
+                ),
+                focusedBorder:
+                    OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius
+                          .circular(
+                    11,
+                  ),
+                  borderSide:
+                      const BorderSide(
+                    color:
+                        SubTenantColors
+                            .blue,
+                    width: 1.2,
+                  ),
+                ),
+                border:
+                    OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius
+                          .circular(
+                    11,
+                  ),
+                ),
+              ),
             ),
-          ),
-        ],
+          );
+
+          final filter =
+              SizedBox(
+            height: 46,
+            child: Material(
+              color:
+                  Colors.transparent,
+              child: InkWell(
+                borderRadius:
+                    BorderRadius.circular(
+                  11,
+                ),
+                onTap:
+                    onOpenFilters,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 14,
+                  ),
+                  decoration:
+                      BoxDecoration(
+                    color: filterStatus ==
+                            'all'
+                        ? const Color(
+                            0xFFF8FAFC,
+                          )
+                        : _softBlue,
+                    borderRadius:
+                        BorderRadius.circular(
+                      11,
+                    ),
+                    border:
+                        Border.all(
+                      color: filterStatus ==
+                              'all'
+                          ? SubTenantColors
+                              .line
+                          : SubTenantColors
+                              .blue
+                              .withValues(
+                                alpha:
+                                    .20,
+                              ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize:
+                        MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.tune_rounded,
+                        size: 16,
+                        color: filterStatus ==
+                                'all'
+                            ? SubTenantColors
+                                .muted
+                            : SubTenantColors
+                                .blue,
+                      ),
+
+                      const SizedBox(
+                        width: 7,
+                      ),
+
+                      Text(
+                        _filterLabel,
+                        style:
+                            TextStyle(
+                          color: filterStatus ==
+                                  'all'
+                              ? SubTenantColors
+                                  .text
+                              : SubTenantColors
+                                  .blue,
+                          fontSize: 10.5,
+                          fontWeight:
+                              FontWeight
+                                  .w800,
+                        ),
+                      ),
+
+                      const SizedBox(
+                        width: 7,
+                      ),
+
+                      const Icon(
+                        Icons
+                            .keyboard_arrow_down_rounded,
+                        size: 17,
+                        color:
+                            SubTenantColors
+                                .muted,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          if (!horizontal) {
+            return Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment
+                      .stretch,
+              children: [
+                search,
+
+                const SizedBox(
+                  height: 9,
+                ),
+
+                filter,
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(
+                child: search,
+              ),
+
+              const SizedBox(
+                width: 10,
+              ),
+
+              filter,
+            ],
+          );
+        },
       ),
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section header
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PackageSectionHeader extends StatelessWidget {
+  const _PackageSectionHeader({
+    required this.city,
+    required this.resultCount,
+    required this.totalCount,
+    required this.filterStatus,
+  });
+
+  final String city;
+
+  final int resultCount;
+  final int totalCount;
+
+  final String filterStatus;
+
+  @override
+  Widget build(BuildContext context) {
+    final filterText =
+        filterStatus == 'all'
+            ? ''
+            : filterStatus == 'published'
+                ? ' • Published'
+                : ' • Unpublished';
+
+    final countText =
+        resultCount == totalCount
+            ? '$totalCount package${totalCount == 1 ? '' : 's'}'
+            : '$resultCount of $totalCount packages';
+
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Tour Package Library',
+                style: TextStyle(
+                  color:
+                      SubTenantColors.text,
+                  fontSize: 16,
+                  fontWeight:
+                      FontWeight.w900,
+                ),
+              ),
+
+              const SizedBox(
+                height: 4,
+              ),
+
+              Text(
+                '$countText • $city$filterText',
+                style:
+                    const TextStyle(
+                  color:
+                      SubTenantColors
+                          .muted,
+                  fontSize: 10.5,
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Package grid
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PackageGrid extends StatelessWidget {
   const _PackageGrid({
@@ -526,83 +927,103 @@ class _PackageGrid extends StatelessWidget {
     required this.onPublishedChanged,
   });
 
-  final List<SubTenantPackage> packages;
-  final ValueChanged<SubTenantPackage> onEdit;
-  final ValueChanged<SubTenantPackage> onItinerary;
-  final void Function(SubTenantPackage package, bool published)
-      onPublishedChanged;
+  final List<SubTenantPackage>
+      packages;
+
+  final ValueChanged<SubTenantPackage>
+      onEdit;
+
+  final ValueChanged<SubTenantPackage>
+      onItinerary;
+
+  final void Function(
+    SubTenantPackage package,
+    bool published,
+  ) onPublishedChanged;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 1150
-            ? 3
-            : width >= 760
-                ? 2
-                : 1;
+      builder: (
+        context,
+        constraints,
+      ) {
+        final width =
+            constraints.maxWidth;
 
-        const spacing = 12.0;
-        final cardWidth = (width - (spacing * (columns - 1))) / columns;
+        final columns =
+            width >= 1150
+                ? 3
+                : width >= 720
+                    ? 2
+                    : 1;
 
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: packages.map((package) {
-            return SizedBox(
-              width: cardWidth,
-              child: _PackageGridCard(
-                package: package,
-                onEdit: () => onEdit(package),
-                onItinerary: () => onItinerary(package),
-                onPublish: () => onPublishedChanged(package, true),
-                onUnpublish: () => onPublishedChanged(package, false),
-                onVisibilityChanged: (visible) =>
-                    onPublishedChanged(package, visible),
-              ),
+        final cardHeight =
+            columns == 1
+                ? 282.0
+                : 276.0;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics:
+              const NeverScrollableScrollPhysics(),
+          itemCount:
+              packages.length,
+          gridDelegate:
+              SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount:
+                columns,
+            crossAxisSpacing:
+                14,
+            mainAxisSpacing:
+                14,
+            mainAxisExtent:
+                cardHeight,
+          ),
+          itemBuilder:
+              (
+            context,
+            index,
+          ) {
+            final package =
+                packages[index];
+
+            return _PackageGridCard(
+              package:
+                  package,
+              onEdit: () {
+                onEdit(
+                  package,
+                );
+              },
+              onItinerary: () {
+                onItinerary(
+                  package,
+                );
+              },
+              onPublish: () {
+                onPublishedChanged(
+                  package,
+                  true,
+                );
+              },
+              onUnpublish: () {
+                onPublishedChanged(
+                  package,
+                  false,
+                );
+              },
             );
-          }).toList(growable: false),
+          },
         );
       },
     );
   }
 }
 
-class _PackageThumb extends StatelessWidget {
-  const _PackageThumb({
-    required this.imageUrl,
-    required this.size,
-  });
-
-  final String imageUrl;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8EEF7),
-        borderRadius: BorderRadius.circular(size >= 70 ? 18 : 15),
-        image: imageUrl.isEmpty
-            ? null
-            : DecorationImage(
-                image: NetworkImage(imageUrl),
-                fit: BoxFit.cover,
-              ),
-      ),
-      child: imageUrl.isEmpty
-          ? Icon(
-              Icons.image_outlined,
-              color: SubTenantColors.lightMuted,
-              size: size >= 70 ? 26 : 20,
-            )
-          : null,
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Package card
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PackageGridCard extends StatelessWidget {
   const _PackageGridCard({
@@ -611,127 +1032,772 @@ class _PackageGridCard extends StatelessWidget {
     required this.onItinerary,
     required this.onPublish,
     required this.onUnpublish,
-    required this.onVisibilityChanged,
   });
 
   final SubTenantPackage package;
+
   final VoidCallback onEdit;
   final VoidCallback onItinerary;
   final VoidCallback onPublish;
   final VoidCallback onUnpublish;
-  final ValueChanged<bool> onVisibilityChanged;
+
+  bool get _published {
+    return package.status
+                    .trim()
+                    .toLowerCase() ==
+                'published' &&
+            package.visibilityStatus
+                    .trim()
+                    .toLowerCase() ==
+                'visible';
+  }
+
+  bool get _visible {
+    return package.visibilityStatus
+            .trim()
+            .toLowerCase() ==
+        'visible';
+  }
+
+  String get _imageUrl {
+    if (package.coverImageUrl
+        .trim()
+        .isNotEmpty) {
+      return package.coverImageUrl;
+    }
+
+    return package.imageUrl;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isVisible =
-        package.status == 'published' && package.visibilityStatus != 'hidden';
-    final imageUrl = package.coverImageUrl.isNotEmpty
-        ? package.coverImageUrl
-        : package.imageUrl;
+    final published =
+        _published;
 
-    return _PanelCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _PackageThumb(imageUrl: imageUrl, size: 64),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${package.title}\n',
-                        style: const TextStyle(
-                          color: SubTenantColors.text,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14,
-                          height: 1.12,
-                        ),
-                      ),
-                      TextSpan(
-                        text: package.subtitle.isEmpty
-                            ? 'No subtitle'
-                            : package.subtitle,
-                        style: const TextStyle(
-                          color: SubTenantColors.muted,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11.5,
-                          height: 1.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+    final price =
+        package.priceText
+                .trim()
+                .isEmpty
+            ? 'Not set'
+            : package.priceText;
+
+    final duration =
+        package.durationText
+                .trim()
+                .isEmpty
+            ? 'Not set'
+            : package.durationText;
+
+    final subtitle =
+        package.subtitle
+                .trim()
+                .isEmpty
+            ? 'No subtitle provided'
+            : package.subtitle;
+
+    return Material(
+      color:
+          Colors.transparent,
+      child: InkWell(
+        onTap:
+            onEdit,
+        borderRadius:
+            BorderRadius.circular(
+          18,
+        ),
+        child: Container(
+          height:
+              double.infinity,
+          padding:
+              const EdgeInsets.all(
+            14,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius:
+                BorderRadius.circular(
+              18,
+            ),
+            border: Border.all(
+              color:
+                  SubTenantColors.line,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color:
+                    Colors.black
+                        .withValues(
+                  alpha: .025,
+                ),
+                blurRadius: 14,
+                offset:
+                    const Offset(
+                  0,
+                  6,
                 ),
               ),
-              _PackageActionsButton(
-                onSelected: (value) {
-                  switch (value) {
-                    case 'edit':
-                      onEdit();
-                      break;
-                    case 'itinerary':
-                      onItinerary();
-                      break;
-                    case 'publish':
-                      onPublish();
-                      break;
-                    case 'unpublish':
-                      onUnpublish();
-                      break;
-                  }
-                },
-                published: isVisible,
-              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
             children: [
-              SubTenantStatusPill(
-                status: isVisible ? 'published' : 'unpublished',
-              ),
-              SubTenantStatusPill(
-                status: package.visibilityStatus,
-                icon:
-                    isVisible ? Icons.visibility_rounded : Icons.visibility_off_rounded,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(11),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF7FAFF),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: SubTenantColors.line),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${package.priceText.isEmpty ? 'N/A' : package.priceText} • ${package.durationText.isEmpty ? 'N/A' : package.durationText}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: SubTenantColors.text,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
+              // ─────────────────────────
+              // Header
+              // ─────────────────────────
+
+              Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  _PackageThumb(
+                    imageUrl:
+                        _imageUrl,
+                    size: 68,
+                  ),
+
+                  const SizedBox(
+                    width: 12,
+                  ),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          package.title,
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow.ellipsis,
+                          style:
+                              const TextStyle(
+                            color:
+                                SubTenantColors
+                                    .text,
+                            fontSize: 14,
+                            fontWeight:
+                                FontWeight.w900,
+                            height: 1.2,
+                          ),
+                        ),
+
+                        const SizedBox(
+                          height: 4,
+                        ),
+
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow:
+                              TextOverflow.ellipsis,
+                          style:
+                              const TextStyle(
+                            color:
+                                SubTenantColors
+                                    .muted,
+                            fontSize: 10,
+                            fontWeight:
+                                FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+
+                  const SizedBox(
+                    width: 6,
+                  ),
+
+                  _PackageActionsButton(
+                    published:
+                        published,
+                    onSelected:
+                        (value) {
+                      switch (value) {
+                        case 'edit':
+                          onEdit();
+                          break;
+
+                        case 'itinerary':
+                          onItinerary();
+                          break;
+
+                        case 'publish':
+                          onPublish();
+                          break;
+
+                        case 'unpublish':
+                          onUnpublish();
+                          break;
+                      }
+                    },
+                  ),
+                ],
+              ),
+
+              const SizedBox(
+                height: 12,
+              ),
+
+              // ─────────────────────────
+              // Status
+              // ─────────────────────────
+
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _PackageStatusBadge(
+                    published:
+                        published,
+                  ),
+                  _VisibilityBadge(
+                    visible:
+                        _visible,
+                  ),
+                ],
+              ),
+
+              const SizedBox(
+                height: 12,
+              ),
+
+              // ─────────────────────────
+              // Information
+              // ─────────────────────────
+
+              Container(
+                height: 64,
+                decoration:
+                    BoxDecoration(
+                  color:
+                      const Color(
+                    0xFFF8FAFC,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    13,
+                  ),
+                  border:
+                      Border.all(
+                    color:
+                        SubTenantColors
+                            .line,
+                  ),
                 ),
-                Switch(
-                  value: isVisible,
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: SubTenantColors.blue,
-                  inactiveThumbColor: Colors.white,
-                  inactiveTrackColor: const Color(0xFFD7E2F0),
-                  onChanged: onVisibilityChanged,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child:
+                          _PackageInfoBlock(
+                        icon: Icons
+                            .payments_outlined,
+                        label:
+                            'Price',
+                        value:
+                            price,
+                        accent:
+                            SubTenantColors
+                                .blue,
+                      ),
+                    ),
+
+                    Container(
+                      width: 1,
+                      height: 36,
+                      color:
+                          SubTenantColors
+                              .line,
+                    ),
+
+                    Expanded(
+                      child:
+                          _PackageInfoBlock(
+                        icon: Icons
+                            .schedule_outlined,
+                        label:
+                            'Duration',
+                        value:
+                            duration,
+                        accent:
+                            _purple,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Spacer(),
+
+              // ─────────────────────────
+              // Footer
+              // ─────────────────────────
+
+              Row(
+                children: [
+                  Expanded(
+                    child:
+                        OutlinedButton.icon(
+                      onPressed:
+                          onItinerary,
+                      icon:
+                          const Icon(
+                        Icons
+                            .route_outlined,
+                        size: 15,
+                      ),
+                      label:
+                          const Text(
+                        'Itinerary',
+                      ),
+                      style:
+                          OutlinedButton
+                              .styleFrom(
+                        minimumSize:
+                            const Size(
+                          0,
+                          40,
+                        ),
+                        foregroundColor:
+                            SubTenantColors
+                                .blue,
+                        side:
+                            const BorderSide(
+                          color:
+                              SubTenantColors
+                                  .line,
+                        ),
+                        shape:
+                            RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius
+                                  .circular(
+                            10,
+                          ),
+                        ),
+                        textStyle:
+                            const TextStyle(
+                          fontSize:
+                              10.5,
+                          fontWeight:
+                              FontWeight
+                                  .w800,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(
+                    width: 8,
+                  ),
+
+                  Tooltip(
+                    message:
+                        'Edit package',
+                    child: InkWell(
+                      onTap:
+                          onEdit,
+                      borderRadius:
+                          BorderRadius.circular(
+                        10,
+                      ),
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration:
+                            BoxDecoration(
+                          color:
+                              _softBlue,
+                          borderRadius:
+                              BorderRadius
+                                  .circular(
+                            10,
+                          ),
+                          border:
+                              Border.all(
+                            color:
+                                SubTenantColors
+                                    .line,
+                          ),
+                        ),
+                        child:
+                            const Icon(
+                          Icons
+                              .edit_outlined,
+                          color:
+                              SubTenantColors
+                                  .blue,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(
+                    width: 10,
+                  ),
+
+                  _PublicationSwitch(
+                    value:
+                        published,
+                    onChanged:
+                        (value) {
+                      if (value) {
+                        onPublish();
+                      } else {
+                        onUnpublish();
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Thumbnail
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PackageThumb extends StatelessWidget {
+  const _PackageThumb({
+    required this.imageUrl,
+    required this.size,
+  });
+
+  final String imageUrl;
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      clipBehavior:
+          Clip.antiAlias,
+      decoration: BoxDecoration(
+        color:
+            const Color(
+          0xFFEFF4FB,
+        ),
+        borderRadius:
+            BorderRadius.circular(
+          14,
+        ),
+        border: Border.all(
+          color:
+              SubTenantColors.line,
+        ),
+      ),
+      child: imageUrl
+              .trim()
+              .isEmpty
+          ? const _PackageImageFallback()
+          : Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder:
+                  (
+                _,
+                __,
+                ___,
+              ) {
+                return const _PackageImageFallback();
+              },
+              loadingBuilder:
+                  (
+                context,
+                child,
+                progress,
+              ) {
+                if (progress ==
+                    null) {
+                  return child;
+                }
+
+                return Container(
+                  color:
+                      _softBlue,
+                  alignment:
+                      Alignment.center,
+                  child:
+                      const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child:
+                        CircularProgressIndicator(
+                      strokeWidth:
+                          2,
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _PackageImageFallback extends StatelessWidget {
+  const _PackageImageFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color:
+          const Color(
+        0xFFF1F5F9,
+      ),
+      alignment:
+          Alignment.center,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration:
+            BoxDecoration(
+          color: Colors.white,
+          borderRadius:
+              BorderRadius.circular(
+            9,
+          ),
+        ),
+        child: const Icon(
+          Icons
+              .inventory_2_outlined,
+          color:
+              SubTenantColors
+                  .lightMuted,
+          size: 18,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status badges
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PackageStatusBadge extends StatelessWidget {
+  const _PackageStatusBadge({
+    required this.published,
+  });
+
+  final bool published;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SmallBadge(
+      icon: published
+          ? Icons
+              .check_circle_rounded
+          : Icons
+              .radio_button_unchecked_rounded,
+      label: published
+          ? 'Published'
+          : 'Unpublished',
+      foreground: published
+          ? _green
+          : SubTenantColors.muted,
+      background: published
+          ? _softGreen
+          : const Color(
+              0xFFF3F6FA,
+            ),
+    );
+  }
+}
+
+class _VisibilityBadge extends StatelessWidget {
+  const _VisibilityBadge({
+    required this.visible,
+  });
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SmallBadge(
+      icon: visible
+          ? Icons
+              .visibility_outlined
+          : Icons
+              .visibility_off_outlined,
+      label: visible
+          ? 'Visible'
+          : 'Hidden',
+      foreground: visible
+          ? _green
+          : _red,
+      background: visible
+          ? _softGreen
+          : _softRed,
+    );
+  }
+}
+
+class _SmallBadge extends StatelessWidget {
+  const _SmallBadge({
+    required this.icon,
+    required this.label,
+    required this.foreground,
+    required this.background,
+  });
+
+  final IconData icon;
+
+  final String label;
+
+  final Color foreground;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius:
+            BorderRadius.circular(
+          999,
+        ),
+        border: Border.all(
+          color:
+              foreground.withValues(
+            alpha: .12,
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisSize:
+            MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 11,
+            color: foreground,
+          ),
+
+          const SizedBox(
+            width: 4,
+          ),
+
+          Text(
+            label,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 8.5,
+              fontWeight:
+                  FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Package information block
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PackageInfoBlock extends StatelessWidget {
+  const _PackageInfoBlock({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  final IconData icon;
+
+  final String label;
+  final String value;
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 11,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration:
+                BoxDecoration(
+              color:
+                  accent.withValues(
+                alpha: .08,
+              ),
+              borderRadius:
+                  BorderRadius.circular(
+                8,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 14,
+              color: accent,
+            ),
+          ),
+
+          const SizedBox(
+            width: 8,
+          ),
+
+          Expanded(
+            child: Column(
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style:
+                      const TextStyle(
+                    color:
+                        SubTenantColors
+                            .lightMuted,
+                    fontSize: 8,
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+                ),
+
+                const SizedBox(
+                  height: 2,
+                ),
+
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(
+                    color:
+                        SubTenantColors
+                            .text,
+                    fontSize: 10.5,
+                    fontWeight:
+                        FontWeight.w900,
+                  ),
                 ),
               ],
             ),
@@ -742,46 +1808,415 @@ class _PackageGridCard extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Publication switch
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PublicationSwitch extends StatelessWidget {
+  const _PublicationSwitch({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool value;
+
+  final ValueChanged<bool>
+      onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: value
+          ? 'Unpublish package'
+          : 'Publish package',
+      child: Container(
+        height: 40,
+        padding:
+            const EdgeInsets.only(
+          left: 9,
+          right: 2,
+        ),
+        decoration: BoxDecoration(
+          color: value
+              ? _softGreen
+              : const Color(
+                  0xFFF5F7FA,
+                ),
+          borderRadius:
+              BorderRadius.circular(
+            10,
+          ),
+          border: Border.all(
+            color: value
+                ? _green.withValues(
+                    alpha: .15,
+                  )
+                : SubTenantColors
+                    .line,
+          ),
+        ),
+        child: Row(
+          mainAxisSize:
+              MainAxisSize.min,
+          children: [
+            Text(
+              value
+                  ? 'Published'
+                  : 'Draft',
+              style: TextStyle(
+                color: value
+                    ? _green
+                    : SubTenantColors
+                        .muted,
+                fontSize: 8.5,
+                fontWeight:
+                    FontWeight.w800,
+              ),
+            ),
+
+            Transform.scale(
+              scale: .80,
+              child: Switch(
+                value: value,
+                onChanged:
+                    onChanged,
+                activeThumbColor:
+                    Colors.white,
+                activeTrackColor:
+                    SubTenantColors
+                        .blue,
+                inactiveThumbColor:
+                    Colors.white,
+                inactiveTrackColor:
+                    const Color(
+                  0xFFD5DFEC,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actions menu
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _PackageActionsButton extends StatelessWidget {
   const _PackageActionsButton({
     required this.onSelected,
     required this.published,
   });
 
-  final ValueChanged<String> onSelected;
+  final ValueChanged<String>
+      onSelected;
+
   final bool published;
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
-      tooltip: 'Package actions',
-      onSelected: onSelected,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      itemBuilder: (context) => [
-        const PopupMenuItem(value: 'edit', child: Text('Edit Package')),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: published ? 'unpublish' : 'publish',
-          child: Text(published ? 'Unpublish' : 'Publish'),
+      tooltip:
+          'Package actions',
+      padding:
+          EdgeInsets.zero,
+      onSelected:
+          onSelected,
+      shape:
+          RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.circular(
+          13,
         ),
-      ],
+      ),
+      itemBuilder:
+          (context) {
+        return [
+          const PopupMenuItem(
+            value: 'edit',
+            child:
+                _PackageMenuItem(
+              icon:
+                  Icons.edit_outlined,
+              label:
+                  'Edit Package',
+            ),
+          ),
+
+          const PopupMenuItem(
+            value:
+                'itinerary',
+            child:
+                _PackageMenuItem(
+              icon:
+                  Icons.route_outlined,
+              label:
+                  'Manage Itinerary',
+            ),
+          ),
+
+          const PopupMenuDivider(),
+
+          if (published)
+            const PopupMenuItem(
+              value:
+                  'unpublish',
+              child:
+                  _PackageMenuItem(
+                icon: Icons
+                    .visibility_off_outlined,
+                label:
+                    'Unpublish Package',
+                color:
+                    _amber,
+              ),
+            )
+          else
+            const PopupMenuItem(
+              value:
+                  'publish',
+              child:
+                  _PackageMenuItem(
+                icon: Icons
+                    .publish_rounded,
+                label:
+                    'Publish Package',
+                color:
+                    _green,
+              ),
+            ),
+        ];
+      },
       child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF7FAFF),
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: SubTenantColors.line),
+        width: 36,
+        height: 36,
+        decoration:
+            BoxDecoration(
+          color:
+              const Color(
+            0xFFF8FAFC,
+          ),
+          borderRadius:
+              BorderRadius.circular(
+            10,
+          ),
+          border: Border.all(
+            color:
+                SubTenantColors.line,
+          ),
         ),
         child: const Icon(
           Icons.more_horiz_rounded,
-          color: SubTenantColors.text,
-          size: 20,
+          color:
+              SubTenantColors.muted,
+          size: 19,
         ),
       ),
     );
   }
 }
+
+class _PackageMenuItem extends StatelessWidget {
+  const _PackageMenuItem({
+    required this.icon,
+    required this.label,
+    this.color,
+  });
+
+  final IconData icon;
+
+  final String label;
+
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final actualColor =
+        color ??
+            SubTenantColors
+                .muted;
+
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 17,
+          color: actualColor,
+        ),
+
+        const SizedBox(
+          width: 9,
+        ),
+
+        Text(
+          label,
+          style: TextStyle(
+            color:
+                color ??
+                    SubTenantColors
+                        .text,
+            fontSize: 11,
+            fontWeight:
+                FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty state
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PackageEmptyState extends StatelessWidget {
+  const _PackageEmptyState({
+    required this.city,
+    required this.filtered,
+    required this.onCreate,
+    required this.onReset,
+  });
+
+  final String city;
+
+  final bool filtered;
+
+  final VoidCallback onCreate;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 24,
+        vertical: 44,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(
+          17,
+        ),
+        border: Border.all(
+          color:
+              SubTenantColors.line,
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration:
+                BoxDecoration(
+              color: _softBlue,
+              borderRadius:
+                  BorderRadius.circular(
+                16,
+              ),
+            ),
+            child: const Icon(
+              Icons
+                  .inventory_2_outlined,
+              color:
+                  SubTenantColors.blue,
+              size: 25,
+            ),
+          ),
+
+          const SizedBox(
+            height: 12,
+          ),
+
+          Text(
+            filtered
+                ? 'No matching packages'
+                : 'No packages yet',
+            style:
+                const TextStyle(
+              color:
+                  SubTenantColors.text,
+              fontSize: 15,
+              fontWeight:
+                  FontWeight.w900,
+            ),
+          ),
+
+          const SizedBox(
+            height: 5,
+          ),
+
+          Text(
+            filtered
+                ? 'No packages match your current search or filter.'
+                : 'Tour packages created for $city will appear here.',
+            textAlign:
+                TextAlign.center,
+            style:
+                const TextStyle(
+              color:
+                  SubTenantColors.muted,
+              fontSize: 10.5,
+              fontWeight:
+                  FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+
+          const SizedBox(
+            height: 14,
+          ),
+
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment:
+                WrapAlignment.center,
+            children: [
+              if (filtered)
+                OutlinedButton.icon(
+                  onPressed:
+                      onReset,
+                  icon:
+                      const Icon(
+                    Icons
+                        .filter_alt_off_rounded,
+                    size: 15,
+                  ),
+                  label:
+                      const Text(
+                    'Clear Filters',
+                  ),
+                ),
+
+              FilledButton.icon(
+                onPressed:
+                    onCreate,
+                icon:
+                    const Icon(
+                  Icons.add_rounded,
+                  size: 16,
+                ),
+                label:
+                    const Text(
+                  'Create Package',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filter sheet
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PackageFilterSheet extends StatefulWidget {
   const _PackageFilterSheet({
@@ -792,143 +2227,368 @@ class _PackageFilterSheet extends StatefulWidget {
   });
 
   final String status;
+
   final int total;
   final int published;
   final int unpublished;
 
   @override
-  State<_PackageFilterSheet> createState() => _PackageFilterSheetState();
+  State<_PackageFilterSheet> createState() =>
+      _PackageFilterSheetState();
 }
 
 class _PackageFilterSheetState extends State<_PackageFilterSheet> {
-  late String _status = widget.status;
+  late String _status;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _status =
+        widget.status;
+  }
+
+  void _reset() {
+    setState(() {
+      _status = 'all';
+    });
+  }
+
+  void _apply() {
+    Navigator.pop(
+      context,
+      _PackageFilterResult(
+        status: _status,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Center(
+      child: Align(
+        alignment:
+            Alignment.bottomCenter,
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 560),
-          margin: const EdgeInsets.all(18),
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+          width: double.infinity,
+          constraints:
+              const BoxConstraints(
+            maxWidth: 560,
+          ),
+          margin:
+              const EdgeInsets.all(
+            16,
+          ),
+          padding:
+              const EdgeInsets.fromLTRB(
+            18,
+            12,
+            18,
+            18,
+          ),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(26),
+            borderRadius:
+                BorderRadius.circular(
+              22,
+            ),
+            border: Border.all(
+              color:
+                  SubTenantColors.line,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
+                color:
+                    Colors.black
+                        .withValues(
+                  alpha: .14,
+                ),
                 blurRadius: 30,
-                offset: const Offset(0, 16),
+                offset:
+                    const Offset(
+                  0,
+                  14,
+                ),
               ),
             ],
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize:
+                MainAxisSize.min,
+            crossAxisAlignment:
+                CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD7E2F0),
-                  borderRadius: BorderRadius.circular(999),
+              Align(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration:
+                      BoxDecoration(
+                    color:
+                        const Color(
+                      0xFFD5DFEC,
+                    ),
+                    borderRadius:
+                        BorderRadius.circular(
+                      999,
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
+
+              const SizedBox(
+                height: 15,
+              ),
+
               Row(
                 children: [
                   Container(
                     width: 42,
                     height: 42,
-                    decoration: BoxDecoration(
-                      color: SubTenantColors.blue.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.tune_rounded,
-                      color: SubTenantColors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Package Filters\n',
-                            style: TextStyle(
-                              color: SubTenantColors.text,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 17,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'Choose which package state to show',
-                            style: TextStyle(
-                              color: SubTenantColors.muted,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                    decoration:
+                        BoxDecoration(
+                      color:
+                          _softBlue,
+                      borderRadius:
+                          BorderRadius.circular(
+                        11,
                       ),
                     ),
+                    child:
+                        const Icon(
+                      Icons.tune_rounded,
+                      color:
+                          SubTenantColors
+                              .blue,
+                      size: 19,
+                    ),
                   ),
+
+                  const SizedBox(
+                    width: 11,
+                  ),
+
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Package Filters',
+                          style:
+                              TextStyle(
+                            color:
+                                SubTenantColors
+                                    .text,
+                            fontSize:
+                                15,
+                            fontWeight:
+                                FontWeight
+                                    .w900,
+                          ),
+                        ),
+
+                        SizedBox(
+                          height: 2,
+                        ),
+
+                        Text(
+                          'Filter your tour package library by publication state.',
+                          style:
+                              TextStyle(
+                            color:
+                                SubTenantColors
+                                    .muted,
+                            fontSize:
+                                10,
+                            fontWeight:
+                                FontWeight
+                                    .w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _status = 'all';
-                      });
-                    },
-                    child: const Text('Reset'),
+                    onPressed:
+                        _reset,
+                    child:
+                        const Text(
+                      'Reset',
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              _FilterGroup(
-                title: 'Publication State',
-                children: [
-                  _FilterChipButton(
-                    label: 'All',
-                    count: widget.total,
-                    selected: _status == 'all',
-                    onTap: () => setState(() => _status = 'all'),
-                  ),
-                  _FilterChipButton(
-                    label: 'Published',
-                    count: widget.published,
-                    selected: _status == 'published',
-                    onTap: () => setState(() => _status = 'published'),
-                  ),
-                  _FilterChipButton(
-                    label: 'Unpublished',
-                    count: widget.unpublished,
-                    selected: _status == 'unpublished',
-                    onTap: () => setState(() => _status = 'unpublished'),
-                  ),
-                ],
+
+              const SizedBox(
+                height: 16,
               ),
-              const SizedBox(height: 16),
+
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(
+                  13,
+                ),
+                decoration:
+                    BoxDecoration(
+                  color:
+                      const Color(
+                    0xFFF8FAFC,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    13,
+                  ),
+                  border:
+                      Border.all(
+                    color:
+                        SubTenantColors
+                            .line,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Publication State',
+                      style:
+                          TextStyle(
+                        color:
+                            SubTenantColors
+                                .text,
+                        fontSize: 11,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 10,
+                    ),
+
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        _FilterChipButton(
+                          label:
+                              'All',
+                          count:
+                              widget.total,
+                          selected:
+                              _status ==
+                                  'all',
+                          onTap:
+                              () {
+                            setState(() {
+                              _status =
+                                  'all';
+                            });
+                          },
+                        ),
+
+                        _FilterChipButton(
+                          label:
+                              'Published',
+                          count:
+                              widget.published,
+                          selected:
+                              _status ==
+                                  'published',
+                          onTap:
+                              () {
+                            setState(() {
+                              _status =
+                                  'published';
+                            });
+                          },
+                        ),
+
+                        _FilterChipButton(
+                          label:
+                              'Unpublished',
+                          count:
+                              widget.unpublished,
+                          selected:
+                              _status ==
+                                  'unpublished',
+                          onTap:
+                              () {
+                            setState(() {
+                              _status =
+                                  'unpublished';
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(
+                height: 17,
+              ),
+
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      label: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
+                    child:
+                        OutlinedButton(
                       onPressed: () {
                         Navigator.pop(
                           context,
-                          _PackageFilterResult(status: _status),
                         );
                       },
-                      label: const Text('Apply Filters'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: SubTenantColors.blue,
-                        foregroundColor: Colors.white,
+                      style:
+                          OutlinedButton
+                              .styleFrom(
+                        minimumSize:
+                            const Size
+                                .fromHeight(
+                          43,
+                        ),
+                      ),
+                      child:
+                          const Text(
+                        'Cancel',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(
+                    width: 10,
+                  ),
+
+                  Expanded(
+                    child:
+                        FilledButton.icon(
+                      onPressed:
+                          _apply,
+                      icon:
+                          const Icon(
+                        Icons
+                            .check_rounded,
+                        size: 16,
+                      ),
+                      label:
+                          const Text(
+                        'Apply Filters',
+                      ),
+                      style:
+                          FilledButton
+                              .styleFrom(
+                        minimumSize:
+                            const Size
+                                .fromHeight(
+                          43,
+                        ),
+                        backgroundColor:
+                            SubTenantColors
+                                .blue,
                       ),
                     ),
                   ),
@@ -942,47 +2602,9 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
   }
 }
 
-class _FilterGroup extends StatelessWidget {
-  const _FilterGroup({
-    required this.title,
-    required this.children,
-  });
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SubTenantColors.line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: SubTenantColors.text,
-              fontWeight: FontWeight.w900,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: children,
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Filter chips
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _FilterChipButton extends StatelessWidget {
   const _FilterChipButton({
@@ -993,105 +2615,143 @@ class _FilterChipButton extends StatelessWidget {
   });
 
   final String label;
+
   final int count;
+
   final bool selected;
+
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = selected ? Colors.white : SubTenantColors.text;
-    final background =
-        selected ? SubTenantColors.blue : Colors.white.withValues(alpha: 0.95);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? SubTenantColors.blue : SubTenantColors.line,
-          ),
+    return Material(
+      color:
+          Colors.transparent,
+      child: InkWell(
+        onTap:
+            onTap,
+        borderRadius:
+            BorderRadius.circular(
+          999,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: foreground,
-                fontWeight: FontWeight.w900,
-                fontSize: 12,
-              ),
+        child:
+            AnimatedContainer(
+          duration:
+              const Duration(
+            milliseconds: 140,
+          ),
+          height: 36,
+          padding:
+              const EdgeInsets.symmetric(
+            horizontal: 11,
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? SubTenantColors.blue
+                : Colors.white,
+            borderRadius:
+                BorderRadius.circular(
+              999,
             ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: selected
-                    ? Colors.white.withValues(alpha: 0.20)
-                    : SubTenantColors.blue.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  color: selected ? Colors.white : SubTenantColors.blue,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 10,
+            border: Border.all(
+              color: selected
+                  ? SubTenantColors.blue
+                  : SubTenantColors.line,
+            ),
+          ),
+          child: Row(
+            mainAxisSize:
+                MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style:
+                    TextStyle(
+                  color: selected
+                      ? Colors.white
+                      : SubTenantColors
+                          .muted,
+                  fontSize: 9.5,
+                  fontWeight:
+                      FontWeight.w800,
                 ),
               ),
-            ),
-          ],
+
+              const SizedBox(
+                width: 6,
+              ),
+
+              Container(
+                constraints:
+                    const BoxConstraints(
+                  minWidth: 19,
+                ),
+                alignment:
+                    Alignment.center,
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 1,
+                ),
+                decoration:
+                    BoxDecoration(
+                  color: selected
+                      ? Colors.white
+                          .withValues(
+                            alpha:
+                                .18,
+                          )
+                      : _softBlue,
+                  borderRadius:
+                      BorderRadius.circular(
+                    999,
+                  ),
+                ),
+                child: Text(
+                  '$count',
+                  style:
+                      TextStyle(
+                    color: selected
+                        ? Colors.white
+                        : SubTenantColors
+                            .blue,
+                    fontSize: 8,
+                    fontWeight:
+                        FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Filter result
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _PackageFilterResult {
-  const _PackageFilterResult({required this.status});
+  const _PackageFilterResult({
+    required this.status,
+  });
 
   final String status;
 }
 
-class _PanelCard extends StatelessWidget {
-  const _PanelCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(14),
-  });
-
-  final Widget child;
-  final EdgeInsets padding;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: SubTenantColors.line.withValues(alpha: 0.9)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.035),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Load wrapper
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PackageListLoad {
-  const _PackageListLoad({required this.profile, required this.packages});
+  const _PackageListLoad({
+    required this.profile,
+    required this.packages,
+  });
 
   final SubTenantProfile profile;
+
   final List<SubTenantPackage> packages;
 }
-

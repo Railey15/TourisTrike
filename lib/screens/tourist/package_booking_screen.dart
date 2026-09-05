@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/google_places_gateway.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
@@ -5249,6 +5248,9 @@ class _LocationPickerCard extends StatefulWidget {
 
 class _LocationPickerCardState extends State<_LocationPickerCard> {
   static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
+  late final GooglePlacesGateway _placesGateway = GooglePlacesGateway(
+    apiKey: _apiKey,
+  );
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -5303,40 +5305,28 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
       final scoped =
           '$query, ${widget.requiredMunicipality}, ${widget.requiredProvince}, Philippines';
 
-      final encoded = Uri.encodeQueryComponent(scoped);
-
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/autocomplete/json'
-        '?input=$encoded'
-        '&key=$_apiKey'
-        '&components=country:ph'
-        '&language=en',
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      final body = await _placesGateway.request('autocomplete', {
+        'input': scoped,
+        'components': 'country:ph',
+        'language': 'en',
+      });
 
       if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-
-        final predictions = (body['predictions'] as List?) ?? const [];
-
-        setState(() {
-          _suggestions = predictions
-              .map(
-                (prediction) => _AutocompleteResult(
-                  placeId: prediction['place_id'] as String? ?? '',
-                  description: prediction['description'] as String? ?? '',
-                ),
-              )
-              .where((result) => result.placeId.isNotEmpty)
-              .take(5)
-              .toList(growable: false);
-        });
-      }
-    } catch (_) {
-      // Intentionally unobtrusive.
+      final predictions = (body['predictions'] as List?) ?? const [];
+      setState(() {
+        _suggestions = predictions
+            .map(
+              (prediction) => _AutocompleteResult(
+                placeId: prediction['place_id'] as String? ?? '',
+                description: prediction['description'] as String? ?? '',
+              ),
+            )
+            .where((result) => result.placeId.isNotEmpty)
+            .take(5)
+            .toList(growable: false);
+      });
+    } catch (error) {
+      if (mounted) _showError(error.toString());
     } finally {
       if (mounted) {
         setState(() {
@@ -5355,56 +5345,47 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
     });
 
     try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/details/json'
-        '?place_id=${suggestion.placeId}'
-        '&fields=geometry,formatted_address,address_components,name'
-        '&key=$_apiKey',
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      final body = await _placesGateway.request('details', {
+        'place_id': suggestion.placeId,
+        'fields': 'geometry,formatted_address,address_components,name',
+      });
 
       if (!mounted) return;
+      final result = body['result'] as Map<String, dynamic>?;
 
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final geometry = result?['geometry'] as Map?;
 
-        final result = body['result'] as Map<String, dynamic>?;
+      final location = geometry == null
+          ? null
+          : Map<String, dynamic>.from(geometry)['location'] as Map?;
 
-        final geometry = result?['geometry'] as Map?;
+      final lat = (location?['lat'] as num?)?.toDouble();
 
-        final location = geometry == null
-            ? null
-            : Map<String, dynamic>.from(geometry)['location'] as Map?;
+      final lng = (location?['lng'] as num?)?.toDouble();
 
-        final lat = (location?['lat'] as num?)?.toDouble();
+      final address =
+          result?['formatted_address'] as String? ?? suggestion.description;
 
-        final lng = (location?['lng'] as num?)?.toDouble();
+      final components = _parseAddressComponents(
+        (result?['address_components'] as List?) ?? const [],
+      );
 
-        final address =
-            result?['formatted_address'] as String? ?? suggestion.description;
-
-        final components = _parseAddressComponents(
-          (result?['address_components'] as List?) ?? const [],
+      if (lat != null && lng != null) {
+        final validation = _locationValidationMessage(
+          address: address,
+          countryCode: components.countryCode,
+          province: components.province,
+          locality: components.locality,
         );
 
-        if (lat != null && lng != null) {
-          final validation = _locationValidationMessage(
-            address: address,
-            countryCode: components.countryCode,
-            province: components.province,
-            locality: components.locality,
-          );
-
-          if (validation != null) {
-            _invalidateSelection(validation);
-            return;
-          }
-
-          _setLocation(address, lat, lng);
-
+        if (validation != null) {
+          _invalidateSelection(validation);
           return;
         }
+
+        _setLocation(address, lat, lng);
+
+        return;
       }
 
       _invalidateSelection(
@@ -5485,24 +5466,14 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
 
   Future<String> _reverseGeocode(double lat, double lng) async {
     try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/geocode/json'
-        '?latlng=$lat,$lng'
-        '&key=$_apiKey'
-        '&language=en',
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-
-        final results = (body['results'] as List?) ?? const [];
-
-        if (results.isNotEmpty) {
-          return results.first['formatted_address'] as String? ??
-              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
-        }
+      final body = await _placesGateway.request('geocode', {
+        'latlng': '$lat,$lng',
+        'language': 'en',
+      });
+      final results = (body['results'] as List?) ?? const [];
+      if (results.isNotEmpty) {
+        return results.first['formatted_address'] as String? ??
+            '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
       }
     } catch (_) {}
 
@@ -5806,6 +5777,9 @@ class _SharedRouteMapPreview extends StatelessWidget {
   });
 
   static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
+  static final GooglePlacesGateway _placesGateway = GooglePlacesGateway(
+    apiKey: _apiKey,
+  );
 
   final String? pickupAddress;
 
@@ -5818,20 +5792,18 @@ class _SharedRouteMapPreview extends StatelessWidget {
   final double? dropoffLng;
 
   String _mapUrl() {
-    final buffer = StringBuffer(
-      'https://maps.googleapis.com/maps/api/staticmap'
-      '?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
+    if (pickupLat == null ||
+        pickupLng == null ||
+        dropoffLat == null ||
+        dropoffLng == null) {
+      return '';
+    }
+    return _placesGateway.routeStaticMapUrl(
+      pickupLatitude: pickupLat!,
+      pickupLongitude: pickupLng!,
+      dropoffLatitude: dropoffLat!,
+      dropoffLongitude: dropoffLng!,
     );
-
-    if (pickupLat != null && pickupLng != null) {
-      buffer.write('&markers=color:green%7Clabel:P%7C$pickupLat,$pickupLng');
-    }
-
-    if (dropoffLat != null && dropoffLng != null) {
-      buffer.write('&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng');
-    }
-
-    return buffer.toString();
   }
 
   @override
@@ -5862,18 +5834,26 @@ class _SharedRouteMapPreview extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(14),
-            child: Image.network(
-              _mapUrl(),
-              width: double.infinity,
-              height: 160,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
-                height: 160,
-                color: const Color(0xFFF1F5F9),
-                alignment: Alignment.center,
-                child: const Text('Map preview unavailable'),
-              ),
-            ),
+            child: _mapUrl().isEmpty
+                ? Container(
+                    width: double.infinity,
+                    height: 160,
+                    color: const Color(0xFFF1F5F9),
+                    alignment: Alignment.center,
+                    child: const Text('Map preview unavailable'),
+                  )
+                : Image.network(
+                    _mapUrl(),
+                    width: double.infinity,
+                    height: 160,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      height: 160,
+                      color: const Color(0xFFF1F5F9),
+                      alignment: Alignment.center,
+                      child: const Text('Map preview unavailable'),
+                    ),
+                  ),
           ),
 
           const SizedBox(height: 9),

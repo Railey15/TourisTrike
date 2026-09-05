@@ -1,10 +1,8 @@
-import 'dart:convert';
-import 'dart:developer' as developer;
 import 'dart:math' as math;
 
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
+
+import 'google_places_gateway.dart';
 
 class CitySpotSuggestion {
   const CitySpotSuggestion({
@@ -91,22 +89,11 @@ class CitySpotSuggestionService {
   static const LatLng defaultBulacanCenter = LatLng(14.9597, 120.9206);
 
   final String apiKey;
+  late final GooglePlacesGateway _gateway = GooglePlacesGateway(apiKey: apiKey);
 
-  /// Reads `GOOGLE_MAPS_API_KEY` or `GOOGLE_PLACES_API_KEY` from `.env`.
-  /// Callers receive an empty key when configuration is unavailable.
-  static String resolveApiKey() {
-    try {
-      final fromEnv =
-          (dotenv.env['GOOGLE_MAPS_API_KEY'] ??
-                  dotenv.env['GOOGLE_PLACES_API_KEY'] ??
-                  '')
-              .trim();
-      if (fromEnv.isNotEmpty) return fromEnv;
-    } catch (_) {
-      // dotenv may not be loaded in tests.
-    }
-    return '';
-  }
+  /// Native builds receive this through `--dart-define`; web always returns
+  /// an empty value and talks to the authenticated Edge Function instead.
+  static String resolveApiKey() => resolveGoogleMapsApiKey().trim();
 
   Future<List<CitySpotSuggestion>> fetchSuggestions({
     required String city,
@@ -116,7 +103,7 @@ class CitySpotSuggestionService {
     Set<String> excludeTitles = const {},
   }) async {
     final trimmedCity = city.trim();
-    if (trimmedCity.isEmpty || apiKey.trim().isEmpty) return const [];
+    if (trimmedCity.isEmpty) return const [];
 
     final effectiveProvince = province.trim().isEmpty
         ? 'Bulacan'
@@ -192,9 +179,7 @@ class CitySpotSuggestionService {
   }) async {
     final trimmedQuery = query.trim();
     final trimmedCity = city.trim();
-    if (trimmedQuery.length < 3 ||
-        trimmedCity.isEmpty ||
-        apiKey.trim().isEmpty) {
+    if (trimmedQuery.length < 3 || trimmedCity.isEmpty) {
       return const [];
     }
 
@@ -243,17 +228,9 @@ class CitySpotSuggestionService {
     required double longitude,
     String? apiKey,
   }) {
-    final key = apiKey ?? resolveApiKey();
-    if (key.trim().isEmpty) return '';
-    final marker = Uri.encodeComponent('$latitude,$longitude');
-    return 'https://maps.googleapis.com/maps/api/staticmap'
-        '?center=$marker'
-        '&zoom=15'
-        '&size=640x420'
-        '&scale=2'
-        '&maptype=roadmap'
-        '&markers=color:red%7C$marker'
-        '&key=$key';
+    return GooglePlacesGateway(
+      apiKey: apiKey ?? resolveApiKey(),
+    ).staticMapUrl(latitude: latitude, longitude: longitude);
   }
 
   Future<List<CitySpotSuggestion>> _fetchGoogleTextSearch({
@@ -262,47 +239,22 @@ class CitySpotSuggestionService {
     required String province,
     required LatLng center,
   }) async {
-    try {
-      final query = Uri.encodeQueryComponent(spec.query);
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/textsearch/json'
-        '?query=$query'
-        '&location=${center.latitude},${center.longitude}'
-        '&radius=25000'
-        '&region=ph'
-        '&key=$apiKey',
-      );
-
-      final res = await http.get(uri).timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) return const [];
-
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      final status = body['status']?.toString() ?? '';
-
-      if (status != 'OK' && status != 'ZERO_RESULTS') {
-        _logPlacesApiIssue('textsearch', spec.tag, status, body);
-        return const [];
-      }
-
-      final results = (body['results'] as List?) ?? const [];
-      final suggestions = _parsePlacesResults(
-        results: results,
-        city: city,
-        province: province,
-        center: center,
-        fallbackTag: spec.tag,
-      );
-
-      suggestions.sort(_compareSpotQuality);
-      return suggestions.take(6).toList(growable: false);
-    } catch (error, stack) {
-      developer.log(
-        'Google Places text search failed (${spec.tag}): $error',
-        name: 'CitySpotSuggestionService',
-        stackTrace: stack,
-      );
-      return const [];
-    }
+    final body = await _gateway.request('textSearch', {
+      'query': spec.query,
+      'location': '${center.latitude},${center.longitude}',
+      'radius': '25000',
+      'region': 'ph',
+    });
+    final results = (body['results'] as List?) ?? const [];
+    final suggestions = _parsePlacesResults(
+      results: results,
+      city: city,
+      province: province,
+      center: center,
+      fallbackTag: spec.tag,
+    );
+    suggestions.sort(_compareSpotQuality);
+    return suggestions.take(6).toList(growable: false);
   }
 
   Future<List<CitySpotSuggestion>> _fetchGoogleNearbySearch({
@@ -311,46 +263,22 @@ class CitySpotSuggestionService {
     required String province,
     required LatLng center,
   }) async {
-    try {
-      final keyword = Uri.encodeQueryComponent(spec.keyword);
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/nearbysearch/json'
-        '?location=${center.latitude},${center.longitude}'
-        '&radius=25000'
-        '&keyword=$keyword'
-        '&region=ph'
-        '&key=$apiKey',
-      );
-
-      final res = await http.get(uri).timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) return const [];
-
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      final status = body['status']?.toString() ?? '';
-      if (status != 'OK' && status != 'ZERO_RESULTS') {
-        _logPlacesApiIssue('nearbysearch', spec.tag, status, body);
-        return const [];
-      }
-
-      final results = (body['results'] as List?) ?? const [];
-      final suggestions = _parsePlacesResults(
-        results: results,
-        city: city,
-        province: province,
-        center: center,
-        fallbackTag: spec.tag,
-      );
-
-      suggestions.sort(_compareSpotQuality);
-      return suggestions.take(6).toList(growable: false);
-    } catch (error, stack) {
-      developer.log(
-        'Google Places nearby search failed (${spec.tag}): $error',
-        name: 'CitySpotSuggestionService',
-        stackTrace: stack,
-      );
-      return const [];
-    }
+    final body = await _gateway.request('nearbySearch', {
+      'location': '${center.latitude},${center.longitude}',
+      'radius': '25000',
+      'keyword': spec.keyword,
+      'region': 'ph',
+    });
+    final results = (body['results'] as List?) ?? const [];
+    final suggestions = _parsePlacesResults(
+      results: results,
+      city: city,
+      province: province,
+      center: center,
+      fallbackTag: spec.tag,
+    );
+    suggestions.sort(_compareSpotQuality);
+    return suggestions.take(6).toList(growable: false);
   }
 
   Future<List<CitySpotSuggestion>> _enrichSuggestionsWithPlaceDetails(
@@ -383,70 +311,33 @@ class CitySpotSuggestionService {
       return suggestion;
     }
 
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/details/json'
-        '?place_id=${Uri.encodeQueryComponent(suggestion.id)}'
-        '&fields='
-        'place_id,'
-        'name,'
-        'formatted_address,'
-        'geometry/location,'
-        'rating,'
-        'user_ratings_total,'
-        'website,'
-        'formatted_phone_number,'
-        'editorial_summary,'
-        'opening_hours/weekday_text,'
-        'address_components,'
-        'photos/photo_reference,'
-        'types,'
-        'business_status'
-        '&region=ph'
-        '&key=$apiKey',
-      );
-
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode != 200) return suggestion;
-
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      final status = body['status']?.toString() ?? '';
-      if (status != 'OK') {
-        _logPlacesApiIssue('details', suggestion.category, status, body);
-        return suggestion;
-      }
-
-      final result = body['result'];
-      if (result is! Map<String, dynamic>) return suggestion;
-
-      return _buildSuggestionFromDetails(
-        suggestion: suggestion,
-        details: result,
-        city: city,
-        province: province,
-        center: center,
-      );
-    } catch (error, stack) {
-      developer.log(
-        'Google Places details failed (${suggestion.title}): $error',
-        name: 'CitySpotSuggestionService',
-        stackTrace: stack,
-      );
-      return suggestion;
-    }
-  }
-
-  void _logPlacesApiIssue(
-    String endpoint,
-    String tag,
-    String status,
-    Map<String, dynamic> body,
-  ) {
-    final message = body['error_message']?.toString() ?? '';
-    developer.log(
-      'Google Places $endpoint [$tag] returned $status'
-      '${message.isEmpty ? '' : ': $message'}',
-      name: 'CitySpotSuggestionService',
+    final body = await _gateway.request('details', {
+      'place_id': suggestion.id,
+      'fields':
+          'place_id,'
+          'name,'
+          'formatted_address,'
+          'geometry/location,'
+          'rating,'
+          'user_ratings_total,'
+          'website,'
+          'formatted_phone_number,'
+          'editorial_summary,'
+          'opening_hours/weekday_text,'
+          'address_components,'
+          'photos/photo_reference,'
+          'types,'
+          'business_status',
+      'region': 'ph',
+    });
+    final result = body['result'];
+    if (result is! Map<String, dynamic>) return suggestion;
+    return _buildSuggestionFromDetails(
+      suggestion: suggestion,
+      details: result,
+      city: city,
+      province: province,
+      center: center,
     );
   }
 
@@ -496,12 +387,14 @@ class CitySpotSuggestionService {
       final photoRef = photos.isEmpty
           ? ''
           : ((photos.first as Map)['photo_reference'] as String?) ?? '';
-      final imageUrl = photoRef.isEmpty
-          ? ''
-          : 'https://maps.googleapis.com/maps/api/place/photo'
-                '?maxwidth=900'
-                '&photo_reference=${Uri.encodeComponent(photoRef)}'
-                '&key=$apiKey';
+      final proxyImageUrl = (item['_proxy_image_url'] as String?)?.trim() ?? '';
+      final proxyMapUrl =
+          (item['_proxy_static_map_url'] as String?)?.trim() ?? '';
+      final imageUrl = proxyImageUrl.isNotEmpty
+          ? proxyImageUrl
+          : photoRef.isNotEmpty
+          ? _gateway.photoUrl(photoRef)
+          : proxyMapUrl;
 
       suggestions.add(
         CitySpotSuggestion(
@@ -572,12 +465,17 @@ class CitySpotSuggestionService {
         ? suggestion.photoReference
         : ((photoRows.first as Map)['photo_reference'] as String?) ??
               suggestion.photoReference;
-    final imageUrl = photoRef.isEmpty
+    final proxyImageUrl =
+        (details['_proxy_image_url'] as String?)?.trim() ?? '';
+    final proxyMapUrl =
+        (details['_proxy_static_map_url'] as String?)?.trim() ?? '';
+    final imageUrl = proxyImageUrl.isNotEmpty
+        ? proxyImageUrl
+        : photoRef.isNotEmpty
+        ? _gateway.photoUrl(photoRef)
+        : suggestion.imageUrl.isNotEmpty
         ? suggestion.imageUrl
-        : 'https://maps.googleapis.com/maps/api/place/photo'
-              '?maxwidth=900'
-              '&photo_reference=${Uri.encodeComponent(photoRef)}'
-              '&key=$apiKey';
+        : proxyMapUrl;
     final category = _tagFromGoogleTypes(
       placeTypes,
       (details['name'] as String?)?.trim() ?? suggestion.title,

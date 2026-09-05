@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 // ── System prompt ─────────────────────────────────────────────────────────────
@@ -21,15 +20,68 @@ const _kOffTopicReply =
     "and transportation services within TourisTrike.";
 
 const _kTourismKeywords = [
-  'tour', 'tourist', 'spot', 'package', 'travel', 'trip', 'route',
-  'tricycle', 'trike', 'bulacan', 'municipality', 'destination', 'visit',
-  'place', 'hotel', 'transport', 'itinerary', 'recommend', 'activity',
-  'booking', 'schedule', 'price', 'cost', 'driver', 'service', 'map',
-  'location', 'direction', 'nature', 'historical', 'resort', 'food',
-  'park', 'church', 'museum', 'festival', 'heritage', 'beach', 'falls',
-  'mountain', 'river', 'lake', 'hi', 'hello', 'hey', 'help', 'what',
-  'how', 'where', 'who', 'which', 'when', 'can', 'tell', 'show', 'give',
-  'suggest', 'best', 'popular', 'famous', 'nearby', 'top',
+  'tour',
+  'tourist',
+  'spot',
+  'package',
+  'travel',
+  'trip',
+  'route',
+  'tricycle',
+  'trike',
+  'bulacan',
+  'municipality',
+  'destination',
+  'visit',
+  'place',
+  'hotel',
+  'transport',
+  'itinerary',
+  'recommend',
+  'activity',
+  'booking',
+  'schedule',
+  'price',
+  'cost',
+  'driver',
+  'service',
+  'map',
+  'location',
+  'direction',
+  'nature',
+  'historical',
+  'resort',
+  'food',
+  'park',
+  'church',
+  'museum',
+  'festival',
+  'heritage',
+  'beach',
+  'falls',
+  'mountain',
+  'river',
+  'lake',
+  'hi',
+  'hello',
+  'hey',
+  'help',
+  'what',
+  'how',
+  'where',
+  'who',
+  'which',
+  'when',
+  'can',
+  'tell',
+  'show',
+  'give',
+  'suggest',
+  'best',
+  'popular',
+  'famous',
+  'nearby',
+  'top',
 ];
 
 bool _isOnTopic(String msg) {
@@ -166,7 +218,11 @@ class _ChatFab extends StatelessWidget {
             ),
           ],
         ),
-        child: const Icon(Icons.assistant_rounded, color: Colors.white, size: 26),
+        child: const Icon(
+          Icons.assistant_rounded,
+          color: Colors.white,
+          size: 26,
+        ),
       ),
     );
   }
@@ -188,7 +244,8 @@ class _AiChatPanelState extends State<_AiChatPanel> {
 
   final List<_ChatMessage> _messages = [
     const _ChatMessage(
-      text: "Hi! I'm your TourisTrike AI Assistant 👋\n\n"
+      text:
+          "Hi! I'm your TourisTrike AI Assistant 👋\n\n"
           "Ask me about tourist spots, travel packages, tricycle routes, "
           "or anything about exploring Bulacan!",
       isUser: false,
@@ -241,7 +298,7 @@ class _AiChatPanelState extends State<_AiChatPanel> {
     }
 
     try {
-      final apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
+      const apiKey = String.fromEnvironment('GEMINI_API_KEY');
       if (apiKey.isEmpty) throw Exception('Gemini API key not configured.');
 
       // Build conversation history (last 10 exchanges for context window)
@@ -295,7 +352,9 @@ class _AiChatPanelState extends State<_AiChatPanel> {
               ? ((parts.first['text'] as String?) ?? '').trim()
               : '';
         }
-        if (reply.isEmpty) reply = "Try asking about tourist spots, packages, or routes in Bulacan!";
+        if (reply.isEmpty)
+          reply =
+              "Try asking about tourist spots, packages, or routes in Bulacan!";
         if (!mounted) return;
         setState(() {
           _messages.add(_ChatMessage(text: reply, isUser: false));
@@ -303,7 +362,8 @@ class _AiChatPanelState extends State<_AiChatPanel> {
         });
       } else {
         final errBody = jsonDecode(res.body) as Map?;
-        final errMsg = errBody?['error']?['message'] as String? ??
+        final errMsg =
+            errBody?['error']?['message'] as String? ??
             'Server error ${res.statusCode}';
         throw Exception(errMsg);
       }
@@ -379,8 +439,11 @@ class _AiChatPanelState extends State<_AiChatPanel> {
               ),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: const Icon(Icons.assistant_rounded,
-                color: Colors.white, size: 22),
+            child: const Icon(
+              Icons.assistant_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
           ),
           const SizedBox(width: 12),
           const Expanded(
@@ -474,8 +537,10 @@ class _AiChatPanelState extends State<_AiChatPanel> {
                     fontSize: 13.5,
                   ),
                   border: InputBorder.none,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                 ),
               ),
             ),
@@ -501,7 +566,9 @@ class _AiChatPanelState extends State<_AiChatPanel> {
                     ? null
                     : [
                         BoxShadow(
-                          color: const Color(0xFF2A86FF).withValues(alpha: 0.30),
+                          color: const Color(
+                            0xFF2A86FF,
+                          ).withValues(alpha: 0.30),
                           blurRadius: 12,
                           offset: const Offset(0, 6),
                         ),
@@ -515,8 +582,11 @@ class _AiChatPanelState extends State<_AiChatPanel> {
                         color: Color(0xFF94A3B8),
                       ),
                     )
-                  : const Icon(Icons.send_rounded,
-                      color: Colors.white, size: 20),
+                  : const Icon(
+                      Icons.send_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
             ),
           ),
         ],
@@ -538,8 +608,9 @@ class _MessageBubble extends StatelessWidget {
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        constraints:
-            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.80),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.80,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           gradient: isUser
@@ -591,8 +662,11 @@ class _MessageBubble extends StatelessWidget {
                   ),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.assistant_rounded,
-                    color: Colors.white, size: 15),
+                child: const Icon(
+                  Icons.assistant_rounded,
+                  color: Colors.white,
+                  size: 15,
+                ),
               ),
               const SizedBox(width: 8),
             ],
@@ -676,18 +750,14 @@ class _TypingIndicatorState extends State<_TypingIndicator>
               animation: _ctrl,
               builder: (context, _) {
                 final phase = (_ctrl.value + i / 3.0) % 1.0;
-                final opacity =
-                    (0.5 + 0.5 * math.sin(phase * 2 * math.pi)).clamp(
-                  0.2,
-                  1.0,
-                );
+                final opacity = (0.5 + 0.5 * math.sin(phase * 2 * math.pi))
+                    .clamp(0.2, 1.0);
                 return Container(
                   margin: EdgeInsets.only(right: i < 2 ? 5 : 0),
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                    color:
-                        Color.fromRGBO(42, 134, 255, opacity),
+                    color: Color.fromRGBO(42, 134, 255, opacity),
                     shape: BoxShape.circle,
                   ),
                 );

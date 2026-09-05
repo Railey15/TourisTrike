@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
 import 'package:touristrike/screens/admin/city_tenant_details_screen.dart';
@@ -13,8 +14,32 @@ import 'package:touristrike/screens/admin/widgets/admin_section_card.dart';
 import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Local colors
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _pageBackground = Color(0xFFF4F7FB);
+
+const _softBlue = Color(0xFFF2F7FF);
+const _softGreen = Color(0xFFF0FDF4);
+const _softAmber = Color(0xFFFFFBEB);
+const _softRed = Color(0xFFFEF2F2);
+const _softPurple = Color(0xFFF7F3FF);
+
+const _green = Color(0xFF16A34A);
+const _amber = Color(0xFFF59E0B);
+const _red = Color(0xFFDC2626);
+const _purple = Color(0xFF7C3AED);
+const _cyan = Color(0xFF0EA5E9);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen
+// ─────────────────────────────────────────────────────────────────────────────
+
 class CityTenantsScreen extends StatefulWidget {
-  const CityTenantsScreen({super.key});
+  const CityTenantsScreen({
+    super.key,
+  });
 
   @override
   State<CityTenantsScreen> createState() => _CityTenantsScreenState();
@@ -25,23 +50,28 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   late Future<_CityTenantWorkbenchData> _future;
+
   String _status = 'all';
 
   @override
   void initState() {
     super.initState();
+
     _future = _loadData();
-    _searchCtrl.addListener(() => setState(() {}));
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  void _reload() {
-    setState(() => _future = _loadData());
+  void _onSearchChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<_CityTenantWorkbenchData> _loadData() async {
@@ -56,74 +86,111 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
     );
   }
 
-  List<CityTenant> _filtered(List<CityTenant> tenants) {
-    final query = _searchCtrl.text.trim().toLowerCase();
+  Future<void> _reload() async {
+    setState(() {
+      _future = _loadData();
+    });
 
-    return tenants
-        .where((tenant) {
-          final status = tenant.status.toLowerCase().trim();
-
-          final matchesStatus =
-              _status == 'all' ||
-              (_status == 'active' &&
-                  ['active', 'approved', 'verified'].contains(status)) ||
-              (_status == 'inactive' &&
-                  [
-                    'inactive',
-                    'disabled',
-                    'deactivated',
-                    'suspended',
-                  ].contains(status)) ||
-              (_status == 'pending' && status == 'pending') ||
-              (_status == 'verified' && tenant.verified) ||
-              (_status == 'classification' &&
-                  !tenant.localGovernmentTypeReviewed);
-
-          if (!matchesStatus) return false;
-
-          if (query.isEmpty) return true;
-
-          final searchable = [
-            tenant.city,
-            tenant.province,
-            tenant.adminName,
-            tenant.email,
-            tenant.mobile,
-            tenant.address,
-            tenant.status,
-          ].join(' ').toLowerCase();
-
-          return searchable.contains(query);
-        })
-        .toList(growable: false);
+    await _future;
   }
 
-  int _countByStatus(List<CityTenant> tenants, String statusFilter) {
-    if (statusFilter == 'all') return tenants.length;
+  void _clearSearch() {
+    _searchCtrl.clear();
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Filtering
+  // ───────────────────────────────────────────────────────────────────────────
+
+  List<CityTenant> _filtered(
+    List<CityTenant> tenants,
+  ) {
+    final query = _searchCtrl.text.trim().toLowerCase();
 
     return tenants.where((tenant) {
-      final status = tenant.status.toLowerCase().trim();
+      final status = tenant.status.trim().toLowerCase();
 
-      if (statusFilter == 'active') {
-        return ['active', 'approved', 'verified'].contains(status);
+      final matchesStatus =
+          _status == 'all' ||
+          (_status == 'active' &&
+              [
+                'active',
+                'approved',
+                'verified',
+              ].contains(status)) ||
+          (_status == 'inactive' &&
+              [
+                'inactive',
+                'disabled',
+                'deactivated',
+                'suspended',
+              ].contains(status)) ||
+          (_status == 'pending' && status == 'pending') ||
+          (_status == 'verified' && tenant.verified) ||
+          (_status == 'classification' &&
+              !tenant.localGovernmentTypeReviewed);
+
+      if (!matchesStatus) {
+        return false;
       }
 
-      if (statusFilter == 'inactive') {
-        return [
-          'inactive',
-          'disabled',
-          'deactivated',
-          'suspended',
-        ].contains(status);
+      if (query.isEmpty) {
+        return true;
       }
 
-      if (statusFilter == 'pending') return status == 'pending';
-      if (statusFilter == 'verified') return tenant.verified;
-      if (statusFilter == 'classification') {
-        return !tenant.localGovernmentTypeReviewed;
-      }
+      final searchable = [
+        tenant.city,
+        tenant.province,
+        tenant.adminName,
+        tenant.email,
+        tenant.mobile,
+        tenant.address,
+        tenant.status,
+      ].join(' ').toLowerCase();
 
-      return false;
+      return searchable.contains(query);
+    }).toList(growable: false);
+  }
+
+  int _countByStatus(
+    List<CityTenant> tenants,
+    String filter,
+  ) {
+    if (filter == 'all') {
+      return tenants.length;
+    }
+
+    return tenants.where((tenant) {
+      final status = tenant.status.trim().toLowerCase();
+
+      switch (filter) {
+        case 'active':
+          return [
+            'active',
+            'approved',
+            'verified',
+          ].contains(status);
+
+        case 'inactive':
+          return [
+            'inactive',
+            'disabled',
+            'deactivated',
+            'suspended',
+          ].contains(status);
+
+        case 'pending':
+          return status == 'pending';
+
+        case 'verified':
+          return tenant.verified;
+
+        case 'classification':
+          return !tenant.localGovernmentTypeReviewed;
+
+        default:
+          return false;
+      }
     }).length;
   }
 
@@ -131,143 +198,320 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
     List<CityRegistration> registrations,
   ) {
     final query = _searchCtrl.text.trim().toLowerCase();
-    return registrations
-        .where((r) {
-          if (r.status.toLowerCase().trim() != 'pending') return false;
-          if (query.isEmpty) return true;
-          return [
-            r.city,
-            r.officeName,
-            r.contactPerson,
-            r.contactNumber,
-            r.email,
-            r.address,
-          ].join(' ').toLowerCase().contains(query);
-        })
-        .toList(growable: false);
+
+    return registrations.where((registration) {
+      if (registration.status.trim().toLowerCase() != 'pending') {
+        return false;
+      }
+
+      if (query.isEmpty) {
+        return true;
+      }
+
+      final searchable = [
+        registration.city,
+        registration.officeName,
+        registration.contactPerson,
+        registration.contactNumber,
+        registration.email,
+        registration.address,
+      ].join(' ').toLowerCase();
+
+      return searchable.contains(query);
+    }).toList(growable: false);
   }
 
-  Future<void> _setStatus(CityTenant tenant, String status) async {
+  // ───────────────────────────────────────────────────────────────────────────
+  // Tenant actions
+  // ───────────────────────────────────────────────────────────────────────────
+
+  Future<void> _setStatus(
+    CityTenant tenant,
+    String status,
+  ) async {
     try {
-      await _service.updateTenantStatus(tenant, status);
+      await _service.updateTenantStatus(
+        tenant,
+        status,
+      );
+
       if (!mounted) return;
-      showAdminSnack(context, 'City tenant updated.', error: false);
-      _reload();
-    } catch (e) {
+
+      showAdminSnack(
+        context,
+        'City tenant updated.',
+        error: false,
+      );
+
+      await _reload();
+    } catch (error) {
       if (!mounted) return;
-      showAdminSnack(context, 'Failed to update tenant: $e');
+
+      showAdminSnack(
+        context,
+        'Failed to update tenant: $error',
+      );
     }
   }
 
-  Future<void> _editCity(CityTenant tenant) async {
-    final controller = TextEditingController(text: tenant.city);
+  Future<void> _editCity(
+    CityTenant tenant,
+  ) async {
+    final controller = TextEditingController(
+      text: tenant.city,
+    );
 
     final city = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text(
-          'Edit Assigned City',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            labelText: 'City / Municipality',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
           ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+          title: const Text(
+            'Edit Assigned City',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
+          content: SizedBox(
+            width: 420,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'City / Municipality',
+                prefixIcon: const Icon(
+                  Icons.location_city_outlined,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  controller.text.trim(),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
     );
 
     controller.dispose();
 
-    if (city == null || city.isEmpty || city == tenant.city) return;
+    if (city == null ||
+        city.trim().isEmpty ||
+        city.trim() == tenant.city.trim()) {
+      return;
+    }
 
     try {
-      await _service.updateTenantCity(tenant, city);
+      await _service.updateTenantCity(
+        tenant,
+        city.trim(),
+      );
+
       if (!mounted) return;
-      showAdminSnack(context, 'Assigned city updated.', error: false);
-      _reload();
-    } catch (e) {
+
+      showAdminSnack(
+        context,
+        'Assigned city updated.',
+        error: false,
+      );
+
+      await _reload();
+    } catch (error) {
       if (!mounted) return;
-      showAdminSnack(context, 'Failed to update city: $e');
+
+      showAdminSnack(
+        context,
+        'Failed to update city: $error',
+      );
     }
   }
 
-  void _openDetails(CityTenant tenant) {
+  void _openDetails(
+    CityTenant tenant,
+  ) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CityTenantDetailsScreen(tenantId: tenant.id),
+        builder: (_) {
+          return CityTenantDetailsScreen(
+            tenantId: tenant.id,
+          );
+        },
       ),
-    ).then((_) => _reload());
+    ).then((_) {
+      _reload();
+    });
   }
 
-  Future<void> _approveRegistration(CityRegistration registration) async {
+  // ───────────────────────────────────────────────────────────────────────────
+  // Registration actions
+  // ───────────────────────────────────────────────────────────────────────────
+
+  Future<void> _approveRegistration(
+    CityRegistration registration,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text(
+            'Approve Registration?',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: Text(
+            'Approve the tourism office registration for '
+            '${registration.city}?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+              icon: const Icon(
+                Icons.check_rounded,
+                size: 17,
+              ),
+              label: const Text('Approve'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
     try {
-      await _service.reviewRegistration(registration, 'approved');
+      await _service.reviewRegistration(
+        registration,
+        'approved',
+      );
+
       if (!mounted) return;
-      showAdminSnack(context, 'Registration approved.', error: false);
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (mounted) _reload();
-    } catch (e) {
+
+      showAdminSnack(
+        context,
+        'Registration approved.',
+        error: false,
+      );
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 300),
+      );
+
+      if (mounted) {
+        await _reload();
+      }
+    } catch (error) {
       if (!mounted) return;
-      showAdminSnack(context, 'Failed to approve registration: $e');
+
+      showAdminSnack(
+        context,
+        'Failed to approve registration: $error',
+      );
     }
   }
 
-  Future<void> _rejectRegistration(CityRegistration registration) async {
+  Future<void> _rejectRegistration(
+    CityRegistration registration,
+  ) async {
     final controller = TextEditingController();
+
     final reason = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text(
-          'Reject Registration',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: TextField(
-          controller: controller,
-          minLines: 3,
-          maxLines: 5,
-          decoration: InputDecoration(
-            labelText: 'Rejection reason (optional)',
-            alignLabelWithHint: true,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+          title: const Text(
+            'Reject Registration',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: ProvincialAdminColors.red,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+          content: SizedBox(
+            width: 440,
+            child: TextField(
+              controller: controller,
+              minLines: 3,
+              maxLines: 5,
+              decoration: InputDecoration(
+                labelText: 'Rejection reason',
+                hintText:
+                    'Explain why this registration cannot be approved...',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Reject'),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: ProvincialAdminColors.red,
+              ),
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  controller.text.trim(),
+                );
+              },
+              child: const Text('Reject'),
+            ),
+          ],
+        );
+      },
     );
+
     controller.dispose();
-    if (reason == null) return;
+
+    if (reason == null) {
+      return;
+    }
 
     try {
       await _service.reviewRegistration(
@@ -275,24 +519,50 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
         'rejected',
         rejectionReason: reason,
       );
+
       if (!mounted) return;
-      showAdminSnack(context, 'Registration rejected.', error: false);
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (mounted) _reload();
-    } catch (e) {
+
+      showAdminSnack(
+        context,
+        'Registration rejected.',
+        error: false,
+      );
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 300),
+      );
+
+      if (mounted) {
+        await _reload();
+      }
+    } catch (error) {
       if (!mounted) return;
-      showAdminSnack(context, 'Failed to reject registration: $e');
+
+      showAdminSnack(
+        context,
+        'Failed to reject registration: $error',
+      );
     }
   }
 
-  void _viewRegistration(CityRegistration registration) {
+  void _viewRegistration(
+    CityRegistration registration,
+  ) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _RegistrationDetailsSheet(registration: registration),
+      builder: (_) {
+        return _RegistrationDetailsSheet(
+          registration: registration,
+        );
+      },
     );
   }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Build
+  // ───────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -302,11 +572,12 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
       current: ProvincialAdminDestination.cityTenants,
       title: 'City Tenants',
       subtitle:
-          'Manage city tourism accounts and review registration requests.',
+          'Manage tourism office accounts and review registration requests.',
       child: FutureBuilder<_CityTenantWorkbenchData>(
         future: _future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
             return const AdminLoadingView();
           }
 
@@ -318,145 +589,208 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
           }
 
           final data = snapshot.data!;
+
           final allTenants = data.tenants;
           final tenants = _filtered(allTenants);
-          final registrationsResult = data.registrations;
-          final allRegistrations = registrationsResult.items;
 
-          final pendingRegCount = registrationsResult.available
-              ? allRegistrations
-                    .where((r) => r.status.toLowerCase().trim() == 'pending')
-                    .length
-              : 0;
+          final registrationResult =
+              data.registrations;
 
-          final counts = {
-            'all': _countByStatus(allTenants, 'all'),
-            'active': _countByStatus(allTenants, 'active'),
-            'inactive': _countByStatus(allTenants, 'inactive'),
-            'pending': _countByStatus(allTenants, 'pending') + pendingRegCount,
-            'verified': _countByStatus(allTenants, 'verified'),
-            'classification': _countByStatus(allTenants, 'classification'),
+          final registrations =
+              registrationResult.items;
+
+          final pendingRegistrationCount =
+              registrationResult.available
+                  ? registrations.where((registration) {
+                      return registration.status
+                              .trim()
+                              .toLowerCase() ==
+                          'pending';
+                    }).length
+                  : 0;
+
+          final counts = <String, int>{
+            'all':
+                _countByStatus(
+              allTenants,
+              'all',
+            ),
+            'active':
+                _countByStatus(
+              allTenants,
+              'active',
+            ),
+            'inactive':
+                _countByStatus(
+              allTenants,
+              'inactive',
+            ),
+            'pending':
+                _countByStatus(
+                      allTenants,
+                      'pending',
+                    ) +
+                    pendingRegistrationCount,
+            'verified':
+                _countByStatus(
+              allTenants,
+              'verified',
+            ),
+            'classification':
+                _countByStatus(
+              allTenants,
+              'classification',
+            ),
           };
 
+          final showingPending =
+              _status == 'pending';
+
           final pendingRegistrations =
-              (_status == 'pending' && registrationsResult.available)
-              ? _filteredPendingRegistrations(allRegistrations)
-              : <CityRegistration>[];
+              showingPending &&
+                      registrationResult.available
+                  ? _filteredPendingRegistrations(
+                      registrations,
+                    )
+                  : <CityRegistration>[];
 
-          final showingPendingTab = _status == 'pending';
+          return ColoredBox(
+            color: _pageBackground,
+            child: RefreshIndicator(
+              onRefresh: _reload,
+              child: SingleChildScrollView(
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  mobile ? 14 : 22,
+                  mobile ? 14 : 18,
+                  mobile ? 14 : 22,
+                  32,
+                ),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    // One search/filter block.
+                    _TenantToolbar(
+                      controller: _searchCtrl,
+                      status: _status,
+                      counts: counts,
+                      onStatusChanged: (value) {
+                        setState(() {
+                          _status = value;
+                        });
+                      },
+                      onClearSearch:
+                          _clearSearch,
+                    ),
 
-          return RefreshIndicator(
-            onRefresh: () async => _reload(),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: EdgeInsets.fromLTRB(
-                    mobile ? 14 : 26,
-                    mobile ? 14 : 18,
-                    mobile ? 14 : 26,
-                    28,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _TenantsHero(
-                        total: counts['all'] ?? 0,
-                        active: counts['active'] ?? 0,
-                        pending: counts['pending'] ?? 0,
-                        verified: counts['verified'] ?? 0,
+                    const SizedBox(height: 18),
+
+                    if (!showingPending) ...[
+                      _SectionHeader(
+                        title: 'Tenant Accounts',
+                        count: tenants.length,
+                        subtitle:
+                            'Approved city and municipal tourism office accounts.',
                       ),
-                      const SizedBox(height: 16),
-                      _TenantToolbar(
-                        controller: _searchCtrl,
-                        status: _status,
-                        counts: counts,
-                        onStatusChanged: (value) {
-                          setState(() => _status = value);
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      if (!showingPendingTab) ...[
-                        const _SectionHeader(
-                          title: 'Tenant Accounts',
-                          subtitle:
-                              'Approved and active city tourism admin accounts.',
+
+                      const SizedBox(height: 10),
+
+                      if (tenants.isEmpty)
+                        _TenantEmptyState(
+                          searched:
+                              _searchCtrl.text.trim().isNotEmpty,
+                          onClearSearch:
+                              _clearSearch,
+                        )
+                      else
+                        _TenantGrid(
+                          tenants: tenants,
+                          onOpen:
+                              _openDetails,
+                          onEditCity:
+                              _editCity,
+                          onStatus:
+                              _setStatus,
                         ),
-                        const SizedBox(height: 10),
-                        if (tenants.isEmpty)
-                          const AdminEmptyState(
-                            icon: Icons.location_city_outlined,
-                            title: 'No city tenants found',
-                            message:
-                                'Approved subtenant accounts will appear here.',
-                          )
-                        else if (mobile)
-                          ...tenants.map(
-                            (tenant) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _TenantCard(
-                                tenant: tenant,
-                                onTap: () => _openDetails(tenant),
-                                onEditCity: () => _editCity(tenant),
-                                onActivate: () => _setStatus(tenant, 'active'),
-                                onDeactivate: () =>
-                                    _setStatus(tenant, 'inactive'),
-                              ),
-                            ),
-                          )
-                        else
-                          _TenantGrid(
-                            tenants: tenants,
-                            onOpen: _openDetails,
-                            onEditCity: _editCity,
-                            onStatus: _setStatus,
-                          ),
-                      ],
-                      if (showingPendingTab) ...[
-                        const _SectionHeader(
-                          title: 'Pending Registrations',
-                          subtitle:
-                              'New city tourism office applications awaiting your review.',
-                        ),
-                        const SizedBox(height: 10),
-                        if (!registrationsResult.available)
-                          const AdminEmptyState(
-                            icon: Icons.info_outline_rounded,
-                            title: 'Registrations table unavailable',
-                            message:
-                                'Create or connect the registrations table to review city applications.',
-                          )
-                        else if (pendingRegistrations.isEmpty)
-                          const AdminEmptyState(
-                            icon: Icons.how_to_reg_outlined,
-                            title: 'No pending registrations',
-                            message:
-                                'All registration requests have been processed.',
-                          )
-                        else if (mobile)
-                          ...pendingRegistrations.map(
-                            (r) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _RegistrationCard(
-                                registration: r,
-                                onView: () => _viewRegistration(r),
-                                onApprove: () => _approveRegistration(r),
-                                onReject: () => _rejectRegistration(r),
-                              ),
-                            ),
-                          )
-                        else
-                          _RegistrationsTable(
-                            registrations: pendingRegistrations,
-                            onView: _viewRegistration,
-                            onApprove: _approveRegistration,
-                            onReject: _rejectRegistration,
-                          ),
-                      ],
                     ],
-                  ),
-                );
-              },
+
+                    if (showingPending) ...[
+                      _SectionHeader(
+                        title: 'Pending Registrations',
+                        count:
+                            pendingRegistrations.length,
+                        subtitle:
+                            'New tourism office applications awaiting provincial review.',
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      if (!registrationResult.available)
+                        const AdminEmptyState(
+                          icon:
+                              Icons.info_outline_rounded,
+                          title:
+                              'Registrations table unavailable',
+                          message:
+                              'Create or connect the registrations table to review city applications.',
+                        )
+                      else if (pendingRegistrations.isEmpty)
+                        const AdminEmptyState(
+                          icon:
+                              Icons.how_to_reg_outlined,
+                          title:
+                              'No pending registrations',
+                          message:
+                              'All registration requests have been processed.',
+                        )
+                      else if (mobile)
+                        ...pendingRegistrations.map(
+                          (registration) {
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.only(
+                                bottom: 12,
+                              ),
+                              child:
+                                  _RegistrationCard(
+                                registration:
+                                    registration,
+                                onView: () {
+                                  _viewRegistration(
+                                    registration,
+                                  );
+                                },
+                                onApprove: () {
+                                  _approveRegistration(
+                                    registration,
+                                  );
+                                },
+                                onReject: () {
+                                  _rejectRegistration(
+                                    registration,
+                                  );
+                                },
+                              ),
+                            );
+                          },
+                        )
+                      else
+                        _RegistrationsTable(
+                          registrations:
+                              pendingRegistrations,
+                          onView:
+                              _viewRegistration,
+                          onApprove:
+                              _approveRegistration,
+                          onReject:
+                              _rejectRegistration,
+                        ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           );
         },
@@ -464,6 +798,10 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Data wrapper
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _CityTenantWorkbenchData {
   const _CityTenantWorkbenchData({
@@ -475,267 +813,9 @@ class _CityTenantWorkbenchData {
   final TableResult<CityRegistration> registrations;
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.text,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.muted,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TenantsHero extends StatelessWidget {
-  const _TenantsHero({
-    required this.total,
-    required this.active,
-    required this.pending,
-    required this.verified,
-  });
-
-  final int total;
-  final int active;
-  final int pending;
-  final int verified;
-
-  @override
-  Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(desktop ? 22 : 18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF4AA3FF), Color(0xFF1D63E9)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1D63E9).withValues(alpha: .16),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: desktop
-          ? Row(
-              children: [
-                _HeroIcon(),
-                const SizedBox(width: 16),
-                const Expanded(child: _HeroText()),
-                const SizedBox(width: 16),
-                _HeroStats(
-                  total: total,
-                  active: active,
-                  pending: pending,
-                  verified: verified,
-                ),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _HeroIcon(),
-                    const SizedBox(width: 12),
-                    const Expanded(child: _HeroText()),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _HeroStats(
-                  total: total,
-                  active: active,
-                  pending: pending,
-                  verified: verified,
-                ),
-              ],
-            ),
-    );
-  }
-}
-
-class _HeroIcon extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .18),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: .22)),
-      ),
-      child: const Icon(
-        Icons.location_city_rounded,
-        color: Colors.white,
-        size: 30,
-      ),
-    );
-  }
-}
-
-class _HeroText extends StatelessWidget {
-  const _HeroText();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Provincial Tenant Management',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: .86),
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'City Tourism Offices',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 25,
-            fontWeight: FontWeight.w900,
-            height: 1,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Monitor LGU tenant accounts, verify assignments, and manage city-level tourism access.',
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: .90),
-            fontSize: 12.5,
-            fontWeight: FontWeight.w700,
-            height: 1.25,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HeroStats extends StatelessWidget {
-  const _HeroStats({
-    required this.total,
-    required this.active,
-    required this.pending,
-    required this.verified,
-  });
-
-  final int total;
-  final int active;
-  final int pending;
-  final int verified;
-
-  @override
-  Widget build(BuildContext context) {
-    final width = Responsive.responsiveValue<double>(
-      context,
-      mobile: 135,
-      tablet: 120,
-      desktop: 105,
-    );
-
-    final items = [
-      _HeroStatData('Total', total, Icons.domain_rounded),
-      _HeroStatData('Active', active, Icons.verified_rounded),
-      _HeroStatData('Pending', pending, Icons.pending_actions_rounded),
-      _HeroStatData('Verified', verified, Icons.fact_check_rounded),
-    ];
-
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: items.map((item) {
-        return Container(
-          width: width,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: .15),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: .22)),
-          ),
-          child: Row(
-            children: [
-              Icon(item.icon, color: Colors.white, size: 17),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${item.value}\n',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                          height: 1,
-                        ),
-                      ),
-                      TextSpan(
-                        text: item.label,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: .86),
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          height: 1.1,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _HeroStatData {
-  const _HeroStatData(this.label, this.value, this.icon);
-
-  final String label;
-  final int value;
-  final IconData icon;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Search and filters
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TenantToolbar extends StatelessWidget {
   const _TenantToolbar({
@@ -743,85 +823,144 @@ class _TenantToolbar extends StatelessWidget {
     required this.status,
     required this.counts,
     required this.onStatusChanged,
+    required this.onClearSearch,
   });
 
   final TextEditingController controller;
+
   final String status;
+
   final Map<String, int> counts;
-  final ValueChanged<String> onStatusChanged;
+
+  final ValueChanged<String>
+      onStatusChanged;
+
+  final VoidCallback onClearSearch;
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
-    final searchField = SizedBox(
-      height: 48,
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          hintText: 'Search city, admin, email, contact...',
-          hintStyle: const TextStyle(
-            color: ProvincialAdminColors.lightMuted,
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-          ),
-          prefixIcon: const Icon(
-            Icons.search_rounded,
-            color: ProvincialAdminColors.lightMuted,
-          ),
-          filled: true,
-          fillColor: const Color(0xFFF8FBFF),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(color: ProvincialAdminColors.line),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(color: ProvincialAdminColors.line),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(17),
-            borderSide: const BorderSide(
-              color: ProvincialAdminColors.blue,
-              width: 1.3,
-            ),
-          ),
-        ),
-      ),
-    );
-
     return Container(
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding:
+          const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: ProvincialAdminColors.line),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .025),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        borderRadius:
+            BorderRadius.circular(14),
+        border: Border.all(
+          color:
+              ProvincialAdminColors.line,
+        ),
       ),
-      child: Flex(
-        direction: desktop ? Axis.horizontal : Axis.vertical,
-        crossAxisAlignment: desktop
-            ? CrossAxisAlignment.center
-            : CrossAxisAlignment.stretch,
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
-          if (desktop) Expanded(child: searchField) else searchField,
-          SizedBox(width: desktop ? 14 : 0, height: desktop ? 0 : 12),
+          SizedBox(
+            height: 42,
+            child: TextField(
+              controller: controller,
+              textInputAction:
+                  TextInputAction.search,
+              decoration: InputDecoration(
+                hintText:
+                    'Search city, admin, email, contact or address...',
+                hintStyle:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .lightMuted,
+                  fontSize: 10.5,
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+                prefixIcon:
+                    const Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color:
+                      ProvincialAdminColors
+                          .lightMuted,
+                ),
+                suffixIcon:
+                    controller.text.isNotEmpty
+                        ? IconButton(
+                            tooltip:
+                                'Clear search',
+                            onPressed:
+                                onClearSearch,
+                            icon:
+                                const Icon(
+                              Icons
+                                  .close_rounded,
+                              size: 16,
+                            ),
+                          )
+                        : null,
+                filled: true,
+                fillColor:
+                    const Color(
+                  0xFFF8FAFC,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 12,
+                ),
+                enabledBorder:
+                    OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(
+                    9,
+                  ),
+                  borderSide:
+                      const BorderSide(
+                    color:
+                        ProvincialAdminColors
+                            .line,
+                  ),
+                ),
+                focusedBorder:
+                    OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(
+                    9,
+                  ),
+                  borderSide:
+                      const BorderSide(
+                    color:
+                        ProvincialAdminColors
+                            .blue,
+                    width: 1.2,
+                  ),
+                ),
+                border:
+                    OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(
+                    9,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
           _FilterChips(
             selected: status,
             counts: counts,
-            onSelected: onStatusChanged,
+            onSelected:
+                onStatusChanged,
           ),
         ],
       ),
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filter chips
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _FilterChips extends StatelessWidget {
   const _FilterChips({
@@ -832,77 +971,174 @@ class _FilterChips extends StatelessWidget {
 
   final String selected;
   final Map<String, int> counts;
-  final ValueChanged<String> onSelected;
+  final ValueChanged<String>
+      onSelected;
 
   @override
   Widget build(BuildContext context) {
     const filters = [
-      ('all', 'All'),
-      ('active', 'Active'),
-      ('inactive', 'Inactive'),
-      ('pending', 'Pending'),
-      ('verified', 'Verified'),
-      ('classification', 'Needs classification'),
+      (
+        'all',
+        'All',
+        Icons.people_alt_outlined,
+      ),
+      (
+        'active',
+        'Active',
+        Icons.check_circle_outline_rounded,
+      ),
+      (
+        'inactive',
+        'Inactive',
+        Icons.pause_circle_outline_rounded,
+      ),
+      (
+        'pending',
+        'Pending',
+        Icons.pending_actions_outlined,
+      ),
+      (
+        'verified',
+        'Verified',
+        Icons.verified_outlined,
+      ),
+      (
+        'classification',
+        'Needs Classification',
+        Icons.rule_outlined,
+      ),
     ];
 
     return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+      scrollDirection:
+          Axis.horizontal,
       child: Row(
-        children: filters.map((item) {
+        children:
+            filters.map((item) {
           final key = item.$1;
           final label = item.$2;
-          final active = selected == key;
+          final icon = item.$3;
+
+          final active =
+              selected == key;
 
           return Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding:
+                const EdgeInsets.only(
+              right: 7,
+            ),
             child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () => onSelected(key),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                height: 42,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: active ? ProvincialAdminColors.blue : Colors.white,
-                  borderRadius: BorderRadius.circular(999),
+              borderRadius:
+                  BorderRadius.circular(
+                9,
+              ),
+              onTap: () {
+                onSelected(key);
+              },
+              child:
+                  AnimatedContainer(
+                duration:
+                    const Duration(
+                  milliseconds: 150,
+                ),
+                height: 36,
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 10,
+                ),
+                decoration:
+                    BoxDecoration(
+                  color: active
+                      ? ProvincialAdminColors
+                          .blue
+                      : const Color(
+                          0xFFF8FAFC,
+                        ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    9,
+                  ),
                   border: Border.all(
                     color: active
-                        ? ProvincialAdminColors.blue
-                        : ProvincialAdminColors.line,
+                        ? ProvincialAdminColors
+                            .blue
+                        : ProvincialAdminColors
+                            .line,
                   ),
                 ),
                 child: Row(
+                  mainAxisSize:
+                      MainAxisSize.min,
                   children: [
+                    Icon(
+                      icon,
+                      size: 13,
+                      color: active
+                          ? Colors.white
+                          : ProvincialAdminColors
+                              .muted,
+                    ),
+                    const SizedBox(
+                      width: 5,
+                    ),
                     Text(
                       label,
-                      style: TextStyle(
+                      style:
+                          TextStyle(
                         color: active
                             ? Colors.white
-                            : ProvincialAdminColors.muted,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w900,
+                            : ProvincialAdminColors
+                                .muted,
+                        fontSize: 10,
+                        fontWeight:
+                            FontWeight
+                                .w800,
                       ),
                     ),
-                    const SizedBox(width: 7),
+                    const SizedBox(
+                      width: 6,
+                    ),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
+                      constraints:
+                          const BoxConstraints(
+                        minWidth: 20,
+                      ),
+                      padding:
+                          const EdgeInsets.symmetric(
+                        horizontal: 5,
                         vertical: 2,
                       ),
-                      decoration: BoxDecoration(
+                      alignment:
+                          Alignment.center,
+                      decoration:
+                          BoxDecoration(
                         color: active
-                            ? Colors.white.withValues(alpha: .22)
-                            : const Color(0xFFF1F6FF),
-                        borderRadius: BorderRadius.circular(999),
+                            ? Colors.white
+                                .withValues(
+                                  alpha: .18,
+                                )
+                            : ProvincialAdminColors
+                                .blue
+                                .withValues(
+                                  alpha: .07,
+                                ),
+                        borderRadius:
+                            BorderRadius.circular(
+                          999,
+                        ),
                       ),
                       child: Text(
                         '${counts[key] ?? 0}',
-                        style: TextStyle(
+                        style:
+                            TextStyle(
                           color: active
                               ? Colors.white
-                              : ProvincialAdminColors.blue,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w900,
+                              : ProvincialAdminColors
+                                  .blue,
+                          fontSize: 9,
+                          fontWeight:
+                              FontWeight
+                                  .w900,
                         ),
                       ),
                     ),
@@ -917,6 +1153,106 @@ class _FilterChips extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Section title
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.title,
+    required this.count,
+    required this.subtitle,
+  });
+
+  final String title;
+  final int count;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    title,
+                    style:
+                        const TextStyle(
+                      color:
+                          ProvincialAdminColors
+                              .text,
+                      fontSize: 15,
+                      fontWeight:
+                          FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration:
+                        BoxDecoration(
+                      color:
+                          ProvincialAdminColors
+                              .blue
+                              .withValues(
+                        alpha: .07,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(
+                        999,
+                      ),
+                    ),
+                    child: Text(
+                      '$count',
+                      style:
+                          const TextStyle(
+                        color:
+                            ProvincialAdminColors
+                                .blue,
+                        fontSize: 9,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .muted,
+                  fontSize: 10,
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant grid
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _TenantGrid extends StatelessWidget {
   const _TenantGrid({
     required this.tenants,
@@ -926,33 +1262,76 @@ class _TenantGrid extends StatelessWidget {
   });
 
   final List<CityTenant> tenants;
+
   final ValueChanged<CityTenant> onOpen;
   final ValueChanged<CityTenant> onEditCity;
-  final void Function(CityTenant tenant, String status) onStatus;
+
+  final void Function(
+    CityTenant tenant,
+    String status,
+  ) onStatus;
 
   @override
   Widget build(BuildContext context) {
-    return AdminResponsiveGrid(
-      minItemWidth: 320,
-      maxColumns: 3,
-      spacing: 16,
-      runSpacing: 16,
-      mobileAspectRatio: 2.0,
-      tabletAspectRatio: 2.0,
-      desktopAspectRatio: 2.2,
-      children: [
-        for (final tenant in tenants)
-          _TenantCard(
-            tenant: tenant,
-            onTap: () => onOpen(tenant),
-            onEditCity: () => onEditCity(tenant),
-            onActivate: () => onStatus(tenant, 'active'),
-            onDeactivate: () => onStatus(tenant, 'inactive'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+
+        final columns = width >= 1150
+            ? 3
+            : width >= 680
+                ? 2
+                : 1;
+
+        // Slightly taller on narrow layouts so text has room.
+        final cardHeight =
+            columns == 1 ? 260.0 : 248.0;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: tenants.length,
+          gridDelegate:
+              SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            mainAxisExtent: cardHeight,
           ),
-      ],
+          itemBuilder: (context, index) {
+            final tenant = tenants[index];
+
+            return _TenantCard(
+              tenant: tenant,
+              onTap: () {
+                onOpen(tenant);
+              },
+              onEditCity: () {
+                onEditCity(tenant);
+              },
+              onActivate: () {
+                onStatus(
+                  tenant,
+                  'active',
+                );
+              },
+              onDeactivate: () {
+                onStatus(
+                  tenant,
+                  'inactive',
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant card
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TenantCard extends StatelessWidget {
   const _TenantCard({
@@ -964,6 +1343,7 @@ class _TenantCard extends StatelessWidget {
   });
 
   final CityTenant tenant;
+
   final VoidCallback onTap;
   final VoidCallback onEditCity;
   final VoidCallback onActivate;
@@ -971,159 +1351,418 @@ class _TenantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final status =
+        tenant.status
+            .trim()
+            .toLowerCase();
+
     final active = [
       'active',
       'approved',
       'verified',
-    ].contains(tenant.status.toLowerCase().trim());
+    ].contains(status);
 
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius:
+          BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius:
+            BorderRadius.circular(16),
         child: Container(
-          padding: const EdgeInsets.all(16),
+          height: double.infinity,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: ProvincialAdminColors.line),
+            color: Colors.white,
+            borderRadius:
+                BorderRadius.circular(16),
+            border: Border.all(
+              color:
+                  ProvincialAdminColors
+                      .line,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: .025),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
+                color:
+                    Colors.black
+                        .withValues(
+                  alpha: .018,
+                ),
+                blurRadius: 9,
+                offset:
+                    const Offset(
+                  0,
+                  3,
+                ),
               ),
             ],
           ),
+          clipBehavior:
+              Clip.antiAlias,
           child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: active
-                          ? const LinearGradient(
-                              colors: [Color(0xFF4AA3FF), Color(0xFF1D63E9)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                          : null,
-                      color: active ? null : const Color(0xFFEAF4FF),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Icon(
-                      Icons.location_city_rounded,
-                      color: active ? Colors.white : ProvincialAdminColors.blue,
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          tenant.city,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ProvincialAdminColors.text,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
-                          ),
+              // ─────────────────────────────
+              // Header
+              // ─────────────────────────────
+
+              Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(
+                  13,
+                  13,
+                  7,
+                  11,
+                ),
+                child: Row(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 45,
+                      height: 45,
+                      decoration:
+                          BoxDecoration(
+                        color: active
+                            ? ProvincialAdminColors
+                                .blue
+                            : _softBlue,
+                        borderRadius:
+                            BorderRadius.circular(
+                          11,
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          tenant.adminName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ProvincialAdminColors.muted,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+                      ),
+                      child: Icon(
+                        Icons
+                            .location_city_rounded,
+                        color: active
+                            ? Colors.white
+                            : ProvincialAdminColors
+                                .blue,
+                        size: 22,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      AdminStatusPill(status: tenant.status),
-                      if (!tenant.localGovernmentTypeReviewed) ...[
-                        const SizedBox(height: 5),
-                        const Text(
-                          'Classification review',
-                          style: TextStyle(
-                            color: ProvincialAdminColors.amber,
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w900,
+
+                    const SizedBox(
+                      width: 10,
+                    ),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment
+                                .start,
+                        children: [
+                          Text(
+                            tenant.city
+                                    .trim()
+                                    .isEmpty
+                                ? 'Unassigned LGU'
+                                : tenant.city,
+                            maxLines: 1,
+                            overflow:
+                                TextOverflow
+                                    .ellipsis,
+                            style:
+                                const TextStyle(
+                              color:
+                                  ProvincialAdminColors
+                                      .text,
+                              fontSize:
+                                  14,
+                              fontWeight:
+                                  FontWeight
+                                      .w900,
+                            ),
                           ),
+
+                          const SizedBox(
+                            height: 3,
+                          ),
+
+                          Text(
+                            tenant.adminName
+                                    .trim()
+                                    .isEmpty
+                                ? 'No administrator assigned'
+                                : tenant
+                                    .adminName,
+                            maxLines: 1,
+                            overflow:
+                                TextOverflow
+                                    .ellipsis,
+                            style:
+                                const TextStyle(
+                              color:
+                                  ProvincialAdminColors
+                                      .muted,
+                              fontSize:
+                                  10,
+                              fontWeight:
+                                  FontWeight
+                                      .w700,
+                            ),
+                          ),
+
+                          const SizedBox(
+                            height: 6,
+                          ),
+
+                          Row(
+                            children: [
+                              AdminStatusPill(
+                                status:
+                                    tenant.status,
+                              ),
+
+                              if (tenant.verified) ...[
+                                const SizedBox(
+                                  width: 5,
+                                ),
+                                const _VerificationBadge(),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    PopupMenuButton<String>(
+                      tooltip:
+                          'Tenant actions',
+                      padding:
+                          EdgeInsets.zero,
+                      icon:
+                          const Icon(
+                        Icons
+                            .more_horiz_rounded,
+                        color:
+                            ProvincialAdminColors
+                                .muted,
+                        size: 20,
+                      ),
+                      shape:
+                          RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(
+                          12,
                         ),
-                      ],
-                    ],
-                  ),
-                ],
+                      ),
+                      onSelected:
+                          (value) {
+                        switch (value) {
+                          case 'view':
+                            onTap();
+                            break;
+
+                          case 'edit':
+                            onEditCity();
+                            break;
+
+                          case 'activate':
+                            onActivate();
+                            break;
+
+                          case 'deactivate':
+                            onDeactivate();
+                            break;
+                        }
+                      },
+                      itemBuilder:
+                          (_) {
+                        return [
+                          const PopupMenuItem(
+                            value: 'view',
+                            child: _MenuItem(
+                              icon: Icons
+                                  .visibility_outlined,
+                              label:
+                                  'View details',
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: _MenuItem(
+                              icon: Icons
+                                  .edit_location_alt_outlined,
+                              label:
+                                  'Edit assigned city',
+                            ),
+                          ),
+                          if (!active)
+                            const PopupMenuItem(
+                              value:
+                                  'activate',
+                              child:
+                                  _MenuItem(
+                                icon: Icons
+                                    .check_circle_outline_rounded,
+                                label:
+                                    'Activate account',
+                                color:
+                                    _green,
+                              ),
+                            ),
+                          if (active)
+                            const PopupMenuItem(
+                              value:
+                                  'deactivate',
+                              child:
+                                  _MenuItem(
+                                icon: Icons
+                                    .block_outlined,
+                                label:
+                                    'Deactivate account',
+                                color:
+                                    _red,
+                              ),
+                            ),
+                        ];
+                      },
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 14),
-              const Divider(height: 1, color: ProvincialAdminColors.line),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: _TenantInfo(
-                      icon: Icons.email_rounded,
-                      label: 'Email',
-                      value: tenant.email.isEmpty ? 'No email' : tenant.email,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _TenantInfo(
-                      icon: Icons.phone_rounded,
-                      label: 'Contact',
-                      value: tenant.mobile.isEmpty
-                          ? 'No contact'
-                          : tenant.mobile,
-                    ),
-                  ),
-                ],
+
+              const Divider(
+                height: 1,
+                color:
+                    ProvincialAdminColors
+                        .line,
               ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: _TenantMetric(
-                      label: 'Spots',
-                      value: tenant.spotsCount,
-                      icon: Icons.place_rounded,
-                      color: ProvincialAdminColors.cyan,
+
+              // ─────────────────────────────
+              // Contact details
+              // ─────────────────────────────
+
+              Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(
+                  13,
+                  10,
+                  13,
+                  8,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _TenantInfo(
+                        icon:
+                            Icons.email_outlined,
+                        label: 'Email',
+                        value:
+                            tenant.email.trim().isEmpty
+                                ? 'No email'
+                                : tenant.email,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _TenantMetric(
-                      label: 'Packages',
-                      value: tenant.packagesCount,
-                      icon: Icons.inventory_2_rounded,
-                      color: ProvincialAdminColors.green,
+
+                    Container(
+                      width: 1,
+                      height: 31,
+                      color:
+                          ProvincialAdminColors
+                              .line,
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _TenantMetric(
-                      label: 'Bookings',
-                      value: tenant.bookingsCount,
-                      icon: Icons.receipt_long_rounded,
-                      color: ProvincialAdminColors.purple,
+
+                    const SizedBox(
+                      width: 10,
                     ),
-                  ),
-                ],
+
+                    Expanded(
+                      child: _TenantInfo(
+                        icon:
+                            Icons.phone_outlined,
+                        label: 'Contact',
+                        value:
+                            tenant.mobile.trim().isEmpty
+                                ? 'No contact'
+                                : tenant.mobile,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ─────────────────────────────
+              // Reserved classification area
+              //
+              // Always consumes same height so every
+              // tenant card remains equal.
+              // ─────────────────────────────
+
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 13,
+                ),
+                child: SizedBox(
+                  height: 34,
+                  child:
+                      tenant.localGovernmentTypeReviewed
+                          ? const _ReviewedClassification()
+                          : const _ClassificationNotice(),
+                ),
+              ),
+
+              const Spacer(),
+
+              // ─────────────────────────────
+              // Metrics
+              // ─────────────────────────────
+
+              Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(
+                  13,
+                  8,
+                  13,
+                  12,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child:
+                          _TenantMetric(
+                        label: 'Spots',
+                        value:
+                            tenant.spotsCount,
+                        icon:
+                            Icons.place_outlined,
+                        color: _cyan,
+                      ),
+                    ),
+                    const SizedBox(
+                      width: 7,
+                    ),
+                    Expanded(
+                      child:
+                          _TenantMetric(
+                        label: 'Packages',
+                        value:
+                            tenant.packagesCount,
+                        icon:
+                            Icons.inventory_2_outlined,
+                        color: _green,
+                      ),
+                    ),
+                    const SizedBox(
+                      width: 7,
+                    ),
+                    Expanded(
+                      child:
+                          _TenantMetric(
+                        label: 'Bookings',
+                        value:
+                            tenant.bookingsCount,
+                        icon:
+                            Icons.receipt_long_outlined,
+                        color: _purple,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1132,6 +1771,493 @@ class _TenantCard extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Verification badge
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _VerificationBadge extends StatelessWidget {
+  const _VerificationBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 7,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: _softGreen,
+        borderRadius:
+            BorderRadius.circular(999),
+        border: Border.all(
+          color:
+              _green.withValues(
+            alpha: .16,
+          ),
+        ),
+      ),
+      child: const Row(
+        mainAxisSize:
+            MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.verified_rounded,
+            color: _green,
+            size: 11,
+          ),
+          SizedBox(width: 4),
+          Text(
+            'Verified',
+            style: TextStyle(
+              color: _green,
+              fontSize: 8.5,
+              fontWeight:
+                  FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Classification
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ClassificationNotice extends StatelessWidget {
+  const _ClassificationNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 30,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 9,
+      ),
+      decoration: BoxDecoration(
+        color: _softAmber,
+        borderRadius:
+            BorderRadius.circular(7),
+        border: Border.all(
+          color:
+              _amber.withValues(
+            alpha: .18,
+          ),
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.rule_outlined,
+            color: _amber,
+            size: 13,
+          ),
+          SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              'City / municipality classification requires review',
+              maxLines: 1,
+              overflow:
+                  TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _amber,
+                fontSize: 8,
+                fontWeight:
+                    FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewedClassification extends StatelessWidget {
+  const _ReviewedClassification();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 30,
+      alignment:
+          Alignment.centerLeft,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 9,
+      ),
+      decoration: BoxDecoration(
+        color:
+            const Color(0xFFF8FAFC),
+        borderRadius:
+            BorderRadius.circular(7),
+        border: Border.all(
+          color:
+              ProvincialAdminColors.line,
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons
+                .check_circle_outline_rounded,
+            size: 13,
+            color:
+                ProvincialAdminColors
+                    .lightMuted,
+          ),
+          SizedBox(width: 5),
+          Text(
+            'LGU classification reviewed',
+            style: TextStyle(
+              color:
+                  ProvincialAdminColors
+                      .lightMuted,
+              fontSize: 8,
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant information
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TenantInfo extends StatelessWidget {
+  const _TenantInfo({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 13,
+          color:
+              ProvincialAdminColors
+                  .lightMuted,
+        ),
+
+        const SizedBox(width: 6),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .lightMuted,
+                  fontSize: 8,
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+              ),
+
+              const SizedBox(height: 2),
+
+              Text(
+                value,
+                maxLines: 1,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .text,
+                  fontSize: 9,
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant metrics
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TenantMetric extends StatelessWidget {
+  const _TenantMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final int value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 38,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 8,
+      ),
+      decoration: BoxDecoration(
+        color:
+            color.withValues(
+          alpha: .07,
+        ),
+        borderRadius:
+            BorderRadius.circular(8),
+        border: Border.all(
+          color:
+              color.withValues(
+            alpha: .12,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 13,
+            color: color,
+          ),
+
+          const SizedBox(width: 5),
+
+          Expanded(
+            child: Column(
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$value',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight:
+                        FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(
+                  height: 2,
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(
+                    color:
+                        ProvincialAdminColors
+                            .muted,
+                    fontSize: 7.5,
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card menu
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MenuItem extends StatelessWidget {
+  const _MenuItem({
+    required this.icon,
+    required this.label,
+    this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final actualColor =
+        color ??
+            ProvincialAdminColors
+                .muted;
+
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 17,
+          color: actualColor,
+        ),
+        const SizedBox(width: 9),
+        Text(
+          label,
+          style: TextStyle(
+            color:
+                color ??
+                    ProvincialAdminColors
+                        .text,
+            fontSize: 11,
+            fontWeight:
+                FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty tenant state
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TenantEmptyState extends StatelessWidget {
+  const _TenantEmptyState({
+    required this.searched,
+    required this.onClearSearch,
+  });
+
+  final bool searched;
+  final VoidCallback onClearSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!searched) {
+      return const AdminEmptyState(
+        icon:
+            Icons.location_city_outlined,
+        title: 'No city tenants found',
+        message:
+            'Approved tourism office accounts will appear here.',
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 24,
+        vertical: 38,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(15),
+        border: Border.all(
+          color:
+              ProvincialAdminColors.line,
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color:
+                  ProvincialAdminColors.blue
+                      .withValues(
+                alpha: .08,
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.search_off_rounded,
+              color:
+                  ProvincialAdminColors
+                      .blue,
+              size: 23,
+            ),
+          ),
+
+          const SizedBox(height: 11),
+
+          const Text(
+            'No matching tenant accounts',
+            style: TextStyle(
+              color:
+                  ProvincialAdminColors
+                      .text,
+              fontSize: 14,
+              fontWeight:
+                  FontWeight.w900,
+            ),
+          ),
+
+          const SizedBox(height: 5),
+
+          const Text(
+            'Try another city, administrator, email, contact number, or address.',
+            textAlign:
+                TextAlign.center,
+            style: TextStyle(
+              color:
+                  ProvincialAdminColors
+                      .muted,
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          OutlinedButton.icon(
+            onPressed:
+                onClearSearch,
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 15,
+            ),
+            label: const Text(
+              'Clear Search',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Registration table
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _RegistrationsTable extends StatelessWidget {
   const _RegistrationsTable({
@@ -1142,9 +2268,15 @@ class _RegistrationsTable extends StatelessWidget {
   });
 
   final List<CityRegistration> registrations;
-  final ValueChanged<CityRegistration> onView;
-  final ValueChanged<CityRegistration> onApprove;
-  final ValueChanged<CityRegistration> onReject;
+
+  final ValueChanged<CityRegistration>
+      onView;
+
+  final ValueChanged<CityRegistration>
+      onApprove;
+
+  final ValueChanged<CityRegistration>
+      onReject;
 
   @override
   Widget build(BuildContext context) {
@@ -1153,25 +2285,55 @@ class _RegistrationsTable extends StatelessWidget {
       child: Column(
         children: [
           const _RegistrationTableHeader(),
-          const Divider(height: 1, color: ProvincialAdminColors.line),
-          ...registrations.asMap().entries.map((entry) {
+
+          const Divider(
+            height: 1,
+            color:
+                ProvincialAdminColors.line,
+          ),
+
+          ...registrations
+              .asMap()
+              .entries
+              .map((entry) {
             final index = entry.key;
-            final registration = entry.value;
+            final registration =
+                entry.value;
+
             return Column(
               children: [
                 _RegistrationTableRow(
-                  registration: registration,
-                  shaded: index.isOdd,
-                  onView: () => onView(registration),
-                  onApprove: () => onApprove(registration),
-                  onReject: () => onReject(registration),
+                  registration:
+                      registration,
+                  shaded:
+                      index.isOdd,
+                  onView: () {
+                    onView(
+                      registration,
+                    );
+                  },
+                  onApprove: () {
+                    onApprove(
+                      registration,
+                    );
+                  },
+                  onReject: () {
+                    onReject(
+                      registration,
+                    );
+                  },
                 ),
-                if (index < registrations.length - 1)
+
+                if (index <
+                    registrations.length -
+                        1)
                   const Divider(
                     height: 1,
-                    color: ProvincialAdminColors.line,
-                    indent: 16,
-                    endIndent: 16,
+                    color:
+                        ProvincialAdminColors
+                            .line,
+                    indent: 14,
+                    endIndent: 14,
                   ),
               ],
             );
@@ -1182,23 +2344,69 @@ class _RegistrationsTable extends StatelessWidget {
   }
 }
 
-class _RegistrationTableHeader extends StatelessWidget {
+class _RegistrationTableHeader
+    extends StatelessWidget {
   const _RegistrationTableHeader();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: ProvincialAdminColors.backgroundAlt,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color:
+          const Color(0xFFF8FAFC),
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 11,
+      ),
       child: const Row(
         children: [
-          SizedBox(width: 130, child: _HeadCell('City')),
-          SizedBox(width: 160, child: _HeadCell('Office')),
-          SizedBox(width: 150, child: _HeadCell('Contact')),
-          SizedBox(width: 200, child: _HeadCell('Email')),
-          SizedBox(width: 120, child: _HeadCell('Submitted')),
-          SizedBox(width: 100, child: _HeadCell('Status')),
-          SizedBox(width: 132, child: _HeadCell('Actions')),
+          SizedBox(
+            width: 130,
+            child:
+                _HeadCell('LGU'),
+          ),
+          SizedBox(
+            width: 160,
+            child:
+                _HeadCell(
+              'Tourism Office',
+            ),
+          ),
+          SizedBox(
+            width: 150,
+            child:
+                _HeadCell(
+              'Contact',
+            ),
+          ),
+          SizedBox(
+            width: 200,
+            child:
+                _HeadCell(
+              'Email',
+            ),
+          ),
+          SizedBox(
+            width: 120,
+            child:
+                _HeadCell(
+              'Submitted',
+            ),
+          ),
+          SizedBox(
+            width: 100,
+            child:
+                _HeadCell(
+              'Status',
+            ),
+          ),
+          SizedBox(
+            width: 132,
+            child:
+                _HeadCell(
+              'Actions',
+            ),
+          ),
         ],
       ),
     );
@@ -1206,7 +2414,9 @@ class _RegistrationTableHeader extends StatelessWidget {
 }
 
 class _HeadCell extends StatelessWidget {
-  const _HeadCell(this.label);
+  const _HeadCell(
+    this.label,
+  );
 
   final String label;
 
@@ -1214,16 +2424,22 @@ class _HeadCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label.toUpperCase(),
-      style: const TextStyle(
-        color: ProvincialAdminColors.muted,
-        fontSize: 11,
-        fontWeight: FontWeight.w900,
+      style:
+          const TextStyle(
+        color:
+            ProvincialAdminColors
+                .muted,
+        fontSize: 9.5,
+        fontWeight:
+            FontWeight.w900,
+        letterSpacing: .2,
       ),
     );
   }
 }
 
-class _RegistrationTableRow extends StatelessWidget {
+class _RegistrationTableRow
+    extends StatelessWidget {
   const _RegistrationTableRow({
     required this.registration,
     required this.shaded,
@@ -1233,25 +2449,43 @@ class _RegistrationTableRow extends StatelessWidget {
   });
 
   final CityRegistration registration;
+
   final bool shaded;
+
   final VoidCallback onView;
   final VoidCallback onApprove;
   final VoidCallback onReject;
 
   @override
   Widget build(BuildContext context) {
-    final pending = registration.status.toLowerCase() == 'pending';
-    final submitted = registration.submittedAt == null
-        ? '-'
-        : DateFormat('MMM d, yyyy').format(registration.submittedAt!);
+    final pending =
+        registration.status
+                .trim()
+                .toLowerCase() ==
+            'pending';
+
+    final submitted =
+        registration.submittedAt == null
+            ? '-'
+            : DateFormat(
+                'MMM d, yyyy',
+              ).format(
+                registration.submittedAt!,
+              );
 
     return InkWell(
       onTap: onView,
       child: Container(
         color: shaded
-            ? ProvincialAdminColors.background.withValues(alpha: .6)
+            ? const Color(
+                0xFFFCFDFE,
+              )
             : Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding:
+            const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 13,
+        ),
         child: Row(
           children: [
             SizedBox(
@@ -1259,97 +2493,158 @@ class _RegistrationTableRow extends StatelessWidget {
               child: Text(
                 registration.city,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.text,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .text,
+                  fontWeight:
+                      FontWeight.w800,
+                  fontSize: 11,
                 ),
               ),
             ),
+
             SizedBox(
               width: 160,
               child: Text(
-                registration.officeName.isEmpty
+                registration
+                        .officeName
+                        .trim()
+                        .isEmpty
                     ? 'Tourism Office'
-                    : registration.officeName,
+                    : registration
+                        .officeName,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.muted,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .muted,
+                  fontWeight:
+                      FontWeight.w700,
+                  fontSize: 10.5,
                 ),
               ),
             ),
+
             SizedBox(
               width: 150,
               child: Text(
-                registration.contactPerson.isEmpty
+                registration
+                        .contactPerson
+                        .trim()
+                        .isEmpty
                     ? 'No contact person'
-                    : registration.contactPerson,
+                    : registration
+                        .contactPerson,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.text,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .text,
+                  fontWeight:
+                      FontWeight.w700,
+                  fontSize: 10.5,
                 ),
               ),
             ),
+
             SizedBox(
               width: 200,
               child: Text(
-                registration.email.isEmpty ? 'No email' : registration.email,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.muted,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
+                registration.email.trim().isEmpty
+                    ? 'No email'
+                    : registration.email,
+                maxLines: 1,
+                overflow:
+                    TextOverflow.ellipsis,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .muted,
+                  fontWeight:
+                      FontWeight.w700,
+                  fontSize: 10,
                 ),
               ),
             ),
+
             SizedBox(
               width: 120,
               child: Text(
                 submitted,
-                style: const TextStyle(
-                  color: ProvincialAdminColors.muted,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
+                style:
+                    const TextStyle(
+                  color:
+                      ProvincialAdminColors
+                          .muted,
+                  fontWeight:
+                      FontWeight.w700,
+                  fontSize: 10,
                 ),
               ),
             ),
+
             SizedBox(
               width: 100,
-              child: AdminStatusPill(status: registration.status),
+              child:
+                  AdminStatusPill(
+                status:
+                    registration.status,
+              ),
             ),
+
             SizedBox(
               width: 132,
               child: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize:
+                    MainAxisSize.min,
                 children: [
                   _IconAction(
-                    icon: Icons.visibility_rounded,
-                    tooltip: 'View details',
-                    color: ProvincialAdminColors.blue,
-                    onPressed: onView,
+                    icon: Icons
+                        .visibility_outlined,
+                    tooltip:
+                        'View application',
+                    color:
+                        ProvincialAdminColors
+                            .blue,
+                    onPressed:
+                        onView,
                   ),
+
                   if (pending) ...[
-                    const SizedBox(width: 4),
-                    _IconAction(
-                      icon: Icons.check_circle_rounded,
-                      tooltip: 'Approve',
-                      color: ProvincialAdminColors.green,
-                      onPressed: onApprove,
+                    const SizedBox(
+                      width: 4,
                     ),
-                    const SizedBox(width: 4),
                     _IconAction(
-                      icon: Icons.cancel_rounded,
-                      tooltip: 'Reject',
-                      color: ProvincialAdminColors.red,
-                      onPressed: onReject,
+                      icon: Icons
+                          .check_rounded,
+                      tooltip:
+                          'Approve',
+                      color: _green,
+                      onPressed:
+                          onApprove,
+                    ),
+                    const SizedBox(
+                      width: 4,
+                    ),
+                    _IconAction(
+                      icon: Icons
+                          .close_rounded,
+                      tooltip:
+                          'Reject',
+                      color: _red,
+                      onPressed:
+                          onReject,
                     ),
                   ],
                 ],
@@ -1358,6 +2653,311 @@ class _RegistrationTableRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Registration mobile card
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RegistrationCard extends StatelessWidget {
+  const _RegistrationCard({
+    required this.registration,
+    required this.onView,
+    required this.onApprove,
+    required this.onReject,
+  });
+
+  final CityRegistration registration;
+
+  final VoidCallback onView;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending =
+        registration.status
+                .trim()
+                .toLowerCase() ==
+            'pending';
+
+    final submitted =
+        registration.submittedAt == null
+            ? '-'
+            : DateFormat(
+                'MMM d, yyyy',
+              ).format(
+                registration.submittedAt!,
+              );
+
+    return AdminSectionCard(
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration:
+                    BoxDecoration(
+                  color:
+                      ProvincialAdminColors
+                          .blue
+                          .withValues(
+                    alpha: .08,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    10,
+                  ),
+                ),
+                child: const Icon(
+                  Icons
+                      .location_city_outlined,
+                  color:
+                      ProvincialAdminColors
+                          .blue,
+                  size: 20,
+                ),
+              ),
+
+              const SizedBox(
+                width: 10,
+              ),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      registration.city,
+                      style:
+                          const TextStyle(
+                        color:
+                            ProvincialAdminColors
+                                .text,
+                        fontSize: 14,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 2,
+                    ),
+
+                    Text(
+                      registration
+                              .officeName
+                              .trim()
+                              .isEmpty
+                          ? 'Tourism Office'
+                          : registration
+                              .officeName,
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(
+                        color:
+                            ProvincialAdminColors
+                                .muted,
+                        fontSize: 10.5,
+                        fontWeight:
+                            FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(
+                width: 10,
+              ),
+
+              AdminStatusPill(
+                status:
+                    registration.status,
+              ),
+            ],
+          ),
+
+          const SizedBox(
+            height: 13,
+          ),
+
+          const Divider(
+            height: 1,
+            color:
+                ProvincialAdminColors.line,
+          ),
+
+          const SizedBox(
+            height: 12,
+          ),
+
+          _CardInfoRow(
+            icon:
+                Icons.person_outline_rounded,
+            text:
+                registration.contactPerson.trim().isEmpty
+                    ? 'No contact person'
+                    : registration
+                        .contactPerson,
+          ),
+
+          const SizedBox(
+            height: 7,
+          ),
+
+          _CardInfoRow(
+            icon:
+                Icons.email_outlined,
+            text:
+                registration.email.trim().isEmpty
+                    ? 'No email'
+                    : registration.email,
+          ),
+
+          const SizedBox(
+            height: 7,
+          ),
+
+          _CardInfoRow(
+            icon: Icons
+                .calendar_today_outlined,
+            text:
+                'Submitted $submitted',
+          ),
+
+          const SizedBox(
+            height: 14,
+          ),
+
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed:
+                    onView,
+                icon:
+                    const Icon(
+                  Icons
+                      .visibility_outlined,
+                  size: 15,
+                ),
+                label:
+                    const Text(
+                  'View',
+                ),
+              ),
+
+              if (pending)
+                FilledButton.icon(
+                  onPressed:
+                      onApprove,
+                  icon:
+                      const Icon(
+                    Icons.check_rounded,
+                    size: 15,
+                  ),
+                  label:
+                      const Text(
+                    'Approve',
+                  ),
+                  style:
+                      FilledButton.styleFrom(
+                    backgroundColor:
+                        _green,
+                  ),
+                ),
+
+              if (pending)
+                OutlinedButton.icon(
+                  onPressed:
+                      onReject,
+                  icon:
+                      const Icon(
+                    Icons.close_rounded,
+                    size: 15,
+                  ),
+                  label:
+                      const Text(
+                    'Reject',
+                  ),
+                  style:
+                      OutlinedButton.styleFrom(
+                    foregroundColor:
+                        _red,
+                    side:
+                        const BorderSide(
+                      color: _red,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Small action widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CardInfoRow extends StatelessWidget {
+  const _CardInfoRow({
+    required this.icon,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color:
+              ProvincialAdminColors
+                  .lightMuted,
+        ),
+
+        const SizedBox(
+          width: 8,
+        ),
+
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow:
+                TextOverflow.ellipsis,
+            style:
+                const TextStyle(
+              color:
+                  ProvincialAdminColors
+                      .muted,
+              fontSize: 10.5,
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1381,284 +2981,283 @@ class _IconAction extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius:
+            BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.all(7),
+          padding:
+              const EdgeInsets.all(7),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: .09),
-            borderRadius: BorderRadius.circular(8),
+            color:
+                color.withValues(
+              alpha: .08,
+            ),
+            borderRadius:
+                BorderRadius.circular(8),
           ),
-          child: Icon(icon, color: color, size: 17),
+          child: Icon(
+            icon,
+            color: color,
+            size: 16,
+          ),
         ),
       ),
     );
   }
 }
 
-class _RegistrationCard extends StatelessWidget {
-  const _RegistrationCard({
+// ─────────────────────────────────────────────────────────────────────────────
+// Registration details bottom sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RegistrationDetailsSheet extends StatelessWidget {
+  const _RegistrationDetailsSheet({
     required this.registration,
-    required this.onView,
-    required this.onApprove,
-    required this.onReject,
   });
 
   final CityRegistration registration;
-  final VoidCallback onView;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
 
   @override
   Widget build(BuildContext context) {
-    final pending = registration.status.toLowerCase() == 'pending';
-    final submitted = registration.submittedAt == null
-        ? '-'
-        : DateFormat('MMM d, yyyy').format(registration.submittedAt!);
+    final submitted =
+        registration.submittedAt == null
+            ? '-'
+            : DateFormat(
+                'MMM d, yyyy - h:mm a',
+              ).format(
+                registration.submittedAt!,
+              );
 
-    return AdminSectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      registration.city,
-                      style: const TextStyle(
-                        color: ProvincialAdminColors.text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      registration.officeName.isEmpty
-                          ? 'Tourism Office'
-                          : registration.officeName,
-                      style: const TextStyle(
-                        color: ProvincialAdminColors.muted,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              AdminStatusPill(status: registration.status),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Divider(color: ProvincialAdminColors.line, height: 1),
-          const SizedBox(height: 12),
-          _CardInfoRow(
-            icon: Icons.person_rounded,
-            text: registration.contactPerson.isEmpty
-                ? 'No contact person'
-                : registration.contactPerson,
-          ),
-          const SizedBox(height: 6),
-          _CardInfoRow(
-            icon: Icons.email_rounded,
-            text: registration.email.isEmpty ? 'No email' : registration.email,
-          ),
-          const SizedBox(height: 6),
-          _CardInfoRow(
-            icon: Icons.calendar_today_rounded,
-            text: 'Submitted $submitted',
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: onView,
-                icon: const Icon(Icons.visibility_rounded, size: 16),
-                label: const Text('View'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: ProvincialAdminColors.blue,
-                  side: const BorderSide(color: ProvincialAdminColors.blue),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              if (pending) ...[
-                FilledButton.icon(
-                  onPressed: onApprove,
-                  icon: const Icon(Icons.check_rounded, size: 16),
-                  label: const Text('Approve'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ProvincialAdminColors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: onReject,
-                  icon: const Icon(Icons.close_rounded, size: 16),
-                  label: const Text('Reject'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ProvincialAdminColors.red,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CardInfoRow extends StatelessWidget {
-  const _CardInfoRow({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: ProvincialAdminColors.lightMuted),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              color: ProvincialAdminColors.muted,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RegistrationDetailsSheet extends StatelessWidget {
-  const _RegistrationDetailsSheet({required this.registration});
-
-  final CityRegistration registration;
-
-  @override
-  Widget build(BuildContext context) {
-    final submitted = registration.submittedAt == null
-        ? '-'
-        : DateFormat('MMM d, yyyy - h:mm a').format(registration.submittedAt!);
+    final height =
+        MediaQuery.sizeOf(context)
+            .height;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-      decoration: const BoxDecoration(
-        color: ProvincialAdminColors.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      constraints: BoxConstraints(
+        maxHeight:
+            height * .88,
+      ),
+      decoration:
+          const BoxDecoration(
+        color:
+            Color(0xFFF8FAFC),
+        borderRadius:
+            BorderRadius.vertical(
+          top: Radius.circular(
+            24,
+          ),
+        ),
       ),
       child: SafeArea(
         top: false,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize:
+              MainAxisSize.min,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ProvincialAdminColors.line,
-                  borderRadius: BorderRadius.circular(999),
-                ),
+            Padding(
+              padding:
+                  const EdgeInsets.fromLTRB(
+                20,
+                12,
+                12,
+                12,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration:
+                        BoxDecoration(
+                      color:
+                          ProvincialAdminColors
+                              .blue
+                              .withValues(
+                        alpha: .08,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(
+                        10,
+                      ),
+                    ),
+                    child:
+                        const Icon(
+                      Icons
+                          .how_to_reg_outlined,
+                      color:
+                          ProvincialAdminColors
+                              .blue,
+                      size: 19,
+                    ),
+                  ),
+
+                  const SizedBox(
+                    width: 10,
+                  ),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          registration.city,
+                          style:
+                              const TextStyle(
+                            color:
+                                ProvincialAdminColors
+                                    .text,
+                            fontSize: 16,
+                            fontWeight:
+                                FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(
+                          height: 2,
+                        ),
+                        Text(
+                          registration
+                                  .officeName
+                                  .trim()
+                                  .isEmpty
+                              ? 'Tourism Office Registration'
+                              : registration
+                                  .officeName,
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow.ellipsis,
+                          style:
+                              const TextStyle(
+                            color:
+                                ProvincialAdminColors
+                                    .muted,
+                            fontSize: 10.5,
+                            fontWeight:
+                                FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  AdminStatusPill(
+                    status:
+                        registration.status,
+                  ),
+
+                  const SizedBox(
+                    width: 6,
+                  ),
+
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () {
+                      Navigator.pop(
+                        context,
+                      );
+                    },
+                    icon:
+                        const Icon(
+                      Icons.close_rounded,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
+
+            const Divider(
+              height: 1,
+              color:
+                  ProvincialAdminColors
+                      .line,
+            ),
+
+            Flexible(
+              child:
+                  SingleChildScrollView(
+                padding:
+                    const EdgeInsets.all(
+                  20,
+                ),
+                child:
+                    AdminSectionCard(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        registration.city,
-                        style: const TextStyle(
-                          color: ProvincialAdminColors.text,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                        ),
+                      _DetailTile(
+                        icon: Icons
+                            .person_outline_rounded,
+                        label:
+                            'Contact Person',
+                        value:
+                            registration.contactPerson.trim().isEmpty
+                                ? 'No contact person'
+                                : registration
+                                    .contactPerson,
                       ),
-                      Text(
-                        registration.officeName.isEmpty
-                            ? 'Tourism Office'
-                            : registration.officeName,
-                        style: const TextStyle(
-                          color: ProvincialAdminColors.muted,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
+
+                      _DetailTile(
+                        icon:
+                            Icons.phone_outlined,
+                        label:
+                            'Contact Number',
+                        value:
+                            registration.contactNumber.trim().isEmpty
+                                ? 'No contact number'
+                                : registration
+                                    .contactNumber,
                       ),
+
+                      _DetailTile(
+                        icon:
+                            Icons.email_outlined,
+                        label:
+                            'Email',
+                        value:
+                            registration.email.trim().isEmpty
+                                ? 'No email'
+                                : registration.email,
+                      ),
+
+                      _DetailTile(
+                        icon:
+                            Icons.home_outlined,
+                        label:
+                            'Office Address',
+                        value:
+                            registration.address.trim().isEmpty
+                                ? 'No address submitted'
+                                : registration.address,
+                      ),
+
+                      _DetailTile(
+                        icon: Icons
+                            .calendar_today_outlined,
+                        label:
+                            'Submitted',
+                        value:
+                            submitted,
+                        isLast:
+                            registration.rejectionReason.trim().isEmpty,
+                      ),
+
+                      if (registration
+                          .rejectionReason
+                          .trim()
+                          .isNotEmpty)
+                        _DetailTile(
+                          icon: Icons
+                              .info_outline_rounded,
+                          label:
+                              'Rejection Reason',
+                          value:
+                              registration.rejectionReason,
+                          valueColor:
+                              _red,
+                          isLast:
+                              true,
+                        ),
                     ],
                   ),
                 ),
-                AdminStatusPill(status: registration.status),
-              ],
-            ),
-            const SizedBox(height: 18),
-            AdminSectionCard(
-              child: Column(
-                children: [
-                  _DetailTile(
-                    icon: Icons.person_rounded,
-                    label: 'Contact Person',
-                    value: registration.contactPerson.isEmpty
-                        ? 'No contact person'
-                        : registration.contactPerson,
-                  ),
-                  _DetailTile(
-                    icon: Icons.phone_rounded,
-                    label: 'Contact Number',
-                    value: registration.contactNumber.isEmpty
-                        ? 'No contact number'
-                        : registration.contactNumber,
-                  ),
-                  _DetailTile(
-                    icon: Icons.email_rounded,
-                    label: 'Email',
-                    value: registration.email.isEmpty
-                        ? 'No email'
-                        : registration.email,
-                  ),
-                  _DetailTile(
-                    icon: Icons.home_rounded,
-                    label: 'Office Address',
-                    value: registration.address.isEmpty
-                        ? 'No address submitted'
-                        : registration.address,
-                  ),
-                  _DetailTile(
-                    icon: Icons.calendar_today_rounded,
-                    label: 'Submitted',
-                    value: submitted,
-                    isLast: registration.rejectionReason.isEmpty,
-                  ),
-                  if (registration.rejectionReason.isNotEmpty)
-                    _DetailTile(
-                      icon: Icons.info_outline_rounded,
-                      label: 'Rejection Reason',
-                      value: registration.rejectionReason,
-                      valueColor: ProvincialAdminColors.red,
-                      isLast: true,
-                    ),
-                ],
               ),
             ),
           ],
@@ -1667,6 +3266,10 @@ class _RegistrationDetailsSheet extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Detail tile
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _DetailTile extends StatelessWidget {
   const _DetailTile({
@@ -1678,9 +3281,12 @@ class _DetailTile extends StatelessWidget {
   });
 
   final IconData icon;
+
   final String label;
   final String value;
+
   final Color? valueColor;
+
   final bool isLast;
 
   @override
@@ -1688,31 +3294,77 @@ class _DetailTile extends StatelessWidget {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 11),
+          padding:
+              const EdgeInsets.symmetric(
+            vertical: 10,
+          ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 17, color: ProvincialAdminColors.blue),
-              const SizedBox(width: 12),
+              Container(
+                width: 30,
+                height: 30,
+                decoration:
+                    BoxDecoration(
+                  color:
+                      ProvincialAdminColors
+                          .blue
+                          .withValues(
+                    alpha: .07,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    8,
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  color:
+                      ProvincialAdminColors
+                          .blue,
+                  size: 15,
+                ),
+              ),
+
+              const SizedBox(
+                width: 10,
+              ),
+
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Text(
                       label,
-                      style: const TextStyle(
-                        color: ProvincialAdminColors.muted,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
+                      style:
+                          const TextStyle(
+                        color:
+                            ProvincialAdminColors
+                                .muted,
+                        fontSize: 9.5,
+                        fontWeight:
+                            FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 2),
+
+                    const SizedBox(
+                      height: 2,
+                    ),
+
                     Text(
                       value,
-                      style: TextStyle(
-                        color: valueColor ?? ProvincialAdminColors.text,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                      style:
+                          TextStyle(
+                        color:
+                            valueColor ??
+                                ProvincialAdminColors
+                                    .text,
+                        fontSize: 11.5,
+                        fontWeight:
+                            FontWeight.w800,
+                        height: 1.35,
                       ),
                     ),
                   ],
@@ -1721,117 +3373,15 @@ class _DetailTile extends StatelessWidget {
             ],
           ),
         ),
+
         if (!isLast)
-          const Divider(height: 1, color: ProvincialAdminColors.line),
-      ],
-    );
-  }
-}
-
-class _TenantInfo extends StatelessWidget {
-  const _TenantInfo({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: ProvincialAdminColors.lightMuted, size: 15),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text: '$label\n',
-                  style: const TextStyle(
-                    color: ProvincialAdminColors.lightMuted,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    height: 1.05,
-                  ),
-                ),
-                TextSpan(
-                  text: value,
-                  style: const TextStyle(
-                    color: ProvincialAdminColors.text,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          const Divider(
+            height: 1,
+            color:
+                ProvincialAdminColors
+                    .line,
           ),
-        ),
       ],
-    );
-  }
-}
-
-class _TenantMetric extends StatelessWidget {
-  const _TenantMetric({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  final String label;
-  final int value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: .10)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '$value\n',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      height: 1,
-                    ),
-                  ),
-                  TextSpan(
-                    text: label,
-                    style: const TextStyle(
-                      color: ProvincialAdminColors.muted,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      height: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

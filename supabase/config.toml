@@ -9,3 +9,8 @@ verify_jwt = false
 
 [functions.paymongo-payment-return]
 verify_jwt = false
+
+# POST requests authenticate users inside the function. GET is reserved for
+# HMAC-signed photo/static-map URLs that browsers can load without auth headers.
+[functions.google-places]
+verify_jwt = false

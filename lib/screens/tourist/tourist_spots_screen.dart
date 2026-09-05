@@ -1,7 +1,8 @@
-﻿// FILE 1: lib/screens/tourist/tourist_spots_screen.dart
+// FILE 1: lib/screens/tourist/tourist_spots_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/screens/tourist/spot_details_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 
@@ -15,7 +16,7 @@ class TouristSpotsScreen extends StatefulWidget {
 class _TouristSpotsScreenState extends State<TouristSpotsScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final _searchCtrl = TextEditingController();
- 
+
   late Future<List<_PublicTouristSpot>> _future;
 
   int _navIndex = 1;
@@ -82,12 +83,13 @@ class _TouristSpotsScreenState extends State<TouristSpotsScreen> {
   }
 
   List<String> _chipsFor(List<_PublicTouristSpot> spots) {
-    final cities = spots
-        .map((spot) => spot.city)
-        .where((city) => city.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final cities =
+        spots
+            .map((spot) => spot.city)
+            .where((city) => city.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
     return ['All', ...cities];
   }
 
@@ -98,25 +100,31 @@ class _TouristSpotsScreenState extends State<TouristSpotsScreen> {
     final query = _searchCtrl.text.trim().toLowerCase();
     final selected = chips[_selectedChip < chips.length ? _selectedChip : 0];
 
-    return spots.where((spot) {
-      final cityOk = selected == 'All' || spot.city == selected;
-      final searchOk = query.isEmpty ||
-          spot.title.toLowerCase().contains(query) ||
-          spot.description.toLowerCase().contains(query) ||
-          spot.city.toLowerCase().contains(query) ||
-          spot.barangay.toLowerCase().contains(query) ||
-          spot.address.toLowerCase().contains(query);
+    return spots
+        .where((spot) {
+          final cityOk = selected == 'All' || spot.city == selected;
+          final searchOk =
+              query.isEmpty ||
+              spot.title.toLowerCase().contains(query) ||
+              spot.description.toLowerCase().contains(query) ||
+              spot.city.toLowerCase().contains(query) ||
+              spot.barangay.toLowerCase().contains(query) ||
+              spot.address.toLowerCase().contains(query);
 
-      return cityOk && searchOk;
-    }).toList(growable: false);
+          return cityOk && searchOk;
+        })
+        .toList(growable: false);
   }
 
   Future<void> _trackTouristSpotView(dynamic id) async {
     try {
-      await _supabase.from('tourist_spot_views').insert({
-        'spot_id': id,
-        'viewed_at': DateTime.now().toIso8601String(),
-      }).timeout(const Duration(seconds: 8));
+      await _supabase
+          .from('tourist_spot_views')
+          .insert({
+            'spot_id': id,
+            'viewed_at': DateTime.now().toIso8601String(),
+          })
+          .timeout(const Duration(seconds: 8));
     } catch (e) {
       debugPrint('TOURIST spot view tracking skipped: $e');
     }
@@ -331,8 +339,10 @@ class _PublicTouristSpot {
       rating: _readDouble(map['rating']).clamp(0.0, 5.0),
       imageUrl: _readString(map['image_url']),
       status: _readString(map['status'], fallback: 'active'),
-      verificationStatus:
-          _readString(map['verification_status'], fallback: 'pending'),
+      verificationStatus: _readString(
+        map['verification_status'],
+        fallback: 'pending',
+      ),
       address: _readString(map['address']),
       openingHours: _readString(map['opening_hours']),
       entranceFee: _readString(map['entrance_fee']),
@@ -356,7 +366,9 @@ class _PublicTouristSpot {
   String get fullAddress {
     final parts = [
       if (address.isNotEmpty) address,
-      if (barangay.isNotEmpty && !address.toLowerCase().contains(barangay.toLowerCase())) barangay,
+      if (barangay.isNotEmpty &&
+          !address.toLowerCase().contains(barangay.toLowerCase()))
+        barangay,
       if (city.isNotEmpty) city,
       if (province.isNotEmpty) province,
     ];
@@ -366,7 +378,10 @@ class _PublicTouristSpot {
   String get imageForCard {
     if (imageUrl.isNotEmpty) return imageUrl;
     if (latitude != 0 && longitude != 0) {
-      return 'https://maps.googleapis.com/maps/api/staticmap?center=$latitude,$longitude&zoom=15&size=640x420&scale=2&maptype=roadmap&markers=color:red%7C$latitude,$longitude';
+      return CitySpotSuggestionService.buildStaticMapUrl(
+        latitude: latitude,
+        longitude: longitude,
+      );
     }
     return '';
   }
@@ -470,9 +485,10 @@ class _PopularSpotCard extends StatelessWidget {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            [spot.barangay, spot.city]
-                                .where((part) => part.isNotEmpty)
-                                .join(', '),
+                            [
+                              spot.barangay,
+                              spot.city,
+                            ].where((part) => part.isNotEmpty).join(', '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

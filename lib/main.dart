@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/config/app_config.dart';
 import 'package:touristrike/core/services/developer_settings.dart';
@@ -15,8 +14,6 @@ import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await dotenv.load(fileName: '.env');
 
   await Supabase.initialize(
     url: AppConfig.supabaseUrl,

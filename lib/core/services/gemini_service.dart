@@ -1,11 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/google_places_gateway.dart';
 import 'chatbot_models.dart';
 
 /// A single message in the conversation history sent to Gemini.
@@ -61,8 +61,8 @@ class GeminiService {
   static const _cacheTtl = Duration(minutes: 10);
 
   String get _apiKey {
-    final key = dotenv.env['GEMINI_API_KEY'] ?? '';
-    assert(key.isNotEmpty, 'GEMINI_API_KEY is missing in .env');
+    const key = String.fromEnvironment('GEMINI_API_KEY');
+    assert(key.isNotEmpty, 'GEMINI_API_KEY is missing from --dart-define.');
     return key;
   }
 
@@ -151,35 +151,114 @@ class GeminiService {
 
     // Explicit trigger phrases always indicate a named-place intent.
     const triggers = [
-      'where is ', "where's ", 'where can i find ',
-      'how to get to ', 'how to go to ',
-      'how do i get to ', 'how do i go to ',
-      'tell me about ', 'information about ', 'info about ',
-      'what is ', "what's the ", 'describe ',
+      'where is ',
+      "where's ",
+      'where can i find ',
+      'how to get to ',
+      'how to go to ',
+      'how do i get to ',
+      'how do i go to ',
+      'tell me about ',
+      'information about ',
+      'info about ',
+      'what is ',
+      "what's the ",
+      'describe ',
       'directions to ',
-      'i want to visit ', "i'd like to visit ",
-      'i want to go to ', "i'd like to go to ",
-      'near ', 'close to ',
+      'i want to visit ',
+      "i'd like to visit ",
+      'i want to go to ',
+      "i'd like to go to ",
+      'near ',
+      'close to ',
     ];
     if (triggers.any((t) => lower.contains(t))) return true;
 
     // Short messages (≤4 words) that contain at least one word that isn't a
     // common category / general word are likely a named-place query.
-    final words =
-        lower.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final words = lower
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
     if (words.length <= 4) {
       const generalWords = {
-        'suggest', 'recommend', 'show', 'give', 'list', 'find', 'search',
-        'cafe', 'cafes', 'coffee', 'restaurant', 'restaurants', 'food',
-        'spot', 'spots', 'places', 'place', 'park', 'parks',
-        'church', 'churches', 'museum', 'museums', 'resort', 'resorts',
-        'beach', 'historical', 'nature', 'religious', 'cultural',
-        'famous', 'popular', 'best', 'top', 'nearby', 'around',
-        'me', 'the', 'a', 'an', 'in', 'at', 'of', 'for', 'and', 'or',
-        'hi', 'hello', 'hey', 'help', 'what', 'how', 'where', 'when',
-        'who', 'which', 'can', 'please', 'some', 'any', 'tell', 'about',
-        'is', 'are', 'was', 'were', 'will', 'would', 'could', 'should',
-        'do', 'does', 'did', 'visit', 'see', 'go', 'get',
+        'suggest',
+        'recommend',
+        'show',
+        'give',
+        'list',
+        'find',
+        'search',
+        'cafe',
+        'cafes',
+        'coffee',
+        'restaurant',
+        'restaurants',
+        'food',
+        'spot',
+        'spots',
+        'places',
+        'place',
+        'park',
+        'parks',
+        'church',
+        'churches',
+        'museum',
+        'museums',
+        'resort',
+        'resorts',
+        'beach',
+        'historical',
+        'nature',
+        'religious',
+        'cultural',
+        'famous',
+        'popular',
+        'best',
+        'top',
+        'nearby',
+        'around',
+        'me',
+        'the',
+        'a',
+        'an',
+        'in',
+        'at',
+        'of',
+        'for',
+        'and',
+        'or',
+        'hi',
+        'hello',
+        'hey',
+        'help',
+        'what',
+        'how',
+        'where',
+        'when',
+        'who',
+        'which',
+        'can',
+        'please',
+        'some',
+        'any',
+        'tell',
+        'about',
+        'is',
+        'are',
+        'was',
+        'were',
+        'will',
+        'would',
+        'could',
+        'should',
+        'do',
+        'does',
+        'did',
+        'visit',
+        'see',
+        'go',
+        'get',
       };
       final meaningful = words.where((w) => !generalWords.contains(w));
       if (meaningful.isNotEmpty) return true;
@@ -214,18 +293,12 @@ class GeminiService {
 
     try {
       final searchQuery = '${query.trim()} Bulacan Philippines';
-      final encoded = Uri.encodeQueryComponent(searchQuery);
       final apiKey = CitySpotSuggestionService.resolveApiKey();
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/textsearch/json'
-        '?query=$encoded&region=ph&key=$apiKey',
-      );
-
-      final res = await http.get(uri).timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) return const [];
-
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (body['status'] != 'OK') return const [];
+      final gateway = GooglePlacesGateway(apiKey: apiKey);
+      final body = await gateway.request('textSearch', {
+        'query': searchQuery,
+        'region': 'ph',
+      });
 
       final results = (body['results'] as List?) ?? const [];
       final spots = <Map<String, dynamic>>[];
@@ -258,12 +331,15 @@ class GeminiService {
         final photoRef = photos.isEmpty
             ? ''
             : ((photos.first as Map)['photo_reference'] as String?) ?? '';
-        final imageUrl = photoRef.isEmpty
-            ? ''
-            : 'https://maps.googleapis.com/maps/api/place/photo'
-                '?maxwidth=900'
-                '&photo_reference=${Uri.encodeComponent(photoRef)}'
-                '&key=$apiKey';
+        final proxyImageUrl =
+            (item['_proxy_image_url'] as String?)?.trim() ?? '';
+        final proxyMapUrl =
+            (item['_proxy_static_map_url'] as String?)?.trim() ?? '';
+        final imageUrl = proxyImageUrl.isNotEmpty
+            ? proxyImageUrl
+            : photoRef.isNotEmpty
+            ? gateway.photoUrl(photoRef)
+            : proxyMapUrl;
 
         final category = _normalizeCategory(types.join(' '), title: name);
         final municipality = city.isNotEmpty ? city : 'Bulacan';
@@ -327,8 +403,7 @@ class GeminiService {
 
   /// Fetches live Google Maps spots for [city] (same source as the explore
   /// screen). Results are cached for [_cacheTtl] per city.
-  Future<List<Map<String, dynamic>>> _getGoogleSpotsForCity(
-      String city) async {
+  Future<List<Map<String, dynamic>>> _getGoogleSpotsForCity(String city) async {
     final now = DateTime.now();
     final cachedAt = _googleSpotsCachedAt[city];
     if (_googleSpotsCache.containsKey(city) &&
@@ -346,28 +421,30 @@ class GeminiService {
         limit: 30,
       );
 
-      final spots = suggestions.map((s) {
-        final municipality = s.city.isNotEmpty ? s.city : city;
-        return <String, dynamic>{
-          'id': s.id,
-          'title': s.title,
-          'municipality': municipality,
-          'city': municipality,
-          'latitude': s.latitude,
-          'longitude': s.longitude,
-          'rating': s.rating,
-          'image_url': s.imageUrl,
-          'cover_image_url': '',
-          'address': s.address,
-          'google_place_id': s.id,
-          'description': s.description,
-          '_category': _normalizeCategory(
-            s.category,
-            title: s.title,
-            description: s.description,
-          ),
-        };
-      }).toList(growable: false);
+      final spots = suggestions
+          .map((s) {
+            final municipality = s.city.isNotEmpty ? s.city : city;
+            return <String, dynamic>{
+              'id': s.id,
+              'title': s.title,
+              'municipality': municipality,
+              'city': municipality,
+              'latitude': s.latitude,
+              'longitude': s.longitude,
+              'rating': s.rating,
+              'image_url': s.imageUrl,
+              'cover_image_url': '',
+              'address': s.address,
+              'google_place_id': s.id,
+              'description': s.description,
+              '_category': _normalizeCategory(
+                s.category,
+                title: s.title,
+                description: s.description,
+              ),
+            };
+          })
+          .toList(growable: false);
 
       _googleSpotsCache[city] = spots;
       _googleSpotsCachedAt[city] = now;
@@ -405,7 +482,8 @@ class GeminiService {
           .toList(growable: false);
       _packagesCachedAt = now;
       debugPrint(
-          '[Gemini] Loaded ${_cachedPackages!.length} packages for chatbot');
+        '[Gemini] Loaded ${_cachedPackages!.length} packages for chatbot',
+      );
     } catch (e) {
       debugPrint('[Gemini] Package fetch failed: $e');
       _cachedPackages ??= const [];
@@ -459,8 +537,7 @@ class GeminiService {
           .toList(growable: false);
 
       _spotsCachedAt = now;
-      debugPrint(
-          '[Gemini] Loaded ${_cachedSpots!.length} spots for chatbot');
+      debugPrint('[Gemini] Loaded ${_cachedSpots!.length} spots for chatbot');
     } catch (e) {
       debugPrint('[Gemini] Spot fetch failed: $e');
       _cachedSpots ??= const [];
@@ -481,8 +558,8 @@ class GeminiService {
       final short = raw.length > 80 ? '${raw.substring(0, 80)}...' : raw;
       final municipality =
           ((s['municipality'] as String?)?.trim().isNotEmpty ?? false)
-              ? s['municipality'] as String
-              : (s['city'] as String?) ?? '';
+          ? s['municipality'] as String
+          : (s['city'] as String?) ?? '';
       return {
         'id': '${s['id']}',
         'name': (s['title'] as String?) ?? '',
@@ -564,13 +641,13 @@ ${jsonEncode(packageCatalog)}
         {
           'role': turn.role,
           'parts': [
-            {'text': turn.text}
+            {'text': turn.text},
           ],
         },
       {
         'role': 'user',
         'parts': [
-          {'text': userMessage}
+          {'text': userMessage},
         ],
       },
     ];
@@ -585,7 +662,7 @@ ${jsonEncode(packageCatalog)}
       if (systemPrompt != null && systemPrompt.isNotEmpty)
         'system_instruction': {
           'parts': [
-            {'text': systemPrompt}
+            {'text': systemPrompt},
           ],
         },
     };
@@ -657,8 +734,9 @@ ${jsonEncode(packageCatalog)}
   ) {
     try {
       var text = raw;
-      final fenceMatch =
-          RegExp(r'```(?:json)?\s*([\s\S]*?)\s*```').firstMatch(text);
+      final fenceMatch = RegExp(
+        r'```(?:json)?\s*([\s\S]*?)\s*```',
+      ).firstMatch(text);
       if (fenceMatch != null) text = fenceMatch.group(1)!;
 
       final json = jsonDecode(text) as Map<String, dynamic>;
@@ -693,35 +771,38 @@ ${jsonEncode(packageCatalog)}
               final idStr = '${map['id']}';
               final cached = spotById[idStr];
 
-              final name = (cached?['title'] as String?) ??
+              final name =
+                  (cached?['title'] as String?) ??
                   (map['name'] as String?) ??
                   '';
               if (name.isEmpty) return null;
 
               final municipality =
                   ((cached?['municipality'] as String?)?.trim().isNotEmpty ??
-                          false)
-                      ? (cached!['municipality'] as String).trim()
-                      : ((cached?['city'] as String?) ??
-                              (map['municipality'] as String?) ??
-                              (map['city'] as String?) ??
-                              '')
-                          .toString()
-                          .trim();
+                      false)
+                  ? (cached!['municipality'] as String).trim()
+                  : ((cached?['city'] as String?) ??
+                            (map['municipality'] as String?) ??
+                            (map['city'] as String?) ??
+                            '')
+                        .toString()
+                        .trim();
 
-              final category = (cached?['_category'] as String?) ??
+              final category =
+                  (cached?['_category'] as String?) ??
                   (map['category'] as String?) ??
                   'Attraction';
 
-              final address = (cached?['address'] as String?) ??
+              final address =
+                  (cached?['address'] as String?) ??
                   (map['address'] as String?) ??
                   '';
 
               final imageUrl = cached != null
                   ? _spotImageUrl(cached)
                   : (map['imageUrl'] as String?) ??
-                      (map['image_url'] as String?) ??
-                      '';
+                        (map['image_url'] as String?) ??
+                        '';
 
               return ChatSpotSuggestion(
                 id: idStr,
@@ -730,16 +811,20 @@ ${jsonEncode(packageCatalog)}
                 category: category,
                 address: address,
                 imageUrl: imageUrl,
-                rating: (cached?['rating'] as num?)?.toDouble() ??
+                rating:
+                    (cached?['rating'] as num?)?.toDouble() ??
                     (map['rating'] as num?)?.toDouble() ??
                     4.5,
-                latitude: (cached?['latitude'] as num?)?.toDouble() ??
+                latitude:
+                    (cached?['latitude'] as num?)?.toDouble() ??
                     (map['latitude'] as num?)?.toDouble() ??
                     0,
-                longitude: (cached?['longitude'] as num?)?.toDouble() ??
+                longitude:
+                    (cached?['longitude'] as num?)?.toDouble() ??
                     (map['longitude'] as num?)?.toDouble() ??
                     0,
-                googlePlaceId: (cached?['google_place_id'] as String?) ??
+                googlePlaceId:
+                    (cached?['google_place_id'] as String?) ??
                     (map['google_place_id'] as String?) ??
                     idStr,
               );
@@ -772,8 +857,11 @@ ${jsonEncode(packageCatalog)}
   }) async {
     final key = _apiKey;
     debugPrint(
-        '[Gemini] Key: ${key.isEmpty ? "EMPTY" : "${key.substring(0, 8)}... (${key.length} chars)"}');
-    if (key.isEmpty) throw Exception('GEMINI_API_KEY not set in .env');
+      '[Gemini] Key: ${key.isEmpty ? "EMPTY" : "${key.substring(0, 8)}... (${key.length} chars)"}',
+    );
+    if (key.isEmpty) {
+      throw Exception('GEMINI_API_KEY was not provided with --dart-define.');
+    }
 
     // ── Step 1: Detect city and intent ───────────────────────────────────────
     final detectedCity = _detectCity(userMessage);
@@ -791,10 +879,12 @@ ${jsonEncode(packageCatalog)}
     final packages = results[0];
     final supabaseSpots = results[1];
     int resultIdx = 2;
-    final googleCitySpots =
-        detectedCity != null ? results[resultIdx++] : <Map<String, dynamic>>[];
-    final namedSpots =
-        isNamedQuery ? results[resultIdx] : <Map<String, dynamic>>[];
+    final googleCitySpots = detectedCity != null
+        ? results[resultIdx++]
+        : <Map<String, dynamic>>[];
+    final namedSpots = isNamedQuery
+        ? results[resultIdx]
+        : <Map<String, dynamic>>[];
 
     // ── Step 3: Determine the working city ────────────────────────────────────
     // If no city was mentioned but the named search found a place, use its city
@@ -822,7 +912,8 @@ ${jsonEncode(packageCatalog)}
     void addSpots(Iterable<Map<String, dynamic>> src) {
       for (final s in src) {
         final title = CitySpotSuggestionService.normalizeText(
-          (s['title'] as String?) ?? '');
+          (s['title'] as String?) ?? '',
+        );
         if (title.isNotEmpty && seenTitles.add(title)) mergedSpots.add(s);
       }
     }
@@ -859,9 +950,7 @@ ${jsonEncode(packageCatalog)}
     final packageImageById = {
       for (final pkg in packages) '${pkg['id']}': _packageImageUrl(pkg),
     };
-    final spotById = {
-      for (final spot in spots) '${spot['id']}': spot,
-    };
+    final spotById = {for (final spot in spots) '${spot['id']}': spot};
 
     final enrichedPrompt = systemPrompt != null
         ? _buildEnrichedSystemPrompt(systemPrompt, spots, packages)
@@ -873,13 +962,18 @@ ${jsonEncode(packageCatalog)}
     for (int attempt = 0; attempt < _maxAttempts; attempt++) {
       if (attempt > 0) {
         final delay = Duration(seconds: 1 << (attempt - 1));
-        debugPrint('[Gemini] Overloaded – retrying in ${delay.inSeconds}s '
-            '(attempt ${attempt + 1}/$_maxAttempts)');
+        debugPrint(
+          '[Gemini] Overloaded – retrying in ${delay.inSeconds}s '
+          '(attempt ${attempt + 1}/$_maxAttempts)',
+        );
         await Future.delayed(delay);
       }
       try {
-        final raw =
-            await _postRequest(model: _primaryModel, body: body, key: key);
+        final raw = await _postRequest(
+          model: _primaryModel,
+          body: body,
+          key: key,
+        );
         return _parseResponse(raw, packageImageById, spotById);
       } on _OverloadException catch (e) {
         debugPrint('[Gemini] Overload on attempt ${attempt + 1}: ${e.message}');
@@ -889,13 +983,17 @@ ${jsonEncode(packageCatalog)}
     // ── One-shot fallback model ───────────────────────────────────────────
     debugPrint('[Gemini] Primary exhausted – trying fallback: $_fallbackModel');
     try {
-      final raw =
-          await _postRequest(model: _fallbackModel, body: body, key: key);
+      final raw = await _postRequest(
+        model: _fallbackModel,
+        body: body,
+        key: key,
+      );
       return _parseResponse(raw, packageImageById, spotById);
     } catch (e) {
       debugPrint('[Gemini] Fallback also failed: $e');
       throw Exception(
-          'AI assistant is currently busy. Please try again in a moment.');
+        'AI assistant is currently busy. Please try again in a moment.',
+      );
     }
   }
 }
