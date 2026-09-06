@@ -1,3 +1,4 @@
+import '../../core/services/booking_driver_markers.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
 import 'package:touristrike/core/models/booking_feedback.dart';
@@ -679,7 +680,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         if (driver.latitude != null && driver.longitude != null) {
           final point = LatLng(driver.latitude!, driver.longitude!);
           _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
-          _convoyPositions.putIfAbsent(driver.driverId, () => point);
+          _convoyPositions[driver.driverId] = point;
           _convoyHeadings[driver.driverId] = driver.heading;
         }
       }
@@ -759,6 +760,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 lng > 180) {
               return;
             }
+            final merged = mergeBookingDriverLocation(_convoy, row);
+            final before = _convoy
+                .where((d) => d.driverId == driverId)
+                .firstOrNull;
+            final after = merged
+                .where((d) => d.driverId == driverId)
+                .firstOrNull;
+            if (identical(before, after)) return;
+            setState(() => _convoy = merged);
             _markerMotion.animateTo(
               driverId,
               LatLng(lat, lng),
@@ -775,24 +785,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 }
               },
             );
-            final updatedAt = dbDate(row['updated_at']);
-            if (updatedAt != null) {
-              setState(
-                () => _convoy = _convoy
-                    .map(
-                      (driver) => driver.driverId == driverId
-                          ? driver.withLiveLocation(
-                              latitude: lat,
-                              longitude: lng,
-                              heading:
-                                  (row['heading'] as num?)?.toDouble() ?? 0,
-                              updatedAt: updatedAt,
-                            )
-                          : driver,
-                    )
-                    .toList(),
-              );
-            }
             _scheduleRouteRefresh();
           },
         )
@@ -1237,32 +1229,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       );
     }
 
-    for (var index = 0; index < _convoy.length; index++) {
-      final driver = _convoy[index];
-      final position = _convoyPositions[driver.driverId];
-      if (position == null) continue;
-      markers.add(
-        Marker(
-          markerId: MarkerId('driver_${driver.driverId}'),
-          position: position,
-          icon:
-              _tricycleMarker ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
-          rotation: _convoyHeadings[driver.driverId] ?? driver.heading,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          infoWindow: InfoWindow(
-            title: 'Tricycle ${index + 1}: ${driver.driverName}',
-            snippet: driver.journeyState.label,
-          ),
-          onTap: () {
-            setState(() => _selectedDriverId = driver.driverId);
-            _scheduleRouteRefresh();
-          },
-          zIndexInt: driver.driverId == _selectedDriverId ? 2 : 1,
-        ),
-      );
-    }
+    markers.addAll(
+      buildBookingDriverMarkers(
+        drivers: _convoy,
+        icon:
+            _tricycleMarker ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        positions: _convoyPositions,
+        headings: _convoyHeadings,
+        selectedDriverId: _selectedDriverId,
+        onSelect: (id) {
+          setState(() => _selectedDriverId = id);
+          _scheduleRouteRefresh();
+        },
+      ),
+    );
 
     if (mounted) {
       setState(() {

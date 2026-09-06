@@ -12,7 +12,8 @@ create table package_bookings(id uuid primary key, tourist_id uuid, package_id b
   pickup_latitude double precision default 15, pickup_longitude double precision default 121,
   dropoff_latitude double precision default 15, dropoff_longitude double precision default 121,
   current_spot_index integer default 0, updated_at timestamptz, arrived_at timestamptz, picked_up_at timestamptz,
-  test_mode boolean default false, remaining_balance numeric default 3600, completed_at timestamptz);
+  test_mode boolean default false, remaining_balance numeric default 3600, completed_at timestamptz,
+  downpayment_amount numeric default 3600, total_amount numeric default 7200);
 create table package_activities(id uuid primary key, booking_id uuid references package_bookings, tour_status text, status text,
   current_spot_index integer default 0, dropped_off_at timestamptz, arrived_at timestamptz, picked_up_at timestamptz, updated_at timestamptz);
 create table booking_drivers(id uuid primary key, booking_id uuid references package_bookings, driver_id uuid references profiles,
@@ -44,8 +45,6 @@ create function is_developer_test_booking(uuid) returns boolean language sql sta
 create function journey_state_order(text) returns integer language sql immutable as $$ select array_position(
  array['assigned','en_route_pickup','at_pickup','boarded','en_route_stop','at_stop','stop_done','en_route_dropoff','at_dropoff','completed'], $1) $$;
 create function package_booking_schedule_window(package_bookings) returns tstzrange language sql stable as $$ select tstzrange($1.scheduled_start_at, $1.estimated_end_at) $$;
-create function is_booking_downpayment_confirmed(uuid) returns boolean language sql stable as $$ select exists(select 1 from payment_records
- where booking_id = $1 and status = 'confirmed' and payment_stage in ('down_payment','full')) $$;
 create function is_booking_remaining_payment_satisfied(uuid) returns boolean language sql stable as $$ select exists(select 1 from payment_records
  where booking_id = $1 and status = 'confirmed' and payment_stage in ('remaining_balance','full')) $$;
 create function is_booking_itinerary_complete(uuid) returns boolean language sql stable as $$ select not exists(select 1 from booking_itinerary_items

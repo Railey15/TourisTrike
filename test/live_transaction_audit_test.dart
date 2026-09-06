@@ -37,8 +37,10 @@ void main() {
     expect(migration, contains("raise exception 'NOT_WITHIN_ARRIVAL_RADIUS"));
     expect(migration, contains('v_allowed_radius_meters constant'));
     expect(migration, contains('is_developer_test_booking(new.booking_id)'));
-    expect(driverTracking, contains('if (position == null)'));
-    expect(driverTracking, contains('return false;'));
+    // Arrival now consumes validated stream/recovery fixes instead of the
+    // removed manual-arrival proximity helper.
+    expect(driverTracking, contains('StableArrivalDetector.isUsableFix('));
+    expect(driverTracking, contains('automaticArrival: true'));
   });
 
   test('all participants use validated realtime location rows', () {

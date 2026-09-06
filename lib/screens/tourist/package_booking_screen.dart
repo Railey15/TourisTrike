@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:touristrike/widgets/booking_review_sheet.dart';
@@ -29,13 +29,6 @@ const Color _softBlue = Color(0xFFEAF3FF);
 // =============================================================================
 // AUTOCOMPLETE
 // =============================================================================
-
-class _AutocompleteResult {
-  const _AutocompleteResult({required this.placeId, required this.description});
-
-  final String placeId;
-  final String description;
-}
 
 // =============================================================================
 // BOOKING SCREEN
@@ -104,8 +97,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // LOCATION
   // ---------------------------------------------------------------------------
 
-  _SelectedLocation? _selectedPickup;
-  _SelectedLocation? _selectedDropoff;
+  BookingLocation? _selectedPickup;
+  BookingLocation? _selectedDropoff;
 
   String? _pickupLocationError;
   String? _dropoffLocationError;
@@ -343,38 +336,18 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // LOCATION
   // =============================================================================
 
-  void _onPickupSelected(String? address, double? lat, double? lng) {
+  void _onPickupSelected(BookingLocation? location) {
     setState(() {
-      if (address != null && lat != null && lng != null) {
-        _selectedPickup = _SelectedLocation(
-          address: address,
-          latitude: lat,
-          longitude: lng,
-          isValidWithinMunicipality: true,
-        );
-
-        _pickupLocationError = null;
-      } else {
-        _selectedPickup = null;
-      }
+      _selectedPickup = location;
+      _pickupLocationError = null;
     });
     unawaited(_recalculateSelectedItinerary());
   }
 
-  void _onDropoffSelected(String? address, double? lat, double? lng) {
+  void _onDropoffSelected(BookingLocation? location) {
     setState(() {
-      if (address != null && lat != null && lng != null) {
-        _selectedDropoff = _SelectedLocation(
-          address: address,
-          latitude: lat,
-          longitude: lng,
-          isValidWithinMunicipality: true,
-        );
-
-        _dropoffLocationError = null;
-      } else {
-        _selectedDropoff = null;
-      }
+      _selectedDropoff = location;
+      _dropoffLocationError = null;
     });
     unawaited(_recalculateSelectedItinerary());
   }
@@ -392,14 +365,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return _dropoffLocationError;
     }
 
-    if (_selectedPickup == null ||
-        !_selectedPickup!.isValidWithinMunicipality) {
-      return 'Select a pickup point within ${package.city}, ${_packageProvince(package)}.';
+    if (_selectedPickup == null || !_selectedPickup!.isPhilippines) {
+      return 'Select a pickup location from the suggestions or use your current location.';
     }
 
-    if (_selectedDropoff == null ||
-        !_selectedDropoff!.isValidWithinMunicipality) {
-      return 'Select a drop-off point within ${package.city}, ${_packageProvince(package)}.';
+    if (_selectedDropoff == null || !_selectedDropoff!.isPhilippines) {
+      return 'Select a drop-off location from the suggestions or use your current location.';
     }
 
     return null;
@@ -1375,16 +1346,16 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         pickupAddress: _selectedPickup!.address,
         pickupLatitude: _selectedPickup!.latitude,
         pickupLongitude: _selectedPickup!.longitude,
-        pickupProvince: _packageProvince(package),
-        pickupLocality: package.city,
-        pickupCountryCode: 'PH',
+        pickupProvince: _selectedPickup!.province,
+        pickupLocality: _selectedPickup!.locality,
+        pickupCountryCode: _selectedPickup!.countryCode,
 
         dropoffAddress: _selectedDropoff!.address,
         dropoffLatitude: _selectedDropoff!.latitude,
         dropoffLongitude: _selectedDropoff!.longitude,
-        dropoffProvince: _packageProvince(package),
-        dropoffLocality: package.city,
-        dropoffCountryCode: 'PH',
+        dropoffProvince: _selectedDropoff!.province,
+        dropoffLocality: _selectedDropoff!.locality,
+        dropoffCountryCode: _selectedDropoff!.countryCode,
 
         notes: _buildNotesSummary(),
 
@@ -1634,10 +1605,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             iconColor: const Color(0xFF16A34A),
                             title: 'Pickup Point',
                             subtitle: 'Where should the driver meet you?',
-                            child: _LocationPickerCard(
+                            child: BookingLocationPicker(
                               label: 'Pickup',
-                              requiredMunicipality: package.city,
-                              requiredProvince: _packageProvince(package),
                               errorText: _pickupLocationError,
                               onValidationMessageChanged: (message) {
                                 if (!mounted) return;
@@ -1658,10 +1627,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             iconColor: const Color(0xFFDC2626),
                             title: 'Drop-off Point',
                             subtitle: 'Where should the tour end?',
-                            child: _LocationPickerCard(
+                            child: BookingLocationPicker(
                               label: 'Drop-off',
-                              requiredMunicipality: package.city,
-                              requiredProvince: _packageProvince(package),
                               errorText: _dropoffLocationError,
                               onValidationMessageChanged: (message) {
                                 if (!mounted) return;
@@ -5458,9 +5425,6 @@ class _LocationPickerCard extends StatefulWidget {
 
 class _LocationPickerCardState extends State<_LocationPickerCard> {
   static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
-  late final GooglePlacesGateway _placesGateway = GooglePlacesGateway(
-    apiKey: _apiKey,
-  );
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -5514,28 +5478,40 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
       final scoped =
           '$query, ${widget.requiredMunicipality}, ${widget.requiredProvince}, Philippines';
 
-      final body = await _placesGateway.request('autocomplete', {
-        'input': scoped,
-        'components': 'country:ph',
-        'language': 'en',
-      });
+      final encoded = Uri.encodeQueryComponent(scoped);
+
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+        '?input=$encoded'
+        '&key=$_apiKey'
+        '&components=country:ph'
+        '&language=en',
+      );
+
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
 
       if (!mounted) return;
-      final predictions = (body['predictions'] as List?) ?? const [];
-      setState(() {
-        _suggestions = predictions
-            .map(
-              (prediction) => _AutocompleteResult(
-                placeId: prediction['place_id'] as String? ?? '',
-                description: prediction['description'] as String? ?? '',
-              ),
-            )
-            .where((result) => result.placeId.isNotEmpty)
-            .take(5)
-            .toList(growable: false);
-      });
-    } catch (error) {
-      if (mounted) _showError(error.toString());
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+        final predictions = (body['predictions'] as List?) ?? const [];
+
+        setState(() {
+          _suggestions = predictions
+              .map(
+                (prediction) => _AutocompleteResult(
+                  placeId: prediction['place_id'] as String? ?? '',
+                  description: prediction['description'] as String? ?? '',
+                ),
+              )
+              .where((result) => result.placeId.isNotEmpty)
+              .take(5)
+              .toList(growable: false);
+        });
+      }
+    } catch (_) {
+      // Intentionally unobtrusive.
     } finally {
       if (mounted) {
         setState(() {
@@ -5554,47 +5530,56 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
     });
 
     try {
-      final body = await _placesGateway.request('details', {
-        'place_id': suggestion.placeId,
-        'fields': 'geometry,formatted_address,address_components,name',
-      });
-
-      if (!mounted) return;
-      final result = body['result'] as Map<String, dynamic>?;
-
-      final geometry = result?['geometry'] as Map?;
-
-      final location = geometry == null
-          ? null
-          : Map<String, dynamic>.from(geometry)['location'] as Map?;
-
-      final lat = (location?['lat'] as num?)?.toDouble();
-
-      final lng = (location?['lng'] as num?)?.toDouble();
-
-      final address =
-          result?['formatted_address'] as String? ?? suggestion.description;
-
-      final components = _parseAddressComponents(
-        (result?['address_components'] as List?) ?? const [],
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/place/details/json'
+        '?place_id=${suggestion.placeId}'
+        '&fields=geometry,formatted_address,address_components,name'
+        '&key=$_apiKey',
       );
 
-      if (lat != null && lng != null) {
-        final validation = _locationValidationMessage(
-          address: address,
-          countryCode: components.countryCode,
-          province: components.province,
-          locality: components.locality,
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+        final result = body['result'] as Map<String, dynamic>?;
+
+        final geometry = result?['geometry'] as Map?;
+
+        final location = geometry == null
+            ? null
+            : Map<String, dynamic>.from(geometry)['location'] as Map?;
+
+        final lat = (location?['lat'] as num?)?.toDouble();
+
+        final lng = (location?['lng'] as num?)?.toDouble();
+
+        final address =
+            result?['formatted_address'] as String? ?? suggestion.description;
+
+        final components = _parseAddressComponents(
+          (result?['address_components'] as List?) ?? const [],
         );
 
-        if (validation != null) {
-          _invalidateSelection(validation);
+        if (lat != null && lng != null) {
+          final validation = _locationValidationMessage(
+            address: address,
+            countryCode: components.countryCode,
+            province: components.province,
+            locality: components.locality,
+          );
+
+          if (validation != null) {
+            _invalidateSelection(validation);
+            return;
+          }
+
+          _setLocation(address, lat, lng);
+
           return;
         }
-
-        _setLocation(address, lat, lng);
-
-        return;
       }
 
       _invalidateSelection(
@@ -5675,14 +5660,24 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
 
   Future<String> _reverseGeocode(double lat, double lng) async {
     try {
-      final body = await _placesGateway.request('geocode', {
-        'latlng': '$lat,$lng',
-        'language': 'en',
-      });
-      final results = (body['results'] as List?) ?? const [];
-      if (results.isNotEmpty) {
-        return results.first['formatted_address'] as String? ??
-            '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json'
+        '?latlng=$lat,$lng'
+        '&key=$_apiKey'
+        '&language=en',
+      );
+
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+        final results = (body['results'] as List?) ?? const [];
+
+        if (results.isNotEmpty) {
+          return results.first['formatted_address'] as String? ??
+              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+        }
       }
     } catch (_) {}
 
@@ -5973,7 +5968,7 @@ class _LocationPickerCardState extends State<_LocationPickerCard> {
 // ROUTE MAP
 // =============================================================================
 
-class _SharedRouteMapPreview extends StatelessWidget {
+class _SharedRouteMapPreview extends StatefulWidget {
   const _SharedRouteMapPreview({
     required this.pickupAddress,
     required this.pickupLat,
@@ -5984,9 +5979,6 @@ class _SharedRouteMapPreview extends StatelessWidget {
   });
 
   static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
-  static final GooglePlacesGateway _placesGateway = GooglePlacesGateway(
-    apiKey: _apiKey,
-  );
 
   final String? pickupAddress;
 
@@ -5999,18 +5991,20 @@ class _SharedRouteMapPreview extends StatelessWidget {
   final double? dropoffLng;
 
   String _mapUrl() {
-    if (pickupLat == null ||
-        pickupLng == null ||
-        dropoffLat == null ||
-        dropoffLng == null) {
-      return '';
-    }
-    return _placesGateway.routeStaticMapUrl(
-      pickupLatitude: pickupLat!,
-      pickupLongitude: pickupLng!,
-      dropoffLatitude: dropoffLat!,
-      dropoffLongitude: dropoffLng!,
+    final buffer = StringBuffer(
+      'https://maps.googleapis.com/maps/api/staticmap'
+      '?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
     );
+
+    if (pickupLat != null && pickupLng != null) {
+      buffer.write('&markers=color:green%7Clabel:P%7C$pickupLat,$pickupLng');
+    }
+
+    if (dropoffLat != null && dropoffLng != null) {
+      buffer.write('&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng');
+    }
+
+    return buffer.toString();
   }
 
   @override
@@ -6041,26 +6035,18 @@ class _SharedRouteMapPreview extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(14),
-            child: _mapUrl().isEmpty
-                ? Container(
-                    width: double.infinity,
-                    height: 160,
-                    color: const Color(0xFFF1F5F9),
-                    alignment: Alignment.center,
-                    child: const Text('Map preview unavailable'),
-                  )
-                : Image.network(
-                    _mapUrl(),
-                    width: double.infinity,
-                    height: 160,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      height: 160,
-                      color: const Color(0xFFF1F5F9),
-                      alignment: Alignment.center,
-                      child: const Text('Map preview unavailable'),
-                    ),
-                  ),
+            child: Image.network(
+              _mapUrl(),
+              width: double.infinity,
+              height: 160,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                height: 160,
+                color: const Color(0xFFF1F5F9),
+                alignment: Alignment.center,
+                child: const Text('Map preview unavailable'),
+              ),
+            ),
           ),
 
           const SizedBox(height: 9),
@@ -6140,99 +6126,6 @@ class _MapLegendRow extends StatelessWidget {
 // =============================================================================
 // LOCATION MODELS / HELPERS
 // =============================================================================
-
-class _SelectedLocation {
-  const _SelectedLocation({
-    required this.address,
-    required this.latitude,
-    required this.longitude,
-    this.isValidWithinMunicipality = true,
-  });
-
-  final String address;
-
-  final double latitude;
-  final double longitude;
-
-  final bool isValidWithinMunicipality;
-}
-
-class _ParsedAddressComponents {
-  const _ParsedAddressComponents({
-    required this.countryCode,
-    required this.province,
-    required this.locality,
-  });
-
-  final String countryCode;
-  final String province;
-  final String locality;
-}
-
-String _normalizeLocationName(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll(RegExp(r'\b(city|municipality|province)\s+of\b'), '')
-      .replaceAll(RegExp(r'\b(city|municipality|province)\b'), '')
-      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-}
-
-bool _locationNamesMatch(String actual, String expected) {
-  final a = _normalizeLocationName(actual);
-  final b = _normalizeLocationName(expected);
-
-  if (a.isEmpty || b.isEmpty) {
-    return false;
-  }
-
-  return a == b || a.contains(b) || b.contains(a);
-}
-
-bool _addressContainsLocation(String address, String expected) {
-  return _normalizeLocationName(
-    address,
-  ).contains(_normalizeLocationName(expected));
-}
-
-_ParsedAddressComponents _parseAddressComponents(List<dynamic> rawComponents) {
-  String countryCode = '';
-  String province = '';
-  String locality = '';
-
-  for (final raw in rawComponents.whereType<Map>()) {
-    final component = Map<String, dynamic>.from(raw);
-
-    final types = (component['types'] as List?)?.cast<String>() ?? const [];
-
-    final longName = dbString(component['long_name']);
-
-    final shortName = dbString(component['short_name']);
-
-    if (types.contains('country')) {
-      countryCode = shortName;
-    }
-
-    if (types.contains('administrative_area_level_1')) {
-      province = longName;
-    }
-
-    if (types.contains('locality') ||
-        types.contains('administrative_area_level_2') ||
-        types.contains('administrative_area_level_3')) {
-      if (locality.isEmpty) {
-        locality = longName;
-      }
-    }
-  }
-
-  return _ParsedAddressComponents(
-    countryCode: countryCode,
-    province: province,
-    locality: locality,
-  );
-}
 
 // =============================================================================
 // ITINERARY MODEL

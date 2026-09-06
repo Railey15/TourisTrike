@@ -101,7 +101,7 @@ void main() {
 
   test('tourist and driver maps keep unique markers and routes per driver', () {
     for (final source in [touristTracking, driverTracking]) {
-      expect(source, contains("MarkerId('driver_\${driver.driverId}')"));
+      expect(source, contains('buildBookingDriverMarkers('));
       expect(
         source,
         contains("PolylineId('driver_route_\${result.driverId}')"),

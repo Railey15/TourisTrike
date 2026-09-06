@@ -1,3 +1,4 @@
+import '../../core/services/booking_driver_markers.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
 import 'package:touristrike/core/services/stable_arrival_detector.dart';
@@ -84,14 +85,15 @@ class _DriverPackageTrackingScreenState
 
   Timer? _convoyPollTimer;
   Timer? _convoyTicker;
-  final _arrivalDetector = StableArrivalDetector(
-    radiusMeters: _proximityMeters,
-  );
+  late StableArrivalDetector _arrivalDetector;
   Timer? _journeyTicker;
   Timer? _gpsRecoveryTimer;
   bool _gpsRecoveryBusy = false;
   bool _automaticTransitionBusy = false;
   String? _gpsIssue;
+  DateTime? _gpsMonitoringStartedAt;
+  DateTime? _lastUsableGpsAt;
+  final Set<String> _confirmedArrivalKeys = {};
   DateTime? _lastAutomaticAttempt;
   String? _lastAutomaticKey;
 
@@ -228,7 +230,7 @@ class _DriverPackageTrackingScreenState
     apiKey: _apiKey,
   );
 
-  static const double _proximityMeters = 150.0;
+  late double _proximityMeters;
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -319,6 +321,10 @@ class _DriverPackageTrackingScreenState
     return values.any((value) => terminal.contains(value?.toLowerCase()));
   }
 
+  bool get _shouldShareDriverLocation =>
+      !_isBookingClosed &&
+      _myConvoyStatus?.journeyState != ConvoyJourneyState.completed;
+
   bool _hasConfirmedPayment(String stage, double requiredAmount) {
     if (requiredAmount <= 0) return true;
     return _paymentRecords.any(
@@ -392,6 +398,7 @@ class _DriverPackageTrackingScreenState
 
   void _onDeveloperSettingsChanged() {
     if (mounted) setState(() {});
+    if (mounted && !_loading) unawaited(_startGpsStreaming());
   }
 
   @override
@@ -473,7 +480,10 @@ class _DriverPackageTrackingScreenState
       final results = await Future.wait([
         _repo.fetchPackageBookingDetails(bookingId),
         _repo.fetchBookingItinerary(bookingId),
+        _repo.fetchDriverArrivalRadiusMeters(),
       ]);
+      _proximityMeters = results[2] as double;
+      _arrivalDetector = StableArrivalDetector(radiusMeters: _proximityMeters);
 
       var serverTestModeEnabled = false;
       if (kDebugMode) {
@@ -624,8 +634,8 @@ class _DriverPackageTrackingScreenState
         if (driver.latitude == null || driver.longitude == null) continue;
         final point = LatLng(driver.latitude!, driver.longitude!);
         _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
-        _liveMarkerPositions.putIfAbsent(driver.driverId, () => point);
-        _liveMarkerHeadings.putIfAbsent(driver.driverId, () => driver.heading);
+        _liveMarkerPositions[driver.driverId] = point;
+        _liveMarkerHeadings[driver.driverId] = driver.heading;
       }
 
       setState(() {
@@ -640,6 +650,11 @@ class _DriverPackageTrackingScreenState
       });
 
       _syncConvoyTicker();
+
+      if (!_shouldShareDriverLocation) {
+        await _gpsSub?.cancel();
+        _gpsSub = null;
+      }
 
       _buildMarkers();
       _scheduleRouteRefresh();
@@ -718,6 +733,15 @@ class _DriverPackageTrackingScreenState
                 lng > 180) {
               return;
             }
+            final merged = mergeBookingDriverLocation(_convoy, row);
+            final before = _convoy
+                .where((d) => d.driverId == driverId)
+                .firstOrNull;
+            final after = merged
+                .where((d) => d.driverId == driverId)
+                .firstOrNull;
+            if (identical(before, after)) return;
+            setState(() => _convoy = merged);
             _markerMotion.animateTo(
               driverId,
               LatLng(lat, lng),
@@ -1047,17 +1071,14 @@ class _DriverPackageTrackingScreenState
   // =========================================================================
 
   Future<void> _startGpsStreaming() async {
-    if (_isBookingClosed) return;
+    if (!_shouldShareDriverLocation) return;
+    _gpsMonitoringStartedAt ??= DateTime.now();
 
     final simulated = _simulatedDriverLocation;
     if (simulated != null) {
       await _gpsSub?.cancel();
       _gpsSub = null;
-      await _repo.upsertDriverLiveLocation(
-        activityId: widget.activityId,
-        latitude: simulated.latitude,
-        longitude: simulated.longitude,
-      );
+      await _recoverGpsFix();
       _buildMarkers();
       _fetchCurrentRoute();
       return;
@@ -1086,12 +1107,11 @@ class _DriverPackageTrackingScreenState
       (position) async {
         final activity = _activity;
 
-        if (activity == null || _isBookingClosed) {
+        if (activity == null || !_shouldShareDriverLocation) {
           return;
         }
 
-        _currentPosition = position;
-        _gpsIssue = null;
+        if (!_acceptGpsFix(position)) return;
 
         final now = DateTime.now();
         final mayUpload =
@@ -1123,6 +1143,8 @@ class _DriverPackageTrackingScreenState
           );
 
           await _detectAutomaticArrival(position);
+
+          if (!mounted || !_shouldShareDriverLocation) return;
 
           // package_activities has only one legacy driver_latitude/longitude
           // pair. On a convoy booking, only the legacy assigned driver writes
@@ -1161,7 +1183,7 @@ class _DriverPackageTrackingScreenState
           if (isLegacyWriter) {
             setState(() {
               _activity = PackageActivity({
-                ...activity.row,
+                ...?_activity?.row,
                 'driver_latitude': position.latitude,
                 'driver_longitude': position.longitude,
                 'driver_last_seen': DateTime.now().toIso8601String(),
@@ -1224,13 +1246,15 @@ class _DriverPackageTrackingScreenState
 
   Future<void> _detectAutomaticArrival(Position position) async {
     final target = _arrivalTarget;
-    if (target == null ||
-        _bypassTransactionValidation ||
+    if (!_shouldShareDriverLocation ||
+        target == null ||
         _automaticTransitionBusy ||
         _actionBusy) {
       return;
     }
-    final key = '${target.state.dbValue}:${_myConvoyStatus?.currentStopIndex}';
+    final key =
+        '$_bookingId:${target.state.dbValue}:${_myConvoyStatus?.currentStopIndex}';
+    if (_confirmedArrivalKeys.contains(key)) return;
     final stable = _arrivalDetector.observe(
       target: key,
       distanceMeters: _haversineMeters(
@@ -1246,17 +1270,23 @@ class _DriverPackageTrackingScreenState
     if (!stable || !_canAttemptAutomatic(key)) return;
     _automaticTransitionBusy = true;
     try {
-      await _repo.advanceDriverJourneyState(
+      final result = await _repo.advanceDriverJourneyState(
         bookingId: _bookingId,
         targetState: target.state,
+        automaticArrival: true,
       );
+      _confirmedArrivalKeys.add(key);
       _arrivalDetector.reset();
       if (mounted) {
-        _showSnack(
-          target.state == ConvoyJourneyState.atStop
-              ? 'Arrived at tour stop. Stay timer started.'
-              : 'Arrival detected. Please confirm your passengers.',
-        );
+        if (result['no_op'] != true) {
+          _showSnack(switch (target.state) {
+            ConvoyJourneyState.atPickup =>
+              "You've arrived at the tourist pickup point.",
+            ConvoyJourneyState.atStop =>
+              'Arrived at ${_currentItineraryItem?.destinationName ?? 'tour stop'}. Stay timer started.',
+            _ => 'Arrived at drop-off location.',
+          });
+        }
         await Future.wait([
           _loadConvoy(),
           _refreshTrackingState(logTag: 'gps-arrival'),
@@ -1289,18 +1319,19 @@ class _DriverPackageTrackingScreenState
   Future<void> _recoverGpsFix() async {
     if (!mounted ||
         _gpsRecoveryBusy ||
-        _isBookingClosed ||
-        _bypassTransactionValidation ||
-        _arrivalTarget == null) {
+        !_shouldShareDriverLocation ||
+        _activity == null) {
       return;
     }
     _gpsRecoveryBusy = true;
     try {
-      if (!await Geolocator.isLocationServiceEnabled() ||
-          !const {
-            LocationPermission.always,
-            LocationPermission.whileInUse,
-          }.contains(await Geolocator.checkPermission())) {
+      final simulated = _simulatedDriverLocation;
+      if (simulated == null &&
+          (!await Geolocator.isLocationServiceEnabled() ||
+              !const {
+                LocationPermission.always,
+                LocationPermission.whileInUse,
+              }.contains(await Geolocator.checkPermission()))) {
         if (mounted) {
           setState(
             () => _gpsIssue =
@@ -1309,12 +1340,26 @@ class _DriverPackageTrackingScreenState
         }
         return;
       }
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 7),
-      );
-      if (!mounted) return;
-      _currentPosition = position;
+      final position = simulated == null
+          ? await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.high,
+              timeLimit: const Duration(seconds: 7),
+            )
+          : Position(
+              latitude: simulated.latitude,
+              longitude: simulated.longitude,
+              timestamp: DateTime.now(),
+              accuracy: 0,
+              altitude: 0,
+              altitudeAccuracy: 0,
+              heading: 0,
+              headingAccuracy: 0,
+              speed: 0,
+              speedAccuracy: 0,
+            );
+      if (!mounted || !_shouldShareDriverLocation || !_acceptGpsFix(position)) {
+        return;
+      }
       await _repo.upsertDriverLiveLocation(
         activityId: widget.activityId,
         latitude: position.latitude,
@@ -1323,11 +1368,22 @@ class _DriverPackageTrackingScreenState
         speed: position.speed,
       );
       if (!mounted) return;
-      setState(
-        () => _gpsIssue = position.accuracy > 50
-            ? 'GPS accuracy is low. Move to an open area or use arrival fallback.'
-            : null,
-      );
+      _convoy = mergeBookingDriverLocation(_convoy, {
+        'driver_id': _repo.currentUserId,
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'heading': position.heading,
+        'updated_at': position.timestamp.toIso8601String(),
+      });
+      final myId = _repo.currentUserId;
+      if (myId != null) {
+        _liveMarkerPositions[myId] = LatLng(
+          position.latitude,
+          position.longitude,
+        );
+        _liveMarkerHeadings[myId] = position.heading;
+      }
+      _buildMarkers();
       await _detectAutomaticArrival(position);
     } catch (_) {
       if (mounted) {
@@ -1339,6 +1395,50 @@ class _DriverPackageTrackingScreenState
     } finally {
       _gpsRecoveryBusy = false;
     }
+  }
+
+  bool _acceptGpsFix(Position position) {
+    final now = DateTime.now();
+    if (_lastUsableGpsAt != null &&
+        position.timestamp.isBefore(_lastUsableGpsAt!)) {
+      return false;
+    }
+    if (!StableArrivalDetector.isUsableFix(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracyMeters: position.accuracy,
+      sampledAt: position.timestamp,
+      now: now,
+    )) {
+      _arrivalDetector.reset();
+      return false;
+    }
+    _currentPosition = position;
+    _lastUsableGpsAt = position.timestamp;
+    _gpsIssue = null;
+    // Even an update skipped by upload throttling must break a noisy streak.
+    final target = _arrivalTarget;
+    if (target != null &&
+        _haversineMeters(
+              position.latitude,
+              position.longitude,
+              target.point.latitude,
+              target.point.longitude,
+            ) >
+            _proximityMeters) {
+      _arrivalDetector.reset();
+    }
+    return true;
+  }
+
+  String? get _arrivalGpsFailure {
+    if (_gpsIssue != null) return _gpsIssue;
+    final since = _lastUsableGpsAt ?? _gpsMonitoringStartedAt;
+    if (since != null &&
+        DateTime.now().difference(since) >= const Duration(seconds: 30)) {
+      return 'No recent accurate GPS fix. Move to an open area or retry GPS.';
+    }
+    return null;
   }
 
   Duration get _stayRemaining {
@@ -1368,10 +1468,9 @@ class _DriverPackageTrackingScreenState
       return;
     }
     final request = _stageProgressRequestFor(me);
-    if (!_bypassTransactionValidation &&
-        (_convoyProgress?.matches(request.stage, request.stopIndex) != true ||
-            _convoyProgress?.allSatisfied != true ||
-            _serverGateNotice != null)) {
+    if (_convoyProgress?.matches(request.stage, request.stopIndex) != true ||
+        _convoyProgress?.allSatisfied != true ||
+        _serverGateNotice != null) {
       return;
     }
     if (me.journeyState == ConvoyJourneyState.stopDone &&
@@ -1394,9 +1493,14 @@ class _DriverPackageTrackingScreenState
   }
 
   Future<void> _manualArrivalFallback() async {
-    if (_actionBusy || _automaticTransitionBusy || _arrivalTarget == null) {
+    if (_actionBusy ||
+        _automaticTransitionBusy ||
+        _arrivalTarget == null ||
+        _arrivalGpsFailure == null) {
       return;
     }
+    final requestedTarget = _arrivalTarget;
+    final requestedStopIndex = _myConvoyStatus?.currentStopIndex;
     final controller = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
@@ -1437,7 +1541,13 @@ class _DriverPackageTrackingScreenState
     // The dialog's text field is disposed after its closing animation.
     await Future<void>.delayed(const Duration(milliseconds: 250));
     controller.dispose();
-    if (!mounted || reason == null) return;
+    if (!mounted ||
+        reason == null ||
+        _arrivalGpsFailure == null ||
+        _arrivalTarget != requestedTarget ||
+        _myConvoyStatus?.currentStopIndex != requestedStopIndex) {
+      return;
+    }
     await _doAction(() async {
       await _repo.confirmDriverArrivalFallback(_bookingId, reason);
       await Future.wait([
@@ -1453,17 +1563,20 @@ class _DriverPackageTrackingScreenState
     if (me == null) return const SizedBox.shrink();
     final target = _arrivalTarget;
     final stay = _stayRemaining;
-    final fallbackAvailable =
-        _gpsIssue != null ||
-        DateTime.now().difference(me.stateUpdatedAt) >
-            const Duration(minutes: 2);
+    final gpsFailure = _arrivalGpsFailure;
     final message = target != null
-        ? _gpsIssue ??
-              'GPS will detect arrival automatically within ${_proximityMeters.toInt()} m.'
+        ? gpsFailure != null
+              ? 'Unable to verify arrival automatically.\n$gpsFailure'
+              : '${switch (me.journeyState) {
+                  ConvoyJourneyState.enRoutePickup => 'Heading to pickup',
+                  ConvoyJourneyState.enRouteStop => 'Heading to ${_currentItineraryItem?.destinationName ?? 'tour stop'}',
+                  _ => 'Heading to drop-off',
+                }}\nArrival will be detected automatically by GPS within ${_proximityMeters.toInt()} m.'
         : me.journeyState == ConvoyJourneyState.atStop &&
               me.currentStopIndex >= 0 &&
               me.currentStopIndex < _spots.length
         ? 'Arrived ${DateFormat('h:mm a').format(me.stateUpdatedAt.toLocal())} · Time of Stay: ${_spots[me.currentStopIndex].estimatedStayDurationMinutes} min\n'
+              'Expected departure: ${DateFormat('h:mm a').format(me.stateUpdatedAt.toLocal().add(Duration(minutes: _spots[me.currentStopIndex].estimatedStayDurationMinutes)))}\n'
               '${stay > Duration.zero ? '${stay.inMinutes}:${(stay.inSeconds % 60).toString().padLeft(2, '0')} remaining' : 'Stay complete. Confirm when your passengers are ready.'}'
         : me.journeyState == ConvoyJourneyState.boarded
         ? 'Tourist picked up. Navigation starts when the convoy is ready.'
@@ -1477,18 +1590,21 @@ class _DriverPackageTrackingScreenState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(message),
-            if (target != null &&
-                fallbackAvailable &&
-                !_bypassTransactionValidation)
+            if (target != null && gpsFailure != null)
               Wrap(
                 children: [
                   TextButton(
-                    onPressed: _startGpsStreaming,
+                    onPressed: () async {
+                      await _startGpsStreaming();
+                      await _recoverGpsFix();
+                    },
                     child: const Text('Retry GPS'),
                   ),
                   TextButton(
-                    onPressed: _manualArrivalFallback,
-                    child: const Text('Arrival fallback'),
+                    onPressed: _actionBusy || _automaticTransitionBusy
+                        ? null
+                        : _manualArrivalFallback,
+                    child: const Text('Verify Arrival Manually'),
                   ),
                 ],
               ),
@@ -1518,34 +1634,6 @@ class _DriverPackageTrackingScreenState
   // =========================================================================
   // PROXIMITY
   // =========================================================================
-
-  bool _isNearTarget(LatLng target) {
-    final simulated = _simulatedDriverLocation;
-    if (simulated != null) {
-      return _haversineMeters(
-            simulated.latitude,
-            simulated.longitude,
-            target.latitude,
-            target.longitude,
-          ) <=
-          _proximityMeters;
-    }
-
-    final position = _currentPosition;
-
-    if (position == null) {
-      return false;
-    }
-
-    final distanceMeters = _haversineMeters(
-      position.latitude,
-      position.longitude,
-      target.latitude,
-      target.longitude,
-    );
-
-    return distanceMeters <= _proximityMeters;
-  }
 
   double _haversineMeters(double lat1, double lon1, double lat2, double lon2) {
     const r = 6371000.0;
@@ -1788,10 +1876,6 @@ class _DriverPackageTrackingScreenState
 
     final pickup = _pickupLatLng();
     final dropoff = _dropoffLatLng();
-    final myId = _repo.currentUserId;
-    final driverPosition = myId == null
-        ? _driverLatLng()
-        : _liveMarkerPositions[myId] ?? _driverLatLng();
 
     // -------------------------------------------------------------------------
     // PICKUP
@@ -1867,66 +1951,17 @@ class _DriverPackageTrackingScreenState
       );
     }
 
-    // -------------------------------------------------------------------------
-    // CURRENT DRIVER
-    // -------------------------------------------------------------------------
-
-    if (driverPosition != null) {
-      final myId = _repo.currentUserId ?? 'self';
-      markers.add(
-        Marker(
-          markerId: MarkerId('driver_$myId'),
-          position: driverPosition,
-          icon:
-              _tricycleMarker ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          rotation: _liveMarkerHeadings[myId] ?? _currentPosition?.heading ?? 0,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          infoWindow: const InfoWindow(title: 'You (Driver)'),
-        ),
-      );
-    }
-
-    // -------------------------------------------------------------------------
-    // OTHER CONVOY DRIVERS
-    // -------------------------------------------------------------------------
-
-    final currentDriverId = _repo.currentUserId;
-
-    for (final driver in _convoy) {
-      // Your own marker is already shown above.
-      if (driver.driverId == currentDriverId) {
-        continue;
-      }
-
-      final displayed = _liveMarkerPositions[driver.driverId];
-      final lat = displayed?.latitude ?? driver.latitude;
-      final lng = displayed?.longitude ?? driver.longitude;
-
-      if (lat == null || lng == null) {
-        continue;
-      }
-
-      markers.add(
-        Marker(
-          markerId: MarkerId('driver_${driver.driverId}'),
-          position: LatLng(lat, lng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueViolet,
-          ),
-          rotation: _liveMarkerHeadings[driver.driverId] ?? driver.heading,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          infoWindow: InfoWindow(
-            title: driver.plateNumber.isNotEmpty
-                ? driver.plateNumber
-                : driver.driverName,
-            snippet: driver.journeyState.label,
-          ),
-        ),
-      );
-    }
+    markers.addAll(
+      buildBookingDriverMarkers(
+        drivers: _convoy,
+        icon:
+            _tricycleMarker ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        positions: _liveMarkerPositions,
+        headings: _liveMarkerHeadings,
+        viewerId: _repo.currentUserId,
+      ),
+    );
 
     if (!mounted) return;
 
@@ -2038,14 +2073,9 @@ class _DriverPackageTrackingScreenState
       return LatLng(position.latitude, position.longitude);
     }
 
-    final lat = _activity?.driverLatitude;
-    final lng = _activity?.driverLongitude;
-
-    if (lat == null || lng == null) {
-      return null;
-    }
-
-    return LatLng(lat, lng);
+    final me = _myConvoyStatus;
+    if (me?.latitude == null || me?.longitude == null) return null;
+    return LatLng(me!.latitude!, me.longitude!);
   }
 
   LatLng? _pickupLatLng() {
@@ -2270,27 +2300,6 @@ class _DriverPackageTrackingScreenState
     _showSnack('Status: En route to pickup.');
   });
 
-  Future<void> _markAtPickup() => _doAction(() async {
-    final pickup = _pickupLatLng();
-
-    if (!_bypassTransactionValidation &&
-        pickup != null &&
-        !_isNearTarget(pickup)) {
-      _showSnack(
-        'You must be within 150 m of the pickup point to mark arrival.',
-        error: true,
-      );
-      return;
-    }
-
-    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atPickup);
-
-    if (!advanced) return;
-
-    _logStatus('driver_arrived');
-    _showSnack('Status: Arrived at pickup.');
-  });
-
   Future<void> _markBoarded() => _doAction(() async {
     // Arrival was already verified by the server. Boarding is a human
     // confirmation and must also work after an approved GPS fallback.
@@ -2334,34 +2343,6 @@ class _DriverPackageTrackingScreenState
       _spots.isEmpty
           ? 'Convoy departing pickup for drop-off.'
           : 'Convoy departing pickup for the first tour stop.',
-    );
-  });
-
-  Future<void> _markAtStop() => _doAction(() async {
-    final spotPosition = _currentSpotLatLng();
-
-    if (!_bypassTransactionValidation &&
-        spotPosition != null &&
-        !_isNearTarget(spotPosition)) {
-      _showSnack(
-        'You must be within 150 m of the spot to mark arrival.',
-        error: true,
-      );
-      return;
-    }
-
-    final currentItem = _currentItineraryItem;
-    if (currentItem == null) {
-      _showSnack('No current itinerary stop is available.', error: true);
-      return;
-    }
-
-    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.atStop);
-    if (!advanced) return;
-
-    _logStatus('at_spot');
-    _showSnack(
-      'Arrived at ${currentItem.destinationName}. Stay timer started.',
     );
   });
 
@@ -2478,37 +2459,6 @@ class _DriverPackageTrackingScreenState
       hasMoreStops
           ? 'Convoy departing to the next stop.'
           : 'Convoy departing to drop-off.',
-    );
-  });
-
-  Future<void> _markAtDropoff() => _doAction(() async {
-    final dropoff = _dropoffLatLng();
-
-    if (!_bypassTransactionValidation &&
-        dropoff != null &&
-        !_isNearTarget(dropoff)) {
-      _showSnack(
-        'You must be within 150 m of the drop-off point.',
-        error: true,
-      );
-      return;
-    }
-
-    final advanced = await _advanceConvoyStateCore(
-      ConvoyJourneyState.atDropoff,
-    );
-    if (!advanced) return;
-
-    _logStatus('arrived_at_dropoff');
-
-    final blockers = _myConvoyStatus == null
-        ? const <ConvoyDriverSnapshot>[]
-        : _blockingDriversFor(_myConvoyStatus!);
-
-    _showSnack(
-      blockers.isEmpty
-          ? 'Arrived at drop-off. The convoy is ready to complete the tour.'
-          : 'Arrived at drop-off. Waiting for the rest of the convoy.',
     );
   });
 
@@ -2940,13 +2890,7 @@ class _DriverPackageTrackingScreenState
         );
 
       case ConvoyJourneyState.enRoutePickup:
-        if (!_bypassTransactionValidation) return null;
-        return _PrimaryTourAction(
-          label: _testActionLabel('Arrived at Pickup'),
-          description: 'Confirm once you reach the tourist pickup point.',
-          icon: Icons.location_on_rounded,
-          onTap: _markAtPickup,
-        );
+        return null;
 
       case ConvoyJourneyState.atPickup:
         return _PrimaryTourAction(
@@ -2960,17 +2904,7 @@ class _DriverPackageTrackingScreenState
         return null;
 
       case ConvoyJourneyState.enRouteStop:
-        if (!_bypassTransactionValidation) return null;
-        final currentItem = _currentItineraryItem;
-        if (currentItem == null) {
-          return null;
-        }
-        return _PrimaryTourAction(
-          label: _testActionLabel('Arrived at ${currentItem.destinationName}'),
-          description: 'Confirm once you reach the current tour destination.',
-          icon: Icons.place_rounded,
-          onTap: _markAtStop,
-        );
+        return null;
 
       case ConvoyJourneyState.atStop:
         if (!_bypassTransactionValidation && _stayRemaining > Duration.zero) {
@@ -2992,13 +2926,7 @@ class _DriverPackageTrackingScreenState
         return null;
 
       case ConvoyJourneyState.enRouteDropoff:
-        if (!_bypassTransactionValidation) return null;
-        return _PrimaryTourAction(
-          label: _testActionLabel('Arrived at Drop-off'),
-          description: 'Confirm once your passengers reach the final drop-off.',
-          icon: Icons.flag_rounded,
-          onTap: _markAtDropoff,
-        );
+        return null;
 
       case ConvoyJourneyState.atDropoff:
         return _PrimaryTourAction(

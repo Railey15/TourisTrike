@@ -86,7 +86,7 @@ void main() {
     final tracking = source(
       'lib/screens/tourist/tourist_activity_tracking_screen.dart',
     );
-    expect(tracking, contains("MarkerId('driver_\${driver.driverId}')"));
+    expect(tracking, contains('buildBookingDriverMarkers('));
     expect(tracking, contains('_markerMotion.animateTo'));
     expect(tracking, contains('_convoyPositions[driverId] = position'));
     expect(tracking, contains("table: 'driver_live_locations'"));
@@ -102,8 +102,7 @@ void main() {
       'lib/screens/driver/driver_package_tracking_screen.dart',
     );
     expect(trips, contains("'View Trip Details'"));
-    expect(tracking, contains("MarkerId('driver_\$myId')"));
-    expect(tracking, contains("MarkerId('driver_\${driver.driverId}')"));
+    expect(tracking, contains('buildBookingDriverMarkers('));
     expect(tracking, contains("table: 'driver_live_locations'"));
     expect(
       tracking,

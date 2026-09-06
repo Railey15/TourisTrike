@@ -2,6 +2,25 @@
 /// network attempt may be retried; the persisted arrival transition is final.
 class StableArrivalDetector {
   StableArrivalDetector({required this.radiusMeters});
+  static const maxAccuracyMeters = 50.0;
+  static const maxFixAge = Duration(seconds: 20);
+
+  static bool isUsableFix({
+    required double latitude,
+    required double longitude,
+    required double accuracyMeters,
+    required DateTime sampledAt,
+    required DateTime now,
+  }) =>
+      latitude.isFinite &&
+      latitude.abs() <= 90 &&
+      longitude.isFinite &&
+      longitude.abs() <= 180 &&
+      accuracyMeters.isFinite &&
+      accuracyMeters >= 0 &&
+      accuracyMeters <= maxAccuracyMeters &&
+      now.difference(sampledAt) <= maxFixAge &&
+      !sampledAt.isAfter(now.add(const Duration(seconds: 2)));
   final double radiusMeters;
   String? _target;
   DateTime? _lastSample;
@@ -25,24 +44,25 @@ class StableArrivalDetector {
       reset();
       _target = target;
     }
-    if (_lastSample != null && !sampledAt.isAfter(_lastSample!)) return false;
-    final gap = _lastSample == null
-        ? Duration.zero
-        : sampledAt.difference(_lastSample!);
-    _lastSample = sampledAt;
     if (!distanceMeters.isFinite ||
         !accuracyMeters.isFinite ||
         accuracyMeters < 0 ||
-        accuracyMeters > 50 ||
+        accuracyMeters > maxAccuracyMeters ||
         distanceMeters > radiusMeters ||
         distanceMeters < 0 ||
-        now.difference(sampledAt).inSeconds > 20 ||
+        now.difference(sampledAt) > maxFixAge ||
         sampledAt.isAfter(now.add(const Duration(seconds: 2)))) {
       _insideCount = 0;
       _firstInside = null;
       return false;
     }
-    if (gap > const Duration(seconds: 20)) {
+    // A bad future timestamp must not prevent subsequent real fixes.
+    if (_lastSample != null && !sampledAt.isAfter(_lastSample!)) return false;
+    final gap = _lastSample == null
+        ? Duration.zero
+        : sampledAt.difference(_lastSample!);
+    _lastSample = sampledAt;
+    if (gap > maxFixAge) {
       _insideCount = 0;
       _firstInside = null;
     }

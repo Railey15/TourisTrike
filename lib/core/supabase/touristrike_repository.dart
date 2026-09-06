@@ -2472,10 +2472,15 @@ class TourisTrikeRepository {
 
     final infos = await fetchDriverInfos(driverIds);
 
-    final locations = await Future.wait(driverIds.map(fetchDriverLiveLocation));
-
-    final locationByDriverId = <String, DriverLiveLocation?>{
-      for (var i = 0; i < driverIds.length; i++) driverIds[i]: locations[i],
+    // Fetch the whole assignment roster's locations. Optional missing GPS or
+    // profile data must never remove an assignment from the convoy.
+    final locationRows = await _client
+        .from(TourisTrikeTables.driverLiveLocations)
+        .select()
+        .inFilter('driver_id', driverIds);
+    final locationByDriverId = <String, DriverLiveLocation>{
+      for (final row in locationRows)
+        row['driver_id'].toString(): DriverLiveLocation(row),
     };
 
     return accepted
@@ -2546,9 +2551,18 @@ class TourisTrikeRepository {
     return ConvoyStageProgress.fromJson(Map<String, dynamic>.from(result));
   }
 
+  Future<double> fetchDriverArrivalRadiusMeters() async {
+    final result = await _client.rpc('driver_arrival_radius_meters');
+    if (result is! num || !result.isFinite || result <= 0) {
+      throw StateError('Unable to load the GPS arrival radius. Please retry.');
+    }
+    return result.toDouble();
+  }
+
   Future<Map<String, dynamic>> advanceDriverJourneyState({
     required String bookingId,
     required ConvoyJourneyState targetState,
+    bool automaticArrival = false,
   }) async {
     try {
       final params = {
@@ -2556,7 +2570,15 @@ class TourisTrikeRepository {
         'p_target_state': targetState.dbValue,
       };
       final dynamic result;
-      if (kDebugMode && await fetchDeveloperTestBookingMode(bookingId)) {
+      final isArrival = const {
+        ConvoyJourneyState.atPickup,
+        ConvoyJourneyState.atStop,
+        ConvoyJourneyState.atDropoff,
+      }.contains(targetState);
+      if (!isArrival &&
+          !automaticArrival &&
+          kDebugMode &&
+          await fetchDeveloperTestBookingMode(bookingId)) {
         result = await _client.rpc(
           'debug_advance_driver_journey_state',
           params: params,
