@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/google_media_url.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 
 const _singleDayTourTitle = 'Day Tour';
@@ -46,6 +47,17 @@ class SubTenantService {
     : _supabase = client ?? Supabase.instance.client;
 
   final SupabaseClient _supabase;
+
+  Future<SubTenantSpot> _spotFromMap(Map<String, dynamic> map) async {
+    final imageUrl = stString(map, const ['image_url', 'cover_image_url']);
+    final securedUrl = await secureGoogleMediaUrl(
+      imageUrl: imageUrl,
+      photoReference: stString(map, const ['google_photo_reference']),
+      latitude: stDouble(map['latitude']),
+      longitude: stDouble(map['longitude']),
+    );
+    return SubTenantSpot.fromMap({...map, 'image_url': securedUrl});
+  }
 
   String _assetPath({
     required String folder,
@@ -333,9 +345,9 @@ class SubTenantService {
         .eq('city', profile.assignedCity)
         .order('title');
 
-    return (rows as List)
-        .map((row) => SubTenantSpot.fromMap(Map<String, dynamic>.from(row)))
-        .toList(growable: false);
+    return Future.wait(
+      (rows as List).map((row) => _spotFromMap(Map<String, dynamic>.from(row))),
+    );
   }
 
   Future<List<CitySpotSuggestion>> loadAiSpotSuggestions(
@@ -371,7 +383,7 @@ class SubTenantService {
         .maybeSingle();
 
     if (row == null) return null;
-    return SubTenantSpot.fromMap(Map<String, dynamic>.from(row));
+    return _spotFromMap(Map<String, dynamic>.from(row));
   }
 
   Future<void> saveSpot({
@@ -752,9 +764,7 @@ class SubTenantService {
           .inFilter('id', spotIds)
           .eq('city', profile.assignedCity);
       for (final row in spotRows as List) {
-        final spot = SubTenantSpot.fromMap(
-          Map<String, dynamic>.from(row as Map),
-        );
+        final spot = await _spotFromMap(Map<String, dynamic>.from(row as Map));
         spotById[stId(spot.id)] = spot;
       }
     }
@@ -950,7 +960,7 @@ class SubTenantService {
           .inFilter('id', spotIds)
           .eq('city', profile.assignedCity);
       for (final row in spots as List) {
-        final spot = SubTenantSpot.fromMap(Map<String, dynamic>.from(row));
+        final spot = await _spotFromMap(Map<String, dynamic>.from(row));
         spotById[stId(spot.id)] = spot;
       }
     }
@@ -1865,9 +1875,7 @@ class SubTenantService {
           .eq('google_place_id', googlePlaceId)
           .maybeSingle();
       if (existingByPlaceId != null) {
-        return SubTenantSpot.fromMap(
-          Map<String, dynamic>.from(existingByPlaceId),
-        );
+        return _spotFromMap(Map<String, dynamic>.from(existingByPlaceId));
       }
     } on PostgrestException {
       // Fallback to title matching if the migration is not applied yet.
@@ -1881,7 +1889,7 @@ class SubTenantService {
         .maybeSingle();
 
     if (existingByTitle != null) {
-      return SubTenantSpot.fromMap(Map<String, dynamic>.from(existingByTitle));
+      return _spotFromMap(Map<String, dynamic>.from(existingByTitle));
     }
 
     final payload = <String, dynamic>{
@@ -1909,7 +1917,7 @@ class SubTenantService {
           .insert(payload)
           .select('*')
           .single();
-      return SubTenantSpot.fromMap(Map<String, dynamic>.from(row));
+      return _spotFromMap(Map<String, dynamic>.from(row));
     } on PostgrestException {
       // Retry without rating in case the column type differs
       final retry = Map<String, dynamic>.from(payload)
@@ -1923,7 +1931,7 @@ class SubTenantService {
           .insert(retry)
           .select('*')
           .single();
-      return SubTenantSpot.fromMap(Map<String, dynamic>.from(row));
+      return _spotFromMap(Map<String, dynamic>.from(row));
     }
   }
 
@@ -1937,9 +1945,9 @@ class SubTenantService {
         .neq('status', 'archived')
         .order('rating', ascending: false);
 
-    return (rows as List)
-        .map((row) => SubTenantSpot.fromMap(Map<String, dynamic>.from(row)))
-        .toList(growable: false);
+    return Future.wait(
+      (rows as List).map((row) => _spotFromMap(Map<String, dynamic>.from(row))),
+    );
   }
 
   Future<List<SubTenantCategory>> loadTourismCategories() async {
@@ -2013,7 +2021,7 @@ class SubTenantService {
 
       final spotsById = <String, SubTenantSpot>{};
       for (final row in spotRows as List) {
-        final spot = SubTenantSpot.fromMap(Map<String, dynamic>.from(row));
+        final spot = await _spotFromMap(Map<String, dynamic>.from(row));
         spotsById[stId(spot.id)] = spot;
       }
 

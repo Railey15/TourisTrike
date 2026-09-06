@@ -54,7 +54,7 @@ REST key API-restricted to only the Places/Geocoding/Static APIs the build uses.
 ## Web Maps JavaScript SDK
 
 Interactive `GoogleMap` widgets require a separate browser key. The deployment
-script replaces the placeholder in the built `index.html` from
+script writes `build/web/google_maps_config.js` from
 `GOOGLE_MAPS_BROWSER_API_KEY`. This key is public by design: restrict it by the
 production/local HTTP referrers and enable only **Maps JavaScript API**. Never
 reuse the server Places key.
@@ -64,6 +64,18 @@ The web build command is:
 ```sh
 GOOGLE_MAPS_BROWSER_API_KEY="restricted-browser-key" ./build.sh
 ```
+
+For local `flutter run -d chrome`, copy the committed example and set the same
+kind of browser-only key:
+
+```sh
+cp web/google_maps_config.example.js web/google_maps_config.js
+flutter run -d chrome
+```
+
+`web/google_maps_config.js` is gitignored. It must contain
+`window.tourisTrikeConfig.googleMapsBrowserApiKey`; never place the server-side
+`GOOGLE_MAPS_API_KEY` there.
 
 Do not add `.env` to Flutter assets. For non-web local values such as Gemini,
 use `--dart-define` or `--dart-define-from-file` only on the intended target.

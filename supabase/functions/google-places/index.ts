@@ -10,9 +10,9 @@ const SUPABASE_ANON_KEY = (Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
 };
 
 const json = (body: unknown, status = 200) =>
@@ -79,7 +79,10 @@ function safeParameters(
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(
+    /=+$/,
+    "",
+  );
 }
 
 async function signature(value: string): Promise<string> {
@@ -136,6 +139,36 @@ async function staticMapProxyUrl(lat: number, lng: number): Promise<string> {
   return url.toString();
 }
 
+async function routeStaticMapProxyUrl(
+  pickupLat: number,
+  pickupLng: number,
+  dropoffLat: number,
+  dropoffLng: number,
+  encodedPolyline: string,
+): Promise<string> {
+  const pickupLatitude = pickupLat.toFixed(6);
+  const pickupLongitude = pickupLng.toFixed(6);
+  const dropoffLatitude = dropoffLat.toFixed(6);
+  const dropoffLongitude = dropoffLng.toFixed(6);
+  const signedValue = [
+    "route-static-map",
+    pickupLatitude,
+    pickupLongitude,
+    dropoffLatitude,
+    dropoffLongitude,
+    encodedPolyline,
+  ].join(":");
+  const url = new URL(functionUrl());
+  url.searchParams.set("resource", "route-static-map");
+  url.searchParams.set("pickup_lat", pickupLatitude);
+  url.searchParams.set("pickup_lng", pickupLongitude);
+  url.searchParams.set("dropoff_lat", dropoffLatitude);
+  url.searchParams.set("dropoff_lng", dropoffLongitude);
+  if (encodedPolyline) url.searchParams.set("polyline", encodedPolyline);
+  url.searchParams.set("signature", await signature(signedValue));
+  return url.toString();
+}
+
 async function decoratePlace(raw: unknown): Promise<unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const place = { ...(raw as Record<string, unknown>) };
@@ -145,7 +178,9 @@ async function decoratePlace(raw: unknown): Promise<unknown> {
     const photoReference = String(
       (firstPhoto as Record<string, unknown>).photo_reference ?? "",
     ).trim();
-    if (photoReference) place._proxy_image_url = await photoProxyUrl(photoReference);
+    if (photoReference) {
+      place._proxy_image_url = await photoProxyUrl(photoReference);
+    }
   }
   const geometry = place.geometry as Record<string, unknown> | undefined;
   const location = geometry?.location as Record<string, unknown> | undefined;
@@ -168,32 +203,53 @@ async function decorateGoogleBody(
   return decorated;
 }
 
-function googleFailure(body: Record<string, unknown>, httpStatus: number): Response | null {
+function googleFailure(
+  body: Record<string, unknown>,
+  httpStatus: number,
+): Response | null {
   const status = String(body.status ?? "");
   if (httpStatus === 429 || status === "OVER_QUERY_LIMIT") {
     return json(
-      { error: "RATE_LIMITED", message: "Google Places request limit was reached. Please retry shortly." },
+      {
+        error: "RATE_LIMITED",
+        message: "Google Places request limit was reached. Please retry shortly.",
+      },
       429,
     );
   }
   if (httpStatus === 401 || httpStatus === 403 || status === "REQUEST_DENIED") {
     return json(
-      { error: "GOOGLE_UNAUTHORIZED", message: "Google Places rejected the server API key or its API restrictions." },
+      {
+        error: "GOOGLE_UNAUTHORIZED",
+        message: "Google Places rejected the server API key or its API restrictions.",
+      },
       403,
     );
   }
   if (status === "INVALID_REQUEST") {
-    return json({ error: "INVALID_REQUEST", message: "Google Places rejected this request." }, 400);
+    return json({
+      error: "INVALID_REQUEST",
+      message: "Google Places rejected this request.",
+    }, 400);
   }
-  if (httpStatus < 200 || httpStatus >= 300 || (status !== "OK" && status !== "ZERO_RESULTS")) {
-    return json({ error: "UPSTREAM_FAILURE", message: "Google Places is unavailable right now." }, 502);
+  if (
+    httpStatus < 200 || httpStatus >= 300 ||
+    (status !== "OK" && status !== "ZERO_RESULTS")
+  ) {
+    return json({
+      error: "UPSTREAM_FAILURE",
+      message: "Google Places is unavailable right now.",
+    }, 502);
   }
   return null;
 }
 
 async function proxyImage(requestUrl: URL): Promise<Response> {
   if (!GOOGLE_MAPS_API_KEY || !SIGNING_SECRET) {
-    return json({ error: "NOT_CONFIGURED", message: "Google media proxy is not configured." }, 503);
+    return json({
+      error: "NOT_CONFIGURED",
+      message: "Google media proxy is not configured.",
+    }, 503);
   }
   const resource = requestUrl.searchParams.get("resource") ?? "";
   const suppliedSignature = requestUrl.searchParams.get("signature") ?? "";
@@ -203,8 +259,14 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
   if (resource === "photo") {
     const photoReference = (requestUrl.searchParams.get("photo_reference") ?? "").trim();
     const maxWidth = Number(requestUrl.searchParams.get("maxwidth") ?? "900");
-    if (!photoReference || photoReference.length > 1000 || !Number.isInteger(maxWidth) || maxWidth < 200 || maxWidth > 1200) {
-      return json({ error: "INVALID_REQUEST", message: "Invalid photo request." }, 400);
+    if (
+      !photoReference || photoReference.length > 1000 ||
+      !Number.isInteger(maxWidth) || maxWidth < 200 || maxWidth > 1200
+    ) {
+      return json({
+        error: "INVALID_REQUEST",
+        message: "Invalid photo request.",
+      }, 400);
     }
     signedValue = `photo:${photoReference}:${maxWidth}`;
     upstream = new URL("https://maps.googleapis.com/maps/api/place/photo");
@@ -214,8 +276,15 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
     const lat = Number(requestUrl.searchParams.get("lat"));
     const lng = Number(requestUrl.searchParams.get("lng"));
     const zoom = Number(requestUrl.searchParams.get("zoom") ?? "15");
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < 4 || lat > 22 || lng < 115 || lng > 130 || !Number.isInteger(zoom) || zoom < 10 || zoom > 18) {
-      return json({ error: "INVALID_REQUEST", message: "Invalid map request." }, 400);
+    if (
+      !Number.isFinite(lat) || !Number.isFinite(lng) || lat < 4 || lat > 22 ||
+      lng < 115 || lng > 130 || !Number.isInteger(zoom) || zoom < 10 ||
+      zoom > 18
+    ) {
+      return json(
+        { error: "INVALID_REQUEST", message: "Invalid map request." },
+        400,
+      );
     }
     const latitude = lat.toFixed(6);
     const longitude = lng.toFixed(6);
@@ -228,13 +297,70 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
     upstream.searchParams.set("scale", "2");
     upstream.searchParams.set("maptype", "roadmap");
     upstream.searchParams.set("markers", `color:red|${marker}`);
+  } else if (resource === "route-static-map") {
+    const pickupLat = Number(requestUrl.searchParams.get("pickup_lat"));
+    const pickupLng = Number(requestUrl.searchParams.get("pickup_lng"));
+    const dropoffLat = Number(requestUrl.searchParams.get("dropoff_lat"));
+    const dropoffLng = Number(requestUrl.searchParams.get("dropoff_lng"));
+    const encodedPolyline = requestUrl.searchParams.get("polyline") ?? "";
+    const validCoordinate = (lat: number, lng: number) =>
+      Number.isFinite(lat) && Number.isFinite(lng) &&
+      lat >= 4 && lat <= 22 && lng >= 115 && lng <= 130;
+    if (
+      !validCoordinate(pickupLat, pickupLng) ||
+      !validCoordinate(dropoffLat, dropoffLng) ||
+      encodedPolyline.length > 4000
+    ) {
+      return json({
+        error: "INVALID_REQUEST",
+        message: "Invalid route map request.",
+      }, 400);
+    }
+    const pickupLatitude = pickupLat.toFixed(6);
+    const pickupLongitude = pickupLng.toFixed(6);
+    const dropoffLatitude = dropoffLat.toFixed(6);
+    const dropoffLongitude = dropoffLng.toFixed(6);
+    signedValue = [
+      "route-static-map",
+      pickupLatitude,
+      pickupLongitude,
+      dropoffLatitude,
+      dropoffLongitude,
+      encodedPolyline,
+    ].join(":");
+    upstream = new URL("https://maps.googleapis.com/maps/api/staticmap");
+    upstream.searchParams.set("size", "800x360");
+    upstream.searchParams.set("scale", "2");
+    upstream.searchParams.set("maptype", "roadmap");
+    upstream.searchParams.append(
+      "markers",
+      `color:green|label:P|${pickupLatitude},${pickupLongitude}`,
+    );
+    upstream.searchParams.append(
+      "markers",
+      `color:red|label:D|${dropoffLatitude},${dropoffLongitude}`,
+    );
+    if (encodedPolyline) {
+      upstream.searchParams.set(
+        "path",
+        `color:0x2A86FF|weight:4|enc:${encodedPolyline}`,
+      );
+    }
   } else {
-    return json({ error: "INVALID_REQUEST", message: "Unknown media resource." }, 400);
+    return json({
+      error: "INVALID_REQUEST",
+      message: "Unknown media resource.",
+    }, 400);
   }
 
   const expectedSignature = await signature(signedValue);
-  if (!suppliedSignature || !sameSignature(suppliedSignature, expectedSignature)) {
-    return json({ error: "INVALID_SIGNATURE", message: "This media URL is not authorized." }, 403);
+  if (
+    !suppliedSignature || !sameSignature(suppliedSignature, expectedSignature)
+  ) {
+    return json({
+      error: "INVALID_SIGNATURE",
+      message: "This media URL is not authorized.",
+    }, 403);
   }
 
   upstream.searchParams.set("key", GOOGLE_MAPS_API_KEY);
@@ -242,12 +368,18 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
   try {
     response = await fetch(upstream, { redirect: "follow" });
   } catch {
-    return json({ error: "UPSTREAM_NETWORK", message: "Google media could not be reached." }, 502);
+    return json({
+      error: "UPSTREAM_NETWORK",
+      message: "Google media could not be reached.",
+    }, 502);
   }
   const contentType = response.headers.get("content-type") ?? "";
   if (!response.ok || !contentType.startsWith("image/")) {
     return json(
-      { error: response.status === 429 ? "RATE_LIMITED" : "MEDIA_UPSTREAM_FAILURE", message: "Google media is unavailable." },
+      {
+        error: response.status === 429 ? "RATE_LIMITED" : "MEDIA_UPSTREAM_FAILURE",
+        message: "Google media is unavailable.",
+      },
       response.status === 429 ? 429 : 502,
     );
   }
@@ -262,18 +394,34 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
   });
 }
 
-serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+async function handleRequest(request: Request): Promise<Response> {
+  // Browser preflight requests do not contain a user access token. Handle them
+  // before parsing the URL, validating the method, or authenticating the user.
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   const requestUrl = new URL(request.url);
   if (request.method === "GET") return proxyImage(requestUrl);
-  if (request.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+  if (request.method !== "POST") {
+    return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+  }
 
-  if (!GOOGLE_MAPS_API_KEY || !SIGNING_SECRET || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return json({ error: "NOT_CONFIGURED", message: "Google Places is not configured on the server." }, 503);
+  if (
+    !GOOGLE_MAPS_API_KEY || !SIGNING_SECRET || !SUPABASE_URL ||
+    !SUPABASE_ANON_KEY
+  ) {
+    return json({
+      error: "NOT_CONFIGURED",
+      message: "Google Places is not configured on the server.",
+    }, 503);
   }
   const authorization = request.headers.get("Authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) {
-    return json({ error: "UNAUTHENTICATED", message: "Sign in to use Google Places." }, 401);
+    return json({
+      error: "UNAUTHENTICATED",
+      message: "Sign in to use Google Places.",
+    }, 401);
   }
   const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authorization } },
@@ -281,37 +429,143 @@ serve(async (request) => {
   });
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) {
-    return json({ error: "UNAUTHENTICATED", message: "Sign in to use Google Places." }, 401);
+    return json({
+      error: "UNAUTHENTICATED",
+      message: "Sign in to use Google Places.",
+    }, 401);
   }
 
   let input: Record<string, unknown>;
   try {
     input = await request.json();
   } catch {
-    return json({ error: "INVALID_REQUEST", message: "Expected a JSON request." }, 400);
+    return json({
+      error: "INVALID_REQUEST",
+      message: "Expected a JSON request.",
+    }, 400);
   }
-  const operation = String(input.operation ?? "") as Operation;
+  const requestedOperation = String(input.operation ?? "");
+  const rawParameters = input.parameters;
+  if (
+    (requestedOperation === "photoProxyUrl" ||
+      requestedOperation === "staticMapProxyUrl" ||
+      requestedOperation === "routeStaticMapProxyUrl") &&
+    (!rawParameters || typeof rawParameters !== "object" ||
+      Array.isArray(rawParameters))
+  ) {
+    return json({
+      error: "INVALID_REQUEST",
+      message: "Invalid media parameters.",
+    }, 400);
+  }
+  const mediaParameters = rawParameters as Record<string, unknown>;
+  if (requestedOperation === "photoProxyUrl") {
+    const photoReference = String(mediaParameters.photo_reference ?? "").trim();
+    if (!photoReference || photoReference.length > 1000) {
+      return json({
+        error: "INVALID_REQUEST",
+        message: "Invalid photo reference.",
+      }, 400);
+    }
+    return json({ url: await photoProxyUrl(photoReference) });
+  }
+  if (requestedOperation === "staticMapProxyUrl") {
+    const lat = Number(mediaParameters.lat);
+    const lng = Number(mediaParameters.lng);
+    if (
+      !Number.isFinite(lat) || !Number.isFinite(lng) ||
+      lat < 4 || lat > 22 || lng < 115 || lng > 130
+    ) {
+      return json({
+        error: "INVALID_REQUEST",
+        message: "Invalid map coordinates.",
+      }, 400);
+    }
+    return json({ url: await staticMapProxyUrl(lat, lng) });
+  }
+  if (requestedOperation === "routeStaticMapProxyUrl") {
+    const pickupLat = Number(mediaParameters.pickup_lat);
+    const pickupLng = Number(mediaParameters.pickup_lng);
+    const dropoffLat = Number(mediaParameters.dropoff_lat);
+    const dropoffLng = Number(mediaParameters.dropoff_lng);
+    const encodedPolyline = String(mediaParameters.polyline ?? "");
+    const validCoordinate = (lat: number, lng: number) =>
+      Number.isFinite(lat) && Number.isFinite(lng) &&
+      lat >= 4 && lat <= 22 && lng >= 115 && lng <= 130;
+    if (
+      !validCoordinate(pickupLat, pickupLng) ||
+      !validCoordinate(dropoffLat, dropoffLng) ||
+      encodedPolyline.length > 4000
+    ) {
+      return json({
+        error: "INVALID_REQUEST",
+        message: "Invalid route map parameters.",
+      }, 400);
+    }
+    return json({
+      url: await routeStaticMapProxyUrl(
+        pickupLat,
+        pickupLng,
+        dropoffLat,
+        dropoffLng,
+        encodedPolyline,
+      ),
+    });
+  }
+
+  const operation = requestedOperation as Operation;
   if (!(operation in operationConfig)) {
-    return json({ error: "INVALID_REQUEST", message: "Unsupported Google Places operation." }, 400);
+    return json({
+      error: "INVALID_REQUEST",
+      message: "Unsupported Google Places operation.",
+    }, 400);
   }
   const params = safeParameters(operation, input.parameters);
-  if (!params) return json({ error: "INVALID_REQUEST", message: "Invalid Google Places parameters." }, 400);
+  if (!params) {
+    return json({
+      error: "INVALID_REQUEST",
+      message: "Invalid Google Places parameters.",
+    }, 400);
+  }
 
-  const upstream = new URL(`https://maps.googleapis.com${operationConfig[operation].path}`);
+  const upstream = new URL(
+    `https://maps.googleapis.com${operationConfig[operation].path}`,
+  );
   upstream.search = params.toString();
   let googleResponse: Response;
   try {
     googleResponse = await fetch(upstream);
   } catch {
-    return json({ error: "UPSTREAM_NETWORK", message: "Could not reach Google Places." }, 502);
+    return json({
+      error: "UPSTREAM_NETWORK",
+      message: "Could not reach Google Places.",
+    }, 502);
   }
   let googleBody: Record<string, unknown>;
   try {
     googleBody = await googleResponse.json();
   } catch {
-    return json({ error: "UPSTREAM_FAILURE", message: "Google Places returned an unreadable response." }, 502);
+    return json({
+      error: "UPSTREAM_FAILURE",
+      message: "Google Places returned an unreadable response.",
+    }, 502);
   }
   const failure = googleFailure(googleBody, googleResponse.status);
   if (failure) return failure;
   return json(await decorateGoogleBody(googleBody));
+}
+
+serve(async (request) => {
+  try {
+    return await handleRequest(request);
+  } catch (error) {
+    console.error("Unhandled google-places error", error);
+    return json(
+      {
+        error: "INTERNAL_ERROR",
+        message: "The Places service failed unexpectedly.",
+      },
+      500,
+    );
+  }
 });

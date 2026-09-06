@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:touristrike/core/config/app_config.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
+import 'package:touristrike/core/places/google_media_url.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/services/developer_settings.dart';
@@ -85,6 +86,33 @@ class TourisTrikeRepository {
     : _client = client ?? Supabase.instance.client;
 
   final SupabaseClient _client;
+
+  Future<Json> _secureTouristSpotRow(Json source) async {
+    final row = Json.from(source);
+    row['image_url'] = await secureGoogleMediaUrl(
+      imageUrl: dbString(row['image_url']),
+      photoReference: dbString(row['google_photo_reference']),
+      latitude: dbDouble(row['latitude']),
+      longitude: dbDouble(row['longitude']),
+    );
+
+    final images = row['tourist_spot_images'];
+    if (images is List) {
+      row['tourist_spot_images'] = await Future.wait(
+        images.whereType<Map>().map((item) async {
+          final image = Json.from(item);
+          image['image_url'] = await secureGoogleMediaUrl(
+            imageUrl: dbString(image['image_url']),
+            photoReference: dbString(row['google_photo_reference']),
+            latitude: dbDouble(row['latitude']),
+            longitude: dbDouble(row['longitude']),
+          );
+          return image;
+        }),
+      );
+    }
+    return row;
+  }
 
   String? get currentUserId => _client.auth.currentUser?.id;
 
@@ -372,7 +400,10 @@ class TourisTrikeRepository {
     final rows = await query
         .order('title', ascending: true)
         .range(offset, offset + limit - 1);
-    return _rows(rows).map(TouristSpot.new).toList(growable: false);
+    final securedRows = await Future.wait(
+      _rows(rows).map(_secureTouristSpotRow),
+    );
+    return securedRows.map(TouristSpot.new).toList(growable: false);
   }
 
   Future<TouristSpot?> fetchTouristSpot(dynamic spotId) async {
@@ -381,7 +412,8 @@ class TourisTrikeRepository {
         .select('*, tourist_spot_images(*)')
         .eq('id', spotId)
         .maybeSingle();
-    return row == null ? null : TouristSpot(Json.from(row));
+    if (row == null) return null;
+    return TouristSpot(await _secureTouristSpotRow(Json.from(row)));
   }
 
   Future<void> trackTouristSpotView(dynamic spotId) async {
@@ -397,7 +429,16 @@ class TourisTrikeRepository {
       equals: {'spot_id': spotId},
       orderBy: 'sort_order',
     );
-    return rows.map(TouristSpotImage.new).toList(growable: false);
+    final securedRows = await Future.wait(
+      rows.map((source) async {
+        final row = Json.from(source);
+        row['image_url'] = await secureGoogleMediaUrl(
+          imageUrl: dbString(row['image_url']),
+        );
+        return row;
+      }),
+    );
+    return securedRows.map(TouristSpotImage.new).toList(growable: false);
   }
 
   Future<List<TourPackage>> fetchTourPackages({
@@ -477,7 +518,7 @@ class TourisTrikeRepository {
         )
         .eq('package_id', packageId)
         .order('sort_order');
-    return _rows(rows)
+    final spotRows = _rows(rows)
         .map((row) {
           final nested = row['tourist_spots'];
           if (nested is! Map) return null;
@@ -493,8 +534,11 @@ class TourisTrikeRepository {
           });
         })
         .whereType<Map>()
-        .map((row) => TouristSpot(Json.from(row)))
         .toList(growable: false);
+    final securedRows = await Future.wait(
+      spotRows.map((row) => _secureTouristSpotRow(Json.from(row))),
+    );
+    return securedRows.map(TouristSpot.new).toList(growable: false);
   }
 
   Future<void> trackTourPackageView(dynamic packageId) async {

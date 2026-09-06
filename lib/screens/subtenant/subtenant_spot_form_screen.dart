@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/google_maps_javascript_ready.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
@@ -215,6 +216,9 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _selectedGooglePlaceId = spot.googlePlaceId.trim().isEmpty
         ? null
         : spot.googlePlaceId;
+    _selectedGooglePhotoReference = spot.googlePhotoReference.trim().isEmpty
+        ? null
+        : spot.googlePhotoReference;
 
     if (spot.latitude != 0 && spot.longitude != 0) {
       _pickedLocation = LatLng(spot.latitude, spot.longitude);
@@ -1753,44 +1757,64 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                   border: Border.all(color: SubTenantColors.line),
                 ),
                 clipBehavior: Clip.hardEdge,
-                child: GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: initial,
-                    zoom: _pickedLocation == null ? 13.5 : 16,
-                  ),
-                  mapType: MapType.normal,
-                  zoomControlsEnabled: true,
-                  myLocationButtonEnabled: false,
-                  minMaxZoomPreference: const MinMaxZoomPreference(11, 19),
-                  cameraTargetBounds: CameraTargetBounds(bounds),
-                  onMapCreated: (controller) {
-                    _mapController = controller;
-                    if (_pickedLocation != null) {
-                      Future.delayed(const Duration(milliseconds: 350), () {
-                        if (mounted && _pickedLocation != null) {
-                          _animateToLocation(_pickedLocation!, zoom: 16);
-                        }
-                      });
-                    }
-                  },
-                  onTap: _setPickedLocation,
-                  markers: {
-                    if (_pickedLocation != null)
-                      Marker(
-                        markerId: const MarkerId('spot_location'),
-                        position: _pickedLocation!,
-                        draggable: true,
-                        onDragEnd: _setPickedLocation,
-                        infoWindow: InfoWindow(
-                          title: _titleCtrl.text.trim().isEmpty
-                              ? 'Tourist Spot'
-                              : _titleCtrl.text.trim(),
-                          snippet:
-                              _selectedBarangay ?? data.profile.assignedCity,
+                child: !isGoogleMapsJavascriptReady
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'Google Maps is not configured for this web origin.',
+                            textAlign: TextAlign.center,
+                          ),
                         ),
+                      )
+                    : GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: initial,
+                          zoom: _pickedLocation == null ? 13.5 : 16,
+                        ),
+                        mapType: MapType.normal,
+                        zoomControlsEnabled: true,
+                        myLocationButtonEnabled: false,
+                        minMaxZoomPreference: const MinMaxZoomPreference(
+                          11,
+                          19,
+                        ),
+                        cameraTargetBounds: CameraTargetBounds(bounds),
+                        onMapCreated: (controller) {
+                          _mapController = controller;
+                          if (_pickedLocation != null) {
+                            Future.delayed(
+                              const Duration(milliseconds: 350),
+                              () {
+                                if (mounted && _pickedLocation != null) {
+                                  _animateToLocation(
+                                    _pickedLocation!,
+                                    zoom: 16,
+                                  );
+                                }
+                              },
+                            );
+                          }
+                        },
+                        onTap: _setPickedLocation,
+                        markers: {
+                          if (_pickedLocation != null)
+                            Marker(
+                              markerId: const MarkerId('spot_location'),
+                              position: _pickedLocation!,
+                              draggable: true,
+                              onDragEnd: _setPickedLocation,
+                              infoWindow: InfoWindow(
+                                title: _titleCtrl.text.trim().isEmpty
+                                    ? 'Tourist Spot'
+                                    : _titleCtrl.text.trim(),
+                                snippet:
+                                    _selectedBarangay ??
+                                    data.profile.assignedCity,
+                              ),
+                            ),
+                        },
                       ),
-                  },
-                ),
               ),
               const SizedBox(height: 12),
               _smartHelper(

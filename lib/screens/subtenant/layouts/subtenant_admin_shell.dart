@@ -46,102 +46,127 @@ class SubTenantAdminShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    SubTenantWorkspaceSearchController.instance.setActiveScope(currentIndex);
-
     if (Responsive.isMobile(context)) {
-      return _MobileShell(
-        currentIndex: currentIndex,
-        title: title,
-        actions: actions,
-        floatingActionButton: floatingActionButton,
-        onNavigate: (index) => _navigate(context, index),
-        onLogout: () => _logout(context),
-        child: child,
+      return _SubTenantScopeActivation(
+        scope: currentIndex,
+        child: _MobileShell(
+          currentIndex: currentIndex,
+          title: title,
+          actions: actions,
+          floatingActionButton: floatingActionButton,
+          onNavigate: (index) => _navigate(context, index),
+          onLogout: () => _logout(context),
+          child: child,
+        ),
       );
     }
 
     final compactSidebar = Responsive.isTablet(context);
 
-    return Scaffold(
-      backgroundColor: SubTenantColors.background,
-      floatingActionButton: floatingActionButton,
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFE8F4FF),
-              Color(0xFFF7FBFF),
-              Color(0xFFEFFAF4),
-            ],
+    return _SubTenantScopeActivation(
+      scope: currentIndex,
+      child: Scaffold(
+        backgroundColor: SubTenantColors.background,
+        floatingActionButton: floatingActionButton,
+        body: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFE8F4FF), Color(0xFFF7FBFF), Color(0xFFEFFAF4)],
+            ),
           ),
-        ),
-        child: Stack(
-          children: [
-            const Positioned(
-              top: -90,
-              right: -70,
-              child: _ShellGlow(
-                size: 260,
-                color: Color(0xFFBFE3FF),
+          child: Stack(
+            children: [
+              const Positioned(
+                top: -90,
+                right: -70,
+                child: _ShellGlow(size: 260, color: Color(0xFFBFE3FF)),
               ),
-            ),
-            const Positioned(
-              bottom: -120,
-              left: 260,
-              child: _ShellGlow(
-                size: 300,
-                color: Color(0xFFCFF5DC),
+              const Positioned(
+                bottom: -120,
+                left: 260,
+                child: _ShellGlow(size: 300, color: Color(0xFFCFF5DC)),
               ),
-            ),
-            SafeArea(
-              bottom: false,
-              child: Row(
-                children: [
-                  SubTenantSidebar(
-                    currentIndex: currentIndex,
-                    compact: compactSidebar,
-                    onDestinationSelected: (index) => _navigate(context, index),
-                    onLogout: () => _logout(context),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        compactSidebar ? 12 : 16,
-                        12,
-                        16,
-                        0,
-                      ),
-                      child: Column(
-                        children: [
-                          _DesktopHeader(
-                            currentIndex: currentIndex,
-                            title: title,
-                            subtitle: subtitle,
-                            actions: actions,
-                          ),
-                          const SizedBox(height: 14),
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(28),
-                              ),
-                              child: child,
+              SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    SubTenantSidebar(
+                      currentIndex: currentIndex,
+                      compact: compactSidebar,
+                      onDestinationSelected: (index) =>
+                          _navigate(context, index),
+                      onLogout: () => _logout(context),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          compactSidebar ? 12 : 16,
+                          12,
+                          16,
+                          0,
+                        ),
+                        child: Column(
+                          children: [
+                            _DesktopHeader(
+                              currentIndex: currentIndex,
+                              title: title,
+                              subtitle: subtitle,
+                              actions: actions,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 14),
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(28),
+                                ),
+                                child: child,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+class _SubTenantScopeActivation extends StatefulWidget {
+  const _SubTenantScopeActivation({required this.scope, required this.child});
+
+  final int scope;
+  final Widget child;
+
+  @override
+  State<_SubTenantScopeActivation> createState() =>
+      _SubTenantScopeActivationState();
+}
+
+class _SubTenantScopeActivationState extends State<_SubTenantScopeActivation> {
+  @override
+  void initState() {
+    super.initState();
+    SubTenantWorkspaceSearchController.instance.setActiveScope(widget.scope);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SubTenantScopeActivation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scope != widget.scope) {
+      SubTenantWorkspaceSearchController.instance.setActiveScope(widget.scope);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _MobileShell extends StatelessWidget {
@@ -248,11 +273,7 @@ class _MobileShell extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Colors.white,
-              Color(0xFFF6FAFF),
-              Color(0xFFEFFAF5),
-            ],
+            colors: [Colors.white, Color(0xFFF6FAFF), Color(0xFFEFFAF5)],
           ),
         ),
         child: child,
@@ -296,7 +317,6 @@ class _DesktopHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          
           const SizedBox(width: 14),
           Expanded(
             child: PageTitleBar(
@@ -321,10 +341,7 @@ class _DesktopHeader extends StatelessWidget {
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: SubTenantColors.line),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: actions,
-              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: actions),
             ),
             const SizedBox(width: 10),
           ],
@@ -462,8 +479,7 @@ class _NotificationButtonState extends State<_NotificationButton> {
         .eq('user_id', userId)
         .order('created_at', ascending: false)
         .map(
-          (rows) =>
-              rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+          (rows) => rows.map((row) => Map<String, dynamic>.from(row)).toList(),
         );
   }
 
@@ -541,7 +557,7 @@ class _NotificationButtonState extends State<_NotificationButton> {
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: rows.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final row = rows[index];
                       final unread = row['is_read'] != true;
@@ -558,8 +574,9 @@ class _NotificationButtonState extends State<_NotificationButton> {
                         title: Text(
                           (row['title'] ?? 'Notification').toString(),
                           style: TextStyle(
-                            fontWeight:
-                                unread ? FontWeight.w900 : FontWeight.w700,
+                            fontWeight: unread
+                                ? FontWeight.w900
+                                : FontWeight.w700,
                           ),
                         ),
                         subtitle: Text((row['body'] ?? '').toString()),
@@ -680,11 +697,7 @@ class _HeaderIconButton extends StatelessWidget {
               color: SubTenantColors.blue.withValues(alpha: 0.08),
             ),
           ),
-          child: Icon(
-            icon,
-            color: SubTenantColors.blue,
-            size: 22,
-          ),
+          child: Icon(icon, color: SubTenantColors.blue, size: 22),
         ),
       ),
     );
@@ -746,10 +759,7 @@ class _AdminBadge extends StatelessWidget {
 }
 
 class _ShellGlow extends StatelessWidget {
-  const _ShellGlow({
-    required this.size,
-    required this.color,
-  });
+  const _ShellGlow({required this.size, required this.color});
 
   final double size;
   final Color color;

@@ -461,6 +461,7 @@ class SubTenantSpot {
     this.verificationStatus = '',
     this.sourceType = 'manual',
     this.googlePlaceId = '',
+    this.googlePhotoReference = '',
   });
 
   final dynamic id;
@@ -481,6 +482,7 @@ class SubTenantSpot {
   final String verificationStatus;
   final String sourceType;
   final String googlePlaceId;
+  final String googlePhotoReference;
 
   factory SubTenantSpot.fromMap(Map<String, dynamic> map) {
     return SubTenantSpot(
@@ -502,6 +504,7 @@ class SubTenantSpot {
       verificationStatus: stString(map, const ['verification_status']),
       sourceType: stString(map, const ['source_type'], fallback: 'manual'),
       googlePlaceId: stString(map, const ['google_place_id']),
+      googlePhotoReference: stString(map, const ['google_photo_reference']),
     );
   }
 }

@@ -9,6 +9,7 @@ import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_maps_api_key_resolver.dart';
+import 'package:touristrike/core/places/google_places_gateway.dart';
 import 'package:touristrike/core/places/google_places_errors.dart';
 import 'package:touristrike/core/services/itinerary_directions_mobile.dart'
     if (dart.library.js_interop) 'package:touristrike/core/services/itinerary_directions_web.dart';
@@ -5851,30 +5852,18 @@ class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
         pointCount: 2,
       );
     }
-    return Map<String, dynamic>.from(routes.first as Map);
-  }
-
-  String _mapUrl([String? polyline]) {
-    final buffer = StringBuffer(
-      'https://maps.googleapis.com/maps/api/staticmap'
-      '?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
+    final route = Map<String, dynamic>.from(routes.first as Map);
+    final encodedPolyline =
+        (route['overview_polyline'] as Map?)?['points'] as String? ?? '';
+    final mapUrl = await GooglePlacesGateway(apiKey: _apiKey).routeStaticMapUrl(
+      pickupLatitude: pickupLat!,
+      pickupLongitude: pickupLng!,
+      dropoffLatitude: dropoffLat!,
+      dropoffLongitude: dropoffLng!,
+      encodedPolyline: encodedPolyline,
     );
-
-    if (pickupLat != null && pickupLng != null) {
-      buffer.write('&markers=color:green%7Clabel:P%7C$pickupLat,$pickupLng');
-    }
-
-    if (dropoffLat != null && dropoffLng != null) {
-      buffer.write('&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng');
-    }
-
-    if (polyline != null && polyline.isNotEmpty) {
-      buffer.write(
-        '&path=${Uri.encodeComponent('color:0x2A86FF|weight:4|enc:$polyline')}',
-      );
-    }
-
-    return buffer.toString();
+    route['_proxy_static_map_url'] = mapUrl;
+    return route;
   }
 
   @override
@@ -5912,25 +5901,31 @@ class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
                       !snapshot.hasError
                   ? snapshot.data
                   : null;
+              final mapUrl =
+                  route?['_proxy_static_map_url']?.toString().trim() ?? '';
               return Column(
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(14),
-                    child: Image.network(
-                      _mapUrl(
-                        (route?['overview_polyline'] as Map?)?['points']
-                            as String?,
-                      ),
-                      width: double.infinity,
-                      height: 160,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => Container(
-                        height: 160,
-                        color: const Color(0xFFF1F5F9),
-                        alignment: Alignment.center,
-                        child: const Text('Map preview unavailable'),
-                      ),
-                    ),
+                    child: mapUrl.isEmpty
+                        ? Container(
+                            height: 160,
+                            color: const Color(0xFFF1F5F9),
+                            alignment: Alignment.center,
+                            child: const Text('Map preview unavailable'),
+                          )
+                        : Image.network(
+                            mapUrl,
+                            width: double.infinity,
+                            height: 160,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(
+                              height: 160,
+                              color: const Color(0xFFF1F5F9),
+                              alignment: Alignment.center,
+                              child: const Text('Map preview unavailable'),
+                            ),
+                          ),
                   ),
                   if (snapshot.connectionState != ConnectionState.done)
                     const Padding(

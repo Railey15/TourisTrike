@@ -92,12 +92,40 @@ class GooglePlacesGateway {
   String staticMapUrl({required double latitude, required double longitude}) =>
       '';
 
-  String routeStaticMapUrl({
+  Future<String> photoProxyUrl(String photoReference) async {
+    final data = await request('photoProxyUrl', {
+      'photo_reference': photoReference,
+    });
+    return data['url']?.toString().trim() ?? '';
+  }
+
+  Future<String> staticMapProxyUrl({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final data = await request('staticMapProxyUrl', {
+      'lat': latitude.toString(),
+      'lng': longitude.toString(),
+    });
+    return data['url']?.toString().trim() ?? '';
+  }
+
+  Future<String> routeStaticMapUrl({
     required double pickupLatitude,
     required double pickupLongitude,
     required double dropoffLatitude,
     required double dropoffLongitude,
-  }) => '';
+    String encodedPolyline = '',
+  }) async {
+    final data = await request('routeStaticMapProxyUrl', {
+      'pickup_lat': pickupLatitude.toString(),
+      'pickup_lng': pickupLongitude.toString(),
+      'dropoff_lat': dropoffLatitude.toString(),
+      'dropoff_lng': dropoffLongitude.toString(),
+      if (encodedPolyline.isNotEmpty) 'polyline': encodedPolyline,
+    });
+    return data['url']?.toString().trim() ?? '';
+  }
 }
 
 String resolveGoogleMapsApiKey() => '';

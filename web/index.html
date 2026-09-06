@@ -31,19 +31,34 @@
 
   <title>touristrike</title>
   <link rel="manifest" href="manifest.json">
-</head>
-<body>
-  <!-- Replaced at deploy time with a separate, HTTP-referrer-restricted
-       Maps JavaScript API key. Never put the server Places key here. -->
+
+  <!-- google_maps_flutter_web requires Maps JavaScript to exist before the
+       first GoogleMap widget is built. This optional ignored file supplies a
+       referrer-restricted browser key during local `flutter run`; release
+       builds receive the same value from build.sh. -->
+  <script src="google_maps_config.js"></script>
   <script>
-    const mapsBrowserKey = '__GOOGLE_MAPS_BROWSER_API_KEY__';
-    if (!mapsBrowserKey.startsWith('__')) {
+    const configuredMapsKey =
+      window.tourisTrikeConfig?.googleMapsBrowserApiKey?.trim() || '';
+    const builtMapsKey = '__GOOGLE_MAPS_BROWSER_API_KEY__';
+    const mapsBrowserKey = configuredMapsKey ||
+      (builtMapsKey.startsWith('__') ? '' : builtMapsKey);
+
+    if (mapsBrowserKey) {
       document.write(
         '<script src="https://maps.googleapis.com/maps/api/js?key=' +
         encodeURIComponent(mapsBrowserKey) + '"><\/script>'
       );
+    } else {
+      console.error(
+        'Google Maps JavaScript API is not configured. ' +
+        'Set GOOGLE_MAPS_BROWSER_API_KEY for builds or create ' +
+        'web/google_maps_config.js for local Flutter Web.'
+      );
     }
   </script>
+</head>
+<body>
   <script>
     // Called from Dart (dart:js_interop_unsafe). Accepts a single JSON params string,
     // returns a Promise<string> with a JSON result.

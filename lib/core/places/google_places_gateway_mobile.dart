@@ -134,6 +134,12 @@ class GooglePlacesGateway {
     }).toString();
   }
 
+  Future<String> photoProxyUrl(String photoReference) async {
+    final effectiveApiKey = await _loadApiKey();
+    if (photoReference.trim().isEmpty || effectiveApiKey.isEmpty) return '';
+    return photoUrl(photoReference);
+  }
+
   String staticMapUrl({required double latitude, required double longitude}) {
     if (_resolvedApiKey.trim().isEmpty) return '';
     final marker = '$latitude,$longitude';
@@ -148,13 +154,24 @@ class GooglePlacesGateway {
     }).toString();
   }
 
-  String routeStaticMapUrl({
+  Future<String> staticMapProxyUrl({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final effectiveApiKey = await _loadApiKey();
+    if (effectiveApiKey.isEmpty) return '';
+    return staticMapUrl(latitude: latitude, longitude: longitude);
+  }
+
+  Future<String> routeStaticMapUrl({
     required double pickupLatitude,
     required double pickupLongitude,
     required double dropoffLatitude,
     required double dropoffLongitude,
-  }) {
-    if (_resolvedApiKey.trim().isEmpty) return '';
+    String encodedPolyline = '',
+  }) async {
+    final effectiveApiKey = await _loadApiKey();
+    if (effectiveApiKey.isEmpty) return '';
     return Uri.https('maps.googleapis.com', '/maps/api/staticmap', {
       'size': '800x360',
       'scale': '2',
@@ -163,7 +180,9 @@ class GooglePlacesGateway {
         'color:green|label:P|$pickupLatitude,$pickupLongitude',
         'color:red|label:D|$dropoffLatitude,$dropoffLongitude',
       ],
-      'key': _resolvedApiKey,
+      if (encodedPolyline.isNotEmpty)
+        'path': 'color:0x2A86FF|weight:4|enc:$encodedPolyline',
+      'key': effectiveApiKey,
     }).toString();
   }
 }

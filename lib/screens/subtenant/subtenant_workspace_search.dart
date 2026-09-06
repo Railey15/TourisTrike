@@ -17,8 +17,10 @@ class SubTenantWorkspaceSearchController extends ChangeNotifier {
 
   void setActiveScope(int scope) {
     if (_activeScope == scope) return;
+    // The active scope only controls which scoped query may emit below. It is
+    // routing metadata, not observable search state, so changing it while the
+    // shell selects a page must not synchronously rebuild listeners.
     _activeScope = scope;
-    notifyListeners();
   }
 
   void setQuery(int scope, String value) {
@@ -34,7 +36,10 @@ class SubTenantWorkspaceSearchController extends ChangeNotifier {
 class SubTenantSearchDebouncer {
   Timer? _timer;
 
-  void run(VoidCallback action, {Duration delay = const Duration(milliseconds: 280)}) {
+  void run(
+    VoidCallback action, {
+    Duration delay = const Duration(milliseconds: 280),
+  }) {
     _timer?.cancel();
     _timer = Timer(delay, action);
   }

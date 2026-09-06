@@ -22,7 +22,9 @@ void main() {
     final pubspec = _read('pubspec.yaml');
 
     expect(index, isNot(contains('AIza')));
-    expect(index, contains("if (!mapsBrowserKey.startsWith('__'))"));
+    expect(index, contains('google_maps_config.js'));
+    expect(index, contains('window.tourisTrikeConfig'));
+    expect(index, contains('https://maps.googleapis.com/maps/api/js?key='));
     expect(manifest, isNot(contains('AIza')));
     expect(infoPlist, isNot(contains('AIza')));
     expect(
@@ -40,5 +42,17 @@ void main() {
     expect(edgeFunction, contains('RATE_LIMITED'));
     expect(edgeFunction, contains('GOOGLE_UNAUTHORIZED'));
     expect(edgeFunction, contains('ZERO_RESULTS'));
+    expect(edgeFunction, contains('route-static-map'));
+    expect(edgeFunction, contains('photoProxyUrl'));
+  });
+
+  test('web sources do not build direct Google REST media URLs', () {
+    final booking = _read('lib/screens/tourist/package_booking_screen.dart');
+    final webGateway = _read('lib/core/places/google_places_gateway_web.dart');
+
+    expect(booking, isNot(contains('/maps/api/staticmap')));
+    expect(webGateway, isNot(contains('maps.googleapis.com')));
+    expect(webGateway, contains('routeStaticMapProxyUrl'));
+    expect(webGateway, contains('photoProxyUrl'));
   });
 }

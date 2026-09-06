@@ -49,4 +49,5 @@ app.*.map.json
 .env
 .env.example
 ios/Flutter/Secrets.xcconfig
+web/google_maps_config.js
 node_modules/

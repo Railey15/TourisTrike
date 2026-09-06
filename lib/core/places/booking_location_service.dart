@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'city_spot_suggestions.dart';
 import 'google_maps_api_key_resolver.dart';
+import 'google_places_gateway.dart';
 
 class BookingPlaceSuggestion {
   const BookingPlaceSuggestion({
@@ -122,6 +124,26 @@ class BookingLocationService {
     String path,
     Map<String, String> params,
   ) async {
+    if (kIsWeb) {
+      final operation = switch (path) {
+        'place/autocomplete' => 'autocomplete',
+        'place/details' => 'details',
+        'geocode' => 'geocode',
+        _ => throw const BookingLocationException(
+          'Unsupported location request.',
+        ),
+      };
+      try {
+        return await GooglePlacesGateway(
+          apiKey: '',
+        ).request(operation, {...params, 'language': 'en'});
+      } catch (_) {
+        throw const BookingLocationException(
+          'Could not reach the location service. Check your connection and retry.',
+        );
+      }
+    }
+
     final effectiveApiKey = await _loadApiKey();
 
     if (effectiveApiKey.isEmpty) {
