@@ -9,6 +9,7 @@ import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_maps_api_key_resolver.dart';
+import 'package:touristrike/core/places/google_places_errors.dart';
 import 'package:touristrike/core/services/itinerary_directions_mobile.dart'
     if (dart.library.js_interop) 'package:touristrike/core/services/itinerary_directions_web.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
@@ -69,6 +70,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       'Your itinerary exceeds the allowed tour hours. Tours are only available from 7:00 AM to 5:00 PM.';
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
+  final CitySpotSuggestionService _spotSuggestionService =
+      CitySpotSuggestionService();
   late final ItineraryScheduleService _scheduleService =
       ItineraryScheduleService(
         apiKey: CitySpotSuggestionService.resolveApiKey(),
@@ -215,7 +218,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     final packageSpotsFuture = _repo.fetchPackageSpots(package.id);
 
-    final suggestionFuture = CitySpotSuggestionService()
+    final suggestionFuture = _spotSuggestionService
         .fetchSuggestions(city: package.city, province: province, limit: 20)
         .catchError((_) => const <CitySpotSuggestion>[]);
 
@@ -459,6 +462,34 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       _selectedSpots.add(candidate);
       _rebuildScheduleFromSelectedSpots();
     });
+  }
+
+  Future<void> _showAddAnotherPlace(TourPackage package) async {
+    if (_selectedSpots.length >= _maximumSpots) {
+      _snack('You can only select up to $_maximumSpots destinations.');
+      return;
+    }
+
+    final suggestion = await showModalBottomSheet<CitySpotSuggestion>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _AddAnotherPlaceSheet(
+        city: package.city,
+        province: _packageProvince(package),
+        service: _spotSuggestionService,
+        additionalFee: _additionalSpotFee,
+      ),
+    );
+    if (!mounted || suggestion == null) return;
+
+    if (!_sameMunicipality(suggestion.city, package.city)) {
+      _snack('Please choose a destination within ${package.city}.');
+      return;
+    }
+
+    _addGoogleSuggestion(suggestion);
   }
 
   void _removeSelectedSpot(_EditableBookingSpot spot) {
@@ -1754,6 +1785,38 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                   ? null
                                   : () => _moveSelectedSpot(entry.key, 1),
                               onRemove: () => _removeSelectedSpot(entry.value),
+                            ),
+                          ),
+
+                          const SizedBox(height: 3),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 47,
+                            child: OutlinedButton.icon(
+                              onPressed: _selectedSpots.length >= _maximumSpots
+                                  ? null
+                                  : () => _showAddAnotherPlace(package),
+                              icon: const Icon(
+                                Icons.add_location_alt_outlined,
+                                size: 18,
+                              ),
+                              label: Text(
+                                _selectedSpots.length >= _maximumSpots
+                                    ? 'Maximum of $_maximumSpots destinations reached'
+                                    : 'Add Another Place',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: _primary,
+                                side: const BorderSide(color: _primary),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 11.5,
+                                ),
+                              ),
                             ),
                           ),
 
@@ -3599,6 +3662,264 @@ class _RemovedOriginalSpotCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AddAnotherPlaceSheet extends StatefulWidget {
+  const _AddAnotherPlaceSheet({
+    required this.city,
+    required this.province,
+    required this.service,
+    required this.additionalFee,
+  });
+
+  final String city;
+  final String province;
+  final CitySpotSuggestionService service;
+  final double additionalFee;
+
+  @override
+  State<_AddAnotherPlaceSheet> createState() => _AddAnotherPlaceSheetState();
+}
+
+class _AddAnotherPlaceSheetState extends State<_AddAnotherPlaceSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  Timer? _debounce;
+  int _searchRevision = 0;
+  bool _searching = false;
+  List<CitySpotSuggestion> _results = const [];
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchRevision++;
+    _debounce?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    final revision = ++_searchRevision;
+    final query = value.trim();
+    if (query.length < 3) {
+      setState(() {
+        _searching = false;
+        _results = const [];
+        _message = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _searching = true;
+      _message = null;
+    });
+    _debounce = Timer(
+      const Duration(milliseconds: 450),
+      () => _search(query, revision),
+    );
+  }
+
+  Future<void> _search(String query, int revision) async {
+    try {
+      final results = await widget.service.searchPlaces(
+        query: query,
+        city: widget.city,
+        province: widget.province,
+        limit: 8,
+      );
+      if (!mounted ||
+          revision != _searchRevision ||
+          _searchController.text.trim() != query) {
+        return;
+      }
+      setState(() {
+        _results = results;
+        _message = results.isEmpty
+            ? 'No matching places found within ${widget.city}.'
+            : null;
+      });
+    } on GooglePlacesException catch (error) {
+      if (!mounted || revision != _searchRevision) return;
+      setState(() {
+        _results = const [];
+        _message = error.message;
+      });
+    } catch (_) {
+      if (!mounted || revision != _searchRevision) return;
+      setState(() {
+        _results = const [];
+        _message = 'Could not search places. Check your connection and retry.';
+      });
+    } finally {
+      if (mounted && revision == _searchRevision) {
+        setState(() => _searching = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: keyboardInset),
+      child: FractionallySizedBox(
+        heightFactor: keyboardInset > 0 ? 0.94 : 0.78,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: _background,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 9),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 10, 10),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Add a destination',
+                            style: TextStyle(
+                              color: _ink,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 17,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Search Google Places within ${widget.city}. Added places use the existing + ₱${widget.additionalFee.toStringAsFixed(0)} per person fee.',
+                      style: const TextStyle(
+                        color: _secondaryText,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10.5,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 11),
+                    TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      onChanged: _onSearchChanged,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Search for a place...',
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: _primary,
+                        ),
+                        suffixIcon: _searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear search',
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _onSearchChanged('');
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: const BorderSide(color: _border),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: const BorderSide(color: _border),
+                        ),
+                      ),
+                    ),
+                    if (_searching)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: LinearProgressIndicator(
+                          color: _primary,
+                          minHeight: 2,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: _results.isNotEmpty
+                    ? ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        itemCount: _results.length,
+                        itemBuilder: (context, index) {
+                          final result = _results[index];
+                          return _GoogleSuggestionCard(
+                            spot: result,
+                            additionalFee: widget.additionalFee,
+                            onAdd: () => Navigator.of(context).pop(result),
+                          );
+                        },
+                      )
+                    : Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 28),
+                          child: Text(
+                            _message ??
+                                'Enter at least 3 characters to find another destination.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: _secondaryText,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

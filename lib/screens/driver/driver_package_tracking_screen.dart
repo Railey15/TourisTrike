@@ -2863,6 +2863,52 @@ class _DriverPackageTrackingScreenState
   // BOTTOM PRIMARY ACTION
   // =========================================================================
 
+  _DriverEnRouteStatus? _currentEnRouteStatus() {
+    final me = _myConvoyStatus;
+    if (me == null ||
+        !const {
+          ConvoyJourneyState.enRoutePickup,
+          ConvoyJourneyState.enRouteStop,
+          ConvoyJourneyState.enRouteDropoff,
+        }.contains(me.journeyState)) {
+      return null;
+    }
+
+    final title = switch (me.journeyState) {
+      ConvoyJourneyState.enRoutePickup => 'Heading to pickup',
+      ConvoyJourneyState.enRouteStop =>
+        'Heading to ${_currentItineraryItem?.destinationName ?? 'tour stop'}',
+      _ => 'Heading to drop-off',
+    };
+    final gpsFailure = _arrivalGpsFailure;
+    final details = <String>[
+      if (_eta?.trim().isNotEmpty == true) 'ETA ${_eta!.trim()}',
+    ];
+    final target = _arrivalTarget?.point;
+    final driver = _driverLatLng();
+    if (target != null && driver != null) {
+      final meters = _haversineMeters(
+        driver.latitude,
+        driver.longitude,
+        target.latitude,
+        target.longitude,
+      );
+      details.add(
+        meters < 1000
+            ? '${meters.round()} m away'
+            : '${(meters / 1000).toStringAsFixed(1)} km away',
+      );
+    }
+
+    return _DriverEnRouteStatus(
+      title: title,
+      description: gpsFailure == null
+          ? 'GPS is monitoring your location. The next action will unlock automatically when you arrive.'
+          : 'GPS monitoring needs attention. Use the recovery options above to continue automatic arrival detection.',
+      details: details.join(' · '),
+    );
+  }
+
   _PrimaryTourAction? _currentPrimaryAction() {
     final me = _myConvoyStatus;
 
@@ -3076,6 +3122,7 @@ class _DriverPackageTrackingScreenState
         : 'Itinerary completed. Waiting for remaining payment; drop-off unlocks after payment confirmation.';
 
     final primaryAction = _currentPrimaryAction();
+    final enRouteStatus = _currentEnRouteStatus();
     final serverGateNotice = _serverGateNotice;
 
     return Column(
@@ -3272,6 +3319,7 @@ class _DriverPackageTrackingScreenState
           totalDriverCount: _convoy.length,
           busy: _actionBusy,
           action: primaryAction,
+          enRouteStatus: enRouteStatus,
         ),
       ],
     );
@@ -5471,6 +5519,7 @@ class _PersistentDriverActionBar extends StatelessWidget {
     required this.totalDriverCount,
     required this.busy,
     required this.action,
+    required this.enRouteStatus,
   });
 
   final bool completed;
@@ -5481,6 +5530,7 @@ class _PersistentDriverActionBar extends StatelessWidget {
   final bool busy;
 
   final _PrimaryTourAction? action;
+  final _DriverEnRouteStatus? enRouteStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -5533,7 +5583,9 @@ class _PersistentDriverActionBar extends StatelessWidget {
               ),
             )
           : action == null
-          ? const SizedBox.shrink()
+          ? enRouteStatus == null
+                ? const SizedBox.shrink()
+                : _DriverEnRouteStatusPanel(status: enRouteStatus!)
           : Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -5623,6 +5675,92 @@ class _PersistentDriverActionBar extends StatelessWidget {
             ),
     );
   }
+}
+
+class _DriverEnRouteStatusPanel extends StatelessWidget {
+  const _DriverEnRouteStatusPanel({required this.status});
+
+  final _DriverEnRouteStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: _softBlue,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.location_searching_rounded,
+              color: _primary,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status.title,
+                  style: const TextStyle(
+                    color: _ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12.5,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  status.description,
+                  style: const TextStyle(
+                    color: _muted,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 9.5,
+                    height: 1.35,
+                  ),
+                ),
+                if (status.details.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    status.details,
+                    style: const TextStyle(
+                      color: _primary,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverEnRouteStatus {
+  const _DriverEnRouteStatus({
+    required this.title,
+    required this.description,
+    required this.details,
+  });
+
+  final String title;
+  final String description;
+  final String details;
 }
 
 class _PrimaryTourAction {
