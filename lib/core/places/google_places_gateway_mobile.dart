@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import 'google_maps_api_key_resolver.dart';
 import 'google_places_errors.dart';
 
 class GooglePlacesGateway {
@@ -12,17 +12,9 @@ class GooglePlacesGateway {
   String _resolvedApiKey;
 
   Future<String> _loadApiKey() async {
-    if (_resolvedApiKey.trim().isNotEmpty) return _resolvedApiKey.trim();
-    try {
-      _resolvedApiKey =
-          (await const MethodChannel(
-                    'touristrike/config',
-                  ).invokeMethod<String>('getGoogleMapsApiKey') ??
-                  '')
-              .trim();
-    } catch (_) {
-      // Desktop targets do not install the Android/iOS configuration channel.
-    }
+    _resolvedApiKey = await GoogleMapsApiKeyResolver.resolve(
+      explicitKey: _resolvedApiKey,
+    );
     return _resolvedApiKey;
   }
 
@@ -176,5 +168,4 @@ class GooglePlacesGateway {
   }
 }
 
-String resolveGoogleMapsApiKey() =>
-    const String.fromEnvironment('GOOGLE_MAPS_API_KEY');
+String resolveGoogleMapsApiKey() => GoogleMapsApiKeyResolver.cachedKey;

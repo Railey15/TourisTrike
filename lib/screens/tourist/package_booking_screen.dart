@@ -8,6 +8,7 @@ import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 
 import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/google_maps_api_key_resolver.dart';
 import 'package:touristrike/core/services/itinerary_directions_mobile.dart'
     if (dart.library.js_interop) 'package:touristrike/core/services/itinerary_directions_web.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
@@ -214,21 +215,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     final packageSpotsFuture = _repo.fetchPackageSpots(package.id);
 
-    final suggestionFuture = CitySpotSuggestionService().fetchSuggestions(
-      city: package.city,
-      province: province,
-      limit: 20,
-    );
+    final suggestionFuture = CitySpotSuggestionService()
+        .fetchSuggestions(city: package.city, province: province, limit: 20)
+        .catchError((_) => const <CitySpotSuggestion>[]);
 
     final packageSpots = await packageSpotsFuture;
 
-    List<CitySpotSuggestion> suggestions;
-
-    try {
-      suggestions = await suggestionFuture;
-    } catch (_) {
-      suggestions = const [];
-    }
+    var suggestions = await suggestionFuture;
 
     suggestions = suggestions
         .where((spot) => _sameMunicipality(spot.city, package!.city))
@@ -400,11 +393,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return _dropoffLocationError;
     }
 
-    if (_selectedPickup == null || !_selectedPickup!.isPhilippines) {
+    if (_selectedPickup == null ||
+        !_selectedPickup!.isPhilippines ||
+        !_selectedPickup!.hasValidCoordinates) {
       return 'Select a pickup location from the suggestions or use your current location.';
     }
 
-    if (_selectedDropoff == null || !_selectedDropoff!.isPhilippines) {
+    if (_selectedDropoff == null ||
+        !_selectedDropoff!.isPhilippines ||
+        !_selectedDropoff!.hasValidCoordinates) {
       return 'Select a drop-off location from the suggestions or use your current location.';
     }
 
@@ -424,6 +421,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 'You can only select up to $_maximumSpots destinations.';
     }
 
+    final invalidSpot = _selectedSpots
+        .where((spot) => !spot.hasValidCoordinates)
+        .firstOrNull;
+    if (invalidSpot != null) {
+      return '${invalidSpot.title} does not have valid map coordinates. Please choose another destination.';
+    }
+
     return null;
   }
 
@@ -438,6 +442,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     final candidate = _EditableBookingSpot.fromSuggestion(suggestion);
+
+    if (!candidate.hasValidCoordinates) {
+      _snack(
+        'This destination does not have valid map coordinates. Please choose another destination.',
+      );
+      return;
+    }
 
     if (_containsSpot(candidate)) {
       _snack('This destination is already selected.');
@@ -753,7 +764,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       ...itinerary.map((item) => LatLng(item.latitude, item.longitude)),
       LatLng(dropoff.latitude, dropoff.longitude),
     ];
-    final key = points.map((p) => '${p.latitude},${p.longitude}').join('|');
+    final key = buildItineraryRouteKey(points);
     setState(() => _scheduleLoading = true);
     try {
       // Pickup/stay edits reuse this route's Maps durations. Location/order
@@ -773,11 +784,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       setState(() {
         _routeKey = key;
         _routeLegs = legs;
-        if (timings.last.departureMinutes + legs.last.durationMinutes >
-            _tourEndMinutes) {
-          _scheduleValidationError = _tourHoursErrorMessage;
-          return;
-        }
         for (var i = 0; i < itinerary.length; i++) {
           itinerary[i]
             ..arrivalTime = _storageTimeFromMinutes(timings[i].arrivalMinutes)
@@ -789,6 +795,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         }
         _finalTravelDurationMinutes = legs.last.durationMinutes;
         _scheduleReady = true;
+        _scheduleValidationError =
+            calculateEstimatedDropoffMinutes(
+                  stopTimings: timings,
+                  finalTravelDurationMinutes: _finalTravelDurationMinutes,
+                ) >
+                _tourEndMinutes
+            ? _tourHoursErrorMessage
+            : null;
       });
     } on ItineraryRouteException catch (error) {
       if (mounted && revision == _scheduleRevision) {
@@ -2272,6 +2286,13 @@ class _EditableBookingSpot {
 
   final double latitude;
   final double longitude;
+
+  bool get hasValidCoordinates =>
+      latitude.isFinite &&
+      longitude.isFinite &&
+      latitude.abs() <= 90 &&
+      longitude.abs() <= 180 &&
+      !(latitude == 0 && longitude == 0);
 
   final String sourceType;
   final String googlePlaceId;
@@ -5455,7 +5476,7 @@ class _SharedRouteMapPreview extends StatefulWidget {
 }
 
 class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
-  late final String _apiKey = CitySpotSuggestionService.resolveApiKey();
+  String _apiKey = CitySpotSuggestionService.resolveApiKey();
   Future<Map<String, dynamic>>? _route;
   String? get pickupAddress => widget.pickupAddress;
   double? get pickupLat => widget.pickupLat;
@@ -5492,13 +5513,22 @@ class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
   }
 
   Future<Map<String, dynamic>> _fetchRoute() async {
+    _apiKey = await GoogleMapsApiKeyResolver.resolve(explicitKey: _apiKey);
     final body = await fetchItineraryDirections(_apiKey, [
       LatLng(pickupLat!, pickupLng!),
       LatLng(dropoffLat!, dropoffLng!),
     ]);
     final routes = body['routes'] as List? ?? const [];
     if (body['status'] != 'OK' || routes.isEmpty) {
-      throw const ItineraryRouteException();
+      throw ItineraryRouteException(
+        kind: body['status'] == 'ZERO_RESULTS'
+            ? ItineraryRouteFailure.noRoute
+            : body['status'] == 'REQUEST_DENIED'
+            ? ItineraryRouteFailure.unauthorized
+            : ItineraryRouteFailure.upstream,
+        googleStatus: body['status']?.toString(),
+        pointCount: 2,
+      );
     }
     return Map<String, dynamic>.from(routes.first as Map);
   }
@@ -5587,7 +5617,11 @@ class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
                       child: Text('Calculating route...'),
                     ),
                   if (snapshot.hasError) ...[
-                    const Text('Could not calculate the route. Please retry.'),
+                    Text(
+                      snapshot.error is ItineraryRouteException
+                          ? (snapshot.error! as ItineraryRouteException).message
+                          : 'Could not calculate the route. Please retry.',
+                    ),
                     TextButton(
                       onPressed: () => setState(_loadRoute),
                       child: const Text('Retry route'),

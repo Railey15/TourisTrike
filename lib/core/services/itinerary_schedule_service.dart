@@ -1,8 +1,13 @@
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'itinerary_directions_mobile.dart'
     if (dart.library.js_interop) 'itinerary_directions_web.dart';
+import 'itinerary_route_exception.dart';
+
+export 'itinerary_route_exception.dart';
 
 class ItineraryTravelLeg {
   const ItineraryTravelLeg({
@@ -51,6 +56,21 @@ List<ItineraryStopTiming> calculateItineraryTimings({
     );
   });
 }
+
+int calculateEstimatedDropoffMinutes({
+  required List<ItineraryStopTiming> stopTimings,
+  required int finalTravelDurationMinutes,
+}) {
+  if (stopTimings.isEmpty) {
+    throw ArgumentError('At least one itinerary stop is required.');
+  }
+  return stopTimings.last.departureMinutes +
+      math.max(0, finalTravelDurationMinutes);
+}
+
+String buildItineraryRouteKey(List<LatLng> orderedPoints) => orderedPoints
+    .map((point) => '${point.latitude},${point.longitude}')
+    .join('|');
 
 typedef ItineraryDirectionsLoader =
     Future<Map<String, dynamic>> Function(String apiKey, List<LatLng> points);
@@ -102,20 +122,59 @@ class ItineraryScheduleService {
   Future<List<ItineraryTravelLeg>> fetchTravelLegs(
     List<LatLng> orderedPoints,
   ) async {
-    if (orderedPoints.length < 2) return const [];
+    if (orderedPoints.length < 2 || orderedPoints.any((p) => !_validPoint(p))) {
+      throw ItineraryRouteException(
+        kind: ItineraryRouteFailure.invalidCoordinates,
+        pointCount: orderedPoints.length,
+      );
+    }
+
     try {
       final body = await directionsLoader(apiKey, orderedPoints);
-      if (body['status'] != 'OK') {
-        throw const FormatException('Route unavailable.');
+      final status = body['status']?.toString() ?? '';
+      if (status != 'OK') {
+        throw ItineraryRouteException(
+          kind: _failureForGoogleResponse(body, status),
+          googleStatus: status,
+          pointCount: orderedPoints.length,
+        );
       }
-      final routes = body['routes'] as List;
-      final legs = (routes.first as Map)['legs'] as List;
+
+      final routes = body['routes'];
+      if (routes is! List || routes.isEmpty || routes.first is! Map) {
+        throw ItineraryRouteException(
+          kind: ItineraryRouteFailure.malformedResponse,
+          googleStatus: status,
+          pointCount: orderedPoints.length,
+        );
+      }
+      final legs = (routes.first as Map)['legs'];
+      if (legs is! List) {
+        throw ItineraryRouteException(
+          kind: ItineraryRouteFailure.malformedResponse,
+          googleStatus: status,
+          pointCount: orderedPoints.length,
+        );
+      }
       if (legs.length != orderedPoints.length - 1) {
-        throw const FormatException('Missing route legs.');
+        throw ItineraryRouteException(
+          kind: ItineraryRouteFailure.incompleteLegs,
+          googleStatus: status,
+          pointCount: orderedPoints.length,
+          legCount: legs.length,
+        );
       }
-      return legs
+      final parsed = legs
           .map((raw) {
-            final leg = raw as Map;
+            if (raw is! Map) {
+              throw ItineraryRouteException(
+                kind: ItineraryRouteFailure.malformedResponse,
+                googleStatus: status,
+                pointCount: orderedPoints.length,
+                legCount: legs.length,
+              );
+            }
+            final leg = raw;
             final seconds = ((leg['duration'] as Map?)?['value'] as num?);
             final meters = ((leg['distance'] as Map?)?['value'] as num?);
             if (seconds == null ||
@@ -124,7 +183,12 @@ class ItineraryScheduleService {
                 !meters.isFinite ||
                 seconds < 0 ||
                 meters < 0) {
-              throw const FormatException('Directions leg is incomplete.');
+              throw ItineraryRouteException(
+                kind: ItineraryRouteFailure.malformedResponse,
+                googleStatus: status,
+                pointCount: orderedPoints.length,
+                legCount: legs.length,
+              );
             }
             return ItineraryTravelLeg(
               durationMinutes: (seconds / 60).ceil(),
@@ -133,14 +197,71 @@ class ItineraryScheduleService {
             );
           })
           .toList(growable: false);
+      _debugRoute(
+        status: status,
+        pointCount: orderedPoints.length,
+        legCount: parsed.length,
+      );
+      return parsed;
+    } on ItineraryRouteException catch (error) {
+      _debugRoute(
+        status: error.googleStatus ?? error.kind.name,
+        pointCount: error.pointCount ?? orderedPoints.length,
+        legCount: error.legCount,
+        httpStatus: error.httpStatus,
+      );
+      rethrow;
     } catch (_) {
-      throw const ItineraryRouteException();
+      _debugRoute(
+        status: ItineraryRouteFailure.upstream.name,
+        pointCount: orderedPoints.length,
+      );
+      throw ItineraryRouteException(
+        kind: ItineraryRouteFailure.upstream,
+        pointCount: orderedPoints.length,
+      );
     }
   }
 }
 
-class ItineraryRouteException implements Exception {
-  const ItineraryRouteException();
-  String get message =>
-      'Google Maps could not calculate this route. Check your connection or locations and retry.';
+bool _validPoint(LatLng point) =>
+    point.latitude.isFinite &&
+    point.longitude.isFinite &&
+    point.latitude.abs() <= 90 &&
+    point.longitude.abs() <= 180 &&
+    !(point.latitude == 0 && point.longitude == 0);
+
+ItineraryRouteFailure _failureForGoogleResponse(
+  Map<String, dynamic> body,
+  String status,
+) {
+  final safeError = body['error_message']?.toString().toLowerCase() ?? '';
+  if (status == 'REQUEST_DENIED' &&
+      (safeError.contains('not enabled') ||
+          safeError.contains('not activated') ||
+          safeError.contains('enable'))) {
+    return ItineraryRouteFailure.apiNotEnabled;
+  }
+  return switch (status) {
+    'REQUEST_DENIED' => ItineraryRouteFailure.unauthorized,
+    'OVER_QUERY_LIMIT' => ItineraryRouteFailure.rateLimited,
+    'ZERO_RESULTS' || 'NOT_FOUND' => ItineraryRouteFailure.noRoute,
+    'INVALID_REQUEST' => ItineraryRouteFailure.invalidRequest,
+    'NO_MAPS' => ItineraryRouteFailure.notConfigured,
+    _ => ItineraryRouteFailure.upstream,
+  };
+}
+
+void _debugRoute({
+  required String status,
+  required int pointCount,
+  int? legCount,
+  int? httpStatus,
+}) {
+  if (!kDebugMode) return;
+  developer.log(
+    'operation=directions status=$status httpStatus=${httpStatus ?? '-'} '
+    'points=$pointCount legs=${legCount ?? '-'}',
+    name: 'ItineraryScheduleService',
+  );
 }

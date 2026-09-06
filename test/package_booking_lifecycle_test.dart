@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
@@ -10,11 +11,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/places/booking_location_service.dart';
+import 'package:touristrike/core/places/google_maps_api_key_resolver.dart';
 import 'package:touristrike/screens/tourist/package_booking_screen.dart';
 import 'package:touristrike/widgets/booking_location_picker.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  const configChannel = MethodChannel('touristrike/config');
   late Future<http.Response> Function(http.Request) handle;
   var requests = 0;
   http.Response spots(http.Request request) => http.Response(
@@ -67,15 +70,24 @@ void main() {
   });
   tearDownAll(() async => Supabase.instance.dispose());
   setUp(() {
+    GoogleMapsApiKeyResolver.resetForTesting();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(configChannel, (_) async => '');
     dotenv.testLoad(fileInput: '');
     requests = 0;
     handle = (r) async => spots(r);
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(configChannel, null);
   });
 
   testWidgets(
     'real screen recalculates after time, stay, order, spots and fresh travel changes',
     (tester) async {
       dotenv.testLoad(fileInput: 'GOOGLE_MAPS_API_KEY=test-key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(configChannel, (_) async => 'test-key');
       var travelMinutes = 10;
       var directionsCalls = 0;
       final maps = MockClient((r) async {
@@ -210,6 +222,14 @@ void main() {
         expect(card().items.length, 3);
         expect(card().items[0].arrivalTime, '09:20:00');
         expect(directionsCalls, greaterThan(beforeRemoval));
+
+        final callsBeforeLateStay = directionsCalls;
+        card().onStayChanged(card().items[0], 500);
+        await tester.pumpAndSettle();
+        expect(card().items[0].departureTime, '17:40:00');
+        expect(card().items[1].arrivalTime, '18:00:00');
+        expect(directionsCalls, callsBeforeLateStay);
+        expect(find.textContaining('5:00 PM'), findsWidgets);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
       }, () => maps);

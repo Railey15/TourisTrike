@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import 'city_spot_suggestions.dart';
+import 'google_maps_api_key_resolver.dart';
 
 class BookingPlaceSuggestion {
   const BookingPlaceSuggestion({
@@ -42,7 +42,8 @@ class BookingLocation {
       latitude.isFinite &&
       longitude.isFinite &&
       latitude.abs() <= 90 &&
-      longitude.abs() <= 180;
+      longitude.abs() <= 180 &&
+      !(latitude == 0 && longitude == 0);
 
   /// Explicit country information takes priority over formatted-address text.
   bool get isPhilippines {
@@ -88,10 +89,6 @@ class BookingLocationService {
       _client = client ?? http.Client(),
       _ownsClient = client == null;
 
-  static const MethodChannel _configChannel = MethodChannel(
-    'touristrike/config',
-  );
-
   String _resolvedApiKey;
 
   final http.Client _client;
@@ -111,24 +108,10 @@ class BookingLocationService {
   // ===========================================================================
 
   Future<String> _loadApiKey() async {
-    if (_resolvedApiKey.trim().isNotEmpty) {
-      return _resolvedApiKey.trim();
-    }
-
-    try {
-      final nativeKey = await _configChannel.invokeMethod<String>(
-        'getGoogleMapsApiKey',
-      );
-
-      if (nativeKey != null && nativeKey.trim().isNotEmpty) {
-        _resolvedApiKey = nativeKey.trim();
-      }
-    } catch (_) {
-      // Web/desktop targets may not install the native configuration channel.
-      // In those environments, use --dart-define or inject apiKey explicitly.
-    }
-
-    return _resolvedApiKey.trim();
+    _resolvedApiKey = await GoogleMapsApiKeyResolver.resolve(
+      explicitKey: _resolvedApiKey,
+    );
+    return _resolvedApiKey;
   }
 
   // ===========================================================================

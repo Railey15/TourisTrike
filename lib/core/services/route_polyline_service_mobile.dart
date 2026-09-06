@@ -7,6 +7,8 @@ import 'dart:convert';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
+import '../places/google_maps_api_key_resolver.dart';
+
 class RouteResult {
   const RouteResult({required this.points, this.durationText});
   final List<LatLng> points;
@@ -24,28 +26,35 @@ class RoutePolylineService {
     List<LatLng> waypoints = const [],
   }) async {
     const tag = '[RoutePolyline/MOBILE]';
+    final effectiveApiKey = await GoogleMapsApiKeyResolver.resolve(
+      explicitKey: apiKey,
+    );
 
     // ignore: avoid_print
-    print('$tag platform=MOBILE '
-        '${_fmt(origin)} → ${_fmt(dest)}'
-        '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}');
+    print(
+      '$tag platform=MOBILE '
+      '${_fmt(origin)} → ${_fmt(dest)}'
+      '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}',
+    );
 
     final waypointsParam = waypoints.isNotEmpty
         ? '&waypoints=${waypoints.map((p) => '${p.latitude},${p.longitude}').join('|')}'
         : '';
 
-    final url = 'https://maps.googleapis.com/maps/api/directions/json'
+    final url =
+        'https://maps.googleapis.com/maps/api/directions/json'
         '?origin=${origin.latitude},${origin.longitude}'
         '&destination=${dest.latitude},${dest.longitude}'
         '&mode=driving$waypointsParam'
-        '&key=$apiKey';
+        '&key=$effectiveApiKey';
 
     // ignore: avoid_print
     print('$tag GET directions (key omitted from log)');
 
     try {
-      final res =
-          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 15));
 
       // ignore: avoid_print
       print('$tag HTTP ${res.statusCode}, body_len=${res.body.length}');
@@ -68,13 +77,17 @@ class RoutePolylineService {
       final status = body['status'] as String? ?? 'UNKNOWN';
       final errMsg = body['error_message'] as String? ?? '';
       // ignore: avoid_print
-      print('$tag API status=$status'
-          '${errMsg.isNotEmpty ? "  error_message=$errMsg" : ""}');
+      print(
+        '$tag API status=$status'
+        '${errMsg.isNotEmpty ? "  error_message=$errMsg" : ""}',
+      );
 
       if (status != 'OK') {
         // ignore: avoid_print
-        print('$tag Non-OK status → fallback straight line. '
-            'Check: Directions API enabled, key restrictions, billing.');
+        print(
+          '$tag Non-OK status → fallback straight line. '
+          'Check: Directions API enabled, key restrictions, billing.',
+        );
         return RouteResult(points: [origin, dest]);
       }
 
@@ -102,7 +115,9 @@ class RoutePolylineService {
 
       if (pts.isNotEmpty) {
         // ignore: avoid_print
-        print('$tag step_pts=${pts.length}, ETA=$durationText ✓ road-following');
+        print(
+          '$tag step_pts=${pts.length}, ETA=$durationText ✓ road-following',
+        );
         return RouteResult(points: pts, durationText: durationText);
       }
 
@@ -112,7 +127,9 @@ class RoutePolylineService {
       if (overviewEnc.isNotEmpty) {
         final ovPts = _decode(overviewEnc);
         // ignore: avoid_print
-        print('$tag overview_pts=${ovPts.length}, ETA=$durationText (fallback)');
+        print(
+          '$tag overview_pts=${ovPts.length}, ETA=$durationText (fallback)',
+        );
         return RouteResult(points: ovPts, durationText: durationText);
       }
 

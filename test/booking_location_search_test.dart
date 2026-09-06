@@ -171,7 +171,7 @@ void main() {
             (e) => e.message,
             'message',
             allOf(
-              contains('service is unavailable'),
+              contains('rejected the configured API key'),
               isNot(contains('within the Philippines')),
             ),
           ),
@@ -392,7 +392,10 @@ void main() {
       await tester.enterText(find.byType(TextField), 'Bustos');
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
-      expect(find.textContaining('service is unavailable'), findsOneWidget);
+      expect(
+        find.textContaining('rejected the configured API key'),
+        findsOneWidget,
+      );
       expect(find.textContaining('within the Philippines'), findsNothing);
       denied = false;
       await tester.tap(find.text('Retry search'));
