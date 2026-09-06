@@ -206,7 +206,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           stage: 'remaining_balance',
           itineraryComplete:
               itinerary.isNotEmpty &&
-              itinerary.every((s) => s.spotStatus == 'completed'),
+              itinerary.every((s) => s.spotStatus == 'completed') &&
+              roster.length >= booking.requiredDrivers &&
+              roster.every(
+                (d) =>
+                    (d.journeyState == ConvoyJourneyState.stopDone &&
+                        d.currentStopIndex >= itinerary.length - 1) ||
+                    const {
+                      ConvoyJourneyState.enRouteDropoff,
+                      ConvoyJourneyState.atDropoff,
+                      ConvoyJourneyState.completed,
+                    }.contains(d.journeyState),
+              ),
           dropoffStarted: roster.any(
             (d) => const {
               ConvoyJourneyState.enRouteDropoff,
@@ -297,6 +308,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
     } finally {
       _paymentSheetOpen = false;
+      _maybeShowPaymentPrompt();
     }
   }
 

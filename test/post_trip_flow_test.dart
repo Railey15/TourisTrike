@@ -41,6 +41,7 @@ BookingFeedback feedback({bool complete = false}) => BookingFeedback({
 BookingPaymentPrompt remaining({
   bool stopsDone = true,
   bool dropoff = false,
+  String bookingStatus = 'awaiting_remaining_payment',
   String type = 'same_day',
   List<PaymentRecord> records = const [],
   List<PaymentAllocation> allocations = const [],
@@ -50,7 +51,7 @@ BookingPaymentPrompt remaining({
     'booking_type': type,
     'required_drivers': 2,
     'accepted_drivers_count': 2,
-    'booking_status': 'awaiting_remaining_payment',
+    'booking_status': bookingStatus,
     'status': 'ongoing',
     'total_amount': 7200,
     'remaining_balance': 3600,
@@ -241,7 +242,7 @@ void main() {
       );
       expect(gate.shouldPresent(remaining(type: type)), isTrue);
       expect(gate.shouldPresent(remaining(type: type)), isFalse);
-      expect(remaining(type: type, dropoff: true).paymentRequired, isFalse);
+      expect(remaining(type: type, dropoff: true).paymentRequired, isTrue);
       for (final stage in ['remaining_balance', 'full']) {
         expect(
           remaining(
@@ -259,6 +260,72 @@ void main() {
       }
     });
   }
+
+  testWidgets(
+    'unpaid test trip after drop-off still opens payment once and permits manual payment',
+    (tester) async {
+      final prompt = remaining(
+        dropoff: true,
+        bookingStatus: 'awaiting_final_payment',
+      );
+      final gate = BookingPaymentPromptGate();
+      expect(gate.shouldPresent(prompt), isTrue);
+      expect(gate.shouldPresent(prompt), isFalse);
+      // Consuming the automatic presentation never disables manual settlement.
+      expect(prompt.paymentRequired, isTrue);
+      final state = ValueNotifier<BookingPaymentPrompt?>(prompt);
+      var pressed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: BookingPaymentSheet(
+                state: state,
+                onPay: () => pressed = true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(FilledButton));
+      expect(pressed, isTrue);
+      expect(
+        find.textContaining('outstanding remaining balance'),
+        findsOneWidget,
+      );
+      state.value = remaining(
+        dropoff: true,
+        bookingStatus: 'awaiting_final_payment',
+        records: [
+          PaymentRecord({
+            'payment_stage': 'remaining_balance',
+            'status': 'confirmed',
+            'amount': 3600,
+          }),
+        ],
+      );
+      await tester.pump();
+      expect(state.value!.paymentRequired, isFalse);
+      expect(find.text('Your remaining balance is confirmed.'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      state.dispose();
+    },
+  );
+
+  test('terminal bookings cannot start another remaining payment', () {
+    for (final status in [
+      'completed',
+      'cancelled',
+      'rejected',
+      'expired',
+      'done',
+    ]) {
+      expect(
+        remaining(dropoff: true, bookingStatus: status).paymentRequired,
+        isFalse,
+      );
+    }
+  });
 
   testWidgets(
     'remaining sheet updates to cash progress and confirmed in place',

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -7,13 +6,16 @@ import 'package:intl/intl.dart';
 import 'package:touristrike/widgets/booking_review_sheet.dart';
 import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 
+import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
-import 'package:touristrike/core/places/google_places_gateway.dart';
+import 'package:touristrike/core/services/itinerary_directions_mobile.dart'
+    if (dart.library.js_interop) 'package:touristrike/core/services/itinerary_directions_web.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_activity_tracking_screen.dart';
+import 'package:touristrike/widgets/booking_location_picker.dart';
 
 // ============================================================================
 // SHARED TOURISTRlKE BOOKING UI COLORS
@@ -25,10 +27,6 @@ const Color _ink = Color(0xFF0F172A);
 const Color _secondaryText = Color(0xFF64748B);
 const Color _border = Color(0xFFE4EBF4);
 const Color _softBlue = Color(0xFFEAF3FF);
-
-// =============================================================================
-// AUTOCOMPLETE
-// =============================================================================
 
 // =============================================================================
 // BOOKING SCREEN
@@ -5429,577 +5427,6 @@ class _LocationStepCard extends StatelessWidget {
 }
 
 // =============================================================================
-// LOCATION PICKER
-// =============================================================================
-
-class _LocationPickerCard extends StatefulWidget {
-  const _LocationPickerCard({
-    required this.label,
-    required this.onLocationSelected,
-    required this.requiredMunicipality,
-    required this.requiredProvince,
-    this.errorText,
-    this.onValidationMessageChanged,
-  });
-
-  final String label;
-
-  final String requiredMunicipality;
-  final String requiredProvince;
-
-  final String? errorText;
-
-  final ValueChanged<String?>? onValidationMessageChanged;
-
-  final void Function(String? address, double? lat, double? lng)
-  onLocationSelected;
-
-  @override
-  State<_LocationPickerCard> createState() => _LocationPickerCardState();
-}
-
-class _LocationPickerCardState extends State<_LocationPickerCard> {
-  static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
-
-  final TextEditingController _searchCtrl = TextEditingController();
-
-  final FocusNode _focusNode = FocusNode();
-
-  Timer? _debounce;
-
-  List<_AutocompleteResult> _suggestions = const [];
-
-  bool _loadingSuggestions = false;
-  bool _loadingDetails = false;
-  bool _loadingLocation = false;
-
-  String? _selectedAddress;
-
-  double? _selectedLat;
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _searchCtrl.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _onSearchChanged(String query) {
-    _debounce?.cancel();
-
-    if (query.trim().isEmpty) {
-      setState(() {
-        _suggestions = const [];
-      });
-
-      return;
-    }
-
-    _debounce = Timer(
-      const Duration(milliseconds: 450),
-      () => _fetchSuggestions(query.trim()),
-    );
-  }
-
-  Future<void> _fetchSuggestions(String query) async {
-    if (!mounted) return;
-
-    setState(() {
-      _loadingSuggestions = true;
-    });
-
-    try {
-      final scoped =
-          '$query, ${widget.requiredMunicipality}, ${widget.requiredProvince}, Philippines';
-
-      final encoded = Uri.encodeQueryComponent(scoped);
-
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/autocomplete/json'
-        '?input=$encoded'
-        '&key=$_apiKey'
-        '&components=country:ph'
-        '&language=en',
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-
-        final predictions = (body['predictions'] as List?) ?? const [];
-
-        setState(() {
-          _suggestions = predictions
-              .map(
-                (prediction) => _AutocompleteResult(
-                  placeId: prediction['place_id'] as String? ?? '',
-                  description: prediction['description'] as String? ?? '',
-                ),
-              )
-              .where((result) => result.placeId.isNotEmpty)
-              .take(5)
-              .toList(growable: false);
-        });
-      }
-    } catch (_) {
-      // Intentionally unobtrusive.
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingSuggestions = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _selectSuggestion(_AutocompleteResult suggestion) async {
-    _focusNode.unfocus();
-
-    setState(() {
-      _suggestions = const [];
-      _loadingDetails = true;
-    });
-
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/details/json'
-        '?place_id=${suggestion.placeId}'
-        '&fields=geometry,formatted_address,address_components,name'
-        '&key=$_apiKey',
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-
-        final result = body['result'] as Map<String, dynamic>?;
-
-        final geometry = result?['geometry'] as Map?;
-
-        final location = geometry == null
-            ? null
-            : Map<String, dynamic>.from(geometry)['location'] as Map?;
-
-        final lat = (location?['lat'] as num?)?.toDouble();
-
-        final lng = (location?['lng'] as num?)?.toDouble();
-
-        final address =
-            result?['formatted_address'] as String? ?? suggestion.description;
-
-        final components = _parseAddressComponents(
-          (result?['address_components'] as List?) ?? const [],
-        );
-
-        if (lat != null && lng != null) {
-          final validation = _locationValidationMessage(
-            address: address,
-            countryCode: components.countryCode,
-            province: components.province,
-            locality: components.locality,
-          );
-
-          if (validation != null) {
-            _invalidateSelection(validation);
-            return;
-          }
-
-          _setLocation(address, lat, lng);
-
-          return;
-        }
-      }
-
-      _invalidateSelection(
-        'Unable to verify this location. Please choose another location.',
-      );
-    } catch (_) {
-      _invalidateSelection(
-        'Unable to verify this location. Please choose another location.',
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingDetails = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _useCurrentLocation() async {
-    setState(() {
-      _loadingLocation = true;
-    });
-
-    try {
-      final enabled = await Geolocator.isLocationServiceEnabled();
-
-      if (!enabled) {
-        _showError('Location services are disabled. Please enable them first.');
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        _showError('Location permission was denied.');
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      final address = await _reverseGeocode(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (!mounted) return;
-
-      final validation = _locationValidationMessage(
-        address: address,
-        countryCode: _addressContainsLocation(address, 'Philippines')
-            ? 'PH'
-            : '',
-      );
-
-      if (validation != null) {
-        _invalidateSelection(validation);
-        return;
-      }
-
-      _setLocation(address, position.latitude, position.longitude);
-    } catch (_) {
-      _showError('Could not get your current location. Please try again.');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingLocation = false;
-        });
-      }
-    }
-  }
-
-  Future<String> _reverseGeocode(double lat, double lng) async {
-    try {
-      final uri = Uri.parse(
-        'https://maps.googleapis.com/maps/api/geocode/json'
-        '?latlng=$lat,$lng'
-        '&key=$_apiKey'
-        '&language=en',
-      );
-
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-
-        final results = (body['results'] as List?) ?? const [];
-
-        if (results.isNotEmpty) {
-          return results.first['formatted_address'] as String? ??
-              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
-        }
-      }
-    } catch (_) {}
-
-    return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
-  }
-
-  void _setLocation(String address, double lat, double lng) {
-    _searchCtrl.text = address;
-
-    setState(() {
-      _selectedAddress = address;
-      _selectedLat = lat;
-      _suggestions = const [];
-    });
-
-    widget.onValidationMessageChanged?.call(null);
-
-    widget.onLocationSelected(address, lat, lng);
-  }
-
-  void _clearLocation() {
-    _searchCtrl.clear();
-
-    setState(() {
-      _selectedAddress = null;
-      _selectedLat = null;
-      _suggestions = const [];
-    });
-
-    widget.onValidationMessageChanged?.call(null);
-
-    widget.onLocationSelected(null, null, null);
-  }
-
-  void _invalidateSelection(String message) {
-    _clearLocation();
-
-    widget.onValidationMessageChanged?.call(message);
-
-    _showError(message);
-  }
-
-  String? _locationValidationMessage({
-    required String address,
-    String countryCode = '',
-    String province = '',
-    String locality = '',
-  }) {
-    final isPhilippines =
-        countryCode.trim().toUpperCase() == 'PH' ||
-        _addressContainsLocation(address, 'Philippines');
-
-    if (!isPhilippines) {
-      return 'Please select a valid location within the Philippines.';
-    }
-
-    final structuredProvinceMatches =
-        province.isNotEmpty &&
-        _locationNamesMatch(province, widget.requiredProvince);
-
-    final structuredLocalityMatches =
-        locality.isNotEmpty &&
-        _locationNamesMatch(locality, widget.requiredMunicipality);
-
-    if (structuredProvinceMatches && structuredLocalityMatches) {
-      return null;
-    }
-
-    final fallbackMatches =
-        _addressContainsLocation(address, widget.requiredMunicipality) &&
-        _addressContainsLocation(address, widget.requiredProvince);
-
-    if (fallbackMatches) {
-      return null;
-    }
-
-    return 'Please select a pickup/drop-off point within ${widget.requiredMunicipality}, ${widget.requiredProvince}.';
-  }
-
-  void _showError(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: const Color(0xFFDC2626),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final busy = _loadingDetails || _loadingLocation;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          controller: _searchCtrl,
-          focusNode: _focusNode,
-          onChanged: _onSearchChanged,
-          style: const TextStyle(
-            color: _ink,
-            fontWeight: FontWeight.w700,
-            fontSize: 11.5,
-          ),
-          decoration: InputDecoration(
-            hintText: 'Search ${widget.label.toLowerCase()} location...',
-            hintStyle: const TextStyle(
-              color: Color(0xFF9AA6B6),
-              fontWeight: FontWeight.w500,
-            ),
-            prefixIcon: const Icon(
-              Icons.search_rounded,
-              color: _primary,
-              size: 19,
-            ),
-            suffixIcon: busy
-                ? const Padding(
-                    padding: EdgeInsets.all(13),
-                    child: SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: _primary,
-                      ),
-                    ),
-                  )
-                : _searchCtrl.text.isNotEmpty
-                ? IconButton(
-                    onPressed: _clearLocation,
-                    icon: const Icon(Icons.close_rounded),
-                  )
-                : null,
-            filled: true,
-            fillColor: const Color(0xFFF8FAFD),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(color: _border),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide(
-                color: _selectedLat != null ? const Color(0xFF86EFAC) : _border,
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: const BorderSide(color: _primary),
-            ),
-          ),
-        ),
-
-        if (_loadingSuggestions)
-          const Padding(
-            padding: EdgeInsets.only(top: 6),
-            child: LinearProgressIndicator(color: _primary, minHeight: 2),
-          ),
-
-        if (_suggestions.isNotEmpty) ...[
-          const SizedBox(height: 7),
-
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: _border),
-            ),
-            child: Column(
-              children: _suggestions.map((suggestion) {
-                return InkWell(
-                  onTap: () => _selectSuggestion(suggestion),
-                  child: Padding(
-                    padding: const EdgeInsets.all(11),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.place_outlined,
-                          color: _primary,
-                          size: 16,
-                        ),
-
-                        const SizedBox(width: 8),
-
-                        Expanded(
-                          child: Text(
-                            suggestion.description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF344054),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 10.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-
-        const SizedBox(height: 6),
-
-        TextButton.icon(
-          onPressed: _loadingLocation ? null : _useCurrentLocation,
-          icon: _loadingLocation
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.my_location_rounded, size: 15),
-          label: Text(
-            _loadingLocation ? 'Getting location...' : 'Use Current Location',
-          ),
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            textStyle: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 10.5,
-            ),
-          ),
-        ),
-
-        if (_selectedAddress != null) ...[
-          const SizedBox(height: 4),
-
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              color: const Color(0xFFECFDF3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.check_circle_outline_rounded,
-                  color: Color(0xFF16A34A),
-                  size: 15,
-                ),
-
-                const SizedBox(width: 7),
-
-                Expanded(
-                  child: Text(
-                    _selectedAddress!,
-                    style: const TextStyle(
-                      color: Color(0xFF15803D),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 9.8,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-
-        if (widget.errorText != null &&
-            widget.errorText!.trim().isNotEmpty) ...[
-          const SizedBox(height: 6),
-
-          Text(
-            widget.errorText!,
-            style: const TextStyle(
-              color: Color(0xFFDC2626),
-              fontWeight: FontWeight.w600,
-              fontSize: 9.8,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-// =============================================================================
 // ROUTE MAP
 // =============================================================================
 
@@ -6013,8 +5440,6 @@ class _SharedRouteMapPreview extends StatefulWidget {
     required this.dropoffLng,
   });
 
-  static final String _apiKey = CitySpotSuggestionService.resolveApiKey();
-
   final String? pickupAddress;
 
   final double? pickupLat;
@@ -6025,7 +5450,60 @@ class _SharedRouteMapPreview extends StatefulWidget {
   final double? dropoffLat;
   final double? dropoffLng;
 
-  String _mapUrl() {
+  @override
+  State<_SharedRouteMapPreview> createState() => _SharedRouteMapPreviewState();
+}
+
+class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
+  late final String _apiKey = CitySpotSuggestionService.resolveApiKey();
+  Future<Map<String, dynamic>>? _route;
+  String? get pickupAddress => widget.pickupAddress;
+  double? get pickupLat => widget.pickupLat;
+  double? get pickupLng => widget.pickupLng;
+  String? get dropoffAddress => widget.dropoffAddress;
+  double? get dropoffLat => widget.dropoffLat;
+  double? get dropoffLng => widget.dropoffLng;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRoute();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SharedRouteMapPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (pickupLat != oldWidget.pickupLat ||
+        pickupLng != oldWidget.pickupLng ||
+        dropoffLat != oldWidget.dropoffLat ||
+        dropoffLng != oldWidget.dropoffLng) {
+      _loadRoute();
+    }
+  }
+
+  void _loadRoute() {
+    _route =
+        pickupLat == null ||
+            pickupLng == null ||
+            dropoffLat == null ||
+            dropoffLng == null
+        ? null
+        : _fetchRoute();
+  }
+
+  Future<Map<String, dynamic>> _fetchRoute() async {
+    final body = await fetchItineraryDirections(_apiKey, [
+      LatLng(pickupLat!, pickupLng!),
+      LatLng(dropoffLat!, dropoffLng!),
+    ]);
+    final routes = body['routes'] as List? ?? const [];
+    if (body['status'] != 'OK' || routes.isEmpty) {
+      throw const ItineraryRouteException();
+    }
+    return Map<String, dynamic>.from(routes.first as Map);
+  }
+
+  String _mapUrl([String? polyline]) {
     final buffer = StringBuffer(
       'https://maps.googleapis.com/maps/api/staticmap'
       '?size=800x360&scale=2&maptype=roadmap&key=$_apiKey',
@@ -6037,6 +5515,12 @@ class _SharedRouteMapPreview extends StatefulWidget {
 
     if (dropoffLat != null && dropoffLng != null) {
       buffer.write('&markers=color:red%7Clabel:D%7C$dropoffLat,$dropoffLng');
+    }
+
+    if (polyline != null && polyline.isNotEmpty) {
+      buffer.write(
+        '&path=${Uri.encodeComponent('color:0x2A86FF|weight:4|enc:$polyline')}',
+      );
     }
 
     return buffer.toString();
@@ -6068,20 +5552,50 @@ class _SharedRouteMapPreview extends StatefulWidget {
       ),
       child: Column(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Image.network(
-              _mapUrl(),
-              width: double.infinity,
-              height: 160,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
-                height: 160,
-                color: const Color(0xFFF1F5F9),
-                alignment: Alignment.center,
-                child: const Text('Map preview unavailable'),
-              ),
-            ),
+          FutureBuilder<Map<String, dynamic>>(
+            future: _route,
+            builder: (context, snapshot) {
+              // Do not retain the previous route while new coordinates resolve.
+              final route =
+                  snapshot.connectionState == ConnectionState.done &&
+                      !snapshot.hasError
+                  ? snapshot.data
+                  : null;
+              return Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.network(
+                      _mapUrl(
+                        (route?['overview_polyline'] as Map?)?['points']
+                            as String?,
+                      ),
+                      width: double.infinity,
+                      height: 160,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        height: 160,
+                        color: const Color(0xFFF1F5F9),
+                        alignment: Alignment.center,
+                        child: const Text('Map preview unavailable'),
+                      ),
+                    ),
+                  ),
+                  if (snapshot.connectionState != ConnectionState.done)
+                    const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Text('Calculating route...'),
+                    ),
+                  if (snapshot.hasError) ...[
+                    const Text('Could not calculate the route. Please retry.'),
+                    TextButton(
+                      onPressed: () => setState(_loadRoute),
+                      child: const Text('Retry route'),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
 
           const SizedBox(height: 9),
@@ -6157,10 +5671,6 @@ class _MapLegendRow extends StatelessWidget {
     );
   }
 }
-
-// =============================================================================
-// LOCATION MODELS / HELPERS
-// =============================================================================
 
 // =============================================================================
 // ITINERARY MODEL

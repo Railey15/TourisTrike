@@ -31,6 +31,7 @@ try {
   await db.exec(gpsDebugRepair);
   const radiusMigration = read('../migrations/20260906040000_centralize_driver_arrival_radius.sql');
   await db.exec(radiusMigration);
+  await db.exec(read('../migrations/20260906050000_guard_remaining_payment_completion.sql'));
   check(await scalar('select driver_arrival_radius_meters()'),150,'database exposes the shared arrival radius');
   // The original migration owns these triggers; install them in the fixture.
   await db.exec(`create trigger proximity before update of journey_state on booking_drivers for each row execute function guard_live_driver_journey_proximity();
@@ -228,5 +229,12 @@ try {
   await fail('select confirm_driver_arrival_fallback($1,$2)',[future,'GPS verification fallback test'],'NOT_WITHIN_ARRIVAL_RADIUS');
   await db.exec(radiusMigration);
   check((await scalar("select advance_driver_journey_state($1,'at_pickup')",[future])).journey_state,'at_pickup','restored 150 m configuration accepts the same fix');
+  // Switching off test bypass at drop-off must not allow unpaid completion.
+  await fail("update booking_drivers set journey_state='completed' where id=$1", [futureAssignment], 'REMAINING_BALANCE_NOT_CONFIRMED');
+  await db.query('update package_bookings set test_mode=true where id=$1',[future]);
+  await db.query("select set_config('touristrike.debug_progression_bypass','true',false)");
+  await db.query("update booking_drivers set journey_state='completed' where id=$1",[futureAssignment]);
+  await db.query("select set_config('touristrike.debug_progression_bypass','false',false)");
+  check(await scalar('select count(*)::int from payment_records where booking_id=$1',[future]),0,'authorized test completion does not fabricate payment');
   console.log(checks + ' SQL regression checks passed (isolated PostgreSQL fixture).');
 } catch (error) { console.error(error.message, error.detail ?? '', error.where ?? ''); process.exitCode=1; } finally { await db.close(); }

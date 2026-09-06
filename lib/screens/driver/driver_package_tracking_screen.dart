@@ -354,7 +354,10 @@ class _DriverPackageTrackingScreenState
     }
 
     if (!_bypassTransactionValidation &&
-        me.journeyState == ConvoyJourneyState.stopDone &&
+        const {
+          ConvoyJourneyState.stopDone,
+          ConvoyJourneyState.atDropoff,
+        }.contains(me.journeyState) &&
         _allItineraryItemsCompleted &&
         !_hasConfirmedPayment('remaining_balance', booking.remainingBalance)) {
       return 'Waiting for remaining payment. Drop-off unlocks after secure GCash confirmation or every convoy driver confirms cash.';
@@ -2463,6 +2466,13 @@ class _DriverPackageTrackingScreenState
   });
 
   Future<void> _completeTour() => _doAction(() async {
+    if (!_bypassTransactionValidation && !_hasConfirmedRemainingBalance) {
+      _showSnack(
+        'Confirm the remaining balance before completing the tour.',
+        error: true,
+      );
+      return;
+    }
     if (!_allItineraryItemsCompleted) {
       _showSnack(
         'Complete all itinerary spots before finishing the tour.',

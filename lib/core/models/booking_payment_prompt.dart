@@ -77,7 +77,9 @@ class BookingPaymentPrompt {
       (!awaitingReview || cashPending) &&
       amount > 0 &&
       (isRemaining
-          ? itineraryComplete && !dropoffStarted
+          // Test progression (or an older trip) may already be at drop-off.
+          // Physical progress does not settle an outstanding payment.
+          ? itineraryComplete
           : const {
               'accepted',
               'confirmed',

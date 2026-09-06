@@ -63,13 +63,17 @@ class BookingPaymentSheet extends StatelessWidget {
               Text(
                 value.confirmed
                     ? value.isRemaining
-                          ? 'Your remaining balance is confirmed. The convoy may proceed to drop-off.'
+                          ? value.dropoffStarted
+                                ? 'Your remaining balance is confirmed.'
+                                : 'Your remaining balance is confirmed. The convoy may proceed to drop-off.'
                           : 'Your downpayment is confirmed.'
                     : value.paymentRequired
                     ? value.cashPending
-                          ? 'Cash selected. Each driver must confirm their received share before drop-off.'
+                          ? 'Cash selected. Each driver must confirm their received share.'
                           : value.isRemaining
-                          ? 'All tour destinations are completed. Settle the remaining balance before final drop-off.'
+                          ? value.dropoffStarted
+                                ? 'All tour destinations are completed. Please settle the outstanding remaining balance.'
+                                : 'All tour destinations are completed. Settle the remaining balance before final drop-off.'
                           : 'Your drivers are confirmed. Pay your downpayment to prepare for your tour.'
                     : value.awaitingReview
                     ? 'Your existing payment is awaiting review.'
