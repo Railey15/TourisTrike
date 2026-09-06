@@ -35,7 +35,15 @@
 <body>
   <!-- Replaced at deploy time with a separate, HTTP-referrer-restricted
        Maps JavaScript API key. Never put the server Places key here. -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=__GOOGLE_MAPS_BROWSER_API_KEY__"></script>
+  <script>
+    const mapsBrowserKey = '__GOOGLE_MAPS_BROWSER_API_KEY__';
+    if (!mapsBrowserKey.startsWith('__')) {
+      document.write(
+        '<script src="https://maps.googleapis.com/maps/api/js?key=' +
+        encodeURIComponent(mapsBrowserKey) + '"><\/script>'
+      );
+    }
+  </script>
   <script>
     // Called from Dart (dart:js_interop_unsafe). Accepts a single JSON params string,
     // returns a Promise<string> with a JSON result.

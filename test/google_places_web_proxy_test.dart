@@ -22,6 +22,7 @@ void main() {
     final pubspec = _read('pubspec.yaml');
 
     expect(index, isNot(contains('AIza')));
+    expect(index, contains("if (!mapsBrowserKey.startsWith('__'))"));
     expect(manifest, isNot(contains('AIza')));
     expect(infoPlist, isNot(contains('AIza')));
     expect(
