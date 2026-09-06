@@ -75,10 +75,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         apiKey: CitySpotSuggestionService.resolveApiKey(),
       );
 
-  final PageController _pageController = PageController();
+  final PageController _pageController = PageController(keepPage: false);
   final TextEditingController _notesCtrl = TextEditingController();
 
   late Future<_BookingScreenData> _future;
+  int _packageLoadRevision = 0;
 
   int _currentStep = 0;
 
@@ -144,11 +145,36 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _loadPackage();
+    _future = _loadAndInitializePackage();
+  }
+
+  @override
+  void didUpdateWidget(covariant PackageBookingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.packageId == widget.packageId) return;
+
+    // A different package starts a new draft. Ordinary parent rebuilds retain
+    // the existing draft, picker State objects, and in-flight search requests.
+    _initializedSpotPackageId = null;
+    _scheduleRevision++;
+    _disposeItineraries();
+    _selectedSpots.clear();
+    _originalSpots.clear();
+    _googleSuggestions = const [];
+    _selectedPickup = _selectedDropoff = null;
+    _pickupLocationError = _dropoffLocationError = null;
+    _routeKey = null;
+    _routeLegs = null;
+    _scheduleReady = _scheduleLoading = false;
+    _scheduleError = _scheduleValidationError = null;
+    _currentStep = 0;
+    _future = _loadAndInitializePackage();
   }
 
   @override
   void dispose() {
+    _packageLoadRevision++;
+    _scheduleRevision++;
     _notesCtrl.dispose();
     _pageController.dispose();
 
@@ -160,6 +186,17 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // =============================================================================
   // LOAD
   // =============================================================================
+
+  Future<_BookingScreenData> _loadAndInitializePackage() async {
+    final revision = ++_packageLoadRevision;
+    final data = await _loadPackage();
+    if (mounted && revision == _packageLoadRevision) {
+      // Runs on Future completion, before FutureBuilder receives the data;
+      // initialization and its synchronous schedule updates never run in build.
+      _initializeSpotSelection(data);
+    }
+    return data;
+  }
 
   Future<_BookingScreenData> _loadPackage() async {
     TourPackage? package;
@@ -1443,7 +1480,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               message: snapshot.error.toString(),
               onRetry: () {
                 setState(() {
-                  _future = _loadPackage();
+                  _future = _loadAndInitializePackage();
                 });
               },
             );
@@ -1451,8 +1488,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
           final data = snapshot.data!;
           final package = data.package;
-
-          _initializeSpotSelection(data);
 
           final total = _totalPrice(package);
 
