@@ -31,12 +31,12 @@
 
   <title>touristrike</title>
   <link rel="manifest" href="manifest.json">
-
-  <!-- google_maps_flutter_web requires Maps JavaScript to exist before the
-       first GoogleMap widget is built. This optional ignored file supplies a
-       referrer-restricted browser key during local `flutter run`; release
-       builds receive the same value from build.sh. -->
-  <script src="google_maps_config.js"></script>
+  <!-- SHA-256 prefix of the injected browser key, safe to compare with build logs. -->
+  <meta name="touristrike-maps-key-fingerprint" content="__GOOGLE_MAPS_BROWSER_KEY_FINGERPRINT__">
+</head>
+<body>
+  <!-- Replaced at deploy time with a separate, HTTP-referrer-restricted
+       Maps JavaScript API key. Never put the server Places key here. -->
   <script>
     const configuredMapsKey =
       window.tourisTrikeConfig?.googleMapsBrowserApiKey?.trim() || '';
