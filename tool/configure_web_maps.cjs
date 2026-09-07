@@ -28,23 +28,33 @@ function inspectHtml(html) {
   return {
     loaderCount,
     loader: inline ? 'build-injected inline loader' : direct ? 'literal script URL' : 'missing',
-    unresolvedPlaceholder: html.includes(keyPlaceholder),
+    loaderUsesKey: inline
+      ? /https:\/\/maps\.googleapis\.com\/maps\/api\/js\?key=['"]\s*\+\s*encodeURIComponent\(mapsBrowserKey\)/.test(html)
+      : !!direct && new URL(direct).searchParams.get('key') === key,
+    unresolvedPlaceholder: html.includes(keyPlaceholder) || html.includes(fingerprintPlaceholder),
     plausibleFormat: !!key && /^AIza[A-Za-z0-9_-]{35}$/.test(key),
     fingerprint: key && key !== keyPlaceholder ? fingerprint(key) : null,
-    declaredFingerprint: declaredFingerprint ?? null,
+    declaredFingerprint: /^[a-f0-9]{12}$/.test(declaredFingerprint ?? '') ? declaredFingerprint : null,
   };
 }
 
-function injectHtml(html, key) {
-  if (html.split(keyPlaceholder).length !== 2 || !html.includes(fingerprintPlaceholder)) {
+function injectHtml(html, key, log = () => {}) {
+  const keyPlaceholderCount = html.split(keyPlaceholder).length - 1;
+  const fingerprintPlaceholderCount = html.split(fingerprintPlaceholder).length - 1;
+  log(`Web Maps before injection: ${JSON.stringify({loaderCount: inspectHtml(html).loaderCount, keyPlaceholderCount, fingerprintPlaceholderCount})}`);
+  if (keyPlaceholderCount !== 1 || fingerprintPlaceholderCount !== 1) {
     throw new Error('Expected a fresh Flutter web build with the Maps placeholders. Rebuild before injecting; an old/hardcoded key will not be silently retained.');
   }
   const configured = html.replace(keyPlaceholder, key)
     .replace(fingerprintPlaceholder, fingerprint(key));
   const result = inspectHtml(configured);
-  if (result.loaderCount !== 1 || result.fingerprint !== fingerprint(key) ||
-      result.declaredFingerprint !== result.fingerprint) {
-    throw new Error('Web Maps configuration verification failed. Expected exactly one SDK loader using the selected browser key.');
+  const keyMatched = result.fingerprint === fingerprint(key);
+  const fingerprintMatched = result.declaredFingerprint === result.fingerprint;
+  const passed = result.loaderCount === 1 && result.loaderUsesKey &&
+    result.plausibleFormat && !result.unresolvedPlaceholder && keyMatched && fingerprintMatched;
+  log(`Web Maps after injection: ${JSON.stringify({...result, keyMatched, fingerprintMatched, passed})}`);
+  if (!passed) {
+    throw new Error('Web Maps configuration verification failed. Check loaderCount (must be 1), loaderUsesKey, keyMatched, and fingerprintMatched above.');
   }
   return configured;
 }
@@ -58,7 +68,8 @@ async function main(args) {
     const details = inspectHtml(await response.text());
     // Only origin, fingerprints and flags are logged; never tokens or key strings.
     console.log(JSON.stringify({origin: new URL(response.url).origin, ...details}, null, 2));
-    if (!details.plausibleFormat || details.loaderCount !== 1 || details.unresolvedPlaceholder) {
+    if (!details.plausibleFormat || details.loaderCount !== 1 || !details.loaderUsesKey ||
+        details.unresolvedPlaceholder || details.declaredFingerprint !== details.fingerprint) {
       throw new Error('Deployment has missing/invalid Maps configuration.');
     }
     if (process.env.GOOGLE_MAPS_BROWSER_API_KEY) {
@@ -74,7 +85,8 @@ async function main(args) {
   const key = browserKey();
   if (args[0] !== '--check-env') {
     const index = path.join(root, 'build/web/index.html');
-    fs.writeFileSync(index, injectHtml(fs.readFileSync(index, 'utf8'), key));
+    fs.writeFileSync(index, injectHtml(fs.readFileSync(index, 'utf8'), key, console.log));
+    console.log('Web Maps final build/web/index.html: verification passed.');
   }
   console.log(`Web Maps key fingerprint=${fingerprint(key)} (${args[0] === '--check-env' ? 'format checked; Google authorization not checked' : 'injected and verified'}).`);
 }

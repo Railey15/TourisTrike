@@ -38,13 +38,9 @@
   <!-- Replaced at deploy time with a separate, HTTP-referrer-restricted
        Maps JavaScript API key. Never put the server Places key here. -->
   <script>
-    const configuredMapsKey =
-      window.tourisTrikeConfig?.googleMapsBrowserApiKey?.trim() || '';
-    const builtMapsKey = '__GOOGLE_MAPS_BROWSER_API_KEY__';
-    const mapsBrowserKey = configuredMapsKey ||
-      (builtMapsKey.startsWith('__') ? '' : builtMapsKey);
+    const mapsBrowserKey = '__GOOGLE_MAPS_BROWSER_API_KEY__';
 
-    if (mapsBrowserKey) {
+    if (mapsBrowserKey && !mapsBrowserKey.startsWith('__')) {
       document.write(
         '<script src="https://maps.googleapis.com/maps/api/js?key=' +
         encodeURIComponent(mapsBrowserKey) + '"><\/script>'
@@ -52,13 +48,10 @@
     } else {
       console.error(
         'Google Maps JavaScript API is not configured. ' +
-        'Set GOOGLE_MAPS_BROWSER_API_KEY for builds or create ' +
-        'web/google_maps_config.js for local Flutter Web.'
+        'Set GOOGLE_MAPS_BROWSER_API_KEY and run the web build configurator.'
       );
     }
   </script>
-</head>
-<body>
   <script>
     // Called from Dart (dart:js_interop_unsafe). Accepts a single JSON params string,
     // returns a Promise<string> with a JSON result.
