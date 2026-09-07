@@ -5,12 +5,15 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/services/booking_driver_markers.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
+import 'package:touristrike/widgets/live_itinerary_estimates.dart';
+import 'package:touristrike/core/services/itinerary_schedule_service.dart';
 
 class GuestTripTrackingScreen extends StatefulWidget {
   const GuestTripTrackingScreen({
@@ -18,11 +21,17 @@ class GuestTripTrackingScreen extends StatefulWidget {
     required this.publicToken,
     required this.accessCode,
     required this.initialDetails,
+    this.repository,
+    this.routeService,
+    this.etaService,
   });
 
   final String publicToken;
   final String accessCode;
   final GuestTripDetails initialDetails;
+  final TourisTrikeRepository? repository;
+  final RoutePolylineService? routeService;
+  final ItineraryScheduleService? etaService;
 
   @override
   State<GuestTripTrackingScreen> createState() =>
@@ -31,10 +40,10 @@ class GuestTripTrackingScreen extends StatefulWidget {
 
 class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   static final _apiKey = CitySpotSuggestionService.resolveApiKey();
-  final _routeService = RoutePolylineService(apiKey: _apiKey);
+  late final _routeService =
+      widget.routeService ?? RoutePolylineService(apiKey: _apiKey);
 
-  final _repo = TourisTrikeRepository();
-  final _supabase = Supabase.instance.client;
+  late final _repo = widget.repository ?? TourisTrikeRepository();
 
   late GuestTripDetails _details;
   GoogleMapController? _mapCtrl;
@@ -44,15 +53,16 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
   String? _eta;
-  double _driverHeading = 0.0;
-  double _driverSpeed = 0.0;
+  String? _selectedDriverId;
   bool _isFollowingDriver = false;
   bool _isProgrammaticMove = false;
 
-  RealtimeChannel? _bookingChannel;
-  RealtimeChannel? _itineraryChannel;
-  RealtimeChannel? _locationChannel;
   Timer? _refreshTimer;
+  bool _refreshing = false;
+  bool _accessUnavailable = false;
+  int _routeGeneration = 0;
+  DateTime? _lastRouteAt;
+  String? _lastRouteTarget;
 
   @override
   void initState() {
@@ -61,15 +71,11 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
     _initCustomMarkers();
     _buildMarkers();
     _fetchCurrentRoute();
-    _subscribeRealtime();
     _startPeriodicRefresh();
   }
 
   @override
   void dispose() {
-    _bookingChannel?.unsubscribe();
-    _itineraryChannel?.unsubscribe();
-    _locationChannel?.unsubscribe();
     _refreshTimer?.cancel();
     _mapCtrl?.dispose();
     super.dispose();
@@ -112,113 +118,60 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
 
   // ── Realtime subscriptions ────────────────────────────────────────────────
 
-  void _subscribeRealtime() {
-    final bookingId = _details.bookingId;
-    final driverId = _details.driverId;
-    if (bookingId.isEmpty) return;
-
-    _bookingChannel = _supabase
-        .channel('guest-booking:$bookingId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'package_bookings',
-          filter: PostgresChangeFilter(
-            column: 'id',
-            type: PostgresChangeFilterType.eq,
-            value: bookingId,
-          ),
-          callback: (payload) {
-            if (!mounted) return;
-            _refreshDetails();
-          },
-        )
-        .subscribe();
-
-    _itineraryChannel = _supabase
-        .channel('guest-itinerary:$bookingId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'booking_itinerary_items',
-          filter: PostgresChangeFilter(
-            column: 'booking_id',
-            type: PostgresChangeFilterType.eq,
-            value: bookingId,
-          ),
-          callback: (payload) {
-            if (!mounted) return;
-            _refreshDetails();
-          },
-        )
-        .subscribe();
-
-    if (driverId.isNotEmpty) {
-      _subscribeToDriverLocation(driverId);
-    }
-  }
-
-  void _subscribeToDriverLocation(String driverId) {
-    _locationChannel?.unsubscribe();
-    _locationChannel = _supabase
-        .channel('guest-loc:$driverId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'driver_live_locations',
-          filter: PostgresChangeFilter(
-            column: 'driver_id',
-            type: PostgresChangeFilterType.eq,
-            value: driverId,
-          ),
-          callback: (payload) {
-            if (!mounted) return;
-            final row = payload.newRecord;
-            final lat = (row['latitude'] as num?)?.toDouble();
-            final lng = (row['longitude'] as num?)?.toDouble();
-            final heading =
-                (row['heading'] as num?)?.toDouble() ?? _driverHeading;
-            final speed = (row['speed'] as num?)?.toDouble() ?? 0.0;
-            if (lat == null || lng == null) return;
-            setState(() {
-              _driverHeading = heading;
-              _driverSpeed = speed;
-              _details = _details.withLocation(lat, lng);
-            });
-            _buildMarkers();
-            if (_isFollowingDriver) _animateCameraToDriver();
-            _updateRouteForDriverPosition();
-          },
-        )
-        .subscribe();
-  }
-
-  // ── Periodic refresh ──────────────────────────────────────────────────────
-
   void _startPeriodicRefresh() {
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    if (_details.isTripEnded) return;
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _refreshDetails();
     });
   }
 
   Future<void> _refreshDetails() async {
+    if (_refreshing || _details.isTripEnded) return;
+    _refreshing = true;
     try {
-      final updated = await _repo.validateGuestTripLink(
-        publicToken: widget.publicToken,
-        accessCode: widget.accessCode,
-        silent: true,
-      );
-      if (!mounted || updated == null) return;
-
-      final newDriverId = updated.driverId;
-      if (newDriverId != _details.driverId && newDriverId.isNotEmpty) {
-        _subscribeToDriverLocation(newDriverId);
+      final updated = await _repo
+          .validateGuestTripLink(
+            publicToken: widget.publicToken,
+            accessCode: widget.accessCode,
+            silent: true,
+          )
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (updated == null) throw StateError('Shared trip unavailable');
+      setState(() {
+        _details = updated;
+        _accessUnavailable = false;
+        if (!updated.drivers.any((d) => d.driverId == _selectedDriverId)) {
+          _selectedDriverId = null;
+        }
+      });
+      if (updated.isTripEnded) {
+        _refreshTimer?.cancel();
+        _routeGeneration++;
+        setState(() {
+          _polylines = {};
+          _eta = null;
+        });
       }
-
-      setState(() => _details = updated);
       _buildMarkers();
+      if (_isFollowingDriver) _animateCameraToRelevant();
       _fetchCurrentRoute();
-    } catch (_) {}
+    } catch (_) {
+      debugPrint(
+        '[SharedTrip] Token-scoped refresh failed; hiding stale tracking.',
+      );
+      if (mounted) {
+        setState(() {
+          _accessUnavailable = true;
+          _markers = {};
+          _polylines = {};
+          _eta = null;
+        });
+      }
+      _routeGeneration++;
+    } finally {
+      _refreshing = false;
+    }
   }
 
   // ── Markers ───────────────────────────────────────────────────────────────
@@ -234,7 +187,9 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         Marker(
           markerId: const MarkerId('pickup'),
           position: LatLng(pLat, pLng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
           infoWindow: InfoWindow(
             title: _details.pickupLandmark.isNotEmpty
                 ? _details.pickupLandmark
@@ -281,8 +236,8 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
             isDone
                 ? BitmapDescriptor.hueGreen
                 : isCurrent
-                    ? BitmapDescriptor.hueOrange
-                    : BitmapDescriptor.hueAzure,
+                ? BitmapDescriptor.hueOrange
+                : BitmapDescriptor.hueAzure,
           ),
           infoWindow: InfoWindow(
             title: 'Stop ${i + 1}: ${item['name']?.toString() ?? ''}',
@@ -291,25 +246,15 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       );
     }
 
-    // Driver — tricycle custom icon
-    final lat = _details.driverLatitude;
-    final lng = _details.driverLongitude;
-    if (lat != null && lng != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('driver'),
-          position: LatLng(lat, lng),
-          icon: _tricycleMarker ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
-          rotation: _driverHeading,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          infoWindow: InfoWindow(
-            title: _details.driverName.isNotEmpty
-                ? _details.driverName
-                : 'Tricycle ${_details.tricycleNumber}',
-            snippet: _details.driverPhoneMasked ?? '',
-          ),
+    if (!_details.isTripEnded && !_accessUnavailable) {
+      markers.addAll(
+        buildBookingDriverMarkers(
+          drivers: _details.drivers,
+          selectedDriverId: _selectedDriverId,
+          onSelect: _selectDriver,
+          icon:
+              _tricycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         ),
       );
     }
@@ -320,14 +265,25 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   // ── Route / polyline ──────────────────────────────────────────────────────
 
   Future<void> _fetchCurrentRoute() async {
-    final driverLat = _details.driverLatitude;
-    final driverLng = _details.driverLongitude;
-    if (driverLat == null || driverLng == null) {
-      if (mounted) setState(() { _polylines = {}; _eta = null; });
+    if (_details.isTripEnded || _accessUnavailable) return;
+    final origins = <String, LatLng>{
+      for (final driver in _details.drivers)
+        if (driver.latitude != null &&
+            driver.longitude != null &&
+            validDriverCoordinates(driver.latitude!, driver.longitude!))
+          driver.driverId: LatLng(driver.latitude!, driver.longitude!),
+    };
+    if (origins.isEmpty) {
+      _routeGeneration++;
+      if (mounted) {
+        setState(() {
+          _polylines = {};
+          _eta = null;
+        });
+      }
       return;
     }
 
-    final origin = LatLng(driverLat, driverLng);
     LatLng? destination;
     final ts = _details.tourStatus;
 
@@ -342,6 +298,14 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         ts == 'en_route_to_spot' ||
         ts == 'at_spot') {
       destination = _currentSpotLatLng;
+      if (destination == null &&
+          _details.dropoffLatitude != null &&
+          _details.dropoffLongitude != null) {
+        destination = LatLng(
+          _details.dropoffLatitude!,
+          _details.dropoffLongitude!,
+        );
+      }
     } else if (ts == 'en_route_to_dropoff' || ts == 'ready_to_complete') {
       final lat = _details.dropoffLatitude;
       final lng = _details.dropoffLongitude;
@@ -349,60 +313,126 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
     }
 
     if (destination == null) {
-      if (mounted) setState(() { _polylines = {}; _eta = null; });
+      _routeGeneration++;
+      if (mounted) {
+        setState(() {
+          _polylines = {};
+          _eta = null;
+        });
+      }
       return;
     }
 
-    final result = await _routeService.fetchRoute(origin, destination);
-    if (!mounted) return;
+    final target =
+        '${destination.latitude},${destination.longitude}:${_details.tourStatus}:'
+        '${origins.keys.join(',')}:$_selectedDriverId';
+    if (_lastRouteTarget == target &&
+        _lastRouteAt != null &&
+        DateTime.now().difference(_lastRouteAt!) <
+            const Duration(seconds: 30)) {
+      return;
+    }
+    final generation = ++_routeGeneration;
+    _lastRouteTarget = target;
+    _lastRouteAt = DateTime.now();
+    final targetPoint = destination;
+    final results = await Future.wait(
+      origins.entries.map((entry) async {
+        try {
+          final route = await _routeService
+              .fetchRoute(entry.value, targetPoint)
+              .timeout(const Duration(seconds: 20));
+          return (driverId: entry.key, route: route);
+        } catch (_) {
+          debugPrint(
+            '[SharedTrip] Driver route unavailable; map markers retained.',
+          );
+          return null;
+        }
+      }),
+    );
+    if (!mounted ||
+        generation != _routeGeneration ||
+        _details.isTripEnded ||
+        _accessUnavailable) {
+      return;
+    }
     setState(() {
       _polylines = {
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: result.points,
-          color: const Color(0xFF2A86FF),
-          width: 5,
-          geodesic: true,
-          jointType: JointType.round,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-        ),
+        for (final result in results)
+          if (result != null)
+            Polyline(
+              polylineId: PolylineId('driver_route_${result.driverId}'),
+              points: result.route.points,
+              color:
+                  result.driverId == _selectedDriverId ||
+                      _selectedDriverId == null
+                  ? const Color(0xFF2A86FF)
+                  : const Color(0xFF7C3AED),
+              width: 5,
+              geodesic: true,
+              jointType: JointType.round,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+            ),
       };
-      _eta = result.durationText;
+      _eta = null;
+      for (final result in results) {
+        if (result != null &&
+            (result.driverId == _selectedDriverId || origins.length == 1)) {
+          _eta = result.route.durationText;
+        }
+      }
     });
-  }
-
-  Future<void> _updateRouteForDriverPosition() async {
-    final ts = _details.tourStatus;
-    if (ts == 'at_spot' || ts == 'dropped_off' || ts == 'completed') return;
-    await _fetchCurrentRoute();
   }
 
   // ── Camera ────────────────────────────────────────────────────────────────
 
-  double _speedToZoom(double speedMs) {
-    final kmh = speedMs * 3.6;
-    if (kmh < 10) return 17.0;
-    if (kmh < 30) return 15.5;
-    if (kmh < 60) return 13.5;
-    return 12.0;
-  }
-
-  void _animateCameraToDriver() {
-    final lat = _details.driverLatitude;
-    final lng = _details.driverLongitude;
-    if (_mapCtrl == null || lat == null || lng == null) return;
-    _isProgrammaticMove = true;
-    _mapCtrl!.animateCamera(
-      CameraUpdate.newLatLngZoom(
-        LatLng(lat, lng),
-        _speedToZoom(_driverSpeed),
-      ),
-    );
-  }
-
   void _animateCameraToRelevant() {
     if (_mapCtrl == null) return;
+    final driverMarkers = _markers.where(
+      (m) => m.markerId.value.startsWith('driver_'),
+    );
+    final focused = _selectedDriverId == null
+        ? null
+        : driverMarkers
+              .where((m) => m.markerId.value == 'driver_$_selectedDriverId')
+              .firstOrNull;
+    if (_isFollowingDriver && focused != null) {
+      _isProgrammaticMove = true;
+      _mapCtrl!.animateCamera(CameraUpdate.newLatLngZoom(focused.position, 15));
+      return;
+    }
+    if (_markers.isNotEmpty) {
+      final points =
+          (_isFollowingDriver && driverMarkers.isNotEmpty
+                  ? driverMarkers
+                  : _markers)
+              .map((marker) => marker.position);
+      var south = points.first.latitude;
+      var north = south;
+      var west = points.first.longitude;
+      var east = west;
+      for (final point in points) {
+        if (point.latitude < south) south = point.latitude;
+        if (point.latitude > north) north = point.latitude;
+        if (point.longitude < west) west = point.longitude;
+        if (point.longitude > east) east = point.longitude;
+      }
+      _isProgrammaticMove = true;
+      _mapCtrl!.animateCamera(
+        north - south < .0005 && east - west < .0005
+            ? CameraUpdate.newLatLngZoom(points.first, 16)
+            : CameraUpdate.newLatLngBounds(
+                LatLngBounds(
+                  southwest: LatLng(south, west),
+                  northeast: LatLng(north, east),
+                ),
+                48,
+              ),
+      );
+      return;
+    }
     final dLat = _details.driverLatitude;
     final dLng = _details.driverLongitude;
     if (dLat != null && dLng != null) {
@@ -420,6 +450,16 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         CameraUpdate.newLatLngZoom(LatLng(pLat, pLng), 15),
       );
     }
+  }
+
+  void _selectDriver(String id) {
+    setState(() {
+      _selectedDriverId = id;
+      _isFollowingDriver = true;
+    });
+    _buildMarkers();
+    _animateCameraToRelevant();
+    _fetchCurrentRoute();
   }
 
   void _animateCameraToCurrentSpot() {
@@ -460,6 +500,23 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_accessUnavailable) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Shared Trip')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Trip access or connection unavailable.'),
+              TextButton(
+                onPressed: _refreshDetails,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final bottom = MediaQuery.of(context).padding.bottom;
     final size = MediaQuery.sizeOf(context);
     final mapHeight = (size.height * 0.40).clamp(240.0, 380.0);
@@ -477,8 +534,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
                   icon: Icons.check_circle_outline_rounded,
                   iconColor: Color(0xFF16A34A),
                   title: 'This trip has ended.',
-                  subtitle:
-                      'The tour has been completed. Thank you for using TourisTrike!',
+                  subtitle: 'Live location sharing has ended.',
                 ),
               ),
             ],
@@ -503,6 +559,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
               title: _buildHeaderRow(),
               flexibleSpace: FlexibleSpaceBar(
                 background: Stack(
+                  fit: StackFit.expand,
                   children: [
                     ClipRect(
                       child: GoogleMap(
@@ -513,6 +570,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
                         markers: _markers,
                         polylines: _polylines,
                         onMapCreated: (ctrl) {
+                          debugPrint('[SharedTrip] Google Map created.');
                           _mapCtrl = ctrl;
                           _animateCameraToRelevant();
                         },
@@ -566,7 +624,10 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
                             elevation: 4,
                             tooltip: 'Recenter on Driver',
                             onPressed: () {
-                              setState(() => _isFollowingDriver = true);
+                              setState(() {
+                                _isFollowingDriver = true;
+                                _selectedDriverId = null;
+                              });
                               _animateCameraToRelevant();
                             },
                             child: const Icon(
@@ -587,17 +648,31 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
               padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + bottom),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  _GuestStatusCard(tourStatus: _details.tourStatus, eta: _eta),
+                  _GuestStatusCard(
+                    tourStatus:
+                        const {
+                          'awaiting_remaining_payment',
+                          'awaiting_final_payment',
+                        }.contains(_details.bookingStatusDetail)
+                        ? _details.bookingStatusDetail
+                        : _details.tourStatus,
+                    eta: _eta,
+                    driverCount: _details.drivers.length,
+                  ),
                   const SizedBox(height: 12),
-                  if (_details.tricycleNumber.isNotEmpty ||
-                      _details.driverPhoneMasked != null ||
-                      _details.driverName.isNotEmpty) ...[
-                    const _SectionLabel('Driver Info'),
-                    const SizedBox(height: 8),
-                    _DriverCard(
-                      driverName: _details.driverName,
-                      tricycleNumber: _details.tricycleNumber,
-                      phoneMasked: _details.driverPhoneMasked,
+                  ConvoyTouristDriverList(
+                    convoy: _details.drivers,
+                    guestView: true,
+                    selectedDriverId: _selectedDriverId,
+                    onSelect: _selectDriver,
+                  ),
+                  if (_details.drivers.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    LiveItineraryEstimates(
+                      booking: _details.trackingBooking,
+                      drivers: _details.drivers,
+                      stops: _details.trackingStops,
+                      service: widget.etaService,
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -640,13 +715,16 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
                     ),
                     icon: const Icon(Icons.emergency_rounded, size: 18),
                     label: const Text(
-                      'Emergency',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                      'Emergency Assistance',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   const Text(
-                    'Personal details, full addresses, and payment information are not shown in guest view.',
+                    'Contact details, full addresses, and payment information are not shown in guest view.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 11,
@@ -698,7 +776,11 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.schedule_rounded, size: 12, color: Colors.white),
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 12,
+                  color: Colors.white,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   _eta!,
@@ -715,7 +797,11 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
         ],
         IconButton(
           onPressed: _refreshDetails,
-          icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+          icon: const Icon(
+            Icons.refresh_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
           tooltip: 'Refresh',
@@ -737,12 +823,29 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
 // ── Status card ───────────────────────────────────────────────────────────────
 
 class _GuestStatusCard extends StatelessWidget {
-  const _GuestStatusCard({required this.tourStatus, this.eta});
+  const _GuestStatusCard({
+    required this.tourStatus,
+    this.eta,
+    this.driverCount = 0,
+  });
 
   final String tourStatus;
+  final int driverCount;
   final String? eta;
 
   static const _statusInfo = <String, (String, String, Color, IconData)>{
+    'awaiting_remaining_payment': (
+      'Preparing for Drop-off',
+      'Tour itinerary completed — preparing for drop-off.',
+      Color(0xFF2A86FF),
+      Icons.route_rounded,
+    ),
+    'awaiting_final_payment': (
+      'Finishing Trip',
+      'The tour is being finalized.',
+      Color(0xFF2A86FF),
+      Icons.task_alt_rounded,
+    ),
     'not_started': (
       'Not Started',
       'The tour has not started yet.',
@@ -825,14 +928,32 @@ class _GuestStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final data = _statusInfo[tourStatus] ??
+    final data =
+        _statusInfo[tourStatus] ??
         (
           tourStatus.replaceAll('_', ' ').toUpperCase(),
           '',
           const Color(0xFF64748B),
           Icons.info_rounded,
         );
-    final (label, desc, color, icon) = data;
+    final (singleLabel, singleDesc, color, icon) = data;
+    final (label, desc) = driverCount > 1
+        ? switch (tourStatus) {
+            'driver_accepted' => (
+              'Drivers Found',
+              'Drivers have accepted and will be on the way.',
+            ),
+            'driver_en_route' => (
+              'Drivers On the Way',
+              'Your drivers are heading to the pickup point.',
+            ),
+            'driver_arrived' => (
+              'Driver Arrived',
+              'A driver has reached pickup. Check each driver’s status below.',
+            ),
+            _ => (singleLabel, singleDesc),
+          }
+        : (singleLabel, singleDesc);
 
     return Container(
       width: double.infinity,
@@ -982,8 +1103,8 @@ class _GuestItineraryRow extends StatelessWidget {
     final color = isDone
         ? const Color(0xFF16A34A)
         : isCurrent
-            ? const Color(0xFF2A86FF)
-            : const Color(0xFFCBD5E1);
+        ? const Color(0xFF2A86FF)
+        : const Color(0xFFCBD5E1);
 
     final timeFmt = DateFormat('h:mm a');
 
@@ -1027,14 +1148,15 @@ class _GuestItineraryRow extends StatelessWidget {
                             color: isDone
                                 ? const Color(0xFF94A3B8)
                                 : isCurrent
-                                    ? const Color(0xFF0F172A)
-                                    : const Color(0xFF64748B),
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFF64748B),
                             fontWeight: isCurrent
                                 ? FontWeight.w900
                                 : FontWeight.w700,
                             fontSize: 13.5,
-                            decoration:
-                                isDone ? TextDecoration.lineThrough : null,
+                            decoration: isDone
+                                ? TextDecoration.lineThrough
+                                : null,
                           ),
                         ),
                       ),
@@ -1199,108 +1321,6 @@ class _TimestampBadge extends StatelessWidget {
 }
 
 // ── Shared sub-widgets ────────────────────────────────────────────────────────
-
-class _DriverCard extends StatelessWidget {
-  const _DriverCard({
-    required this.driverName,
-    required this.tricycleNumber,
-    required this.phoneMasked,
-  });
-
-  final String driverName;
-  final String tricycleNumber;
-  final String? phoneMasked;
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = <Widget>[];
-
-    if (driverName.isNotEmpty) {
-      rows.add(_InfoRow(
-        icon: Icons.person_rounded,
-        label: 'Driver Name',
-        value: driverName,
-      ));
-    }
-    if (tricycleNumber.isNotEmpty) {
-      if (rows.isNotEmpty) rows.add(const Divider(height: 16, color: Color(0xFFE2E8F0)));
-      rows.add(_InfoRow(
-        icon: Icons.electric_rickshaw_rounded,
-        label: 'Tricycle No.',
-        value: tricycleNumber,
-      ));
-    }
-    if (phoneMasked != null && phoneMasked!.isNotEmpty) {
-      if (rows.isNotEmpty) rows.add(const Divider(height: 16, color: Color(0xFFE2E8F0)));
-      rows.add(_InfoRow(
-        icon: Icons.phone_rounded,
-        label: 'Driver Phone',
-        value: phoneMasked!,
-      ));
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7EEF7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(children: rows),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: const Color(0xFF2A86FF)),
-        const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF94A3B8),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1E293B),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
 
 class _SimpleInfoCard extends StatelessWidget {
   const _SimpleInfoCard({required this.icon, required this.value});

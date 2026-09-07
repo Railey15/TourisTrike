@@ -1265,8 +1265,10 @@ class GuestTripDetails {
     this.dropoffLongitude,
     this.driverLatitude,
     this.driverLongitude,
+    this.drivers = const [],
   });
 
+  final List<ConvoyDriverSnapshot> drivers;
   final String bookingId;
   final String driverId;
   final String bookingStatus;
@@ -1287,7 +1289,59 @@ class GuestTripDetails {
   final double? driverLongitude;
 
   factory GuestTripDetails.fromJson(Map<String, dynamic> json) {
+    // Supabase numeric fields may arrive as numbers or numeric strings.
+    double? number(dynamic value) {
+      final parsed = double.tryParse(value?.toString() ?? '');
+      return parsed != null && parsed.isFinite ? parsed : null;
+    }
+
+    Map<String, dynamic> coordinates(
+      Map<String, dynamic> row,
+      String latKey,
+      String lngKey,
+    ) {
+      final lat = number(row[latKey]);
+      final lng = number(row[lngKey]);
+      final valid =
+          lat != null &&
+          lng != null &&
+          lat.abs() <= 90 &&
+          lng.abs() <= 180 &&
+          !(lat == 0 && lng == 0);
+      return {...row, latKey: valid ? lat : null, lngKey: valid ? lng : null};
+    }
+
+    for (final prefix in ['pickup', 'dropoff', 'driver']) {
+      json = coordinates(json, '${prefix}_latitude', '${prefix}_longitude');
+    }
     return GuestTripDetails(
+      drivers: (json['drivers'] as List? ?? const []).whereType<Map>().map((
+        row,
+      ) {
+        final driver = coordinates(
+          Map<String, dynamic>.from(row),
+          'latitude',
+          'longitude',
+        );
+        return ConvoyDriverSnapshot(
+          driverId: dbString(driver['driver_id']),
+          driverName: dbString(driver['driver_name'], fallback: 'Driver'),
+          plateNumber: dbString(driver['plate_number']),
+          todaName: dbString(driver['toda_name']),
+          lastLocationAt: dbDate(driver['updated_at']),
+          journeyState: ConvoyJourneyState.fromDb(
+            driver['journey_state']?.toString(),
+          ),
+          currentStopIndex: dbInt(driver['current_stop_index']),
+          stateUpdatedAt:
+              DateTime.tryParse(dbString(driver['state_updated_at'])) ??
+              DateTime.fromMillisecondsSinceEpoch(0),
+          assignmentStatus: dbString(driver['status'], fallback: 'accepted'),
+          latitude: (driver['latitude'] as num?)?.toDouble(),
+          longitude: (driver['longitude'] as num?)?.toDouble(),
+          heading: number(driver['heading']) ?? 0,
+        );
+      }).toList(),
       bookingId: json['booking_id']?.toString() ?? '',
       driverId: json['driver_id']?.toString() ?? '',
       bookingStatus: json['booking_status']?.toString() ?? '',
@@ -1296,7 +1350,13 @@ class GuestTripDetails {
       itineraryItems:
           (json['itinerary_items'] as List?)
               ?.whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
+              .map(
+                (e) => coordinates(
+                  Map<String, dynamic>.from(e),
+                  'latitude',
+                  'longitude',
+                ),
+              )
               .toList() ??
           [],
       driverCode: json['driver_code']?.toString() ?? '',
@@ -1315,6 +1375,7 @@ class GuestTripDetails {
   }
 
   GuestTripDetails withLocation(double? lat, double? lng) => GuestTripDetails(
+    drivers: drivers,
     bookingId: bookingId,
     driverId: driverId,
     bookingStatus: bookingStatus,
@@ -1335,6 +1396,29 @@ class GuestTripDetails {
     driverLongitude: lng,
   );
 
+  /// Adapt the token-scoped projection for the SAME live ETA widget used by
+  /// Tourist Tracking. These models contain no payment or contact data.
+  PackageBooking get trackingBooking => PackageBooking({
+    'id': bookingId,
+    'pickup_latitude': pickupLatitude,
+    'pickup_longitude': pickupLongitude,
+    'dropoff_latitude': dropoffLatitude,
+    'dropoff_longitude': dropoffLongitude,
+  });
+
+  List<BookingItineraryItem> get trackingStops => itineraryItems
+      .map(
+        (item) => BookingItineraryItem({
+          ...item,
+          'destination_name': item['name'],
+          'destination_order': item['order'],
+          'spot_status': item['status'],
+          'actual_arrival_time': item['arrived_at'],
+          'actual_departure_time': item['departed_at'],
+        }),
+      )
+      .toList(growable: false);
+
   bool get isLiveTrackingAvailable {
     return tourStatus == 'driver_en_route' ||
         tourStatus == 'driver_arrived' ||
@@ -1349,6 +1433,17 @@ class GuestTripDetails {
   bool get isTripEnded {
     return tourStatus == 'dropped_off' ||
         tourStatus == 'completed' ||
-        bookingStatus == 'completed';
+        const {
+          'completed',
+          'cancelled',
+          'rejected',
+          'done',
+        }.contains(bookingStatus) ||
+        const {
+          'completed',
+          'cancelled',
+          'rejected',
+          'done',
+        }.contains(bookingStatusDetail);
   }
 }

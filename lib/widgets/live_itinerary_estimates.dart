@@ -15,19 +15,23 @@ class LiveItineraryEstimates extends StatefulWidget {
     required this.drivers,
     required this.stops,
     this.onlyDriverId,
+    this.service,
   });
   final PackageBooking booking;
   final List<ConvoyDriverSnapshot> drivers;
   final List<BookingItineraryItem> stops;
   final String? onlyDriverId;
+  final ItineraryScheduleService? service;
   @override
   State<LiveItineraryEstimates> createState() => _LiveItineraryEstimatesState();
 }
 
 class _LiveItineraryEstimatesState extends State<LiveItineraryEstimates> {
-  final _service = ItineraryScheduleService.live(
-    apiKey: CitySpotSuggestionService.resolveApiKey(),
-  );
+  late final _service =
+      widget.service ??
+      ItineraryScheduleService.live(
+        apiKey: CitySpotSuggestionService.resolveApiKey(),
+      );
   Timer? _timer;
   int _revision = 0;
   Map<String, List<String>> _estimates = {};

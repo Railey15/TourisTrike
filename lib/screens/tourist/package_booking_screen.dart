@@ -1,3 +1,4 @@
+import 'package:touristrike/widgets/booking_route_preview_map.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -8,11 +9,7 @@ import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 
 import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
-import 'package:touristrike/core/places/google_maps_api_key_resolver.dart';
-import 'package:touristrike/core/places/google_places_gateway.dart';
 import 'package:touristrike/core/places/google_places_errors.dart';
-import 'package:touristrike/core/services/itinerary_directions_mobile.dart'
-    if (dart.library.js_interop) 'package:touristrike/core/services/itinerary_directions_web.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
@@ -5798,175 +5795,39 @@ class _SharedRouteMapPreview extends StatefulWidget {
 }
 
 class _SharedRouteMapPreviewState extends State<_SharedRouteMapPreview> {
-  String _apiKey = CitySpotSuggestionService.resolveApiKey();
-  Future<Map<String, dynamic>>? _route;
-  String? get pickupAddress => widget.pickupAddress;
-  double? get pickupLat => widget.pickupLat;
-  double? get pickupLng => widget.pickupLng;
-  String? get dropoffAddress => widget.dropoffAddress;
-  double? get dropoffLat => widget.dropoffLat;
-  double? get dropoffLng => widget.dropoffLng;
-
   @override
-  void initState() {
-    super.initState();
-    _loadRoute();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SharedRouteMapPreview oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (pickupLat != oldWidget.pickupLat ||
-        pickupLng != oldWidget.pickupLng ||
-        dropoffLat != oldWidget.dropoffLat ||
-        dropoffLng != oldWidget.dropoffLng) {
-      _loadRoute();
-    }
-  }
-
-  void _loadRoute() {
-    _route =
-        pickupLat == null ||
-            pickupLng == null ||
-            dropoffLat == null ||
-            dropoffLng == null
-        ? null
-        : _fetchRoute();
-  }
-
-  Future<Map<String, dynamic>> _fetchRoute() async {
-    _apiKey = await GoogleMapsApiKeyResolver.resolve(explicitKey: _apiKey);
-    final body = await fetchItineraryDirections(_apiKey, [
-      LatLng(pickupLat!, pickupLng!),
-      LatLng(dropoffLat!, dropoffLng!),
-    ]);
-    final routes = body['routes'] as List? ?? const [];
-    if (body['status'] != 'OK' || routes.isEmpty) {
-      throw ItineraryRouteException(
-        kind: body['status'] == 'ZERO_RESULTS'
-            ? ItineraryRouteFailure.noRoute
-            : body['status'] == 'REQUEST_DENIED'
-            ? ItineraryRouteFailure.unauthorized
-            : ItineraryRouteFailure.upstream,
-        googleStatus: body['status']?.toString(),
-        pointCount: 2,
-      );
-    }
-    final route = Map<String, dynamic>.from(routes.first as Map);
-    final encodedPolyline =
-        (route['overview_polyline'] as Map?)?['points'] as String? ?? '';
-    final mapUrl = await GooglePlacesGateway(apiKey: _apiKey).routeStaticMapUrl(
-      pickupLatitude: pickupLat!,
-      pickupLongitude: pickupLng!,
-      dropoffLatitude: dropoffLat!,
-      dropoffLongitude: dropoffLng!,
-      encodedPolyline: encodedPolyline,
-    );
-    route['_proxy_static_map_url'] = mapUrl;
-    return route;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final complete =
-        pickupLat != null &&
-        pickupLng != null &&
-        dropoffLat != null &&
-        dropoffLng != null;
-
-    if (!complete) {
-      return const _SimpleEmptyCard(
-        icon: Icons.map_outlined,
-        title: 'Route preview waiting',
-        subtitle:
-            'Select both pickup and drop-off points to preview them on the map.',
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(19),
-        border: Border.all(color: _border),
-      ),
-      child: Column(
-        children: [
-          FutureBuilder<Map<String, dynamic>>(
-            future: _route,
-            builder: (context, snapshot) {
-              // Do not retain the previous route while new coordinates resolve.
-              final route =
-                  snapshot.connectionState == ConnectionState.done &&
-                      !snapshot.hasError
-                  ? snapshot.data
-                  : null;
-              final mapUrl =
-                  route?['_proxy_static_map_url']?.toString().trim() ?? '';
-              return Column(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: mapUrl.isEmpty
-                        ? Container(
-                            height: 160,
-                            color: const Color(0xFFF1F5F9),
-                            alignment: Alignment.center,
-                            child: const Text('Map preview unavailable'),
-                          )
-                        : Image.network(
-                            mapUrl,
-                            width: double.infinity,
-                            height: 160,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => Container(
-                              height: 160,
-                              color: const Color(0xFFF1F5F9),
-                              alignment: Alignment.center,
-                              child: const Text('Map preview unavailable'),
-                            ),
-                          ),
-                  ),
-                  if (snapshot.connectionState != ConnectionState.done)
-                    const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text('Calculating route...'),
-                    ),
-                  if (snapshot.hasError) ...[
-                    Text(
-                      snapshot.error is ItineraryRouteException
-                          ? (snapshot.error! as ItineraryRouteException).message
-                          : 'Could not calculate the route. Please retry.',
-                    ),
-                    TextButton(
-                      onPressed: () => setState(_loadRoute),
-                      child: const Text('Retry route'),
-                    ),
-                  ],
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 9),
-
-          _MapLegendRow(
-            color: const Color(0xFF16A34A),
-            label: 'Pickup',
-            value: pickupAddress ?? '',
-          ),
-
-          const SizedBox(height: 6),
-
-          _MapLegendRow(
-            color: const Color(0xFFDC2626),
-            label: 'Drop-off',
-            value: dropoffAddress ?? '',
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(19),
+      border: Border.all(color: _border),
+    ),
+    child: Column(
+      children: [
+        BookingRoutePreviewMap(
+          pickup: widget.pickupLat != null && widget.pickupLng != null
+              ? LatLng(widget.pickupLat!, widget.pickupLng!)
+              : null,
+          dropoff: widget.dropoffLat != null && widget.dropoffLng != null
+              ? LatLng(widget.dropoffLat!, widget.dropoffLng!)
+              : null,
+        ),
+        const SizedBox(height: 9),
+        _MapLegendRow(
+          color: const Color(0xFF16A34A),
+          label: 'Pickup',
+          value: widget.pickupAddress ?? '',
+        ),
+        const SizedBox(height: 6),
+        _MapLegendRow(
+          color: const Color(0xFFDC2626),
+          label: 'Drop-off',
+          value: widget.dropoffAddress ?? '',
+        ),
+      ],
+    ),
+  );
 }
 
 class _MapLegendRow extends StatelessWidget {

@@ -13,6 +13,7 @@ class ConvoyTouristDriverList extends StatelessWidget {
     this.onSelect,
     this.onCall,
     this.onMessage,
+    this.guestView = false,
   });
 
   final List<ConvoyDriverSnapshot> convoy;
@@ -20,6 +21,7 @@ class ConvoyTouristDriverList extends StatelessWidget {
   final ValueChanged<String>? onSelect;
   final ConvoyContactCallback? onCall;
   final ConvoyContactCallback? onMessage;
+  final bool guestView;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +39,11 @@ class ConvoyTouristDriverList extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            convoy.length == 1 ? 'Your Driver' : 'Your Drivers (${convoy.length})',
+            guestView
+                ? 'Drivers (${convoy.length})'
+                : convoy.length == 1
+                ? 'Your Driver'
+                : 'Your Drivers (${convoy.length})',
             style: const TextStyle(
               color: Color(0xFF0F172A),
               fontWeight: FontWeight.w900,
@@ -50,10 +56,16 @@ class ConvoyTouristDriverList extends StatelessWidget {
               index: i,
               driver: convoy[i],
               selected: convoy[i].driverId == selectedDriverId,
-              showPassengerCount: convoy.length > 1,
-              onTap: onSelect == null ? null : () => onSelect!(convoy[i].driverId),
-              onCall: onCall == null ? null : () => onCall!(convoy[i]),
-              onMessage: onMessage == null ? null : () => onMessage!(convoy[i]),
+              showPassengerCount: !guestView && convoy.length > 1,
+              onTap: onSelect == null
+                  ? null
+                  : () => onSelect!(convoy[i].driverId),
+              onCall: guestView || onCall == null
+                  ? null
+                  : () => onCall!(convoy[i]),
+              onMessage: guestView || onMessage == null
+                  ? null
+                  : () => onMessage!(convoy[i]),
             ),
             if (i != convoy.length - 1) const SizedBox(height: 10),
           ],
@@ -109,7 +121,10 @@ class _DriverCard extends StatelessWidget {
                       ? NetworkImage(driver.avatarUrl)
                       : null,
                   child: driver.avatarUrl.isEmpty
-                      ? const Icon(Icons.person_rounded, color: Color(0xFF2F6FFF))
+                      ? const Icon(
+                          Icons.person_rounded,
+                          color: Color(0xFF2F6FFF),
+                        )
                       : null,
                 ),
                 Positioned(
@@ -150,7 +165,8 @@ class _DriverCard extends StatelessWidget {
                       fontSize: 13.5,
                     ),
                   ),
-                  if (driver.plateNumber.isNotEmpty || driver.todaName.isNotEmpty)
+                  if (driver.plateNumber.isNotEmpty ||
+                      driver.todaName.isNotEmpty)
                     Text(
                       [
                         driver.plateNumber,

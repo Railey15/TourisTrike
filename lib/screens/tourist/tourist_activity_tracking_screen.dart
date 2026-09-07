@@ -18,6 +18,7 @@ import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/emergency_service.dart';
+import 'package:touristrike/widgets/emergency_alert_form.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/services/live_marker_motion.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -2054,6 +2055,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   currentSpotName: _currentItineraryItem?.destinationName,
                   driverName: driverName.isNotEmpty ? driverName : null,
                   contacts: _emergencyContacts,
+                  knownPosition: _touristPosition,
                 ),
 
                 const SizedBox(height: 14),
@@ -4613,8 +4615,10 @@ class _EmergencyPanel extends StatefulWidget {
     this.currentSpotName,
     this.driverName,
     required this.contacts,
+    this.knownPosition,
   });
 
+  final Position? knownPosition;
   final String bookingId;
 
   final String? activityId;
@@ -4639,6 +4643,7 @@ class _EmergencyPanelState extends State<_EmergencyPanel>
   late final Animation<double> _scale;
 
   bool _sending = false;
+  bool _formOpen = false;
 
   DateTime? _cooldownUntil;
 
@@ -4707,106 +4712,59 @@ class _EmergencyPanelState extends State<_EmergencyPanel>
   }
 
   Future<void> _onEmergencyPressed() async {
-    if (_sending || _inCooldown) {
-      return;
-    }
-
-    final noteController = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _EmergencyConfirmDialog(noteController: noteController),
-    );
-
-    if (confirmed != true || !mounted) {
-      noteController.dispose();
-      return;
-    }
-
-    setState(() {
-      _sending = true;
-    });
-
+    if (_sending || _formOpen || _inCooldown) return;
+    _formOpen = true;
     try {
-      final touristId = _supabase.auth.currentUser?.id ?? '';
-
-      String? touristName;
-
-      try {
-        final profile = await _supabase
-            .from('profiles')
-            .select('full_name, first_name, last_name')
-            .eq('id', touristId)
-            .maybeSingle();
-
-        if (profile != null) {
-          touristName = (profile['full_name'] as String?)?.trim();
-
-          if (touristName == null || touristName.isEmpty) {
-            final firstName = (profile['first_name'] as String?) ?? '';
-
-            final lastName = (profile['last_name'] as String?) ?? '';
-
-            touristName = '$firstName $lastName'.trim();
+      final result = await showDialog<EmergencyAlertResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => EmergencyAlertForm(onSubmit: (alertId, note, photo) async {
+          if (mounted) setState(() => _sending = true);
+          try {
+            final touristId = _supabase.auth.currentUser?.id ?? '';
+            String? touristName;
+            try {
+              final profile = await _supabase.from('profiles')
+                  .select('full_name, first_name, last_name')
+                  .eq('id', touristId).maybeSingle();
+              touristName = profile?['full_name']?.toString().trim();
+              if (touristName == null || touristName.isEmpty) {
+                touristName = [profile?['first_name'], profile?['last_name']]
+                    .whereType<String>().join(' ').trim();
+              }
+            } catch (_) {}
+            return await EmergencyService(_supabase).triggerAlert(
+              alertId: alertId,
+              touristId: touristId,
+              bookingId: widget.bookingId,
+              activityId: widget.activityId,
+              driverId: widget.driverId?.isEmpty == true ? null : widget.driverId,
+              tripStatus: widget.tripStatus,
+              currentSpotName: widget.currentSpotName,
+              touristName: touristName,
+              driverName: widget.driverName,
+              note: note.isEmpty ? null : note,
+              photo: photo,
+              knownPosition: widget.knownPosition,
+            );
+          } finally {
+            if (mounted) setState(() => _sending = false);
           }
-        }
-      } catch (_) {}
-
-      final note = noteController.text.trim();
-
-      await EmergencyService(_supabase).triggerAlert(
-        touristId: touristId,
-        bookingId: widget.bookingId,
-        activityId: widget.activityId,
-        driverId: widget.driverId?.isEmpty == true ? null : widget.driverId,
-        tripStatus: widget.tripStatus,
-        currentSpotName: widget.currentSpotName,
-        touristName: touristName,
-        driverName: widget.driverName,
-        note: note.isEmpty ? null : note,
+        }),
       );
-
-      if (!mounted) return;
-
+      if (!mounted || result == null) return;
       _startCooldown();
-
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Emergency alert sent. Help is on the way.',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            backgroundColor: _success,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-        );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('Failed to send alert: $e'),
-            backgroundColor: _danger,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        ..showSnackBar(SnackBar(
+          content: Text(result.emailSent
+              ? 'Emergency alert sent successfully.'
+              : 'Emergency alert was sent.'),
+          backgroundColor: result.emailSent ? _success : _danger,
+          behavior: SnackBarBehavior.floating,
+        ));
     } finally {
-      noteController.dispose();
-
-      if (mounted) {
-        setState(() {
-          _sending = false;
-        });
-      }
+      _formOpen = false;
     }
   }
 
@@ -4966,174 +4924,6 @@ class _CooldownButton extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmergencyConfirmDialog extends StatelessWidget {
-  const _EmergencyConfirmDialog({required this.noteController});
-
-  final TextEditingController noteController;
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: Colors.white,
-      surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 55,
-              height: 55,
-              decoration: const BoxDecoration(
-                color: _dangerSoft,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.emergency_rounded,
-                color: _danger,
-                size: 28,
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            const Text(
-              'Send Emergency Alert?',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _ink,
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
-              ),
-            ),
-
-            const SizedBox(height: 6),
-
-            const Text(
-              'Your location and current tour information will be sent immediately.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _muted,
-                fontWeight: FontWeight.w600,
-                fontSize: 10,
-                height: 1.4,
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            const _NotifyItem(
-              Icons.person_outline_rounded,
-              'Your emergency contacts',
-            ),
-
-            const _NotifyItem(
-              Icons.electric_rickshaw_outlined,
-              'Your assigned driver',
-            ),
-
-            const _NotifyItem(
-              Icons.business_outlined,
-              'TourisTrike tourism office',
-            ),
-
-            const SizedBox(height: 13),
-
-            TextField(
-              controller: noteController,
-              maxLength: 200,
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Add a note (optional)',
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-                contentPadding: const EdgeInsets.all(12),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(13),
-                  borderSide: const BorderSide(color: _border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(13),
-                  borderSide: const BorderSide(color: _danger),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-      actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      actions: [
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => Navigator.pop(context, false),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _muted,
-                  side: const BorderSide(color: _border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                ),
-                child: const Text('Cancel'),
-              ),
-            ),
-
-            const SizedBox(width: 9),
-
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: ElevatedButton.styleFrom(
-                  elevation: 0,
-                  backgroundColor: _danger,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                ),
-                child: const Text(
-                  'Send Alert',
-                  style: TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _NotifyItem extends StatelessWidget {
-  const _NotifyItem(this.icon, this.label);
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 15, color: _danger),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              color: _ink,
-              fontWeight: FontWeight.w700,
-              fontSize: 10,
-            ),
           ),
         ],
       ),
