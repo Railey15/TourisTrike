@@ -1,4 +1,5 @@
 import '../../core/services/booking_driver_markers.dart';
+import '../../core/services/convoy_route_polylines.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
 import 'package:touristrike/core/models/booking_feedback.dart';
@@ -126,7 +127,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   StreamSubscription<Position>? _touristGpsSub;
   Timer? _routeRefreshTimer;
-  int _routeLoadGeneration = 0;
+  final _convoyRoutes = ConvoyRouteState();
+  bool _hadConvoyRouteRoster = false;
 
   RealtimeChannel? _activityChannel;
   RealtimeChannel? _locationChannel;
@@ -488,6 +490,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   @override
   void dispose() {
+    _convoyRoutes.clear();
     WidgetsBinding.instance.removeObserver(this);
     _activityChannel?.unsubscribe();
     _locationChannel?.unsubscribe();
@@ -699,7 +702,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
     });
     _buildMarkers();
-    _scheduleRouteRefresh();
+    unawaited(_fetchCurrentRoute());
   }
 
   void _subscribeToActivity() {
@@ -1314,74 +1317,48 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   }
 
   Future<void> _fetchCurrentRoute() async {
+    if (!mounted) return;
     final activity = _activity;
-    final destination = _currentRouteDestination();
-    if (activity == null || destination == null) {
-      if (mounted) {
-        setState(() {
-          _polylines = {};
-          _eta = null;
-        });
-      }
-      return;
-    }
-
-    final origins = <String, LatLng>{..._convoyPositions};
-    if (origins.isEmpty &&
+    final destination = _isTourCompleted() ? null : _currentRouteDestination();
+    if (_convoy.isNotEmpty) _hadConvoyRouteRoster = true;
+    final origins = convoyRouteOrigins(
+      drivers: _convoy,
+      tourStatus: activity?.tourStatus ?? '',
+      positions: _convoyPositions,
+    );
+    // Legacy solo preview only when no assignment roster exists. An arrived
+    // convoy must never reappear through the legacy activity coordinates.
+    if (!_hadConvoyRouteRoster &&
+        _convoy.isEmpty &&
+        activity != null &&
+        const {
+          'driver_accepted', 'driver_en_route', 'picked_up', 'on_tour',
+          'en_route_to_spot', 'en_route_to_dropoff',
+        }.contains(activity.tourStatus) &&
+        activity.driverId.isNotEmpty &&
         activity.driverLatitude != null &&
-        activity.driverLongitude != null) {
-      origins[_selectedDriverId ?? activity.driverId] = LatLng(
+        activity.driverLongitude != null &&
+        validDriverCoordinates(activity.driverLatitude!, activity.driverLongitude!)) {
+      origins[activity.driverId] = LatLng(
         activity.driverLatitude!,
         activity.driverLongitude!,
       );
     }
-    if (origins.isEmpty) return;
-
-    final generation = ++_routeLoadGeneration;
-    final results = await Future.wait(
-      origins.entries.map((entry) async {
-        try {
-          final route = await _routeService.fetchRoute(
-            entry.value,
-            destination,
-          );
-          return (driverId: entry.key, route: route);
-        } catch (error) {
-          debugPrint('[Routes] driver=${entry.key} route failed: $error');
-          return null;
-        }
-      }),
+    await _convoyRoutes.refresh(
+      origins: origins,
+      destination: destination,
+      phase: activity?.tourStatus ?? '',
+      load: (origin, target) => _routeService.fetchRoute(origin, target),
+      onChanged: () {
+        if (!mounted) return;
+        final routes = _convoyRoutes.routes;
+        setState(() {
+          _polylines = buildConvoyRoutePolylines(routes);
+          _eta = routes[_selectedDriverId]?.durationText ??
+              routes.values.firstOrNull?.durationText;
+        });
+      },
     );
-
-    if (!mounted || generation != _routeLoadGeneration) return;
-
-    final lines = <Polyline>{};
-    String? selectedEta;
-    for (final result in results) {
-      if (result == null) continue;
-      final selected = result.driverId == _selectedDriverId;
-      lines.add(
-        Polyline(
-          polylineId: PolylineId('driver_route_${result.driverId}'),
-          points: result.route.points,
-          color: selected ? _primary : const Color(0xFF7C3AED),
-          width: selected ? 6 : 4,
-          geodesic: true,
-          jointType: JointType.round,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          zIndex: selected ? 2 : 1,
-        ),
-      );
-      if (selected || selectedEta == null) {
-        selectedEta = result.route.durationText;
-      }
-    }
-
-    setState(() {
-      _polylines = lines;
-      _eta = selectedEta;
-    });
   }
 
   Future<void> _updateRouteForDriverPosition() async {

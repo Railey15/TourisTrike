@@ -102,12 +102,11 @@ void main() {
   test('tourist and driver maps keep unique markers and routes per driver', () {
     for (final source in [touristTracking, driverTracking]) {
       expect(source, contains('buildBookingDriverMarkers('));
-      expect(
-        source,
-        contains("PolylineId('driver_route_\${result.driverId}')"),
-      );
       expect(source, contains("table: 'driver_live_locations'"));
     }
+    // Geometry behavior is covered in convoy_route_polylines_test.dart.
+    expect(touristTracking, contains('buildConvoyRoutePolylines(routes)'));
+    expect(driverTracking, contains("PolylineId('driver_route_\${result.driverId}')"));
     expect(driverTracking, isNot(contains("MarkerId('convoy_")));
   });
 

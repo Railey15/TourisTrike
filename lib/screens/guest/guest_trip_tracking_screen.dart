@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:touristrike/core/services/booking_driver_markers.dart';
+import 'package:touristrike/core/services/convoy_route_polylines.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -60,9 +61,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   Timer? _refreshTimer;
   bool _refreshing = false;
   bool _accessUnavailable = false;
-  int _routeGeneration = 0;
-  DateTime? _lastRouteAt;
-  String? _lastRouteTarget;
+  final _convoyRoutes = ConvoyRouteState();
 
   @override
   void initState() {
@@ -76,6 +75,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
 
   @override
   void dispose() {
+    _convoyRoutes.clear();
     _refreshTimer?.cancel();
     _mapCtrl?.dispose();
     super.dispose();
@@ -147,7 +147,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       });
       if (updated.isTripEnded) {
         _refreshTimer?.cancel();
-        _routeGeneration++;
+        _convoyRoutes.clear();
         setState(() {
           _polylines = {};
           _eta = null;
@@ -168,7 +168,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
           _eta = null;
         });
       }
-      _routeGeneration++;
+      _convoyRoutes.clear();
     } finally {
       _refreshing = false;
     }
@@ -265,25 +265,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
   // ── Route / polyline ──────────────────────────────────────────────────────
 
   Future<void> _fetchCurrentRoute() async {
-    if (_details.isTripEnded || _accessUnavailable) return;
-    final origins = <String, LatLng>{
-      for (final driver in _details.drivers)
-        if (driver.latitude != null &&
-            driver.longitude != null &&
-            validDriverCoordinates(driver.latitude!, driver.longitude!))
-          driver.driverId: LatLng(driver.latitude!, driver.longitude!),
-    };
-    if (origins.isEmpty) {
-      _routeGeneration++;
-      if (mounted) {
-        setState(() {
-          _polylines = {};
-          _eta = null;
-        });
-      }
-      return;
-    }
-
+    if (!mounted) return;
     LatLng? destination;
     final ts = _details.tourStatus;
 
@@ -312,81 +294,25 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
       if (lat != null && lng != null) destination = LatLng(lat, lng);
     }
 
-    if (destination == null) {
-      _routeGeneration++;
-      if (mounted) {
+    await _convoyRoutes.refresh(
+      origins: convoyRouteOrigins(drivers: _details.drivers, tourStatus: ts),
+      destination: _details.isTripEnded || _accessUnavailable
+          ? null
+          : destination,
+      phase: ts,
+      load: (origin, target) => _routeService.fetchRoute(origin, target),
+      onChanged: () {
+        if (!mounted) return;
+        final routes = _convoyRoutes.routes;
         setState(() {
-          _polylines = {};
-          _eta = null;
+          _polylines = buildConvoyRoutePolylines(routes);
+          _eta =
+              routes[_selectedDriverId]?.durationText ??
+              (routes.length == 1 ? routes.values.single.durationText : null);
         });
-      }
-      return;
-    }
-
-    final target =
-        '${destination.latitude},${destination.longitude}:${_details.tourStatus}:'
-        '${origins.keys.join(',')}:$_selectedDriverId';
-    if (_lastRouteTarget == target &&
-        _lastRouteAt != null &&
-        DateTime.now().difference(_lastRouteAt!) <
-            const Duration(seconds: 30)) {
-      return;
-    }
-    final generation = ++_routeGeneration;
-    _lastRouteTarget = target;
-    _lastRouteAt = DateTime.now();
-    final targetPoint = destination;
-    final results = await Future.wait(
-      origins.entries.map((entry) async {
-        try {
-          final route = await _routeService
-              .fetchRoute(entry.value, targetPoint)
-              .timeout(const Duration(seconds: 20));
-          return (driverId: entry.key, route: route);
-        } catch (_) {
-          debugPrint(
-            '[SharedTrip] Driver route unavailable; map markers retained.',
-          );
-          return null;
-        }
-      }),
+      },
     );
-    if (!mounted ||
-        generation != _routeGeneration ||
-        _details.isTripEnded ||
-        _accessUnavailable) {
-      return;
-    }
-    setState(() {
-      _polylines = {
-        for (final result in results)
-          if (result != null)
-            Polyline(
-              polylineId: PolylineId('driver_route_${result.driverId}'),
-              points: result.route.points,
-              color:
-                  result.driverId == _selectedDriverId ||
-                      _selectedDriverId == null
-                  ? const Color(0xFF2A86FF)
-                  : const Color(0xFF7C3AED),
-              width: 5,
-              geodesic: true,
-              jointType: JointType.round,
-              startCap: Cap.roundCap,
-              endCap: Cap.roundCap,
-            ),
-      };
-      _eta = null;
-      for (final result in results) {
-        if (result != null &&
-            (result.driverId == _selectedDriverId || origins.length == 1)) {
-          _eta = result.route.durationText;
-        }
-      }
-    });
   }
-
-  // ── Camera ────────────────────────────────────────────────────────────────
 
   void _animateCameraToRelevant() {
     if (_mapCtrl == null) return;

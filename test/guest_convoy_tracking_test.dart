@@ -237,6 +237,10 @@ void main() {
             .where((m) => m.markerId.value.startsWith('driver_'))
             .toSet();
         expect(drivers(), hasLength(count));
+        // The fixture's two initial straight routes share the same road.
+        Set<Polyline> polylines() =>
+            tester.widget<GoogleMap>(find.byType(GoogleMap)).polylines;
+        expect(polylines(), hasLength(1));
         expect(drivers().map((m) => m.markerId.value).toSet(), {
           for (var i = 0; i < count; i++) 'driver_d$i',
         });
@@ -263,6 +267,27 @@ void main() {
               .latitude,
           15.05,
         );
+        expect(
+          polylines(),
+          hasLength(count),
+        ); // GPS now creates distinct approaches.
+        final routeCallsBeforeArrival = routes.origins.length;
+        rows[0]['journey_state'] = 'at_pickup';
+        payload['tour_status'] = 'driver_arrived';
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+        expect(
+          drivers(),
+          hasLength(count),
+        ); // Arrival never merges/removes markers.
+        expect(polylines(), hasLength(count - 1));
+        expect(
+          polylines().any(
+            (p) => p.polylineId.value.startsWith('driver_route_d0_'),
+          ),
+          false,
+        );
+        expect(routes.origins.length, routeCallsBeforeArrival);
         if (count == 2) {
           expect(
             drivers()
@@ -277,6 +302,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('Drivers (2)'), findsOneWidget);
           expect(drivers(), hasLength(1));
+          expect(polylines(), isEmpty);
         }
         expect(repository.refreshes, greaterThan(0));
         // There is no guest write endpoint behind map/roster selection.
