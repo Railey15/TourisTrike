@@ -40,7 +40,7 @@ void main() {
     // Arrival now consumes validated stream/recovery fixes instead of the
     // removed manual-arrival proximity helper.
     expect(driverTracking, contains('StableArrivalDetector.isUsableFix('));
-    expect(driverTracking, contains('automaticArrival: true'));
+    expect(driverTracking, contains('_repo.observeDriverJourneyLocation('));
   });
 
   test('all participants use validated realtime location rows', () {

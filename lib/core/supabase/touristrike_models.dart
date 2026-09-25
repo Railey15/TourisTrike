@@ -974,6 +974,10 @@ class PackageActivity extends TourisTrikeRow {
       return 'assignment_completed';
     }
 
+    if (bookingRow?['tracking_interrupted_at'] != null) {
+      return 'interrupted';
+    }
+
     // A booking_drivers row is the authoritative ownership record for a
     // convoy driver. In particular, the first accepted driver remains active
     // while the booking itself is still waiting for the remaining slots.

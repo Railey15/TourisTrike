@@ -177,7 +177,7 @@ void main() {
       'lib/screens/driver/driver_package_tracking_screen.dart',
     ).readAsStringSync();
     for (final name in [
-      '_detectAutomaticArrival(Position position)',
+      '_evaluateAutomaticJourney(Position position)',
       '_recoverGpsFix()',
     ]) {
       final start = source.indexOf('Future<void> $name');
@@ -187,6 +187,6 @@ void main() {
         isNot(contains('_bypassTransactionValidation')),
       );
     }
-    expect(source, contains('automaticArrival: true'));
+    expect(source, contains('_repo.observeDriverJourneyLocation('));
   });
 }

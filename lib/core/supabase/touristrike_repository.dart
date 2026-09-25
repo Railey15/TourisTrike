@@ -1558,7 +1558,7 @@ class TourisTrikeRepository {
           '  pickup_address, pickup_latitude, pickup_longitude, '
           '  dropoff_address, dropoff_latitude, dropoff_longitude, '
           '  total_amount, downpayment_amount, remaining_balance, '
-          '  payment_method, assigned_driver_id, status, booking_status, '
+          '  payment_method, assigned_driver_id, status, booking_status, tracking_interrupted_at, '
           '  current_spot_index, driver_latitude, driver_longitude, '
           '  accepted_at, arrived_at, picked_up_at, completed_at, '
           '  municipality, province, total_passengers, notes, '
@@ -1709,7 +1709,7 @@ class TourisTrikeRepository {
           '  pickup_address, pickup_latitude, pickup_longitude, '
           '  dropoff_address, dropoff_latitude, dropoff_longitude, '
           '  total_amount, downpayment_amount, remaining_balance, '
-          '  payment_method, assigned_driver_id, status, booking_status, '
+          '  payment_method, assigned_driver_id, status, booking_status, tracking_interrupted_at, '
           '  current_spot_index, driver_latitude, driver_longitude, '
           '  accepted_at, arrived_at, picked_up_at, completed_at, '
           '  municipality, province, total_passengers, notes'
@@ -2602,6 +2602,54 @@ class TourisTrikeRepository {
     }
     return result.toDouble();
   }
+
+  Future<Json> fetchTourTrackingStatus(String bookingId) async => Json.from(
+    await _client.rpc(
+          'get_tour_tracking_status',
+          params: {'p_booking_id': bookingId},
+        )
+        as Map,
+  );
+
+  Future<Json> observeDriverJourneyLocation({
+    required String bookingId,
+    required double latitude,
+    required double longitude,
+    required double accuracyMeters,
+    required double speedMps,
+    required DateTime sampledAt,
+  }) async => Json.from(
+    await _client.rpc(
+          'observe_driver_journey_location',
+          params: {
+            'p_booking_id': bookingId,
+            'p_latitude': latitude,
+            'p_longitude': longitude,
+            'p_accuracy_meters': accuracyMeters,
+            'p_speed_mps': speedMps,
+            'p_sampled_at': sampledAt.toUtc().toIso8601String(),
+          },
+        )
+        as Map,
+  );
+
+  Future<Json> recoverDriverJourney({
+    required String bookingId,
+    required ConvoyJourneyState expectedState,
+    required int stopIndex,
+    required String reason,
+  }) async => Json.from(
+    await _client.rpc(
+          'recover_driver_journey',
+          params: {
+            'p_booking_id': bookingId,
+            'p_expected_state': expectedState.dbValue,
+            'p_stop_index': stopIndex,
+            'p_reason': reason,
+          },
+        )
+        as Map,
+  );
 
   Future<Map<String, dynamic>> advanceDriverJourneyState({
     required String bookingId,

@@ -793,7 +793,9 @@ class _DriverActivityCard extends StatelessWidget {
                     _DriverActivityLine(
                       icon: Icons.timeline_rounded,
                       label: 'Progress',
-                      value: _titleCase(bookingStatus.replaceAll('_', ' ')),
+                      value: activity.lifecycleStatus == 'interrupted'
+                          ? 'Tracking interrupted — tap to resume'
+                          : _titleCase(bookingStatus.replaceAll('_', ' ')),
                     ),
 
                     if (_isActive) ...[
@@ -1071,6 +1073,13 @@ class _DriverStatusChip extends StatelessWidget {
         const Color(0xFF0284C7),
         const Color(0xFFEAF8FF),
         Icons.route_outlined,
+      ),
+
+      'interrupted' => (
+        'Interrupted',
+        const Color(0xFFB45309),
+        const Color(0xFFFFFBEB),
+        Icons.pause_circle_outline,
       ),
 
       'completed' => (

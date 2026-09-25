@@ -1,4 +1,5 @@
 import '../../core/services/booking_driver_markers.dart';
+import '../../core/models/tour_tracking_status.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
 import 'package:touristrike/core/services/stable_arrival_detector.dart';
@@ -68,7 +69,8 @@ class DriverPackageTrackingScreen extends StatefulWidget {
 }
 
 class _DriverPackageTrackingScreenState
-    extends State<DriverPackageTrackingScreen> {
+    extends State<DriverPackageTrackingScreen>
+    with WidgetsBindingObserver {
   // =========================================================================
   // CONVOY STATE
   // =========================================================================
@@ -85,7 +87,7 @@ class _DriverPackageTrackingScreenState
 
   Timer? _convoyPollTimer;
   Timer? _convoyTicker;
-  late StableArrivalDetector _arrivalDetector;
+  TourTrackingStatus _trackingStatus = const TourTrackingStatus({});
   Timer? _journeyTicker;
   Timer? _gpsRecoveryTimer;
   bool _gpsRecoveryBusy = false;
@@ -93,9 +95,6 @@ class _DriverPackageTrackingScreenState
   String? _gpsIssue;
   DateTime? _gpsMonitoringStartedAt;
   DateTime? _lastUsableGpsAt;
-  final Set<String> _confirmedArrivalKeys = {};
-  DateTime? _lastAutomaticAttempt;
-  String? _lastAutomaticKey;
 
   int _convoyConsecutiveFailures = 0;
   int _convoyLoadGeneration = 0;
@@ -384,6 +383,7 @@ class _DriverPackageTrackingScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     DeveloperSettings.instance.addListener(_onDeveloperSettingsChanged);
     _initCustomMarkers();
@@ -391,12 +391,14 @@ class _DriverPackageTrackingScreenState
     _journeyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _isBookingClosed) return;
       setState(() {});
-      unawaited(_progressReadyJourney());
     });
-    _gpsRecoveryTimer = Timer.periodic(
-      const Duration(seconds: 8),
-      (_) => _recoverGpsFix(),
-    );
+    _gpsRecoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_lastUsableGpsAt == null ||
+          DateTime.now().difference(_lastUsableGpsAt!) >
+              const Duration(seconds: 20)) {
+        unawaited(_recoverGpsFix());
+      }
+    });
   }
 
   void _onDeveloperSettingsChanged() {
@@ -426,6 +428,7 @@ class _DriverPackageTrackingScreenState
     _markerMotion.dispose();
     _mapCtrl?.dispose();
 
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -486,7 +489,9 @@ class _DriverPackageTrackingScreenState
         _repo.fetchDriverArrivalRadiusMeters(),
       ]);
       _proximityMeters = results[2] as double;
-      _arrivalDetector = StableArrivalDetector(radiusMeters: _proximityMeters);
+      _trackingStatus = TourTrackingStatus(
+        await _repo.fetchTourTrackingStatus(bookingId),
+      );
 
       var serverTestModeEnabled = false;
       if (kDebugMode) {
@@ -1114,7 +1119,7 @@ class _DriverPackageTrackingScreenState
           return;
         }
 
-        if (!_acceptGpsFix(position)) return;
+        final usable = _acceptGpsFix(position);
 
         final now = DateTime.now();
         final mayUpload =
@@ -1123,6 +1128,7 @@ class _DriverPackageTrackingScreenState
                 now.difference(_lastDriverLocationUploadAt!) >=
                     const Duration(seconds: 3));
         if (!mayUpload) {
+          if (!usable) return;
           _buildMarkers();
           if (_isFollowingDriver) {
             _animateCameraFollowing(
@@ -1136,6 +1142,10 @@ class _DriverPackageTrackingScreenState
         _lastDriverLocationUploadAt = now;
 
         try {
+          if (!usable) {
+            await _evaluateAutomaticJourney(position);
+            return;
+          }
           // Each driver always writes to their own live-location row.
           await _repo.upsertDriverLiveLocation(
             activityId: widget.activityId,
@@ -1145,7 +1155,7 @@ class _DriverPackageTrackingScreenState
             speed: position.speed,
           );
 
-          await _detectAutomaticArrival(position);
+          await _evaluateAutomaticJourney(position);
 
           if (!mounted || !_shouldShareDriverLocation) return;
 
@@ -1247,76 +1257,72 @@ class _DriverPackageTrackingScreenState
     );
   }
 
-  Future<void> _detectAutomaticArrival(Position position) async {
-    final target = _arrivalTarget;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_loading) {
+      unawaited(_resumeAutomaticTracking());
+    }
+  }
+
+  Future<void> _resumeAutomaticTracking() async {
+    if (!mounted || _bookingId.isEmpty) return;
+    try {
+      final status = await _repo.fetchTourTrackingStatus(_bookingId);
+      if (!mounted) return;
+      setState(() => _trackingStatus = TourTrackingStatus(status));
+      await Future.wait([
+        _loadConvoy(),
+        _refreshTrackingState(logTag: 'tracking-resumed'),
+      ]);
+      await _startGpsStreaming();
+      await _recoverGpsFix();
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () =>
+              _gpsIssue = 'Unable to resume tracking. Check GPS and internet.',
+        );
+      }
+    }
+  }
+
+  Future<void> _evaluateAutomaticJourney(Position position) async {
     if (!_shouldShareDriverLocation ||
-        target == null ||
         _automaticTransitionBusy ||
         _actionBusy) {
       return;
     }
-    final key =
-        '$_bookingId:${target.state.dbValue}:${_myConvoyStatus?.currentStopIndex}';
-    if (_confirmedArrivalKeys.contains(key)) return;
-    final stable = _arrivalDetector.observe(
-      target: key,
-      distanceMeters: _haversineMeters(
-        position.latitude,
-        position.longitude,
-        target.point.latitude,
-        target.point.longitude,
-      ),
-      accuracyMeters: position.accuracy,
-      sampledAt: position.timestamp,
-      now: DateTime.now(),
-    );
-    if (!stable || !_canAttemptAutomatic(key)) return;
     _automaticTransitionBusy = true;
     try {
-      final result = await _repo.advanceDriverJourneyState(
-        bookingId: _bookingId,
-        targetState: target.state,
-        automaticArrival: true,
+      final result = TourTrackingStatus(
+        await _repo.observeDriverJourneyLocation(
+          bookingId: _bookingId,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracyMeters: position.accuracy,
+          speedMps: position.speed,
+          sampledAt: position.timestamp,
+        ),
       );
-      _confirmedArrivalKeys.add(key);
-      _arrivalDetector.reset();
-      if (mounted) {
-        if (result['no_op'] != true) {
-          _showSnack(switch (target.state) {
-            ConvoyJourneyState.atPickup =>
-              "You've arrived at the tourist pickup point.",
-            ConvoyJourneyState.atStop =>
-              'Arrived at ${_currentItineraryItem?.destinationName ?? 'tour stop'}. Stay timer started.',
-            _ => 'Arrived at drop-off location.',
-          });
-        }
+      if (!mounted) return;
+      setState(() => _trackingStatus = result);
+      if (result.changed) {
         await Future.wait([
           _loadConvoy(),
-          _refreshTrackingState(logTag: 'gps-arrival'),
+          _refreshTrackingState(logTag: 'gps-progression'),
         ]);
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(
           () => _gpsIssue =
-              'Unable to verify arrival automatically. Retry or use the arrival fallback.',
+              'Automatic tracking could not sync. Check GPS and internet; progress is preserved.',
         );
       }
+      debugPrint('[DriverTracking:automatic] $error');
     } finally {
       _automaticTransitionBusy = false;
     }
-  }
-
-  bool _canAttemptAutomatic(String key) {
-    final now = DateTime.now();
-    if (_lastAutomaticKey == key &&
-        _lastAutomaticAttempt != null &&
-        now.difference(_lastAutomaticAttempt!) < const Duration(seconds: 10)) {
-      return false;
-    }
-    _lastAutomaticKey = key;
-    _lastAutomaticAttempt = now;
-    return true;
   }
 
   Future<void> _recoverGpsFix() async {
@@ -1387,7 +1393,7 @@ class _DriverPackageTrackingScreenState
         _liveMarkerHeadings[myId] = position.heading;
       }
       _buildMarkers();
-      await _detectAutomaticArrival(position);
+      await _evaluateAutomaticJourney(position);
     } catch (_) {
       if (mounted) {
         setState(
@@ -1413,24 +1419,11 @@ class _DriverPackageTrackingScreenState
       sampledAt: position.timestamp,
       now: now,
     )) {
-      _arrivalDetector.reset();
       return false;
     }
     _currentPosition = position;
     _lastUsableGpsAt = position.timestamp;
     _gpsIssue = null;
-    // Even an update skipped by upload throttling must break a noisy streak.
-    final target = _arrivalTarget;
-    if (target != null &&
-        _haversineMeters(
-              position.latitude,
-              position.longitude,
-              target.point.latitude,
-              target.point.longitude,
-            ) >
-            _proximityMeters) {
-      _arrivalDetector.reset();
-    }
     return true;
   }
 
@@ -1444,78 +1437,20 @@ class _DriverPackageTrackingScreenState
     return null;
   }
 
-  Duration get _stayRemaining {
+  Future<void> _manualJourneyRecovery() async {
     final me = _myConvoyStatus;
-    if (me == null ||
-        me.journeyState != ConvoyJourneyState.atStop ||
-        (me.currentStopIndex < 0 || me.currentStopIndex >= _spots.length)) {
-      return Duration.zero;
-    }
-    return remainingStopStay(
-      arrivedAt: me.stateUpdatedAt,
-      stayMinutes: _spots[me.currentStopIndex].estimatedStayDurationMinutes,
-      now: DateTime.now(),
-    );
-  }
-
-  Future<void> _progressReadyJourney() async {
-    final me = _myConvoyStatus;
-    if (me == null ||
-        _actionBusy ||
-        _automaticTransitionBusy ||
-        _loading ||
-        !const {
-          ConvoyJourneyState.boarded,
-          ConvoyJourneyState.stopDone,
-        }.contains(me.journeyState)) {
-      return;
-    }
-    final request = _stageProgressRequestFor(me);
-    if (_convoyProgress?.matches(request.stage, request.stopIndex) != true ||
-        _convoyProgress?.allSatisfied != true ||
-        _serverGateNotice != null) {
-      return;
-    }
-    if (me.journeyState == ConvoyJourneyState.stopDone &&
-        !_allItineraryItemsCompleted &&
-        me.currentStopIndex >= _spots.length - 1) {
-      return;
-    }
-    final key = 'depart:${me.journeyState.dbValue}:${me.currentStopIndex}';
-    if (!_canAttemptAutomatic(key)) return;
-    _automaticTransitionBusy = true;
-    try {
-      if (me.journeyState == ConvoyJourneyState.boarded) {
-        await _departPickup();
-      } else {
-        await _departStop();
-      }
-    } finally {
-      _automaticTransitionBusy = false;
-    }
-  }
-
-  Future<void> _manualArrivalFallback() async {
-    if (_actionBusy ||
-        _automaticTransitionBusy ||
-        _arrivalTarget == null ||
-        _arrivalGpsFailure == null) {
-      return;
-    }
-    final requestedTarget = _arrivalTarget;
-    final requestedStopIndex = _myConvoyStatus?.currentStopIndex;
+    if (me == null || _actionBusy || _automaticTransitionBusy) return;
     final controller = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirm arrival fallback'),
+        title: const Text('Manual tour recovery'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'Use this only when you are at the destination and automatic GPS detection failed. The server checks a recent driver or tourist location. An internet connection is required.',
+              'Use only if automatic tracking failed. Confirm the current arrival, departure, or final drop-off actually happened. The server preserves location, stay, convoy and payment checks and records your reason.',
             ),
-            const SizedBox(height: 12),
             TextField(
               controller: controller,
               maxLength: 500,
@@ -1536,56 +1471,50 @@ class _DriverPackageTrackingScreenState
                 Navigator.pop(dialogContext, controller.text.trim());
               }
             },
-            child: const Text('Confirm arrival'),
+            child: const Text('Confirm recovery'),
           ),
         ],
       ),
     );
-    // The dialog's text field is disposed after its closing animation.
     await Future<void>.delayed(const Duration(milliseconds: 250));
     controller.dispose();
-    if (!mounted ||
-        reason == null ||
-        _arrivalGpsFailure == null ||
-        _arrivalTarget != requestedTarget ||
-        _myConvoyStatus?.currentStopIndex != requestedStopIndex) {
-      return;
-    }
+    if (!mounted || reason == null) return;
     await _doAction(() async {
-      await _repo.confirmDriverArrivalFallback(_bookingId, reason);
+      final recovered = await _repo.recoverDriverJourney(
+        bookingId: _bookingId,
+        expectedState: me.journeyState,
+        stopIndex: me.currentStopIndex,
+        reason: reason,
+      );
       await Future.wait([
         _loadConvoy(),
-        _refreshTrackingState(logTag: 'manual-arrival-fallback'),
+        _refreshTrackingState(logTag: 'manual-recovery'),
       ]);
-      _showSnack('Arrival confirmed.');
+      if (!mounted) return;
+      setState(() => _trackingStatus = TourTrackingStatus(recovered));
     });
   }
 
   Widget _buildJourneyAutomationNotice() {
     final me = _myConvoyStatus;
     if (me == null) return const SizedBox.shrink();
-    final target = _arrivalTarget;
-    final stay = _stayRemaining;
     final gpsFailure = _arrivalGpsFailure;
-    final message = target != null
-        ? gpsFailure != null
-              ? 'Unable to verify arrival automatically.\n$gpsFailure'
-              : '${switch (me.journeyState) {
-                  ConvoyJourneyState.enRoutePickup => 'Heading to pickup',
-                  ConvoyJourneyState.enRouteStop => 'Heading to ${_currentItineraryItem?.destinationName ?? 'tour stop'}',
-                  _ => 'Heading to drop-off',
-                }}\nArrival will be detected automatically by GPS within ${_proximityMeters.toInt()} m.'
-        : me.journeyState == ConvoyJourneyState.atStop &&
-              me.currentStopIndex >= 0 &&
-              me.currentStopIndex < _spots.length
-        ? 'Arrived ${DateFormat('h:mm a').format(me.stateUpdatedAt.toLocal())} · Time of Stay: ${_spots[me.currentStopIndex].estimatedStayDurationMinutes} min\n'
-              'Expected departure: ${DateFormat('h:mm a').format(me.stateUpdatedAt.toLocal().add(Duration(minutes: _spots[me.currentStopIndex].estimatedStayDurationMinutes)))}\n'
-              '${stay > Duration.zero ? '${stay.inMinutes}:${(stay.inSeconds % 60).toString().padLeft(2, '0')} remaining' : 'Stay complete. Confirm when your passengers are ready.'}'
-        : me.journeyState == ConvoyJourneyState.boarded
-        ? 'Tourist picked up. Navigation starts when the convoy is ready.'
-        : me.journeyState == ConvoyJourneyState.stopDone
-        ? 'You are ready. Waiting for convoy readiness and any required payment.'
-        : me.journeyState.label;
+    final message = [
+      _trackingStatus.label,
+      ?gpsFailure,
+      'Arrival zone: ${_proximityMeters.toInt()} m; departure zone: ${(_proximityMeters + 100).toInt()} m. Accurate, sustained readings are required.',
+      if (me.journeyState == ConvoyJourneyState.atStop)
+        'Stop in progress. Planned stay is shown in the itinerary; actual departure is detected from GPS.',
+      'Keep precise location enabled. Progress resumes from this stop after reconnecting.',
+    ].join('\n');
+    final canRecover = const {
+      ConvoyJourneyState.enRoutePickup,
+      ConvoyJourneyState.atPickup,
+      ConvoyJourneyState.enRouteStop,
+      ConvoyJourneyState.atStop,
+      ConvoyJourneyState.enRouteDropoff,
+      ConvoyJourneyState.atDropoff,
+    }.contains(me.journeyState);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1593,7 +1522,14 @@ class _DriverPackageTrackingScreenState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(message),
-            if (target != null && gpsFailure != null)
+            if (canRecover)
+              TextButton(
+                onPressed: _actionBusy || _automaticTransitionBusy
+                    ? null
+                    : _manualJourneyRecovery,
+                child: const Text('Manual recovery (audited)'),
+              ),
+            if (gpsFailure != null || _trackingStatus.interrupted)
               Wrap(
                 children: [
                   TextButton(
@@ -1602,12 +1538,6 @@ class _DriverPackageTrackingScreenState
                       await _recoverGpsFix();
                     },
                     child: const Text('Retry GPS'),
-                  ),
-                  TextButton(
-                    onPressed: _actionBusy || _automaticTransitionBusy
-                        ? null
-                        : _manualArrivalFallback,
-                    child: const Text('Verify Arrival Manually'),
                   ),
                 ],
               ),
@@ -2303,220 +2233,6 @@ class _DriverPackageTrackingScreenState
     _showSnack('Status: En route to pickup.');
   });
 
-  Future<void> _markBoarded() => _doAction(() async {
-    // Arrival was already verified by the server. Boarding is a human
-    // confirmation and must also work after an approved GPS fallback.
-    final advanced = await _advanceConvoyStateCore(ConvoyJourneyState.boarded);
-
-    if (!advanced) return;
-
-    _logStatus('boarded');
-
-    final blockers = _myConvoyStatus == null
-        ? const <ConvoyDriverSnapshot>[]
-        : _blockingDriversFor(_myConvoyStatus!);
-
-    _showSnack(
-      blockers.isEmpty
-          ? 'Passengers boarded. The convoy is ready to depart.'
-          : 'Passengers boarded. Waiting for the rest of the convoy.',
-    );
-  });
-
-  Future<void> _departPickup() => _doAction(() async {
-    final target = _spots.isEmpty
-        ? ConvoyJourneyState.enRouteDropoff
-        : ConvoyJourneyState.enRouteStop;
-
-    final advanced = await _advanceConvoyStateCore(target);
-    if (!advanced) return;
-
-    final firstItem = _spots.isEmpty ? null : _spots.first;
-
-    if (_bookingId.isNotEmpty && firstItem != null) {
-      await _repo.markSpotTravelling(
-        bookingId: _bookingId,
-        itineraryItemId: firstItem.id.toString(),
-      );
-    }
-
-    _logStatus(_spots.isEmpty ? 'en_route_to_dropoff' : 'picked_up');
-
-    _showSnack(
-      _spots.isEmpty
-          ? 'Convoy departing pickup for drop-off.'
-          : 'Convoy departing pickup for the first tour stop.',
-    );
-  });
-
-  Future<void> _markStopDone() => _doAction(() async {
-    final currentItem = _currentItineraryItem;
-    if (currentItem == null) {
-      await Future.wait([
-        _loadConvoy(),
-        _refreshTrackingState(logTag: 'spot-already-completed'),
-      ]);
-      _showSnack(
-        'This shared stop was already completed. Convoy progress is now synchronized.',
-      );
-      return;
-    }
-
-    final spotName = currentItem.destinationName;
-    final itemId = currentItem.id?.toString() ?? '';
-
-    if (itemId.isEmpty || itemId == 'null') {
-      _showSnack(
-        'Cannot complete spot: item ID is missing. Try refreshing.',
-        error: true,
-      );
-      await _refreshTrackingState(logTag: 'spot-complete-no-id');
-      return;
-    }
-
-    late final Map<String, dynamic> rpcResult;
-    try {
-      rpcResult = await _repo.completeCurrentItineraryItem(
-        widget.activityId,
-        bookingId: _bookingId,
-        itineraryItemId: itemId,
-      );
-    } on PostgrestException catch (error) {
-      await _refreshTrackingState(logTag: 'spot-complete-error');
-      if (error.message.contains('BARRIER_NOT_MET')) {
-        _showSnack('Waiting for every convoy driver to arrive at this stop.');
-      } else if (error.message.contains('STALE_ITINERARY_STOP')) {
-        _showSnack('The shared stop already advanced. Progress synchronized.');
-      } else {
-        _showSnack(
-          'Unable to complete this stop: ${error.message}',
-          error: true,
-        );
-      }
-      return;
-    }
-
-    _debugTourState('spot-complete-rpc', rpcResult: rpcResult);
-
-    await Future.wait([
-      _loadConvoy(),
-      _refreshTrackingState(logTag: 'shared-stop-completed'),
-    ]);
-
-    if (rpcResult['driver_ready'] == true) {
-      _showSnack(
-        'Your passengers are ready. Waiting for the rest of the convoy.',
-      );
-      return;
-    }
-    final completedNow = (rpcResult['completed_items'] as num?)?.toInt() ?? 0;
-    final rpcTotal =
-        (rpcResult['total_items'] as num?)?.toInt() ?? _spots.length;
-    final allCompletedNow = completedNow >= rpcTotal && rpcTotal > 0;
-    final alreadyCompleted = rpcResult['already_completed'] == true;
-
-    if (allCompletedNow) {
-      _showSnack(
-        alreadyCompleted
-            ? 'The final shared stop was already complete. Convoy progress synchronized.'
-            : rpcResult['awaiting_remaining_payment'] == true
-            ? 'All $rpcTotal spots are complete. Waiting for remaining payment before drop-off.'
-            : 'All $rpcTotal spots are complete. The convoy may continue to drop-off.',
-      );
-    } else {
-      final nextItem = _spots
-          .where((spot) => spot.spotStatus.trim().toLowerCase() != 'completed')
-          .firstOrNull;
-
-      _showSnack(
-        '${alreadyCompleted ? '$spotName was already completed.' : '$spotName completed.'} '
-        '$completedNow of $rpcTotal spots done.'
-        '${nextItem != null ? ' Next: ${nextItem.destinationName}' : ''} '
-        'Convoy progress synchronized.',
-      );
-    }
-  });
-
-  Future<void> _departStop() => _doAction(() async {
-    final hasMoreStops = !_allItineraryItemsCompleted;
-
-    final target = hasMoreStops
-        ? ConvoyJourneyState.enRouteStop
-        : ConvoyJourneyState.enRouteDropoff;
-
-    final advanced = await _advanceConvoyStateCore(target);
-    if (!advanced) return;
-
-    final nextItem = _currentItineraryItem;
-
-    if (_bookingId.isNotEmpty && hasMoreStops && nextItem != null) {
-      await _repo.markSpotTravelling(
-        bookingId: _bookingId,
-        itineraryItemId: nextItem.id.toString(),
-      );
-    }
-
-    _logStatus(hasMoreStops ? 'en_route_to_spot' : 'en_route_to_dropoff');
-
-    _showSnack(
-      hasMoreStops
-          ? 'Convoy departing to the next stop.'
-          : 'Convoy departing to drop-off.',
-    );
-  });
-
-  Future<void> _completeTour() => _doAction(() async {
-    if (!_bypassTransactionValidation && !_hasConfirmedRemainingBalance) {
-      _showSnack(
-        'Confirm the remaining balance before completing the tour.',
-        error: true,
-      );
-      return;
-    }
-    if (!_allItineraryItemsCompleted) {
-      _showSnack(
-        'Complete all itinerary spots before finishing the tour.',
-        error: true,
-      );
-      return;
-    }
-
-    final advanced = await _advanceConvoyStateCore(
-      ConvoyJourneyState.completed,
-    );
-    if (!advanced) return;
-
-    try {
-      final completion = await _repo.completePackageActivity(
-        widget.activityId,
-        bookingId: _bookingId,
-      );
-      if (completion['overall_completed'] != true) {
-        await _refreshTrackingState(logTag: 'convoy-completion-pending');
-        _showSnack(
-          completion['awaiting_final_payment'] == true
-              ? 'Assignment completed. The tour is finished and awaiting final payment.'
-              : 'Assignment completed. Waiting for the rest of the convoy.',
-        );
-        return;
-      }
-    } on PostgrestException catch (e) {
-      if (e.message.contains('REMAINING_BALANCE_UNPAID') ||
-          e.message.contains('REMAINING_BALANCE_NOT_CONFIRMED')) {
-        _showSnack(
-          'Confirm the remaining balance payment before completing the tour.',
-          error: true,
-        );
-        return;
-      }
-      rethrow;
-    }
-
-    await _refreshTrackingState(logTag: 'complete-tour');
-    _logStatus('completed');
-    _showSnack('Tour completed successfully.');
-  });
-
   // =========================================================================
   // PAYMENTS
   // =========================================================================
@@ -2936,65 +2652,16 @@ class _DriverPackageTrackingScreenState
       return null;
     }
 
-    switch (me.journeyState) {
-      case ConvoyJourneyState.assigned:
-        return _PrimaryTourAction(
-          label: _testActionLabel('Start Navigation to Pickup'),
-          description: 'Begin heading to the tourist pickup location.',
-          icon: Icons.navigation_rounded,
-          onTap: _markEnRoutePickup,
-        );
-
-      case ConvoyJourneyState.enRoutePickup:
-        return null;
-
-      case ConvoyJourneyState.atPickup:
-        return _PrimaryTourAction(
-          label: _testActionLabel('Tourist Picked Up'),
-          description: 'Confirm that your assigned passengers are onboard.',
-          icon: Icons.groups_rounded,
-          onTap: _markBoarded,
-        );
-
-      case ConvoyJourneyState.boarded:
-        return null;
-
-      case ConvoyJourneyState.enRouteStop:
-        return null;
-
-      case ConvoyJourneyState.atStop:
-        if (!_bypassTransactionValidation && _stayRemaining > Duration.zero) {
-          return null;
-        }
-        return _PrimaryTourAction(
-          label: _testActionLabel(
-            me.currentStopIndex >= _spots.length - 1
-                ? 'Finish Tour Stops'
-                : 'Proceed to Next Stop',
-          ),
-          description:
-              'Confirm your passengers are ready. Departure waits for the convoy.',
-          icon: Icons.route_rounded,
-          onTap: _markStopDone,
-        );
-
-      case ConvoyJourneyState.stopDone:
-        return null;
-
-      case ConvoyJourneyState.enRouteDropoff:
-        return null;
-
-      case ConvoyJourneyState.atDropoff:
-        return _PrimaryTourAction(
-          label: _testActionLabel('Tourist Dropped Off'),
-          description: 'Confirm your assigned passengers have safely alighted.',
-          icon: Icons.task_alt_rounded,
-          onTap: _completeTour,
-        );
-
-      case ConvoyJourneyState.completed:
-        return null;
+    if (me.journeyState == ConvoyJourneyState.assigned) {
+      return _PrimaryTourAction(
+        label: _testActionLabel('Start Navigation to Pickup'),
+        description:
+            'Begin the tour. Arrivals and departures are detected automatically.',
+        icon: Icons.navigation_rounded,
+        onTap: _markEnRoutePickup,
+      );
     }
+    return null;
   }
 
   // =========================================================================

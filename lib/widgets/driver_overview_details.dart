@@ -39,7 +39,11 @@ class DriverOverviewDetails extends StatelessWidget {
                 ),
                 subtitle: Text(
                   [
-                    dbString(assignment['journey_state']).replaceAll('_', ' '),
+                    assignment['tracking_interrupted_at'] != null
+                        ? 'Interrupted — tap to resume tracking'
+                        : dbString(
+                            assignment['journey_state'],
+                          ).replaceAll('_', ' '),
                     if (dbDate(assignment['scheduled_start_at'])
                         case final start?)
                       DateFormat('MMM d, h:mm a').format(start.toLocal()),
@@ -73,6 +77,10 @@ class DriverOverviewDetails extends StatelessWidget {
           Text(
             '${dbInt(data['active_trips'])} active · ${dbInt(data['upcoming_trips'])} upcoming',
           ),
+          if (dbInt(data['interrupted_trips']) > 0)
+            Text(
+              '${dbInt(data['interrupted_trips'])} interrupted — recovery needed',
+            ),
           const SizedBox(height: 8),
           Text(
             '${dbInt(data['review_count'])} driver reviews',
