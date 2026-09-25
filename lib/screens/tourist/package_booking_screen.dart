@@ -8,6 +8,7 @@ import 'package:touristrike/widgets/booking_review_sheet.dart';
 import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 
 import 'package:touristrike/core/places/booking_location_service.dart';
+import 'package:touristrike/core/places/booking_service_area.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_places_errors.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
@@ -54,6 +55,7 @@ class PackageBookingScreen extends StatefulWidget {
 }
 
 class _PackageBookingScreenState extends State<PackageBookingScreen> {
+  BookingServiceArea? _serviceArea;
   static const double _additionalSpotFee = 250;
 
   static const int _tourStartMinutes = 7 * 60;
@@ -152,6 +154,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   void didUpdateWidget(covariant PackageBookingScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.packageId == widget.packageId) return;
+    _serviceArea = null;
 
     // A different package starts a new draft. Ordinary parent rebuilds retain
     // the existing draft, picker State objects, and in-flight search requests.
@@ -191,6 +194,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     final revision = ++_packageLoadRevision;
     final data = await _loadPackage();
     if (mounted && revision == _packageLoadRevision) {
+      _serviceArea = data.serviceArea;
       // Runs on Future completion, before FutureBuilder receives the data;
       // initialization and its synchronous schedule updates never run in build.
       _initializeSpotSelection(data);
@@ -212,12 +216,21 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       throw StateError('Package not found.');
     }
 
-    final province = dbString(package.row['province'], fallback: 'Bulacan');
+    final serviceArea = await BookingServiceArea.forPackage(package.id);
+    final province = serviceArea.province;
 
     final packageSpotsFuture = _repo.fetchPackageSpots(package.id);
 
     final suggestionFuture = _spotSuggestionService
-        .fetchSuggestions(city: package.city, province: province, limit: 20)
+        .fetchSuggestions(
+          city: package.city,
+          province: province,
+          center: LatLng(
+            serviceArea.centerLatitude,
+            serviceArea.centerLongitude,
+          ),
+          limit: 20,
+        )
         .catchError((_) => const <CitySpotSuggestion>[]);
 
     final packageSpots = await packageSpotsFuture;
@@ -225,13 +238,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     var suggestions = await suggestionFuture;
 
     suggestions = suggestions
-        .where((spot) => _sameMunicipality(spot.city, package!.city))
+        .where((spot) => serviceArea.contains(spot.latitude, spot.longitude))
         .toList(growable: false);
 
     return _BookingScreenData(
       package: package,
       packageSpots: packageSpots,
       googleSuggestions: suggestions,
+      serviceArea: serviceArea,
     );
   }
 
@@ -382,10 +396,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   String _packageProvince(TourPackage package) {
-    return dbString(package.row['province'], fallback: 'Bulacan');
+    return _serviceArea?.province ?? '';
   }
 
   String? _locationBlockingMessage(TourPackage package) {
+    final area = _serviceArea;
+    if (area == null) {
+      return 'The service area for this package could not be verified. Please retry.';
+    }
     if (_pickupLocationError != null) {
       return _pickupLocationError;
     }
@@ -404,6 +422,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         !_selectedDropoff!.isPhilippines ||
         !_selectedDropoff!.hasValidCoordinates) {
       return 'Select a drop-off location from the suggestions or use your current location.';
+    }
+
+    if (!area.contains(_selectedPickup!.latitude, _selectedPickup!.longitude) ||
+        !area.contains(
+          _selectedDropoff!.latitude,
+          _selectedDropoff!.longitude,
+        )) {
+      return area.outsideMessage;
     }
 
     return null;
@@ -429,6 +455,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return '${invalidSpot.title} does not have valid map coordinates. Please choose another destination.';
     }
 
+    final area = _serviceArea;
+    if (area == null) {
+      return 'The service area could not be verified. Please retry.';
+    }
+    final outside = _selectedSpots
+        .where((spot) => !area.contains(spot.latitude, spot.longitude))
+        .firstOrNull;
+    if (outside != null) return '${outside.title}: ${area.outsideMessage}';
+
     return null;
   }
 
@@ -443,6 +478,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     final candidate = _EditableBookingSpot.fromSuggestion(suggestion);
+
+    if (_serviceArea?.contains(candidate.latitude, candidate.longitude) !=
+        true) {
+      _snack(
+        _serviceArea?.outsideMessage ??
+            'The service area could not be verified.',
+      );
+      return;
+    }
 
     if (!candidate.hasValidCoordinates) {
       _snack(
@@ -474,6 +518,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => _AddAnotherPlaceSheet(
+        serviceArea: _serviceArea!,
         city: package.city,
         province: _packageProvince(package),
         service: _spotSuggestionService,
@@ -482,7 +527,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     );
     if (!mounted || suggestion == null) return;
 
-    if (!_sameMunicipality(suggestion.city, package.city)) {
+    if (_serviceArea?.contains(suggestion.latitude, suggestion.longitude) !=
+        true) {
       _snack('Please choose a destination within ${package.city}.');
       return;
     }
@@ -504,6 +550,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   void _restoreOriginalSpot(_EditableBookingSpot original) {
+    if (_serviceArea?.contains(original.latitude, original.longitude) != true) {
+      _snack(
+        _serviceArea?.outsideMessage ??
+            'The service area could not be verified.',
+      );
+      return;
+    }
     if (_selectedSpots.length >= _maximumSpots) {
       _snack('You can only select up to $_maximumSpots destinations.');
       return;
@@ -1682,6 +1735,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             title: 'Pickup Point',
                             subtitle: 'Where should the driver meet you?',
                             child: BookingLocationPicker(
+                              key: ValueKey(
+                                'pickup-${data.package.id}-${data.serviceArea.version}',
+                              ),
+                              serviceArea: data.serviceArea,
                               label: 'Pickup',
                               errorText: _pickupLocationError,
                               onValidationMessageChanged: (message) {
@@ -1704,6 +1761,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             title: 'Drop-off Point',
                             subtitle: 'Where should the tour end?',
                             child: BookingLocationPicker(
+                              key: ValueKey(
+                                'dropoff-${data.package.id}-${data.serviceArea.version}',
+                              ),
+                              serviceArea: data.serviceArea,
                               label: 'Drop-off',
                               errorText: _dropoffLocationError,
                               onValidationMessageChanged: (message) {
@@ -2301,11 +2362,13 @@ class _BookingScreenData {
     required this.package,
     required this.packageSpots,
     required this.googleSuggestions,
+    required this.serviceArea,
   });
 
   final TourPackage package;
   final List<TouristSpot> packageSpots;
   final List<CitySpotSuggestion> googleSuggestions;
+  final BookingServiceArea serviceArea;
 }
 
 // =============================================================================
@@ -3671,12 +3734,14 @@ class _AddAnotherPlaceSheet extends StatefulWidget {
     required this.province,
     required this.service,
     required this.additionalFee,
+    required this.serviceArea,
   });
 
   final String city;
   final String province;
   final CitySpotSuggestionService service;
   final double additionalFee;
+  final BookingServiceArea serviceArea;
 
   @override
   State<_AddAnotherPlaceSheet> createState() => _AddAnotherPlaceSheetState();
@@ -3745,8 +3810,13 @@ class _AddAnotherPlaceSheetState extends State<_AddAnotherPlaceSheet> {
         return;
       }
       setState(() {
-        _results = results;
-        _message = results.isEmpty
+        _results = results
+            .where(
+              (spot) =>
+                  widget.serviceArea.contains(spot.latitude, spot.longitude),
+            )
+            .toList();
+        _message = _results.isEmpty
             ? 'No matching places found within ${widget.city}.'
             : null;
       });
@@ -6031,10 +6101,6 @@ String _storageTimeFromMinutes(int totalMinutes) {
   final minute = normalized % 60;
   return '${hour.toString().padLeft(2, '0')}:'
       '${minute.toString().padLeft(2, '0')}:00';
-}
-
-bool _sameMunicipality(String a, String b) {
-  return _normalizeText(a) == _normalizeText(b);
 }
 
 String _normalizeText(String value) {

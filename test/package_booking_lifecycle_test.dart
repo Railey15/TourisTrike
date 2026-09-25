@@ -14,6 +14,7 @@ import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/google_maps_api_key_resolver.dart';
 import 'package:touristrike/screens/tourist/package_booking_screen.dart';
 import 'package:touristrike/widgets/booking_location_picker.dart';
+import 'fixtures/booking_service_area_fixture.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -59,6 +60,16 @@ void main() {
       url: 'https://example.supabase.co',
       anonKey: 'test',
       httpClient: MockClient((request) {
+        if (request.url.path.endsWith('/rpc/booking_service_area')) {
+          return Future.value(
+            http.Response(
+              jsonEncode(testAreaJson),
+              200,
+              request: request,
+              headers: {'content-type': 'application/json'},
+            ),
+          );
+        }
         requests++;
         return handle(request);
       }),
@@ -332,6 +343,56 @@ void main() {
       await tester.pumpWidget(screen('b'));
       await tester.pumpAndSettle();
       expect(requests, 2);
+    },
+  );
+
+  testWidgets(
+    'inside pickup plus outside drop-off cannot leave the route step',
+    (tester) async {
+      await tester.pumpWidget(screen('a'));
+      await tester.pumpAndSettle();
+      final pager = tester.widget<PageView>(find.byType(PageView)).controller!;
+      Finder type(String name) =>
+          find.byWidgetPredicate((w) => w.runtimeType.toString() == name);
+      (tester.widget(type('_DateSelectionCard')) as dynamic).onTap();
+      await tester.pumpAndSettle();
+      Navigator.of(
+        tester.element(find.byType(DatePickerDialog)),
+      ).pop(DateTime.now().add(const Duration(days: 1)));
+      await tester.pumpAndSettle();
+      (tester.widget(type('_PickupTimeSelectionCard')) as dynamic).onTap();
+      await tester.pumpAndSettle();
+      Navigator.of(
+        tester.element(find.byType(TimePickerDialog)),
+      ).pop(const TimeOfDay(hour: 8, minute: 0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Continue'));
+      await tester.pumpAndSettle();
+      final pickers = tester
+          .widgetList<BookingLocationPicker>(find.byType(BookingLocationPicker))
+          .toList();
+      pickers.first.onLocationSelected(
+        const BookingLocation(
+          address: 'Inside',
+          latitude: 14.95,
+          longitude: 120.92,
+          countryCode: 'PH',
+        ),
+      );
+      pickers.last.onLocationSelected(
+        const BookingLocation(
+          address: 'Bustos (forged label)',
+          latitude: 14.6,
+          longitude: 120.92,
+          countryCode: 'PH',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Continue'));
+      await tester.pumpAndSettle();
+      expect(pager.page, 1);
+      expect(find.textContaining('Outside service area'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 

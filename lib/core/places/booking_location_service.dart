@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'city_spot_suggestions.dart';
 import 'google_maps_api_key_resolver.dart';
 import 'google_places_gateway.dart';
+import 'booking_service_area.dart';
 
 class BookingPlaceSuggestion {
   const BookingPlaceSuggestion({
@@ -73,6 +74,10 @@ class BookingLocationException implements Exception {
   String toString() => message;
 }
 
+class OutsideBookingServiceArea extends BookingLocationException {
+  const OutsideBookingServiceArea(super.message);
+}
+
 /// Google Places Autocomplete / Place Details / Geocoding integration used
 /// specifically by the tour-package pickup and drop-off location picker.
 ///
@@ -85,16 +90,26 @@ class BookingLocationException implements Exception {
 /// On Android the native configuration is populated by Gradle from .env,
 /// allowing normal `flutter run` to use the configured Maps/Places key.
 class BookingLocationService {
-  BookingLocationService({String? apiKey, http.Client? client})
-    : _resolvedApiKey = (apiKey ?? CitySpotSuggestionService.resolveApiKey())
-          .trim(),
-      _client = client ?? http.Client(),
-      _ownsClient = client == null;
+  BookingLocationService({
+    required this.serviceArea,
+    String? apiKey,
+    http.Client? client,
+  }) : _resolvedApiKey = (apiKey ?? CitySpotSuggestionService.resolveApiKey())
+           .trim(),
+       _client = client ?? http.Client(),
+       _ownsClient = client == null;
 
   String _resolvedApiKey;
 
   final http.Client _client;
   final bool _ownsClient;
+  final BookingServiceArea serviceArea;
+
+  void validateCoordinates(double latitude, double longitude) {
+    if (!serviceArea.contains(latitude, longitude)) {
+      throw OutsideBookingServiceArea(serviceArea.outsideMessage);
+    }
+  }
 
   /// Exposed mainly for diagnostics/tests.
   String get apiKey => _resolvedApiKey;
@@ -242,11 +257,12 @@ class BookingLocationService {
     final body = await _request('place/autocomplete', {
       'input': trimmedQuery,
       'components': 'country:ph',
+      ...serviceArea.searchBounds,
     });
 
     final predictions = (body['predictions'] as List?) ?? const [];
 
-    return predictions
+    final suggestions = predictions
         .whereType<Map>()
         .where(
           (prediction) =>
@@ -260,6 +276,19 @@ class BookingLocationService {
           ),
         )
         .toList(growable: false);
+    // Google only restricts a circle. Resolve every candidate before showing it;
+    // selection resolves again so stale predictions never bypass containment.
+    final checked = await Future.wait(
+      suggestions.map((suggestion) async {
+        try {
+          await select(suggestion);
+          return suggestion;
+        } on OutsideBookingServiceArea {
+          return null;
+        }
+      }),
+    );
+    return checked.whereType<BookingPlaceSuggestion>().toList(growable: false);
   }
 
   // ===========================================================================
@@ -337,6 +366,7 @@ class BookingLocationService {
   // ===========================================================================
 
   BookingLocation _validate(BookingLocation location) {
+    validateCoordinates(location.latitude, location.longitude);
     if (!location.isPhilippines) {
       throw const BookingLocationException(
         'Please select a valid location within the Philippines.',
@@ -379,6 +409,8 @@ class BookingLocationService {
       fallbackAddress: suggestion.description,
     );
 
+    validateCoordinates(place.latitude, place.longitude);
+
     if (place.countryCode.isNotEmpty) {
       return _validate(place);
     }
@@ -418,6 +450,8 @@ class BookingLocationService {
         'Invalid GPS coordinates. Please retry.',
       );
     }
+
+    validateCoordinates(latitude, longitude);
 
     final body = await _request('geocode', {'latlng': '$latitude,$longitude'});
 

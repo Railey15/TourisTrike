@@ -1,3 +1,4 @@
+import '../../widgets/notification_bell.dart';
 import 'dart:async';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -889,13 +890,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          DriverHeaderActionButton(
-            icon: Icons.notifications_none_rounded,
-            tooltip: 'Notifications',
-            onPressed: () {
-              _showSnack('No new tour notifications.');
-            },
-          ),
+          const NotificationBell(color: Colors.white),
           const SizedBox(width: 7),
           DriverHeaderActionButton(
             icon: Icons.person_outline_rounded,

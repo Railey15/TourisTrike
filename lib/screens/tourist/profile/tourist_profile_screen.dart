@@ -1,3 +1,4 @@
+import 'package:touristrike/core/notifications/notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -315,6 +316,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       await clearAiChatbotHistory();
+      await NotificationService.instance.prepareSignOut();
       await _supabase.auth.signOut();
 
       if (!mounted) return;

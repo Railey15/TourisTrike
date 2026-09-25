@@ -77,7 +77,6 @@ class EmergencyService {
     // 2. Save alert to Supabase
     final requestedId = alertId ?? newAlertId();
     Map<String, dynamic> alertRow;
-    var newlyCreated = true;
     try {
       alertRow = await _supabase
           .from('emergency_alerts')
@@ -106,82 +105,12 @@ class EmergencyService {
           .eq('id', requestedId)
           .eq('tourist_id', touristId)
           .single();
-      newlyCreated = false;
     }
 
     final savedAlertId = alertRow['id'] as String;
 
-    // 3. In-app notification for every accepted driver in the convoy.
-    // Falls back to the single legacy driverId for non-package / solo rides.
-    if (newlyCreated) {
-      try {
-        final driverIds = <String>{};
-
-        if (bookingId.isNotEmpty) {
-          final convoyRows = await _supabase
-              .from('booking_drivers')
-              .select('driver_id')
-              .eq('booking_id', bookingId)
-              .eq('status', 'accepted');
-
-          for (final row in convoyRows as List) {
-            final id = (row as Map)['driver_id']?.toString();
-
-            if (id != null && id.isNotEmpty) {
-              driverIds.add(id);
-            }
-          }
-        }
-
-        if (driverId != null && driverId.isNotEmpty) {
-          driverIds.add(driverId);
-        }
-
-        if (driverIds.isNotEmpty) {
-          await _supabase.from('notifications').insert([
-            for (final id in driverIds)
-              {
-                'user_id': id,
-                'title': '🚨 Emergency Alert',
-                'body':
-                    '${touristName?.isNotEmpty == true ? touristName : 'Your tourist'} '
-                    'has triggered an emergency alert during the tour!'
-                    '${mapsLink != null ? '\n📍 Location: $mapsLink' : ''}',
-                'type': 'emergency',
-              },
-          ]);
-        }
-      } catch (_) {}
-    }
-
-    // 4. In-app notifications for subtenant admins
-    if (newlyCreated) {
-      try {
-        final subtenants = await _supabase
-            .from('profiles')
-            .select('id')
-            .inFilter('role', ['admin', 'subtenant']);
-
-        final notifRows = <Map<String, dynamic>>[];
-        for (final s in subtenants as List) {
-          final uid = s['id'] as String?;
-          if (uid == null || uid == touristId) continue;
-          notifRows.add({
-            'user_id': uid,
-            'title': '🚨 Emergency Alert',
-            'body':
-                '${touristName?.isNotEmpty == true ? touristName : 'A tourist'} '
-                'triggered an emergency during a tour.'
-                '${bookingId.isNotEmpty ? '\nBooking: $bookingId' : ''}'
-                '${mapsLink != null ? '\n📍 $mapsLink' : ''}',
-            'type': 'emergency',
-          });
-        }
-        if (notifRows.isNotEmpty) {
-          await _supabase.from('notifications').insert(notifRows);
-        }
-      } catch (_) {}
-    }
+    // The trusted emergency_alerts observer creates deduplicated notifications.
+    // Email behavior remains independent of notification delivery.
 
     // 5. Email/attachment failure must not undo the saved database alert.
     bool emailSent = false;

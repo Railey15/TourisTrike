@@ -51,3 +51,6 @@ app.*.map.json
 ios/Flutter/Secrets.xcconfig
 web/google_maps_config.js
 node_modules/
+android/app/google-services.json
+**/*service-account*.json
+**/firebase-adminsdk*.json

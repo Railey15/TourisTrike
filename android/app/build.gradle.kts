@@ -7,6 +7,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Notification Center works in builds without Firebase configuration too.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val localProperties = Properties().apply {
     val environmentFile = rootProject.file("../.env")
     if (environmentFile.exists()) environmentFile.inputStream().use(::load)

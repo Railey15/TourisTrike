@@ -46,7 +46,7 @@ const operationConfig: Record<
   },
   autocomplete: {
     path: "/maps/api/place/autocomplete/json",
-    allowed: new Set(["input", "components", "language", "location", "radius"]),
+    allowed: new Set(["input", "components", "language", "location", "radius", "strictbounds"]),
   },
   geocode: {
     path: "/maps/api/geocode/json",

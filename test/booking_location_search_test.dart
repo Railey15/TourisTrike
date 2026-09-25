@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/widgets/booking_location_picker.dart';
+import 'fixtures/booking_service_area_fixture.dart';
 
 Map<String, dynamic> place({
   String code = 'PH',
@@ -47,7 +48,11 @@ const suggestion = BookingPlaceSuggestion(
 );
 BookingLocationService service(
   Future<http.Response> Function(http.Request) handler,
-) => BookingLocationService(apiKey: 'test-key', client: MockClient(handler));
+) => BookingLocationService(
+  serviceArea: testServiceArea,
+  apiKey: 'test-key',
+  client: MockClient(handler),
+);
 
 void main() {
   test(
@@ -204,7 +209,11 @@ void main() {
     'autocomplete retains PH filter and uses user query without municipality suffix',
     () async {
       final api = service((r) async {
+        if (r.url.path.contains('details')) {
+          return response({'status': 'OK', 'result': place()});
+        }
         expect(r.url.queryParameters['components'], 'country:ph');
+        expect(r.url.queryParameters['strictbounds'], 'true');
         expect(r.url.queryParameters['input'], 'SM City Baliwag');
         return response({
           'status': 'OK',
@@ -240,11 +249,13 @@ void main() {
               child: Column(
                 children: [
                   BookingLocationPicker(
+                    serviceArea: testServiceArea,
                     label: 'Pickup',
                     service: api,
                     onLocationSelected: (p) => pickup = p,
                   ),
                   BookingLocationPicker(
+                    serviceArea: testServiceArea,
                     label: 'Drop-off',
                     service: api,
                     onLocationSelected: (p) => dropoff = p,
@@ -280,6 +291,9 @@ void main() {
   ) async {
     final old = Completer<http.Response>();
     final api = service((r) async {
+      if (r.url.path.contains('details')) {
+        return response({'status': 'OK', 'result': place()});
+      }
       if (r.url.queryParameters['input'] == 'old') return old.future;
       return response({
         'status': 'OK',
@@ -292,6 +306,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BookingLocationPicker(
+            serviceArea: testServiceArea,
             label: 'Pickup',
             service: api,
             onLocationSelected: (_) {},
@@ -323,9 +338,12 @@ void main() {
       final details = Completer<http.Response>();
       BookingLocation? selected;
       String? validation;
+      var detailsCalls = 0;
       final api = service(
         (r) async => r.url.path.contains('details')
-            ? details.future
+            ? (++detailsCalls == 1
+                  ? response({'status': 'OK', 'result': place()})
+                  : details.future)
             : response({
                 'status': 'OK',
                 'predictions': [
@@ -337,6 +355,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BookingLocationPicker(
+              serviceArea: testServiceArea,
               label: 'Pickup',
               service: api,
               onLocationSelected: (p) => selected = p,
@@ -367,9 +386,11 @@ void main() {
     (tester) async {
       var denied = true;
       final api = service(
-        (_) async => response(
+        (r) async => response(
           denied
               ? {'status': 'REQUEST_DENIED'}
+              : r.url.path.contains('details')
+              ? {'status': 'OK', 'result': place()}
               : {
                   'status': 'OK',
                   'predictions': [
@@ -382,6 +403,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BookingLocationPicker(
+              serviceArea: testServiceArea,
               label: 'Pickup',
               service: api,
               onLocationSelected: (_) {},
@@ -419,6 +441,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BookingLocationPicker(
+            serviceArea: testServiceArea,
             label: 'Pickup',
             service: api,
             onLocationSelected: (p) => selected = p,

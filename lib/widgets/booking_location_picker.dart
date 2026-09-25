@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../core/places/booking_location_service.dart';
+import '../core/places/booking_service_area.dart';
+import 'booking_location_map_picker.dart';
 
 const _primary = Color(0xFF2A86FF);
 const _ink = Color(0xFF0F172A);
@@ -12,12 +14,14 @@ class BookingLocationPicker extends StatefulWidget {
     super.key,
     required this.label,
     required this.onLocationSelected,
+    required this.serviceArea,
     this.errorText,
     this.onValidationMessageChanged,
     this.service,
     this.positionLoader,
   });
   final String label;
+  final BookingServiceArea serviceArea;
   final ValueChanged<BookingLocation?> onLocationSelected;
   final String? errorText;
   final ValueChanged<String?>? onValidationMessageChanged;
@@ -28,7 +32,8 @@ class BookingLocationPicker extends StatefulWidget {
 }
 
 class _BookingLocationPickerState extends State<BookingLocationPicker> {
-  late final _service = widget.service ?? BookingLocationService();
+  late final _service =
+      widget.service ?? BookingLocationService(serviceArea: widget.serviceArea);
   final _searchCtrl = TextEditingController();
   final _focusNode = FocusNode();
   Timer? _debounce;
@@ -183,21 +188,17 @@ class _BookingLocationPickerState extends State<BookingLocationPicker> {
 
   void _invalidateSelection(String message) {
     widget.onValidationMessageChanged?.call(message);
-    _showError(message);
+    setState(() => _searchMessage = message);
   }
 
-  void _showError(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: const Color(0xFFDC2626),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+  Future<void> _chooseOnMap() async {
+    final revision = _resetSelection();
+    final location = await Navigator.of(context).push<BookingLocation>(
+      MaterialPageRoute(
+        builder: (_) => BookingLocationMapPicker(service: _service),
+      ),
+    );
+    if (_isCurrent(revision) && location != null) _setLocation(location);
   }
 
   @override
@@ -270,7 +271,7 @@ class _BookingLocationPickerState extends State<BookingLocationPicker> {
             child: LinearProgressIndicator(color: _primary, minHeight: 2),
           ),
 
-        if (_searchMessage != null)
+        if (_searchMessage != null && _searchMessage != widget.errorText)
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
@@ -332,6 +333,11 @@ class _BookingLocationPickerState extends State<BookingLocationPicker> {
 
         const SizedBox(height: 6),
 
+        TextButton.icon(
+          onPressed: busy ? null : _chooseOnMap,
+          icon: const Icon(Icons.map_outlined, size: 15),
+          label: const Text('Choose on Map'),
+        ),
         TextButton.icon(
           onPressed: _loadingLocation ? null : _useCurrentLocation,
           icon: _loadingLocation

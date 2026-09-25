@@ -1,3 +1,4 @@
+import '../../widgets/notification_bell.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -1065,6 +1066,7 @@ class _MapHero extends StatelessWidget {
                     const SizedBox(
                       width: 8,
                     ),
+                    const NotificationBell(color: Color(0xFF2563EB)),
                     _WhiteCircleButton(
                       icon: Icons
                           .person_outline_rounded,

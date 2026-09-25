@@ -14,3 +14,7 @@ verify_jwt = false
 # HMAC-signed photo/static-map URLs that browsers can load without auth headers.
 [functions.google-places]
 verify_jwt = false
+
+# Authenticated by a dedicated server-only secret; never callable with a user JWT alone.
+[functions.send-notifications]
+verify_jwt = false

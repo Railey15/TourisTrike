@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'core/notifications/notification_service.dart';
+import 'core/notifications/notification_visibility.dart';
+import 'widgets/notification_host.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -31,6 +34,11 @@ Future<void> main() async {
     );
   }
 
+  if (!(kIsWeb && Uri.base.pathSegments.firstOrNull == 'trip')) {
+    // Complete Firebase setup and background-handler registration before runApp.
+    // Realtime/history and token network operations do not block the first frame.
+    await NotificationService.instance.initialize();
+  }
   runApp(const TourisTrikeApp());
 }
 
@@ -71,6 +79,10 @@ class TourisTrikeApp extends StatelessWidget {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
+        navigatorKey: notificationNavigatorKey,
+        navigatorObservers: [notificationRouteObserver],
+        scaffoldMessengerKey: notificationMessengerKey,
+        builder: (context, child) => NotificationHost(child: child!),
         home: const TouristSpotsScreen(),
       );
     }
@@ -79,12 +91,20 @@ class TourisTrikeApp extends StatelessWidget {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
+        navigatorKey: notificationNavigatorKey,
+        navigatorObservers: [notificationRouteObserver],
+        scaffoldMessengerKey: notificationMessengerKey,
+        builder: (context, child) => NotificationHost(child: child!),
         home: const DriverHomeScreen(),
       );
     }
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      navigatorKey: notificationNavigatorKey,
+      navigatorObservers: [notificationRouteObserver],
+      scaffoldMessengerKey: notificationMessengerKey,
+      builder: (context, child) => NotificationHost(child: child!),
       home: const TourisTrikeLoadingScreen(),
       theme: AppTheme.light(),
     );
