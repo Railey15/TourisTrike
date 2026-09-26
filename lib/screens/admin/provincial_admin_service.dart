@@ -1,4 +1,5 @@
 import 'dart:developer' as developer;
+import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/screens/admin/admin_models.dart';
@@ -37,6 +38,244 @@ class ProvincialAdminService {
     }
 
     return profile;
+  }
+
+  Future<ProvincialAdminSettingsData> loadAdminSettings() async {
+    final profile = await loadCurrentAdminProfile();
+    final results = await Future.wait<dynamic>([
+      _supabase
+          .from('admin_settings')
+          .select('*')
+          .eq('user_id', profile.id)
+          .maybeSingle(),
+      _supabase
+          .from('package_cancellation_policy')
+          .select('free_cancellation_hours')
+          .eq('id', 1)
+          .single(),
+      _supabase
+          .from('tourism_policies')
+          .select('id,title,content,status,updated_at')
+          .order('updated_at', ascending: false),
+    ]);
+
+    final settings = results[0] == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(results[0] as Map);
+    final cancellation = Map<String, dynamic>.from(results[1] as Map);
+    final policyRows = _asRows(results[2]);
+    final terms = _findPolicyRow(policyRows, const ['terms']);
+    final cancellationPolicy = _findPolicyRow(policyRows, const [
+      'cancellation policy',
+    ]);
+    final privacy = _findPolicyRow(policyRows, const [
+      'privacy',
+      'data privacy',
+    ]);
+
+    return ProvincialAdminSettingsData(
+      profile: profile,
+      office: ProvincialOfficeSettings.fromMap(settings, profile),
+      bookingPolicies: ProvincialBookingPolicySettings(
+        freeCancellationHours: adminInt(
+          cancellation['free_cancellation_hours'],
+          fallback: 24,
+        ),
+        termsAndConditions: adminString(terms ?? const {}, const ['content']),
+        cancellationPolicy: adminString(cancellationPolicy ?? const {}, const [
+          'content',
+        ]),
+        dataPrivacyNotice: adminString(privacy ?? const {}, const ['content']),
+        termsPolicyId: terms?['id'],
+        cancellationPolicyId: cancellationPolicy?['id'],
+        privacyPolicyId: privacy?['id'],
+      ),
+      notifications: ProvincialNotificationPreferences.fromMap(settings),
+    );
+  }
+
+  Future<void> updateProvincialOffice({
+    required ProvincialOfficeSettings office,
+  }) async {
+    final profile = await loadCurrentAdminProfile();
+    await _upsertOwnAdminSettings(profile.id, {
+      'office_name': office.officeName.trim(),
+      'office_address': office.officeAddress.trim(),
+      'contact_person': office.contactPerson.trim(),
+      'contact_number': office.contactNumber.trim(),
+      'official_email': office.officialEmail.trim(),
+    });
+    await _logAudit(
+      action: 'update_provincial_office_settings',
+      tableName: 'admin_settings',
+      recordId: profile.id,
+      description: 'Updated provincial tourism office contact information.',
+    );
+  }
+
+  Future<void> updateBranding({
+    required String displayName,
+    required String logoUrl,
+    required String coverImageUrl,
+  }) async {
+    final profile = await loadCurrentAdminProfile();
+    await _upsertOwnAdminSettings(profile.id, {
+      'display_name': displayName.trim(),
+      'logo_url': logoUrl.trim(),
+      'cover_image_url': coverImageUrl.trim(),
+    });
+    await _logAudit(
+      action: 'update_provincial_branding',
+      tableName: 'admin_settings',
+      recordId: profile.id,
+      description: 'Updated provincial tourism office branding.',
+    );
+  }
+
+  Future<String> uploadProvincialBranding({
+    required String province,
+    required String fileName,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    await loadCurrentAdminProfile();
+    final safeProvince = _storageSlug(province, fallback: 'province');
+    final safeFile = _storageFileName(fileName);
+    final stamp = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final path = 'provincial-branding/$safeProvince/$stamp-$safeFile';
+    await _supabase.storage
+        .from('public-assets')
+        .uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(contentType: contentType, upsert: false),
+        );
+    return _supabase.storage.from('public-assets').getPublicUrl(path);
+  }
+
+  Future<void> updateBookingPolicies({
+    required ProvincialBookingPolicySettings policies,
+  }) async {
+    final profile = await loadCurrentAdminProfile();
+    await _supabase
+        .from('package_cancellation_policy')
+        .update({'free_cancellation_hours': policies.freeCancellationHours})
+        .eq('id', 1)
+        .select('id')
+        .single();
+
+    await _saveSettingsPolicy(
+      adminId: profile.id,
+      policyId: policies.termsPolicyId,
+      title: 'Terms & Conditions',
+      content: policies.termsAndConditions,
+    );
+    await _saveSettingsPolicy(
+      adminId: profile.id,
+      policyId: policies.cancellationPolicyId,
+      title: 'Cancellation Policy',
+      content: policies.cancellationPolicy,
+    );
+    await _saveSettingsPolicy(
+      adminId: profile.id,
+      policyId: policies.privacyPolicyId,
+      title: 'Tourist Data Privacy Notice',
+      content: policies.dataPrivacyNotice,
+    );
+    await _logAudit(
+      action: 'update_provincial_booking_policies',
+      tableName: 'package_cancellation_policy',
+      recordId: '1',
+      description: 'Updated province-wide booking and policy content.',
+    );
+  }
+
+  Future<void> updateNotificationPreferences(
+    ProvincialNotificationPreferences preferences,
+  ) async {
+    final profile = await loadCurrentAdminProfile();
+    await _upsertOwnAdminSettings(profile.id, {
+      'city_application_notifications': preferences.cityApplications,
+      'driver_status_notifications': preferences.driverStatusUpdates,
+      'booking_issue_notifications': preferences.bookingIssues,
+      'payment_dispute_notifications': preferences.paymentDisputes,
+      // Emergency and system/security notices intentionally remain mandatory.
+      'system_notices': true,
+    });
+  }
+
+  Future<void> changePassword(String newPassword) async {
+    await loadCurrentAdminProfile();
+    await _supabase.auth.updateUser(UserAttributes(password: newPassword));
+  }
+
+  Future<void> _upsertOwnAdminSettings(
+    String userId,
+    Map<String, dynamic> values,
+  ) async {
+    await _supabase
+        .from('admin_settings')
+        .upsert({
+          'user_id': userId,
+          ...values,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        }, onConflict: 'user_id')
+        .select('user_id')
+        .single();
+  }
+
+  Future<void> _saveSettingsPolicy({
+    required String adminId,
+    required dynamic policyId,
+    required String title,
+    required String content,
+  }) async {
+    final payload = <String, dynamic>{
+      'title': title,
+      'content': content.trim(),
+      'status': 'published',
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    if (policyId == null) {
+      await _supabase.from('tourism_policies').insert({
+        ...payload,
+        'created_by': adminId,
+      });
+    } else {
+      await _supabase
+          .from('tourism_policies')
+          .update(payload)
+          .eq('id', policyId);
+    }
+  }
+
+  Map<String, dynamic>? _findPolicyRow(
+    List<Map<String, dynamic>> rows,
+    List<String> titleFragments,
+  ) {
+    for (final row in rows) {
+      final title = adminString(row, const ['title']).toLowerCase();
+      if (titleFragments.any(title.contains)) return row;
+    }
+    return null;
+  }
+
+  String _storageSlug(String value, {required String fallback}) {
+    final slug = value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    return slug.isEmpty ? fallback : slug;
+  }
+
+  String _storageFileName(String value) {
+    final cleaned = value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9._-]+'), '-')
+        .replaceAll(RegExp(r'^-+'), '');
+    return cleaned.isEmpty ? 'image.jpg' : cleaned;
   }
 
   Future<AdminDashboardData> loadDashboard() async {

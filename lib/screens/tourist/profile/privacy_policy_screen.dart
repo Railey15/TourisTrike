@@ -31,6 +31,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
           .from('tourism_policies')
           .select()
           .eq('status', 'published')
+          .ilike('title', '%privacy%')
           .order('updated_at', ascending: false)
           .limit(1)
           .maybeSingle();

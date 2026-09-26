@@ -6,12 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_announcements_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_bookings_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_city_profile_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_drivers_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_package_form_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_reports_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/subtenant_spot_form_screen.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
@@ -246,11 +242,15 @@ class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
       onRefresh: _reload,
       onAddSpot: () => _open(const SubTenantSpotFormScreen()),
       onCreatePackage: () => _open(const SubTenantPackageFormScreen()),
-      onDrivers: () => _open(const SubTenantDriversScreen()),
-      onBookings: () => _open(const SubTenantBookingsScreen()),
-      onReports: () => _open(const SubTenantReportsScreen()),
+      onDrivers: () =>
+          SubTenantAdminShell.navigateTo(context, 4, currentIndex: 0),
+      onBookings: () =>
+          SubTenantAdminShell.navigateTo(context, 3, currentIndex: 0),
+      onReports: () =>
+          SubTenantAdminShell.navigateTo(context, 5, currentIndex: 0),
       onAnnouncements: () => _open(const SubTenantAnnouncementsScreen()),
-      onProfile: () => _open(const SubTenantCityProfileScreen()),
+      onProfile: () =>
+          SubTenantAdminShell.navigateTo(context, 6, currentIndex: 0),
     );
   }
 }

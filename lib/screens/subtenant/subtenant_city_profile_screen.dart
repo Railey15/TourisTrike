@@ -79,27 +79,35 @@ class _SubTenantCityProfileScreenState
 
   void _markDirty() {
     if (_hydrating) return;
+
     _officeNameCustomized =
         _officeNameCtrl.text.trim().toLowerCase() !=
         _generatedOfficeName.toLowerCase();
-    if (!_dirty && mounted) setState(() => _dirty = true);
+
+    if (!_dirty && mounted) {
+      setState(() => _dirty = true);
+    }
   }
 
   Future<_SettingsLoad> _load() async {
     final profile = await _service.loadCurrentProfile();
+
     final results = await Future.wait([
       _service.loadCityProfile(profile),
       _service.loadFareSettings(profile),
     ]);
+
     final details = results[0] as SubTenantCityProfileData;
     final fare = results[1] as SubTenantFareSettings;
 
     _profile = profile;
     _hydrating = true;
+
     _cityCtrl.text = profile.assignedCity;
-    _provinceCtrl.text = profile.province.isEmpty
-        ? 'Bulacan'
-        : profile.province;
+
+    _provinceCtrl.text =
+        profile.province.isEmpty ? 'Bulacan' : profile.province;
+
     _descriptionCtrl.text = details.description;
     _officeNameCtrl.text = details.tourismOfficeName;
     _contactPersonCtrl.text = details.contactPerson;
@@ -108,20 +116,28 @@ class _SubTenantCityProfileScreenState
     _addressCtrl.text = details.officeAddress;
     _coverCtrl.text = details.coverImageUrl;
     _logoCtrl.text = details.logoImageUrl;
+
     _generatedOfficeName = defaultTourismOfficeName(
       assignedLocation: profile.assignedCity,
       localGovernmentType: details.localGovernmentType,
     );
+
     _localGovernmentType = details.localGovernmentType;
     _officeNameCustomized = details.officeNameCustomized;
+
     _baseFareCtrl.text = _moneyText(fare.baseFare);
     _farePerKmCtrl.text = _moneyText(fare.farePerKm);
     _minimumFareCtrl.text = _moneyText(fare.minimumFare);
     _waitingFeeCtrl.text = _moneyText(fare.waitingFee);
+
     _hydrating = false;
     _dirty = false;
 
-    return _SettingsLoad(profile: profile, details: details, fare: fare);
+    return _SettingsLoad(
+      profile: profile,
+      details: details,
+      fare: fare,
+    );
   }
 
   void _reload() {
@@ -151,22 +167,39 @@ class _SubTenantCityProfileScreenState
   }
 
   double _moneyValue(TextEditingController controller) {
-    return double.tryParse(controller.text.trim().replaceAll(',', '')) ?? 0;
+    return double.tryParse(
+          controller.text.trim().replaceAll(',', ''),
+        ) ??
+        0;
   }
 
   String _moneyText(double value) {
     if (value == 0) return '0';
-    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
+
+    return value % 1 == 0
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(2);
   }
 
   String? _nonNegativeMoneyValidator(String? value) {
-    final parsed = double.tryParse((value ?? '').trim().replaceAll(',', ''));
-    if (parsed == null) return 'Enter a valid amount';
-    if (parsed < 0) return 'Amount cannot be negative';
+    final parsed = double.tryParse(
+      (value ?? '').trim().replaceAll(',', ''),
+    );
+
+    if (parsed == null) {
+      return 'Enter a valid amount';
+    }
+
+    if (parsed < 0) {
+      return 'Amount cannot be negative';
+    }
+
     return null;
   }
 
-  SubTenantFareSettings _fareFromState(SubTenantProfile profile) {
+  SubTenantFareSettings _fareFromState(
+    SubTenantProfile profile,
+  ) {
     return SubTenantFareSettings(
       subtenantId: profile.id,
       city: profile.assignedCity,
@@ -179,10 +212,16 @@ class _SubTenantCityProfileScreenState
 
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
-    if (!_formKey.currentState!.validate()) return;
+
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
     final profile = _profile;
-    if (profile == null) return;
+
+    if (profile == null) {
+      return;
+    }
 
     setState(() => _saving = true);
 
@@ -191,7 +230,8 @@ class _SubTenantCityProfileScreenState
         profile,
         SubTenantCityProfileData(
           city: profile.assignedCity,
-          province: profile.province.isEmpty ? 'Bulacan' : profile.province,
+          province:
+              profile.province.isEmpty ? 'Bulacan' : profile.province,
           description: _descriptionCtrl.text.trim(),
           tourismOfficeName: _officeNameCtrl.text.trim(),
           contactPerson: _contactPersonCtrl.text.trim(),
@@ -205,16 +245,32 @@ class _SubTenantCityProfileScreenState
           detailsTableAvailable: true,
         ),
       );
-      await _service.saveFareSettings(profile, _fareFromState(profile));
+
+      await _service.saveFareSettings(
+        profile,
+        _fareFromState(profile),
+      );
 
       if (!mounted) return;
+
       setState(() => _dirty = false);
-      showSubTenantSnack(context, 'Settings saved.', error: false);
+
+      showSubTenantSnack(
+        context,
+        'Settings saved.',
+        error: false,
+      );
     } catch (e) {
       if (!mounted) return;
-      showSubTenantSnack(context, 'Failed to save settings: $e');
+
+      showSubTenantSnack(
+        context,
+        'Failed to save settings: $e',
+      );
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
@@ -223,15 +279,21 @@ class _SubTenantCityProfileScreenState
     return SubTenantAdminShell(
       currentIndex: 6,
       title: 'Settings',
-      subtitle: 'Manage your tourism office profile and active fare settings.',
+      subtitle:
+          'Manage your tourism office profile and active fare settings.',
       actions: [
         if (_dirty)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 6,
+            ),
             decoration: BoxDecoration(
               color: const Color(0xFFFFFBEB),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: const Color(0xFFFDE68A)),
+              border: Border.all(
+                color: const Color(0xFFFDE68A),
+              ),
             ),
             child: const Text(
               'Unsaved changes',
@@ -252,7 +314,8 @@ class _SubTenantCityProfileScreenState
       child: FutureBuilder<_SettingsLoad>(
         future: _future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
             return const SubTenantLoadingView();
           }
 
@@ -269,9 +332,11 @@ class _SubTenantCityProfileScreenState
             key: _formKey,
             child: Responsive.isDesktop(context)
                 ? Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 24, 16, 24),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      crossAxisAlignment:
+                          CrossAxisAlignment.stretch,
                       children: [
                         _HeaderPreview(
                           details: data.details,
@@ -284,8 +349,10 @@ class _SubTenantCityProfileScreenState
                           child: LayoutBuilder(
                             builder: (context, constraints) {
                               final h = constraints.maxHeight;
+
                               return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                 children: [
                                   SizedBox(
                                     width: 270,
@@ -294,7 +361,9 @@ class _SubTenantCityProfileScreenState
                                       sections: _sections,
                                       selectedIndex: _selectedIndex,
                                       onSelected: (index) {
-                                        setState(() => _selectedIndex = index);
+                                        setState(
+                                          () => _selectedIndex = index,
+                                        );
                                       },
                                     ),
                                   ),
@@ -340,7 +409,9 @@ class _SubTenantCityProfileScreenState
                         sections: _sections,
                         selectedIndex: _selectedIndex,
                         onSelected: (index) {
-                          setState(() => _selectedIndex = index);
+                          setState(
+                            () => _selectedIndex = index,
+                          );
                         },
                       ),
                       const SizedBox(height: 14),
@@ -453,7 +524,10 @@ class _SubTenantCityProfileScreenState
           ),
         ),
         const SizedBox(height: 16),
-        _ImagePreviewRow(coverCtrl: _coverCtrl, logoCtrl: _logoCtrl),
+        _ImagePreviewRow(
+          coverCtrl: _coverCtrl,
+          logoCtrl: _logoCtrl,
+        ),
       ],
     );
   }
@@ -471,13 +545,15 @@ class _SubTenantCityProfileScreenState
           left: SubTenantTextField(
             controller: _baseFareCtrl,
             label: 'Base Fare (PHP)',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
             validator: _nonNegativeMoneyValidator,
           ),
           right: SubTenantTextField(
             controller: _farePerKmCtrl,
             label: 'Fare per Kilometer',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
             validator: _nonNegativeMoneyValidator,
           ),
         ),
@@ -486,13 +562,15 @@ class _SubTenantCityProfileScreenState
           left: SubTenantTextField(
             controller: _minimumFareCtrl,
             label: 'Minimum Fare',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
             validator: _nonNegativeMoneyValidator,
           ),
           right: SubTenantTextField(
             controller: _waitingFeeCtrl,
             label: 'Waiting Fee (PHP / hour)',
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
             validator: _nonNegativeMoneyValidator,
           ),
         ),
@@ -510,7 +588,8 @@ class _SubTenantCityProfileScreenState
         _SecurityTile(
           icon: Icons.person_rounded,
           title: 'Signed in as',
-          value: profile.email.isEmpty ? profile.displayName : profile.email,
+          value:
+              profile.email.isEmpty ? profile.displayName : profile.email,
         ),
         _SecurityTile(
           icon: Icons.lock_rounded,
@@ -550,7 +629,10 @@ class _SettingsContent extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.max,
         children: [
-          SubTenantSectionHeader(title: title, subtitle: subtitle),
+          SubTenantSectionHeader(
+            title: title,
+            subtitle: subtitle,
+          ),
           const SizedBox(height: 18),
           ...children,
         ],
@@ -589,62 +671,69 @@ class _SettingsNav extends StatelessWidget {
             child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: List.generate(sections.length, (index) {
-                  final section = sections[index];
-                  final selected = index == selectedIndex;
+                children: List.generate(
+                  sections.length,
+                  (index) {
+                    final section = sections[index];
+                    final selected = index == selectedIndex;
 
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => onSelected(index),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 160),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 11,
-                        ),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? SubTenantColors.blue.withValues(alpha: .10)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: selected
-                                ? SubTenantColors.blue.withValues(alpha: .22)
-                                : Colors.transparent,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => onSelected(index),
+                        child: AnimatedContainer(
+                          duration:
+                              const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 11,
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              section.icon,
-                              size: 18,
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? SubTenantColors.blue
+                                    .withValues(alpha: .10)
+                                : Colors.transparent,
+                            borderRadius:
+                                BorderRadius.circular(14),
+                            border: Border.all(
                               color: selected
                                   ? SubTenantColors.blue
-                                  : SubTenantColors.muted,
+                                      .withValues(alpha: .22)
+                                  : Colors.transparent,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                section.label,
-                                style: TextStyle(
-                                  color: selected
-                                      ? SubTenantColors.blue
-                                      : SubTenantColors.text,
-                                  fontSize: 13,
-                                  fontWeight: selected
-                                      ? FontWeight.w900
-                                      : FontWeight.w700,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                section.icon,
+                                size: 18,
+                                color: selected
+                                    ? SubTenantColors.blue
+                                    : SubTenantColors.muted,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  section.label,
+                                  style: TextStyle(
+                                    color: selected
+                                        ? SubTenantColors.blue
+                                        : SubTenantColors.text,
+                                    fontSize: 13,
+                                    fontWeight: selected
+                                        ? FontWeight.w900
+                                        : FontWeight.w700,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -683,10 +772,14 @@ class _MobileSettingsTabs extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
-                color: selected ? SubTenantColors.blue : Colors.white,
+                color: selected
+                    ? SubTenantColors.blue
+                    : Colors.white,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: selected ? SubTenantColors.blue : SubTenantColors.line,
+                  color: selected
+                      ? SubTenantColors.blue
+                      : SubTenantColors.line,
                 ),
               ),
               child: Row(
@@ -694,13 +787,17 @@ class _MobileSettingsTabs extends StatelessWidget {
                   Icon(
                     section.icon,
                     size: 16,
-                    color: selected ? Colors.white : SubTenantColors.muted,
+                    color: selected
+                        ? Colors.white
+                        : SubTenantColors.muted,
                   ),
                   const SizedBox(width: 7),
                   Text(
                     section.label,
                     style: TextStyle(
-                      color: selected ? Colors.white : SubTenantColors.muted,
+                      color: selected
+                          ? Colors.white
+                          : SubTenantColors.muted,
                       fontWeight: FontWeight.w900,
                       fontSize: 12,
                     ),
@@ -731,14 +828,20 @@ class _HeaderPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([officeNameCtrl, logoCtrl, coverCtrl]),
+      listenable: Listenable.merge([
+        officeNameCtrl,
+        logoCtrl,
+        coverCtrl,
+      ]),
       builder: (_, _) {
         final cover = coverCtrl.text.trim().isEmpty
             ? details.coverImageUrl
             : coverCtrl.text.trim();
+
         final logo = logoCtrl.text.trim().isEmpty
             ? details.logoImageUrl
             : logoCtrl.text.trim();
+
         final office = officeNameCtrl.text.trim().isEmpty
             ? details.tourismOfficeName
             : officeNameCtrl.text.trim();
@@ -747,7 +850,8 @@ class _HeaderPreview extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(28),
-            gradient: cover.isEmpty ? SubTenantColors.gradient : null,
+            gradient:
+                cover.isEmpty ? SubTenantColors.gradient : null,
             image: cover.isEmpty
                 ? null
                 : DecorationImage(
@@ -760,7 +864,8 @@ class _HeaderPreview extends StatelessWidget {
                   ),
             boxShadow: [
               BoxShadow(
-                color: SubTenantColors.blue.withValues(alpha: .16),
+                color:
+                    SubTenantColors.blue.withValues(alpha: .16),
                 blurRadius: 24,
                 offset: const Offset(0, 14),
               ),
@@ -794,7 +899,8 @@ class _HeaderPreview extends StatelessWidget {
                 Expanded(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       Text(
                         details.city,
@@ -802,7 +908,10 @@ class _HeaderPreview extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: Responsive.isDesktop(context) ? 30 : 22,
+                          fontSize:
+                              Responsive.isDesktop(context)
+                                  ? 30
+                                  : 22,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -813,7 +922,8 @@ class _HeaderPreview extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: .92),
+                          color:
+                              Colors.white.withValues(alpha: .92),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -830,19 +940,28 @@ class _HeaderPreview extends StatelessWidget {
 }
 
 class _FarePreview extends StatelessWidget {
-  const _FarePreview({required this.calculation});
+  const _FarePreview({
+    required this.calculation,
+  });
 
   final FareCalculation calculation;
 
-  String _money(double value) => 'PHP ${value.toStringAsFixed(0)}';
+  String _money(double value) =>
+      'PHP ${value.toStringAsFixed(0)}';
 
   @override
   Widget build(BuildContext context) {
     final rows = [
       ('Base fare', calculation.baseFare),
       ('Distance fee sample', calculation.distanceFee),
-      ('Waiting fee (per hour sample)', calculation.waitingFee),
-      ('Minimum fare adjustment', calculation.minimumFareAdjustment),
+      (
+        'Waiting fee (per hour sample)',
+        calculation.waitingFee,
+      ),
+      (
+        'Minimum fare adjustment',
+        calculation.minimumFareAdjustment,
+      ),
     ];
 
     return Container(
@@ -851,7 +970,9 @@ class _FarePreview extends StatelessWidget {
       decoration: BoxDecoration(
         color: SubTenantColors.blue.withValues(alpha: .07),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SubTenantColors.blue.withValues(alpha: .14)),
+        border: Border.all(
+          color: SubTenantColors.blue.withValues(alpha: .14),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -898,7 +1019,10 @@ class _FarePreview extends StatelessWidget {
               ),
             ),
           ),
-          const Divider(height: 18, color: SubTenantColors.line),
+          const Divider(
+            height: 18,
+            color: SubTenantColors.line,
+          ),
           Row(
             children: [
               const Expanded(
@@ -944,63 +1068,94 @@ class _SaveBar extends StatelessWidget {
     return DashboardSectionCard(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final status = Row(
-            children: [
-              Icon(
-                dirty ? Icons.edit_note_rounded : Icons.check_circle_rounded,
-                color: dirty
-                    ? const Color(0xFFF59E0B)
-                    : const Color(0xFF16A34A),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  dirty
-                      ? 'You have unsaved changes.'
-                      : 'All changes are saved.',
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          );
           final actions = Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextButton(
-                onPressed: saving || !dirty ? null : onCancel,
-                child: const Text('Cancel'),
+                onPressed:
+                    saving || !dirty ? null : onCancel,
+                style: TextButton.styleFrom(
+                  foregroundColor: SubTenantColors.muted,
+                  disabledForegroundColor:
+                      SubTenantColors.lightMuted,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
+
+              // Plain Save Settings button.
+              // No check icon and no save icon.
               SizedBox(
-                width: 170,
-                child: SubTenantGradientButton(
-                  label: 'Save Settings',
-                  icon: Icons.save_rounded,
-                  loading: saving,
-                  onPressed: dirty ? onSave : null,
+                width: 150,
+                height: 44,
+                child: FilledButton(
+                  onPressed:
+                      saving || !dirty ? null : onSave,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: SubTenantColors.blue,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor:
+                        SubTenantColors.blue.withValues(
+                      alpha: .42,
+                    ),
+                    disabledForegroundColor:
+                        Colors.white.withValues(
+                      alpha: .85,
+                    ),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child:
+                              CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Save Settings',
+                          maxLines: 1,
+                          overflow:
+                              TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight:
+                                FontWeight.w800,
+                          ),
+                        ),
                 ),
               ),
             ],
           );
 
           if (constraints.maxWidth < 560) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                status,
-                const SizedBox(height: 12),
-                Align(alignment: Alignment.centerRight, child: actions),
-              ],
+            return Align(
+              alignment: Alignment.centerRight,
+              child: actions,
             );
           }
 
           return Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Expanded(child: status),
-              const SizedBox(width: 16),
               actions,
             ],
           );
@@ -1011,7 +1166,10 @@ class _SaveBar extends StatelessWidget {
 }
 
 class _TwoColumn extends StatelessWidget {
-  const _TwoColumn({required this.left, required this.right});
+  const _TwoColumn({
+    required this.left,
+    required this.right,
+  });
 
   final Widget left;
   final Widget right;
@@ -1019,7 +1177,13 @@ class _TwoColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!Responsive.isDesktop(context)) {
-      return Column(children: [left, const SizedBox(height: 14), right]);
+      return Column(
+        children: [
+          left,
+          const SizedBox(height: 14),
+          right,
+        ],
+      );
     }
 
     return Row(
@@ -1033,7 +1197,10 @@ class _TwoColumn extends StatelessWidget {
 }
 
 class _ImagePreviewRow extends StatelessWidget {
-  const _ImagePreviewRow({required this.coverCtrl, required this.logoCtrl});
+  const _ImagePreviewRow({
+    required this.coverCtrl,
+    required this.logoCtrl,
+  });
 
   final TextEditingController coverCtrl;
   final TextEditingController logoCtrl;
@@ -1041,11 +1208,20 @@ class _ImagePreviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([coverCtrl, logoCtrl]),
+      listenable: Listenable.merge([
+        coverCtrl,
+        logoCtrl,
+      ]),
       builder: (_, _) {
         return _TwoColumn(
-          left: _ImageBox(label: 'Cover Preview', url: coverCtrl.text.trim()),
-          right: _ImageBox(label: 'Logo Preview', url: logoCtrl.text.trim()),
+          left: _ImageBox(
+            label: 'Cover Preview',
+            url: coverCtrl.text.trim(),
+          ),
+          right: _ImageBox(
+            label: 'Logo Preview',
+            url: logoCtrl.text.trim(),
+          ),
         );
       },
     );
@@ -1053,7 +1229,10 @@ class _ImagePreviewRow extends StatelessWidget {
 }
 
 class _ImageBox extends StatelessWidget {
-  const _ImageBox({required this.label, required this.url});
+  const _ImageBox({
+    required this.label,
+    required this.url,
+  });
 
   final String label;
   final String url;
@@ -1066,7 +1245,9 @@ class _ImageBox extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFE4ECF7),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SubTenantColors.line),
+        border: Border.all(
+          color: SubTenantColors.line,
+        ),
       ),
       child: url.isEmpty
           ? Center(
@@ -1085,7 +1266,9 @@ class _ImageBox extends StatelessWidget {
               errorBuilder: (_, _, _) => Center(
                 child: Text(
                   'Invalid $label',
-                  style: const TextStyle(color: SubTenantColors.lightMuted),
+                  style: const TextStyle(
+                    color: SubTenantColors.lightMuted,
+                  ),
                 ),
               ),
             ),
@@ -1112,11 +1295,16 @@ class _SecurityTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: SubTenantColors.backgroundAlt,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: SubTenantColors.line),
+        border: Border.all(
+          color: SubTenantColors.line,
+        ),
       ),
       child: Row(
         children: [
-          Icon(icon, color: SubTenantColors.blue),
+          Icon(
+            icon,
+            color: SubTenantColors.blue,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -1145,7 +1333,10 @@ class _SecurityTile extends StatelessWidget {
 }
 
 class _SettingsSection {
-  const _SettingsSection(this.label, this.icon);
+  const _SettingsSection(
+    this.label,
+    this.icon,
+  );
 
   final String label;
   final IconData icon;

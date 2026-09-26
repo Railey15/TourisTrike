@@ -2,11 +2,211 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_bookings_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_dashboard_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_drivers_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_packages_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_payment_disputes_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_profile_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_reports_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_spots_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_workspace_search.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_sidebar.dart';
-import 'package:touristrike/widgets/app_bottom_nav_subtenant.dart';
+
+class SubTenantPortalScreen extends StatefulWidget {
+  const SubTenantPortalScreen({
+    super.key,
+    this.initialIndex = 0,
+    @visibleForTesting this.pageBuilder,
+  });
+
+  final int initialIndex;
+  final Widget Function(int index)? pageBuilder;
+
+  static Widget pageForIndex(int index) {
+    return switch (index) {
+      1 => const SubTenantSpotsScreen(),
+      2 => const SubTenantPackagesScreen(),
+      3 => const SubTenantBookingsScreen(),
+      4 => const SubTenantDriversScreen(),
+      5 => const SubTenantReportsScreen(),
+      6 => const SubTenantProfileScreen(),
+      7 => const SubTenantPaymentDisputesScreen(),
+      _ => const SubTenantDashboardScreen(),
+    };
+  }
+
+  @override
+  State<SubTenantPortalScreen> createState() => _SubTenantPortalScreenState();
+}
+
+class _SubTenantPortalScreenState extends State<SubTenantPortalScreen> {
+  static const int _tabCount = 8;
+
+  late int _currentIndex;
+  late final List<Widget?> _pages;
+  final Map<int, _SubTenantTabChrome> _chrome = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex.clamp(0, _tabCount - 1);
+    _pages = List<Widget?>.filled(_tabCount, null);
+    _pages[_currentIndex] = _buildPage(_currentIndex);
+  }
+
+  Widget _buildPage(int index) {
+    return widget.pageBuilder?.call(index) ??
+        SubTenantPortalScreen.pageForIndex(index);
+  }
+
+  void _selectTab(int index) {
+    if (index < 0 || index >= _tabCount || index == _currentIndex) return;
+
+    setState(() {
+      _currentIndex = index;
+      _pages[index] ??= _buildPage(index);
+    });
+  }
+
+  void _registerChrome(_SubTenantTabChrome chrome) {
+    if (!mounted) return;
+
+    final previous = _chrome[chrome.index];
+    _chrome[chrome.index] = chrome;
+
+    if (chrome.index == _currentIndex &&
+        previous?.signature != chrome.signature) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome =
+        _chrome[_currentIndex] ??
+        _SubTenantTabChrome.fallbackFor(_currentIndex);
+
+    return _SubTenantPortalScope(
+      currentIndex: _currentIndex,
+      onSelectTab: _selectTab,
+      onRegisterChrome: _registerChrome,
+      child: SubTenantAdminShell._portal(
+        currentIndex: _currentIndex,
+        title: chrome.title,
+        subtitle: chrome.subtitle,
+        actions: chrome.actions,
+        floatingActionButton: chrome.floatingActionButton,
+        child: IndexedStack(
+          index: _currentIndex,
+          sizing: StackFit.expand,
+          children: List<Widget>.generate(
+            _tabCount,
+            (index) => KeyedSubtree(
+              key: PageStorageKey<String>('subtenant-tab-$index'),
+              child: _pages[index] ?? const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubTenantTabChrome {
+  const _SubTenantTabChrome({
+    required this.index,
+    required this.title,
+    required this.subtitle,
+    this.actions = const [],
+    this.floatingActionButton,
+  });
+
+  final int index;
+  final String title;
+  final String? subtitle;
+  final List<Widget> actions;
+  final Widget? floatingActionButton;
+
+  Object get signature => Object.hash(
+    title,
+    subtitle,
+    actions.length,
+    Object.hashAll(actions.map((action) => action.runtimeType)),
+    floatingActionButton?.runtimeType,
+  );
+
+  static _SubTenantTabChrome fallbackFor(int index) {
+    return switch (index) {
+      1 => const _SubTenantTabChrome(
+        index: 1,
+        title: 'Tourist Spots',
+        subtitle: 'Manage city-scoped destinations and spot visibility.',
+      ),
+      2 => const _SubTenantTabChrome(
+        index: 2,
+        title: 'Packages',
+        subtitle: 'Create, publish, hide, and maintain city tour packages.',
+      ),
+      3 => const _SubTenantTabChrome(
+        index: 3,
+        title: 'Bookings',
+        subtitle: 'Review package bookings with read-only city-scoped details.',
+      ),
+      4 => const _SubTenantTabChrome(
+        index: 4,
+        title: 'Drivers & Guides',
+        subtitle:
+            'Review local driver profiles, TODA data, documents, and account status.',
+      ),
+      5 => const _SubTenantTabChrome(
+        index: 5,
+        title: 'Municipality Reports',
+        subtitle: 'Official tourism reports for your assigned municipality.',
+      ),
+      6 => const _SubTenantTabChrome(
+        index: 6,
+        title: 'Settings',
+        subtitle:
+            'Manage your tourism office profile and active fare settings.',
+      ),
+      7 => const _SubTenantTabChrome(
+        index: 7,
+        title: 'Payment Disputes',
+        subtitle: 'Review and resolve reported GCash and cash payment issues.',
+      ),
+      _ => const _SubTenantTabChrome(
+        index: 0,
+        title: 'Dashboard',
+        subtitle: 'City tourism overview, package operations, and bookings.',
+      ),
+    };
+  }
+}
+
+class _SubTenantPortalScope extends InheritedWidget {
+  const _SubTenantPortalScope({
+    required this.currentIndex,
+    required this.onSelectTab,
+    required this.onRegisterChrome,
+    required super.child,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onSelectTab;
+  final ValueChanged<_SubTenantTabChrome> onRegisterChrome;
+
+  static _SubTenantPortalScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<_SubTenantPortalScope>();
+  }
+
+  @override
+  bool updateShouldNotify(_SubTenantPortalScope oldWidget) {
+    return currentIndex != oldWidget.currentIndex;
+  }
+}
 
 class SubTenantAdminShell extends StatelessWidget {
   const SubTenantAdminShell({
@@ -17,7 +217,16 @@ class SubTenantAdminShell extends StatelessWidget {
     this.subtitle,
     this.actions = const [],
     this.floatingActionButton,
-  });
+  }) : _isPortalRoot = false;
+
+  const SubTenantAdminShell._portal({
+    required this.currentIndex,
+    required this.title,
+    required this.child,
+    this.subtitle,
+    this.actions = const [],
+    this.floatingActionButton,
+  }) : _isPortalRoot = true;
 
   final int currentIndex;
   final String title;
@@ -25,13 +234,31 @@ class SubTenantAdminShell extends StatelessWidget {
   final Widget child;
   final List<Widget> actions;
   final Widget? floatingActionButton;
+  final bool _isPortalRoot;
+
+  static void navigateTo(
+    BuildContext context,
+    int index, {
+    required int currentIndex,
+  }) {
+    final portal = _SubTenantPortalScope.maybeOf(context);
+    if (portal != null) {
+      portal.onSelectTab(index);
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => SubTenantPortalScreen(initialIndex: index),
+        transitionsBuilder: (_, _, _, child) => child,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
 
   void _navigate(BuildContext context, int index) {
-    AppBottomNavSubTenant.navigateToIndex(
-      context,
-      index,
-      currentIndex: currentIndex,
-    );
+    navigateTo(context, index, currentIndex: currentIndex);
   }
 
   Future<void> _logout(BuildContext context) async {
@@ -46,6 +273,21 @@ class SubTenantAdminShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final portal = _SubTenantPortalScope.maybeOf(context);
+    if (!_isPortalRoot && portal != null) {
+      final chrome = _SubTenantTabChrome(
+        index: currentIndex,
+        title: title,
+        subtitle: subtitle,
+        actions: actions,
+        floatingActionButton: floatingActionButton,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        portal.onRegisterChrome(chrome);
+      });
+      return child;
+    }
+
     if (Responsive.isMobile(context)) {
       return _SubTenantScopeActivation(
         scope: currentIndex,

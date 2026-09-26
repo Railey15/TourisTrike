@@ -10,6 +10,7 @@ import 'package:touristrike/screens/admin/province_reports_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_dashboard_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
+import 'package:touristrike/screens/admin/provincial_admin_settings_screen.dart';
 import 'package:touristrike/screens/admin/provincial_spots_screen.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_empty_state.dart';
@@ -17,6 +18,227 @@ import 'package:touristrike/screens/admin/widgets/admin_header_tools.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_sidebar.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
+
+class ProvincialAdminPortalScreen extends StatefulWidget {
+  const ProvincialAdminPortalScreen({
+    super.key,
+    this.initialDestination = ProvincialAdminDestination.dashboard,
+    @visibleForTesting this.pageBuilder,
+    @visibleForTesting this.profileOverride,
+  });
+
+  final ProvincialAdminDestination initialDestination;
+  final Widget Function(ProvincialAdminDestination destination)? pageBuilder;
+  final ProvincialAdminProfile? profileOverride;
+
+  static const destinations = <ProvincialAdminDestination>[
+    ProvincialAdminDestination.dashboard,
+    ProvincialAdminDestination.cityTenants,
+    ProvincialAdminDestination.packages,
+    ProvincialAdminDestination.tourismData,
+    ProvincialAdminDestination.reports,
+    ProvincialAdminDestination.feedback,
+    ProvincialAdminDestination.settings,
+  ];
+
+  static ProvincialAdminDestination normalize(
+    ProvincialAdminDestination destination,
+  ) {
+    return destination == ProvincialAdminDestination.registrations
+        ? ProvincialAdminDestination.cityTenants
+        : destination;
+  }
+
+  static Widget pageForDestination(ProvincialAdminDestination destination) {
+    return switch (normalize(destination)) {
+      ProvincialAdminDestination.cityTenants => const CityTenantsScreen(),
+      ProvincialAdminDestination.packages => const ProvincePackagesScreen(),
+      ProvincialAdminDestination.tourismData => const ProvincialSpotsScreen(),
+      ProvincialAdminDestination.reports => const ProvinceReportsScreen(),
+      ProvincialAdminDestination.feedback => const FeedbackTrendsScreen(),
+      ProvincialAdminDestination.settings =>
+        const ProvincialAdminSettingsScreen(),
+      _ => const ProvincialAdminDashboardScreen(),
+    };
+  }
+
+  @override
+  State<ProvincialAdminPortalScreen> createState() =>
+      _ProvincialAdminPortalScreenState();
+}
+
+class _ProvincialAdminPortalScreenState
+    extends State<ProvincialAdminPortalScreen> {
+  late ProvincialAdminDestination _current;
+  final Map<ProvincialAdminDestination, Widget> _pages = {};
+  final Map<ProvincialAdminDestination, _ProvincialAdminTabChrome> _chrome = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _current = ProvincialAdminPortalScreen.normalize(widget.initialDestination);
+    _pages[_current] = _buildPage(_current);
+  }
+
+  Widget _buildPage(ProvincialAdminDestination destination) {
+    return widget.pageBuilder?.call(destination) ??
+        ProvincialAdminPortalScreen.pageForDestination(destination);
+  }
+
+  void _selectDestination(ProvincialAdminDestination destination) {
+    final normalized = ProvincialAdminPortalScreen.normalize(destination);
+    if (normalized == _current) return;
+
+    setState(() {
+      _current = normalized;
+      _pages[normalized] ??= _buildPage(normalized);
+    });
+  }
+
+  void _registerChrome(_ProvincialAdminTabChrome chrome) {
+    if (!mounted) return;
+
+    final destination = ProvincialAdminPortalScreen.normalize(
+      chrome.destination,
+    );
+    final previous = _chrome[destination];
+    _chrome[destination] = chrome;
+
+    if (destination == _current && previous?.signature != chrome.signature) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chrome =
+        _chrome[_current] ?? _ProvincialAdminTabChrome.fallbackFor(_current);
+    final currentIndex = ProvincialAdminPortalScreen.destinations.indexOf(
+      _current,
+    );
+
+    return _ProvincialAdminPortalScope(
+      current: _current,
+      onSelectDestination: _selectDestination,
+      onRegisterChrome: _registerChrome,
+      child: ProvincialAdminShell._portal(
+        current: _current,
+        title: chrome.title,
+        subtitle: chrome.subtitle,
+        actions: chrome.actions,
+        floatingActionButton: chrome.floatingActionButton,
+        profileOverride: widget.profileOverride,
+        child: IndexedStack(
+          index: currentIndex,
+          sizing: StackFit.expand,
+          children: ProvincialAdminPortalScreen.destinations
+              .map(
+                (destination) => KeyedSubtree(
+                  key: PageStorageKey<String>(
+                    'provincial-admin-${destination.name}',
+                  ),
+                  child: _pages[destination] ?? const SizedBox.shrink(),
+                ),
+              )
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProvincialAdminTabChrome {
+  const _ProvincialAdminTabChrome({
+    required this.destination,
+    required this.title,
+    required this.subtitle,
+    this.actions = const [],
+    this.floatingActionButton,
+  });
+
+  final ProvincialAdminDestination destination;
+  final String title;
+  final String? subtitle;
+  final List<Widget> actions;
+  final Widget? floatingActionButton;
+
+  Object get signature => Object.hash(
+    title,
+    subtitle,
+    actions.length,
+    Object.hashAll(actions.map((action) => action.runtimeType)),
+    floatingActionButton?.runtimeType,
+  );
+
+  static _ProvincialAdminTabChrome fallbackFor(
+    ProvincialAdminDestination destination,
+  ) {
+    return switch (ProvincialAdminPortalScreen.normalize(destination)) {
+      ProvincialAdminDestination.cityTenants => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.cityTenants,
+        title: 'City Tenants',
+        subtitle:
+            'Manage tourism office accounts and review registration requests.',
+      ),
+      ProvincialAdminDestination.packages => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.packages,
+        title: 'Packages',
+        subtitle: 'Monitor packages from every city and municipality.',
+      ),
+      ProvincialAdminDestination.tourismData => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.tourismData,
+        title: 'Tourism Data',
+        subtitle:
+            'Review, verify, and manage tourist spots submitted by city tenants.',
+      ),
+      ProvincialAdminDestination.reports => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.reports,
+        title: 'Provincial Reports',
+        subtitle:
+            'Official province-wide tourism reports and performance records.',
+      ),
+      ProvincialAdminDestination.feedback => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.feedback,
+        title: 'Feedback',
+        subtitle: 'Review tourist feedback trends and low-rated experiences.',
+      ),
+      ProvincialAdminDestination.settings => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.settings,
+        title: 'Settings',
+        subtitle:
+            'Manage provincial office information, policies, notifications, and account security.',
+      ),
+      _ => const _ProvincialAdminTabChrome(
+        destination: ProvincialAdminDestination.dashboard,
+        title: 'Dashboard',
+        subtitle: 'Province-wide tourism overview for Bulacan.',
+      ),
+    };
+  }
+}
+
+class _ProvincialAdminPortalScope extends InheritedWidget {
+  const _ProvincialAdminPortalScope({
+    required this.current,
+    required this.onSelectDestination,
+    required this.onRegisterChrome,
+    required super.child,
+  });
+
+  final ProvincialAdminDestination current;
+  final ValueChanged<ProvincialAdminDestination> onSelectDestination;
+  final ValueChanged<_ProvincialAdminTabChrome> onRegisterChrome;
+
+  static _ProvincialAdminPortalScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_ProvincialAdminPortalScope>();
+  }
+
+  @override
+  bool updateShouldNotify(_ProvincialAdminPortalScope oldWidget) {
+    return current != oldWidget.current;
+  }
+}
 
 class ProvincialAdminShell extends StatefulWidget {
   const ProvincialAdminShell({
@@ -27,7 +249,19 @@ class ProvincialAdminShell extends StatefulWidget {
     this.subtitle,
     this.actions = const [],
     this.floatingActionButton,
-  });
+  }) : _isPortalRoot = false,
+       _profileOverride = null;
+
+  const ProvincialAdminShell._portal({
+    required this.current,
+    required this.title,
+    required this.child,
+    required ProvincialAdminProfile? profileOverride,
+    this.subtitle,
+    this.actions = const [],
+    this.floatingActionButton,
+  }) : _isPortalRoot = true,
+       _profileOverride = profileOverride;
 
   final ProvincialAdminDestination current;
   final String title;
@@ -35,6 +269,36 @@ class ProvincialAdminShell extends StatefulWidget {
   final Widget child;
   final List<Widget> actions;
   final Widget? floatingActionButton;
+  final bool _isPortalRoot;
+  final ProvincialAdminProfile? _profileOverride;
+
+  static void navigateTo(
+    BuildContext context,
+    ProvincialAdminDestination destination, {
+    ProvincialAdminDestination? current,
+  }) {
+    final normalized = ProvincialAdminPortalScreen.normalize(destination);
+    final portal = _ProvincialAdminPortalScope.maybeOf(context);
+    if (portal != null) {
+      portal.onSelectDestination(normalized);
+      return;
+    }
+
+    if (current != null &&
+        ProvincialAdminPortalScreen.normalize(current) == normalized) {
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) =>
+            ProvincialAdminPortalScreen(initialDestination: normalized),
+        transitionsBuilder: (_, _, _, child) => child,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
 
   @override
   State<ProvincialAdminShell> createState() => _ProvincialAdminShellState();
@@ -43,14 +307,8 @@ class ProvincialAdminShell extends StatefulWidget {
 class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
   final ProvincialAdminService _service = ProvincialAdminService();
 
-  late Future<ProvincialAdminProfile> _profileFuture;
+  Future<ProvincialAdminProfile>? _profileFuture;
   bool _collapsed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _profileFuture = _service.loadCurrentAdminProfile();
-  }
 
   Future<void> _logout() async {
     await Supabase.instance.client.auth.signOut();
@@ -64,10 +322,10 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
   }
 
   void _navigate(ProvincialAdminDestination destination) {
-    if (destination == widget.current) return;
-
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => _pageForDestination(destination)),
+    ProvincialAdminShell.navigateTo(
+      context,
+      destination,
+      current: widget.current,
     );
   }
 
@@ -95,27 +353,27 @@ class _ProvincialAdminShellState extends State<ProvincialAdminShell> {
     );
   }
 
-  Widget _pageForDestination(ProvincialAdminDestination destination) {
-    switch (destination) {
-      case ProvincialAdminDestination.dashboard:
-        return const ProvincialAdminDashboardScreen();
-      case ProvincialAdminDestination.cityTenants:
-        return const CityTenantsScreen();
-      case ProvincialAdminDestination.registrations:
-        return const CityTenantsScreen();
-      case ProvincialAdminDestination.packages:
-        return const ProvincePackagesScreen();
-      case ProvincialAdminDestination.tourismData:
-        return const ProvincialSpotsScreen();
-      case ProvincialAdminDestination.reports:
-        return const ProvinceReportsScreen();
-      case ProvincialAdminDestination.feedback:
-        return const FeedbackTrendsScreen();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final portal = _ProvincialAdminPortalScope.maybeOf(context);
+    if (!widget._isPortalRoot && portal != null) {
+      final chrome = _ProvincialAdminTabChrome(
+        destination: widget.current,
+        title: widget.title,
+        subtitle: widget.subtitle,
+        actions: widget.actions,
+        floatingActionButton: widget.floatingActionButton,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        portal.onRegisterChrome(chrome);
+      });
+      return widget.child;
+    }
+
+    _profileFuture ??= widget._profileOverride == null
+        ? _service.loadCurrentAdminProfile()
+        : Future<ProvincialAdminProfile>.value(widget._profileOverride);
+
     return FutureBuilder<ProvincialAdminProfile>(
       future: _profileFuture,
       builder: (context, snapshot) {

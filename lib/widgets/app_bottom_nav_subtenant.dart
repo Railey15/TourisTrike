@@ -1,12 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:touristrike/screens/subtenant/subtenant_bookings_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_dashboard_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_drivers_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_packages_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_payment_disputes_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_profile_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_reports_screen.dart';
-import 'package:touristrike/screens/subtenant/subtenant_spots_screen.dart';
+import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 
 class AppBottomNavSubTenant extends StatelessWidget {
   const AppBottomNavSubTenant({
@@ -22,26 +15,7 @@ class AppBottomNavSubTenant extends StatelessWidget {
   static const Color _inactiveColor = Color(0xFF64748B);
 
   static Widget pageForIndex(int index) {
-    switch (index) {
-      case 0:
-        return const SubTenantDashboardScreen();
-      case 1:
-        return const SubTenantSpotsScreen();
-      case 2:
-        return const SubTenantPackagesScreen();
-      case 3:
-        return const SubTenantBookingsScreen();
-      case 4:
-        return const SubTenantDriversScreen();
-      case 5:
-        return const SubTenantReportsScreen();
-      case 6:
-        return const SubTenantProfileScreen();
-      case 7:
-        return const SubTenantPaymentDisputesScreen();
-      default:
-        return const SubTenantDashboardScreen();
-    }
+    return SubTenantPortalScreen.pageForIndex(index);
   }
 
   static void navigateToIndex(
@@ -49,11 +23,7 @@ class AppBottomNavSubTenant extends StatelessWidget {
     int index, {
     required int currentIndex,
   }) {
-    if (index == currentIndex) return;
-
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => pageForIndex(index)));
+    SubTenantAdminShell.navigateTo(context, index, currentIndex: currentIndex);
   }
 
   void _handleTap(BuildContext context, int index) {

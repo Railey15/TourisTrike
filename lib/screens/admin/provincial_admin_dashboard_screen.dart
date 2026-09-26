@@ -2,12 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:touristrike/screens/admin/admin_models.dart';
-import 'package:touristrike/screens/admin/city_tenants_screen.dart';
 import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
-import 'package:touristrike/screens/admin/province_packages_screen.dart';
 import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 import 'package:touristrike/screens/admin/provincial_admin_service.dart';
-import 'package:touristrike/screens/admin/provincial_spots_screen.dart';
 import 'package:touristrike/screens/admin/widgets/admin_common.dart';
 import 'package:touristrike/screens/admin/widgets/admin_status_pill.dart';
 import 'package:touristrike/screens/admin/widgets/provincial_admin_style.dart';
@@ -38,15 +35,12 @@ class _ProvincialAdminDashboardScreenState
     });
   }
 
-  Future<void> _open(Widget page) async {
-    await Navigator.push(
+  void _open(ProvincialAdminDestination destination) {
+    ProvincialAdminShell.navigateTo(
       context,
-      MaterialPageRoute(builder: (_) => page),
+      destination,
+      current: ProvincialAdminDestination.dashboard,
     );
-
-    if (mounted) {
-      _reload();
-    }
   }
 
   @override
@@ -78,10 +72,7 @@ class _ProvincialAdminDashboardScreenState
 
           final data = snapshot.data!;
 
-          final money = NumberFormat.currency(
-            symbol: 'PHP ',
-            decimalDigits: 0,
-          );
+          final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -91,18 +82,14 @@ class _ProvincialAdminDashboardScreenState
                 return _DesktopDashboard(
                   data: data,
                   money: money,
-                  openTenants: () => _open(
-                    const CityTenantsScreen(),
-                  ),
-                  openRegistrations: () => _open(
-                    const CityTenantsScreen(),
-                  ),
-                  openSpots: () => _open(
-                    const ProvincialSpotsScreen(),
-                  ),
-                  openPackages: () => _open(
-                    const ProvincePackagesScreen(),
-                  ),
+                  openTenants: () =>
+                      _open(ProvincialAdminDestination.cityTenants),
+                  openRegistrations: () =>
+                      _open(ProvincialAdminDestination.cityTenants),
+                  openSpots: () =>
+                      _open(ProvincialAdminDestination.tourismData),
+                  openPackages: () =>
+                      _open(ProvincialAdminDestination.packages),
                 );
               }
 
@@ -110,36 +97,26 @@ class _ProvincialAdminDashboardScreenState
                 return _TabletDashboard(
                   data: data,
                   money: money,
-                  openTenants: () => _open(
-                    const CityTenantsScreen(),
-                  ),
-                  openRegistrations: () => _open(
-                    const CityTenantsScreen(),
-                  ),
-                  openSpots: () => _open(
-                    const ProvincialSpotsScreen(),
-                  ),
-                  openPackages: () => _open(
-                    const ProvincePackagesScreen(),
-                  ),
+                  openTenants: () =>
+                      _open(ProvincialAdminDestination.cityTenants),
+                  openRegistrations: () =>
+                      _open(ProvincialAdminDestination.cityTenants),
+                  openSpots: () =>
+                      _open(ProvincialAdminDestination.tourismData),
+                  openPackages: () =>
+                      _open(ProvincialAdminDestination.packages),
                 );
               }
 
               return _MobileDashboard(
                 data: data,
                 money: money,
-                openTenants: () => _open(
-                  const CityTenantsScreen(),
-                ),
-                openRegistrations: () => _open(
-                  const CityTenantsScreen(),
-                ),
-                openSpots: () => _open(
-                  const ProvincialSpotsScreen(),
-                ),
-                openPackages: () => _open(
-                  const ProvincePackagesScreen(),
-                ),
+                openTenants: () =>
+                    _open(ProvincialAdminDestination.cityTenants),
+                openRegistrations: () =>
+                    _open(ProvincialAdminDestination.cityTenants),
+                openSpots: () => _open(ProvincialAdminDestination.tourismData),
+                openPackages: () => _open(ProvincialAdminDestination.packages),
               );
             },
           );
@@ -178,10 +155,7 @@ class _DesktopDashboard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _WelcomeBanner(
-            data: data,
-            large: true,
-          ),
+          _WelcomeBanner(data: data, large: true),
 
           const SizedBox(height: 20),
 
@@ -204,9 +178,7 @@ class _DesktopDashboard extends StatelessWidget {
                 flex: 7,
                 child: SizedBox(
                   height: 370,
-                  child: _TopCities(
-                    rows: data.bookingsByCity.take(6).toList(),
-                  ),
+                  child: _TopCities(rows: data.bookingsByCity.take(6).toList()),
                 ),
               ),
 
@@ -216,9 +188,7 @@ class _DesktopDashboard extends StatelessWidget {
                 flex: 6,
                 child: SizedBox(
                   height: 370,
-                  child: _RecentActivity(
-                    data: data,
-                  ),
+                  child: _RecentActivity(data: data),
                 ),
               ),
 
@@ -241,23 +211,13 @@ class _DesktopDashboard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                flex: 7,
-                child: _BookingsOverview(
-                  data: data,
-                ),
-              ),
+              Expanded(flex: 7, child: _BookingsOverview(data: data)),
 
               const SizedBox(width: 18),
 
               Expanded(
                 flex: 5,
-                child: SizedBox(
-                  height: 270,
-                  child: _Alerts(
-                    data: data,
-                  ),
-                ),
+                child: SizedBox(height: 270, child: _Alerts(data: data)),
               ),
             ],
           ),
@@ -296,10 +256,7 @@ class _TabletDashboard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _WelcomeBanner(
-            data: data,
-            large: false,
-          ),
+          _WelcomeBanner(data: data, large: false),
 
           const SizedBox(height: 18),
 
@@ -321,9 +278,7 @@ class _TabletDashboard extends StatelessWidget {
               Expanded(
                 child: SizedBox(
                   height: 340,
-                  child: _TopCities(
-                    rows: data.bookingsByCity.take(5).toList(),
-                  ),
+                  child: _TopCities(rows: data.bookingsByCity.take(5).toList()),
                 ),
               ),
 
@@ -332,9 +287,7 @@ class _TabletDashboard extends StatelessWidget {
               Expanded(
                 child: SizedBox(
                   height: 340,
-                  child: _RecentActivity(
-                    data: data,
-                  ),
+                  child: _RecentActivity(data: data),
                 ),
               ),
             ],
@@ -357,21 +310,14 @@ class _TabletDashboard extends StatelessWidget {
               const SizedBox(width: 16),
 
               Expanded(
-                child: SizedBox(
-                  height: 300,
-                  child: _Alerts(
-                    data: data,
-                  ),
-                ),
+                child: SizedBox(height: 300, child: _Alerts(data: data)),
               ),
             ],
           ),
 
           const SizedBox(height: 16),
 
-          _BookingsOverview(
-            data: data,
-          ),
+          _BookingsOverview(data: data),
         ],
       ),
     );
@@ -407,10 +353,7 @@ class _MobileDashboard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _WelcomeBanner(
-            data: data,
-            large: false,
-          ),
+          _WelcomeBanner(data: data, large: false),
 
           const SizedBox(height: 14),
 
@@ -428,43 +371,27 @@ class _MobileDashboard extends StatelessWidget {
 
           SizedBox(
             height: 330,
-            child: _TopCities(
-              rows: data.bookingsByCity.take(5).toList(),
-            ),
+            child: _TopCities(rows: data.bookingsByCity.take(5).toList()),
           ),
 
           const SizedBox(height: 14),
 
-          SizedBox(
-            height: 350,
-            child: _RecentActivity(
-              data: data,
-            ),
-          ),
+          SizedBox(height: 350, child: _RecentActivity(data: data)),
 
           const SizedBox(height: 14),
 
           SizedBox(
             height: 310,
-            child: _TopPackages(
-              packages: data.topPackages.take(4).toList(),
-            ),
+            child: _TopPackages(packages: data.topPackages.take(4).toList()),
           ),
 
           const SizedBox(height: 14),
 
-          SizedBox(
-            height: 330,
-            child: _Alerts(
-              data: data,
-            ),
-          ),
+          SizedBox(height: 330, child: _Alerts(data: data)),
 
           const SizedBox(height: 14),
 
-          _BookingsOverview(
-            data: data,
-          ),
+          _BookingsOverview(data: data),
         ],
       ),
     );
@@ -476,10 +403,7 @@ class _MobileDashboard extends StatelessWidget {
 // ============================================================
 
 class _WelcomeBanner extends StatelessWidget {
-  const _WelcomeBanner({
-    required this.data,
-    required this.large,
-  });
+  const _WelcomeBanner({required this.data, required this.large});
 
   final AdminDashboardData data;
   final bool large;
@@ -496,27 +420,19 @@ class _WelcomeBanner extends StatelessWidget {
         compact
             ? 17
             : large
-                ? 26
-                : 22,
+            ? 26
+            : 22,
       ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF1557D6),
-            Color(0xFF2877EA),
-            Color(0xFF39A8ED),
-          ],
+          colors: [Color(0xFF1557D6), Color(0xFF2877EA), Color(0xFF39A8ED)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(
-          compact ? 22 : 26,
-        ),
+        borderRadius: BorderRadius.circular(compact ? 22 : 26),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1557D6).withValues(
-              alpha: .18,
-            ),
+            color: const Color(0xFF1557D6).withValues(alpha: .18),
             blurRadius: 28,
             offset: const Offset(0, 14),
           ),
@@ -557,9 +473,7 @@ class _WelcomeBanner extends StatelessWidget {
                 height: compact ? 50 : 62,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: .16),
-                  borderRadius: BorderRadius.circular(
-                    compact ? 16 : 20,
-                  ),
+                  borderRadius: BorderRadius.circular(compact ? 16 : 20),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: .18),
                   ),
@@ -571,9 +485,7 @@ class _WelcomeBanner extends StatelessWidget {
                 ),
               ),
 
-              SizedBox(
-                width: compact ? 12 : 16,
-              ),
+              SizedBox(width: compact ? 12 : 16),
 
               Expanded(
                 child: Column(
@@ -602,8 +514,8 @@ class _WelcomeBanner extends StatelessWidget {
                         fontSize: compact
                             ? 20
                             : large
-                                ? 28
-                                : 24,
+                            ? 28
+                            : 24,
                         height: 1.05,
                         fontWeight: FontWeight.w900,
                         letterSpacing: -.4,
@@ -764,14 +676,11 @@ class _MetricsGrid extends StatelessWidget {
         childAspectRatio: columns == 2
             ? 1.55
             : columns == 3
-                ? 1.75
-                : 1.65,
+            ? 1.75
+            : 1.65,
       ),
       itemBuilder: (context, index) {
-        return _MetricCard(
-          item: items[index],
-          compact: columns == 2,
-        );
+        return _MetricCard(item: items[index], compact: columns == 2);
       },
     );
   }
@@ -796,10 +705,7 @@ class _MetricData {
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.item,
-    required this.compact,
-  });
+  const _MetricCard({required this.item, required this.compact});
 
   final _MetricData item;
   final bool compact;
@@ -813,14 +719,10 @@ class _MetricCard extends StatelessWidget {
         onTap: item.onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: EdgeInsets.all(
-            compact ? 13 : 15,
-          ),
+          padding: EdgeInsets.all(compact ? 13 : 15),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: ProvincialAdminColors.line,
-            ),
+            border: Border.all(color: ProvincialAdminColors.line),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: .025),
@@ -927,18 +829,11 @@ class _SectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(
-        18,
-        18,
-        18,
-        16,
-      ),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: ProvincialAdminColors.line,
-        ),
+        border: Border.all(color: ProvincialAdminColors.line),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: .025),
@@ -959,11 +854,7 @@ class _SectionCard extends StatelessWidget {
                   color: const Color(0xFFEAF3FF),
                   borderRadius: BorderRadius.circular(13),
                 ),
-                child: Icon(
-                  icon,
-                  color: ProvincialAdminColors.blue,
-                  size: 20,
-                ),
+                child: Icon(icon, color: ProvincialAdminColors.blue, size: 20),
               ),
 
               const SizedBox(width: 11),
@@ -1018,9 +909,7 @@ class _SectionCard extends StatelessWidget {
 
           const SizedBox(height: 17),
 
-          Expanded(
-            child: child,
-          ),
+          Expanded(child: child),
         ],
       ),
     );
@@ -1032,9 +921,7 @@ class _SectionCard extends StatelessWidget {
 // ============================================================
 
 class _TopCities extends StatelessWidget {
-  const _TopCities({
-    required this.rows,
-  });
+  const _TopCities({required this.rows});
 
   final List<CityMetricRow> rows;
 
@@ -1049,7 +936,8 @@ class _TopCities extends StatelessWidget {
           ? const _CenteredEmpty(
               icon: Icons.map_outlined,
               title: 'No city booking data yet',
-              message: 'Booking activity will appear here once tours are booked.',
+              message:
+                  'Booking activity will appear here once tours are booked.',
             )
           : ListView.separated(
               padding: EdgeInsets.zero,
@@ -1062,14 +950,10 @@ class _TopCities extends StatelessWidget {
                 final max = rows.isEmpty
                     ? 1
                     : rows
-                        .map((item) => item.value)
-                        .reduce(
-                          (a, b) => a > b ? a : b,
-                        );
+                          .map((item) => item.value)
+                          .reduce((a, b) => a > b ? a : b);
 
-                final factor = max == 0
-                    ? 0.0
-                    : row.value / max;
+                final factor = max == 0 ? 0.0 : row.value / max;
 
                 return _CityBarRow(
                   rank: index + 1,
@@ -1169,10 +1053,7 @@ class _CityBarRow extends StatelessWidget {
                   height: 7,
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [
-                        Color(0xFF4AA3FF),
-                        Color(0xFF1557D6),
-                      ],
+                      colors: [Color(0xFF4AA3FF), Color(0xFF1557D6)],
                     ),
                   ),
                 ),
@@ -1190,22 +1071,15 @@ class _CityBarRow extends StatelessWidget {
 // ============================================================
 
 class _RecentActivity extends StatelessWidget {
-  const _RecentActivity({
-    required this.data,
-  });
+  const _RecentActivity({required this.data});
 
   final AdminDashboardData data;
 
   @override
   Widget build(BuildContext context) {
-    final bookings = data.bookings.take(5).toList(
-          growable: false,
-        );
+    final bookings = data.bookings.take(5).toList(growable: false);
 
-    final money = NumberFormat.currency(
-      symbol: 'PHP ',
-      decimalDigits: 0,
-    );
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
 
     return _SectionCard(
       title: 'Recent Activity',
@@ -1229,11 +1103,8 @@ class _RecentActivity extends StatelessWidget {
                 return _ActivityTile(
                   icon: Icons.receipt_long_rounded,
                   title: booking.packageTitle,
-                  subtitle:
-                      '${booking.city} • ${booking.touristName}',
-                  amount: money.format(
-                    booking.totalAmount,
-                  ),
+                  subtitle: '${booking.city} • ${booking.touristName}',
+                  amount: money.format(booking.totalAmount),
                   status: booking.status,
                 );
               },
@@ -1264,9 +1135,7 @@ class _ActivityTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF8FBFF),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: ProvincialAdminColors.line,
-        ),
+        border: Border.all(color: ProvincialAdminColors.line),
       ),
       child: Row(
         children: [
@@ -1277,11 +1146,7 @@ class _ActivityTile extends StatelessWidget {
               color: const Color(0xFFEAF3FF),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              icon,
-              color: ProvincialAdminColors.blue,
-              size: 19,
-            ),
+            child: Icon(icon, color: ProvincialAdminColors.blue, size: 19),
           ),
 
           const SizedBox(width: 10),
@@ -1330,9 +1195,7 @@ class _ActivityTile extends StatelessWidget {
 
           const SizedBox(width: 8),
 
-          AdminStatusPill(
-            status: status,
-          ),
+          AdminStatusPill(status: status),
         ],
       ),
     );
@@ -1344,9 +1207,7 @@ class _ActivityTile extends StatelessWidget {
 // ============================================================
 
 class _TopPackages extends StatelessWidget {
-  const _TopPackages({
-    required this.packages,
-  });
+  const _TopPackages({required this.packages});
 
   final List<ProvincePackage> packages;
 
@@ -1406,9 +1267,7 @@ class _PackageTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF8FBFF),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: ProvincialAdminColors.line,
-        ),
+        border: Border.all(color: ProvincialAdminColors.line),
       ),
       child: Row(
         children: [
@@ -1469,9 +1328,7 @@ class _PackageTile extends StatelessWidget {
 
           const SizedBox(width: 7),
 
-          AdminStatusPill(
-            status: status,
-          ),
+          AdminStatusPill(status: status),
         ],
       ),
     );
@@ -1483,34 +1340,21 @@ class _PackageTile extends StatelessWidget {
 // ============================================================
 
 class _Alerts extends StatelessWidget {
-  const _Alerts({
-    required this.data,
-  });
+  const _Alerts({required this.data});
 
   final AdminDashboardData data;
 
   @override
   Widget build(BuildContext context) {
     final pendingPackages = data.packages
-        .where(
-          (item) =>
-              item.status.toLowerCase() == 'pending',
-        )
+        .where((item) => item.status.toLowerCase() == 'pending')
         .length;
 
     final unverifiedSpots = data.spots
-        .where(
-          (item) =>
-              item.verificationStatus.toLowerCase() !=
-              'verified',
-        )
+        .where((item) => item.verificationStatus.toLowerCase() != 'verified')
         .length;
 
-    final lowFeedback = data.feedback
-        .where(
-          (item) => item.rating < 3,
-        )
-        .length;
+    final lowFeedback = data.feedback.where((item) => item.rating < 3).length;
 
     final items = [
       _AlertItem(
@@ -1519,9 +1363,7 @@ class _Alerts extends StatelessWidget {
         subtitle: data.registrationsTableAvailable
             ? '${data.pendingRegistrations} waiting for action'
             : 'Registration table not connected',
-        status: data.pendingRegistrations == 0
-            ? 'clear'
-            : 'pending',
+        status: data.pendingRegistrations == 0 ? 'clear' : 'pending',
         color: ProvincialAdminColors.amber,
       ),
 
@@ -1529,9 +1371,7 @@ class _Alerts extends StatelessWidget {
         icon: Icons.inventory_2_rounded,
         title: 'Packages needing review',
         subtitle: '$pendingPackages pending submissions',
-        status: pendingPackages == 0
-            ? 'clear'
-            : 'pending',
+        status: pendingPackages == 0 ? 'clear' : 'pending',
         color: ProvincialAdminColors.blue,
       ),
 
@@ -1539,9 +1379,7 @@ class _Alerts extends StatelessWidget {
         icon: Icons.travel_explore_rounded,
         title: 'Tourism data verification',
         subtitle: '$unverifiedSpots spots not verified',
-        status: unverifiedSpots == 0
-            ? 'verified'
-            : 'review',
+        status: unverifiedSpots == 0 ? 'verified' : 'review',
         color: ProvincialAdminColors.cyan,
       ),
 
@@ -1549,9 +1387,7 @@ class _Alerts extends StatelessWidget {
         icon: Icons.rate_review_rounded,
         title: 'Low-rated feedback',
         subtitle: '$lowFeedback reviews below 3 stars',
-        status: lowFeedback == 0
-            ? 'clear'
-            : 'flagged',
+        status: lowFeedback == 0 ? 'clear' : 'flagged',
         color: ProvincialAdminColors.red,
       ),
     ];
@@ -1569,9 +1405,7 @@ class _Alerts extends StatelessWidget {
         itemBuilder: (_, index) {
           final item = items[index];
 
-          return _AlertTile(
-            item: item,
-          );
+          return _AlertTile(item: item);
         },
       ),
     );
@@ -1595,9 +1429,7 @@ class _AlertItem {
 }
 
 class _AlertTile extends StatelessWidget {
-  const _AlertTile({
-    required this.item,
-  });
+  const _AlertTile({required this.item});
 
   final _AlertItem item;
 
@@ -1608,9 +1440,7 @@ class _AlertTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF8FBFF),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: ProvincialAdminColors.line,
-        ),
+        border: Border.all(color: ProvincialAdminColors.line),
       ),
       child: Row(
         children: [
@@ -1621,11 +1451,7 @@ class _AlertTile extends StatelessWidget {
               color: item.color.withValues(alpha: .10),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              item.icon,
-              color: item.color,
-              size: 19,
-            ),
+            child: Icon(item.icon, color: item.color, size: 19),
           ),
 
           const SizedBox(width: 10),
@@ -1663,9 +1489,7 @@ class _AlertTile extends StatelessWidget {
 
           const SizedBox(width: 7),
 
-          AdminStatusPill(
-            status: item.status,
-          ),
+          AdminStatusPill(status: item.status),
         ],
       ),
     );
@@ -1677,9 +1501,7 @@ class _AlertTile extends StatelessWidget {
 // ============================================================
 
 class _BookingsOverview extends StatelessWidget {
-  const _BookingsOverview({
-    required this.data,
-  });
+  const _BookingsOverview({required this.data});
 
   final AdminDashboardData data;
 
@@ -1688,31 +1510,19 @@ class _BookingsOverview extends StatelessWidget {
     final total = data.bookings.length;
 
     final pending = data.bookings
-        .where(
-          (item) =>
-              item.status.toLowerCase() == 'pending',
-        )
+        .where((item) => item.status.toLowerCase() == 'pending')
         .length;
 
     final confirmed = data.bookings
-        .where(
-          (item) =>
-              item.status.toLowerCase() == 'confirmed',
-        )
+        .where((item) => item.status.toLowerCase() == 'confirmed')
         .length;
 
     final completed = data.bookings
-        .where(
-          (item) =>
-              item.status.toLowerCase() == 'completed',
-        )
+        .where((item) => item.status.toLowerCase() == 'completed')
         .length;
 
     final cancelled = data.bookings
-        .where(
-          (item) =>
-              item.status.toLowerCase() == 'cancelled',
-        )
+        .where((item) => item.status.toLowerCase() == 'cancelled')
         .length;
 
     final boxes = [
@@ -1763,9 +1573,7 @@ class _BookingsOverview extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: ProvincialAdminColors.line,
-        ),
+        border: Border.all(color: ProvincialAdminColors.line),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: .025),
@@ -1838,11 +1646,8 @@ class _BookingsOverview extends StatelessWidget {
                   child: Row(
                     children: [
                       for (var i = 0; i < boxes.length; i++) ...[
-                        Expanded(
-                          child: boxes[i],
-                        ),
-                        if (i != boxes.length - 1)
-                          const SizedBox(width: 10),
+                        Expanded(child: boxes[i]),
+                        if (i != boxes.length - 1) const SizedBox(width: 10),
                       ],
                     ],
                   ),
@@ -1853,8 +1658,7 @@ class _BookingsOverview extends StatelessWidget {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: boxes.length,
-                gridDelegate:
-                    SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: width < 390 ? 2 : 3,
                   crossAxisSpacing: 9,
                   mainAxisSpacing: 9,
@@ -1871,10 +1675,7 @@ class _BookingsOverview extends StatelessWidget {
     );
   }
 
-  String _percent(
-    int value,
-    int total,
-  ) {
+  String _percent(int value, int total) {
     if (total == 0) {
       return '0%';
     }
@@ -1905,9 +1706,7 @@ class _BookingStatusBox extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: .065),
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(
-          color: color.withValues(alpha: .13),
-        ),
+        border: Border.all(color: color.withValues(alpha: .13)),
       ),
       child: Row(
         children: [
@@ -1918,11 +1717,7 @@ class _BookingStatusBox extends StatelessWidget {
               color: color.withValues(alpha: .12),
               borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 17,
-            ),
+            child: Icon(icon, color: color, size: 17),
           ),
 
           const SizedBox(width: 9),
@@ -2010,11 +1805,7 @@ class _CenteredEmpty extends StatelessWidget {
                 color: const Color(0xFFEAF3FF),
                 borderRadius: BorderRadius.circular(19),
               ),
-              child: Icon(
-                icon,
-                color: ProvincialAdminColors.blue,
-                size: 28,
-              ),
+              child: Icon(icon, color: ProvincialAdminColors.blue, size: 28),
             ),
 
             const SizedBox(height: 13),

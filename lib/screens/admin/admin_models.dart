@@ -143,6 +143,118 @@ class ProvincialAdminProfile {
   }
 }
 
+class ProvincialOfficeSettings {
+  const ProvincialOfficeSettings({
+    required this.officeName,
+    required this.officeAddress,
+    required this.contactPerson,
+    required this.contactNumber,
+    required this.officialEmail,
+    required this.displayName,
+    required this.logoUrl,
+    required this.coverImageUrl,
+  });
+
+  final String officeName;
+  final String officeAddress;
+  final String contactPerson;
+  final String contactNumber;
+  final String officialEmail;
+  final String displayName;
+  final String logoUrl;
+  final String coverImageUrl;
+
+  factory ProvincialOfficeSettings.fromMap(
+    Map<String, dynamic> map,
+    ProvincialAdminProfile profile,
+  ) {
+    final defaultOfficeName = profile.province.trim().isEmpty
+        ? 'Provincial Tourism Office'
+        : 'Provincial Tourism Office of ${profile.province.trim()}';
+    final officeName = adminString(map, const [
+      'office_name',
+    ], fallback: defaultOfficeName);
+    return ProvincialOfficeSettings(
+      officeName: officeName,
+      officeAddress: adminString(map, const [
+        'office_address',
+      ], fallback: adminString(profile.raw, const ['address'])),
+      contactPerson: adminString(map, const [
+        'contact_person',
+      ], fallback: profile.displayName),
+      contactNumber: adminString(map, const [
+        'contact_number',
+      ], fallback: profile.mobile),
+      officialEmail: adminString(map, const [
+        'official_email',
+      ], fallback: profile.email),
+      displayName: adminString(map, const [
+        'display_name',
+      ], fallback: officeName),
+      logoUrl: adminString(map, const ['logo_url']),
+      coverImageUrl: adminString(map, const ['cover_image_url']),
+    );
+  }
+}
+
+class ProvincialBookingPolicySettings {
+  const ProvincialBookingPolicySettings({
+    required this.freeCancellationHours,
+    required this.termsAndConditions,
+    required this.cancellationPolicy,
+    required this.dataPrivacyNotice,
+    this.termsPolicyId,
+    this.cancellationPolicyId,
+    this.privacyPolicyId,
+  });
+
+  final int freeCancellationHours;
+  final String termsAndConditions;
+  final String cancellationPolicy;
+  final String dataPrivacyNotice;
+  final dynamic termsPolicyId;
+  final dynamic cancellationPolicyId;
+  final dynamic privacyPolicyId;
+}
+
+class ProvincialNotificationPreferences {
+  const ProvincialNotificationPreferences({
+    required this.cityApplications,
+    required this.driverStatusUpdates,
+    required this.bookingIssues,
+    required this.paymentDisputes,
+  });
+
+  final bool cityApplications;
+  final bool driverStatusUpdates;
+  final bool bookingIssues;
+  final bool paymentDisputes;
+
+  factory ProvincialNotificationPreferences.fromMap(Map<String, dynamic> map) {
+    bool read(String key) => map[key] is bool ? map[key] as bool : true;
+    return ProvincialNotificationPreferences(
+      cityApplications: read('city_application_notifications'),
+      driverStatusUpdates: read('driver_status_notifications'),
+      bookingIssues: read('booking_issue_notifications'),
+      paymentDisputes: read('payment_dispute_notifications'),
+    );
+  }
+}
+
+class ProvincialAdminSettingsData {
+  const ProvincialAdminSettingsData({
+    required this.profile,
+    required this.office,
+    required this.bookingPolicies,
+    required this.notifications,
+  });
+
+  final ProvincialAdminProfile profile;
+  final ProvincialOfficeSettings office;
+  final ProvincialBookingPolicySettings bookingPolicies;
+  final ProvincialNotificationPreferences notifications;
+}
+
 class CityTenant {
   const CityTenant({
     required this.id,

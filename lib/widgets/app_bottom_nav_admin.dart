@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:touristrike/screens/admin/provincial_admin_dashboard_screen.dart';
-import 'package:touristrike/screens/admin/province_packages_screen.dart';
-import 'package:touristrike/screens/admin/province_reports_screen.dart';
+import 'package:touristrike/screens/admin/layouts/provincial_admin_shell.dart';
+import 'package:touristrike/screens/admin/provincial_admin_nav.dart';
 //import 'package:touristrike/screens/admin/profile/admin_profile_screen.dart';
 
 class AppBottomNavAdmin extends StatelessWidget {
-  const AppBottomNavAdmin({
-    super.key,
-    required this.currentIndex,
-  });
+  const AppBottomNavAdmin({super.key, required this.currentIndex});
 
   final int currentIndex;
 
@@ -18,28 +14,15 @@ class AppBottomNavAdmin extends StatelessWidget {
   void _goTo(BuildContext context, int index) {
     if (index == currentIndex) return;
 
-    Widget screen;
-    switch (index) {
-      case 0:
-        screen = const ProvincialAdminDashboardScreen();
-        break;
-      case 1:
-        screen = const ProvinceReportsScreen();
-        break;
-      case 2:
-        screen = const ProvincePackagesScreen();
-        break;
-      case 3:
-        //  screen = const AdminProfileScreen();
-        return;
-      default:
-        screen = const ProvincialAdminDashboardScreen();
-    }
+    final destination = switch (index) {
+      0 => ProvincialAdminDestination.dashboard,
+      1 => ProvincialAdminDestination.reports,
+      2 => ProvincialAdminDestination.packages,
+      _ => null,
+    };
+    if (destination == null) return;
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    ProvincialAdminShell.navigateTo(context, destination);
   }
 
   @override
@@ -60,10 +43,7 @@ class AppBottomNavAdmin extends StatelessWidget {
             ),
           ],
           border: const Border(
-            top: BorderSide(
-              color: Color(0xFFE5E7EB),
-              width: 1,
-            ),
+            top: BorderSide(color: Color(0xFFE5E7EB), width: 1),
           ),
         ),
         child: Stack(
@@ -134,10 +114,7 @@ class AppBottomNavAdmin extends StatelessWidget {
 }
 
 class _CenterNavButton extends StatelessWidget {
-  const _CenterNavButton({
-    required this.selected,
-    required this.onTap,
-  });
+  const _CenterNavButton({required this.selected, required this.onTap});
 
   final bool selected;
   final VoidCallback onTap;
@@ -156,15 +133,9 @@ class _CenterNavButton extends StatelessWidget {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF58AEFF),
-              Color(0xFF2A86FF),
-            ],
+            colors: [Color(0xFF58AEFF), Color(0xFF2A86FF)],
           ),
-          border: Border.all(
-            color: Colors.white,
-            width: 5,
-          ),
+          border: Border.all(color: Colors.white, width: 5),
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF2A86FF).withValues(alpha: 0.28),
@@ -216,11 +187,7 @@ class _NavItem extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                selected ? activeIcon : icon,
-                color: color,
-                size: 24,
-              ),
+              Icon(selected ? activeIcon : icon, color: color, size: 24),
               const SizedBox(height: 4),
               Text(
                 label,

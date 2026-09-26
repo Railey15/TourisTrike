@@ -38,17 +38,6 @@ class _TermsScreenState extends State<TermsScreen> {
       Map<String, dynamic>? row;
       if ((matchingRows as List<dynamic>).isNotEmpty) {
         row = Map<String, dynamic>.from(matchingRows.first as Map);
-      } else {
-        final fallback = await _supabase
-            .from('tourism_policies')
-            .select()
-            .eq('status', 'published')
-            .order('updated_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-        if (fallback != null) {
-          row = fallback;
-        }
       }
 
       if (!mounted) return;

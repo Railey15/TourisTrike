@@ -10,8 +10,8 @@ import 'web_portal_landing_screen.dart';
 import '../tourist/tourist_home_screen.dart';
 import '../tourist/tourist_activity_tracking_screen.dart';
 import '../driver/driver_home_screen.dart';
-import '../admin/provincial_admin_dashboard_screen.dart';
-import '../subtenant/subtenant_dashboard_screen.dart';
+import '../admin/layouts/provincial_admin_shell.dart';
+import '../subtenant/layouts/subtenant_admin_shell.dart';
 
 class TourisTrikeLoadingScreen extends StatefulWidget {
   const TourisTrikeLoadingScreen({super.key});
@@ -104,10 +104,10 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
           destination = const DriverHomeScreen();
           break;
         case 'admin':
-          destination = const ProvincialAdminDashboardScreen();
+          destination = const ProvincialAdminPortalScreen();
           break;
         case 'subtenant':
-          destination = const SubTenantDashboardScreen();
+          destination = const SubTenantPortalScreen();
           break;
         default:
           destination = const LoginScreen();

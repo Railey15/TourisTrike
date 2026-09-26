@@ -676,7 +676,77 @@ class SubTenantLoadingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(child: CircularProgressIndicator());
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 700;
+
+        return Semantics(
+          label: 'Loading content',
+          child: ColoredBox(
+            color: const Color(0xFFF6FAFF),
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.all(compact ? 16 : 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Row(
+                    children: [
+                      Expanded(child: _SubTenantLoadingBlock(height: 28)),
+                      SizedBox(width: 24),
+                      SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 14,
+                    children: List<Widget>.generate(
+                      compact ? 2 : 4,
+                      (_) => SizedBox(
+                        width: compact ? (constraints.maxWidth - 46) / 2 : 190,
+                        child: const _SubTenantLoadingBlock(height: 104),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const _SubTenantLoadingBlock(height: 250),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SubTenantLoadingBlock extends StatelessWidget {
+  const _SubTenantLoadingBlock({required this.height});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SubTenantColors.line),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+    );
   }
 }
 

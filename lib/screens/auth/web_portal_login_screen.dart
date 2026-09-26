@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../admin/provincial_admin_dashboard_screen.dart';
-import '../subtenant/subtenant_dashboard_screen.dart';
+import '../admin/layouts/provincial_admin_shell.dart';
+import '../subtenant/layouts/subtenant_admin_shell.dart';
 import 'city_admin_signup_screen.dart';
 
 enum WebPortalRole { admin, subtenant }
@@ -185,8 +185,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  const SubTenantDashboardScreen(),
+              builder: (_) => const SubTenantPortalScreen(),
             ),
             (_) => false,
           );
@@ -210,8 +209,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  const ProvincialAdminDashboardScreen(),
+              builder: (_) => const ProvincialAdminPortalScreen(),
             ),
             (_) => false,
           );
@@ -237,8 +235,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  const SubTenantDashboardScreen(),
+              builder: (_) => const SubTenantPortalScreen(),
             ),
             (_) => false,
           );

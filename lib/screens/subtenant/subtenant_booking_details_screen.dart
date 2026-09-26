@@ -1635,91 +1635,47 @@ class _SubTenantBookingDetailsScreenState
   Widget _paymentsTab(
     _BookingDetailsData details,
   ) {
+    final cancelled = details.isCancelled;
     return _refreshableTab(
       [
+        if (cancelled) ...[
+          const _CancelledPaymentNotice(),
+          const SizedBox(height: 14),
+        ],
         _SectionCard(
-          title:
-              'Payment Information',
-          subtitle:
-              'Read-only payment summary, payment history, '
-              'and per-driver allocation details.',
+          title: cancelled ? 'Payment History' : 'Payment Information',
+          subtitle: cancelled
+              ? 'Historical payment records retained for this cancelled booking.'
+              : 'Read-only payment summary, payment history, and per-driver allocation details.',
           child: _payments.isEmpty
-              ? const _SectionEmptyMessage(
-                  icon:
-                      Icons.payments_outlined,
-                  title:
-                      'No payments recorded',
-                  message:
-                      'Payments linked to this booking will appear here.',
+              ? _SectionEmptyMessage(
+                  icon: cancelled ? Icons.money_off_rounded : Icons.payments_outlined,
+                  title: cancelled ? 'No payments recorded before cancellation' : 'No payments recorded',
+                  message: cancelled
+                      ? 'There are no payment records associated with this cancelled booking.'
+                      : 'Payments linked to this booking will appear here.',
                 )
               : Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _PaymentOverviewPanel(
-                      details:
-                          details,
-                      payments:
-                          _payments,
+                    _PaymentOverviewPanel(details: details, payments: _payments, bookingCancelled: cancelled),
+                    const SizedBox(height: 16),
+                    _DriverPaymentSummaryPanel(payments: _payments, bookingCancelled: cancelled),
+                    const SizedBox(height: 18),
+                    Text(cancelled ? 'Historical Payment Records' : 'Payment Records', style: const TextStyle(color: SubTenantColors.text, fontSize: 15, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 6),
+                    Text(
+                      cancelled
+                          ? 'These records are retained for transaction and audit history. They do not indicate that the cancelled tour is active.'
+                          : 'Each payment record below includes the exact split for every assigned driver.',
+                      style: const TextStyle(color: SubTenantColors.muted, fontSize: 12.2, fontWeight: FontWeight.w700),
                     ),
-                    const SizedBox(
-                      height: 16,
-                    ),
-                    _DriverPaymentSummaryPanel(
-                      payments:
-                          _payments,
-                    ),
-                    const SizedBox(
-                      height: 18,
-                    ),
-                    const Text(
-                      'Payment Records',
-                      style:
-                          TextStyle(
-                        color:
-                            SubTenantColors.text,
-                        fontSize:
-                            15,
-                        fontWeight:
-                            FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(
-                      height: 6,
-                    ),
-                    const Text(
-                      'Each payment record below includes the exact '
-                      'split for every assigned driver.',
-                      style:
-                          TextStyle(
-                        color:
-                            SubTenantColors.muted,
-                        fontSize:
-                            12.2,
-                        fontWeight:
-                            FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(
-                      height: 12,
-                    ),
+                    const SizedBox(height: 12),
                     ...List<Widget>.generate(
                       _payments.length,
                       (index) => Padding(
-                        padding:
-                            EdgeInsets.only(
-                          bottom:
-                              index ==
-                                      _payments.length -
-                                          1
-                                  ? 0
-                                  : 12,
-                        ),
-                        child:
-                            _PaymentTile(
-                          payment:
-                              _payments[index],
-                        ),
+                        padding: EdgeInsets.only(bottom: index == _payments.length - 1 ? 0 : 12),
+                        child: _PaymentTile(payment: _payments[index], bookingCancelled: cancelled),
                       ),
                     ),
                   ],
@@ -1915,6 +1871,14 @@ class _BookingDetailsData {
         fallback:
             'pending',
       );
+
+  bool get isCancelled {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'cancelled' ||
+        normalized == 'canceled' ||
+        normalized.startsWith('cancelled_') ||
+        normalized.startsWith('canceled_');
+  }
 
   DateTime? get travelDate =>
       stDate(
@@ -3299,175 +3263,141 @@ class _DriverPaymentAggregate {
       fullPaymentAmount;
 }
 
-class _HeroBookingCard
-    extends StatelessWidget {
-  const _HeroBookingCard({
-    required this.details,
-  });
+class _HeroBookingCard extends StatelessWidget {
+  const _HeroBookingCard({required this.details});
 
   final _BookingDetailsData details;
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
-    return Container(
-      width:
-          double.infinity,
-      padding:
-          const EdgeInsets.all(
-        18,
-      ),
-      decoration:
-          BoxDecoration(
-        gradient:
-            SubTenantColors.gradient,
-        borderRadius:
-            BorderRadius.circular(
-          24,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color:
-                SubTenantColors.blue.withValues(
-              alpha:
-                  0.24,
-            ),
-            blurRadius:
-                22,
-            offset:
-                const Offset(
-              0,
-              12,
-            ),
-          ),
+  Widget build(BuildContext context) {
+    final cancelled = details.isCancelled;
+    final gradient = cancelled
+        ? const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF991B1B), Color(0xFFDC2626)],
+          )
+        : SubTenantColors.gradient;
+
+    return Column(
+      children: [
+        if (cancelled) ...[
+          const _CancelledBookingBanner(),
+          const SizedBox(height: 12),
         ],
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: gradient,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: (cancelled ? const Color(0xFFDC2626) : SubTenantColors.blue)
+                    .withValues(alpha: 0.24),
+                blurRadius: 22,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      details.packageTitle,
-                      style:
-                          const TextStyle(
-                        color:
-                            Colors.white,
-                        fontSize:
-                            22,
-                        fontWeight:
-                            FontWeight.w900,
-                      ),
-                    ),
-                    if (details.packageSubtitle.isNotEmpty)
-                      ...[
-                        const SizedBox(
-                          height:
-                              4,
-                        ),
-                        Text(
-                          details.packageSubtitle,
-                          style:
-                              const TextStyle(
-                            color:
-                                Colors.white70,
-                            fontWeight:
-                                FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                  ],
-                ),
-              ),
-              const SizedBox(
-                width:
-                    12,
-              ),
-              Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.end,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SubTenantStatusPill(
-                    status:
-                        details.status,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (cancelled) ...[
+                          const Row(
+                            children: [
+                              Icon(Icons.cancel_rounded, color: Colors.white, size: 17),
+                              SizedBox(width: 7),
+                              Text('CANCELLED BOOKING', style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                            ],
+                          ),
+                          const SizedBox(height: 9),
+                        ],
+                        Text(details.packageTitle, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                        if (details.packageSubtitle.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(details.packageSubtitle, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                        ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(
-                    height:
-                        8,
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      cancelled ? const _CancelledStatusPill() : SubTenantStatusPill(status: details.status),
+                      const SizedBox(height: 8),
+                      const _ReadOnlyPill(),
+                    ],
                   ),
-                  const _ReadOnlyPill(),
+                ],
+              ),
+              if (details.packageDescription.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(details.packageDescription, style: const TextStyle(color: Colors.white, height: 1.4, fontWeight: FontWeight.w600)),
+              ],
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _HeroPill(icon: Icons.location_city_rounded, text: details.cityLabel),
+                  _HeroPill(icon: Icons.calendar_today_rounded, text: details.travelDateLabel),
+                  _HeroPill(icon: Icons.groups_rounded, text: details.passengerSummary),
+                  _HeroPill(icon: cancelled ? Icons.receipt_long_rounded : Icons.payments_rounded, text: cancelled ? '${details.totalAmountLabel} booking value' : details.totalAmountLabel),
                 ],
               ),
             ],
           ),
-          if (details.packageDescription.isNotEmpty)
-            ...[
-              const SizedBox(
-                height:
-                    12,
-              ),
-              Text(
-                details.packageDescription,
-                style:
-                    const TextStyle(
-                  color:
-                      Colors.white,
-                  height:
-                      1.4,
-                  fontWeight:
-                      FontWeight.w600,
-                ),
-              ),
-            ],
-          const SizedBox(
-            height:
-                14,
-          ),
-          Wrap(
-            spacing:
-                8,
-            runSpacing:
-                8,
-            children: [
-              _HeroPill(
-                icon:
-                    Icons.location_city_rounded,
-                text:
-                    details.cityLabel,
-              ),
-              _HeroPill(
-                icon:
-                    Icons.calendar_today_rounded,
-                text:
-                    details.travelDateLabel,
-              ),
-              _HeroPill(
-                icon:
-                    Icons.groups_rounded,
-                text:
-                    details.passengerSummary,
-              ),
-              _HeroPill(
-                icon:
-                    Icons.payments_rounded,
-                text:
-                    details.totalAmountLabel,
-              ),
-            ],
-          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CancelledBookingBanner extends StatelessWidget {
+  const _CancelledBookingBanner();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFFCA5A5))),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.event_busy_rounded, color: Color(0xFFDC2626), size: 24),
+          SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('This tour has been cancelled', style: TextStyle(color: Color(0xFF991B1B), fontSize: 14.5, fontWeight: FontWeight.w900)),
+            SizedBox(height: 4),
+            Text('This record is retained for booking, payment, and audit history. Payment records below are historical and do not mean that the tour is still active.', style: TextStyle(color: Color(0xFFB91C1C), fontSize: 12.2, height: 1.4, fontWeight: FontWeight.w700)),
+          ])),
         ],
       ),
     );
   }
+}
+
+class _CancelledStatusPill extends StatelessWidget {
+  const _CancelledStatusPill();
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999)),
+    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.cancel_rounded, color: Color(0xFFDC2626), size: 14),
+      SizedBox(width: 6),
+      Text('CANCELLED', style: TextStyle(color: Color(0xFFB91C1C), fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.4)),
+    ]),
+  );
 }
 
 class _ReadOnlyPill
@@ -4798,13 +4728,39 @@ class _ItineraryTile
   }
 }
 
+class _CancelledPaymentNotice extends StatelessWidget {
+  const _CancelledPaymentNotice();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFFED7AA))),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, color: Color(0xFFC2410C), size: 22),
+          SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Payments belong to a cancelled booking', style: TextStyle(color: Color(0xFF9A3412), fontSize: 13.5, fontWeight: FontWeight.w900)),
+            SizedBox(height: 4),
+            Text('Amounts below are historical transaction records. Recorded payments remain visible after cancellation so the financial history stays accurate. Refund or settlement status is separate from booking status.', style: TextStyle(color: Color(0xFFC2410C), fontSize: 12, height: 1.4, fontWeight: FontWeight.w700)),
+          ])),
+        ],
+      ),
+    );
+  }
+}
+
 class _PaymentTile
     extends StatelessWidget {
   const _PaymentTile({
     required this.payment,
+    required this.bookingCancelled,
   });
 
   final _PaymentView payment;
+  final bool bookingCancelled;
 
   @override
   Widget build(
@@ -4817,24 +4773,33 @@ class _PaymentTile
       ),
       decoration:
           BoxDecoration(
-        color:
-            const Color(
-          0xFFF8FBFF,
-        ),
-        borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
-        border:
-            Border.all(
-          color:
-              SubTenantColors.line,
+        color: bookingCancelled
+            ? const Color(0xFFFFFBFB)
+            : const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: bookingCancelled
+              ? const Color(0xFFFECACA)
+              : SubTenantColors.line,
         ),
       ),
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
         children: [
+          if (bookingCancelled) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(12)),
+              child: const Row(children: [
+                Icon(Icons.cancel_rounded, color: Color(0xFFDC2626), size: 16),
+                SizedBox(width: 7),
+                Expanded(child: Text('Booking Cancelled • Historical Payment Record', style: TextStyle(color: Color(0xFFB91C1C), fontSize: 11.5, fontWeight: FontWeight.w900))),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Container(
@@ -4917,8 +4882,7 @@ class _PaymentTile
               _PaymentStatItem(
                 icon:
                     Icons.payments_rounded,
-                label:
-                    'Collected',
+                label: bookingCancelled ? 'Recorded Amount' : 'Collected',
                 value:
                     payment.amountLabel,
               ),
@@ -5093,10 +5057,12 @@ class _PaymentOverviewPanel
   const _PaymentOverviewPanel({
     required this.details,
     required this.payments,
+    required this.bookingCancelled,
   });
 
   final _BookingDetailsData details;
   final List<_PaymentView> payments;
+  final bool bookingCancelled;
 
   @override
   Widget build(
@@ -5183,8 +5149,8 @@ class _PaymentOverviewPanel
       crossAxisAlignment:
           CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Payment Summary',
+        Text(
+          bookingCancelled ? 'Historical Payment Summary' : 'Payment Summary',
           style:
               TextStyle(
             color:
@@ -5199,9 +5165,10 @@ class _PaymentOverviewPanel
           height:
               6,
         ),
-        const Text(
-          'A quick view of total collection and payout-related '
-          'amounts for this booking.',
+        Text(
+          bookingCancelled
+              ? 'Amounts recorded before or in relation to cancellation. These values are retained for financial history.'
+              : 'A quick view of total collection and payout-related amounts for this booking.',
           style:
               TextStyle(
             color:
@@ -5229,8 +5196,7 @@ class _PaymentOverviewPanel
             _PaymentStatItem(
               icon:
                   Icons.account_balance_wallet_rounded,
-              label:
-                  'Total Collected',
+              label: bookingCancelled ? 'Recorded Payments' : 'Total Collected',
               value:
                   money.format(
                 totalCollected,
@@ -5239,8 +5205,7 @@ class _PaymentOverviewPanel
             _PaymentStatItem(
               icon:
                   Icons.savings_rounded,
-              label:
-                  'Down Payment Collected',
+              label: bookingCancelled ? 'Recorded Down Payment' : 'Down Payment Collected',
               value:
                   money.format(
                 downPaymentCollected,
@@ -5249,8 +5214,7 @@ class _PaymentOverviewPanel
             _PaymentStatItem(
               icon:
                   Icons.request_quote_rounded,
-              label:
-                  'Remaining Balance Collected',
+              label: bookingCancelled ? 'Recorded Balance Payment' : 'Remaining Balance Collected',
               value:
                   money.format(
                 remainingBalanceCollected,
@@ -5259,8 +5223,7 @@ class _PaymentOverviewPanel
             _PaymentStatItem(
               icon:
                   Icons.groups_rounded,
-              label:
-                  'Total Sent to Drivers',
+              label: bookingCancelled ? 'Recorded Driver Allocation' : 'Total Sent to Drivers',
               value:
                   money.format(
                 totalToDrivers,
@@ -5287,9 +5250,11 @@ class _DriverPaymentSummaryPanel
     extends StatelessWidget {
   const _DriverPaymentSummaryPanel({
     required this.payments,
+    required this.bookingCancelled,
   });
 
   final List<_PaymentView> payments;
+  final bool bookingCancelled;
 
   @override
   Widget build(
@@ -5376,12 +5341,12 @@ class _DriverPaymentSummaryPanel
           ),
         ),
         child:
-            const Column(
+            Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
           children: [
             Text(
-              'Per-Driver Allocation Summary',
+              bookingCancelled ? 'Historical Driver Allocation' : 'Per-Driver Allocation Summary',
               style:
                   TextStyle(
                 color:
@@ -5447,8 +5412,8 @@ class _DriverPaymentSummaryPanel
         crossAxisAlignment:
             CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Per-Driver Allocation Summary',
+          Text(
+            bookingCancelled ? 'Historical Driver Allocation' : 'Per-Driver Allocation Summary',
             style:
                 TextStyle(
               color:
@@ -5463,9 +5428,10 @@ class _DriverPaymentSummaryPanel
             height:
                 6,
           ),
-          const Text(
-            'This shows exactly how much each driver received '
-            'from the down payment and remaining balance.',
+          Text(
+            bookingCancelled
+                ? 'Historical allocation records associated with this cancelled booking. These are retained for audit purposes.'
+                : 'This shows exactly how much each driver received from the down payment and remaining balance.',
             style:
                 TextStyle(
               color:

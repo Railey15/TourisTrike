@@ -9,8 +9,8 @@ import 'signup_screen.dart';
 import 'complete_profile_screen.dart';
 import '../tourist/tourist_home_screen.dart';
 import '../driver/driver_home_screen.dart';
-import '../admin/provincial_admin_dashboard_screen.dart';
-import '../subtenant/subtenant_dashboard_screen.dart';
+import '../admin/layouts/provincial_admin_shell.dart';
+import '../subtenant/layouts/subtenant_admin_shell.dart';
 import '../../theme/app_theme.dart';
 
 enum UserRole { tourist, driver, admin, subtenant }
@@ -161,14 +161,14 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => const ProvincialAdminDashboardScreen(),
+              builder: (_) => const ProvincialAdminPortalScreen(),
             ),
           );
           break;
         case UserRole.subtenant:
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const SubTenantDashboardScreen()),
+            MaterialPageRoute(builder: (_) => const SubTenantPortalScreen()),
           );
           break;
       }
@@ -989,5 +989,3 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     );
   }
 }
-
-
