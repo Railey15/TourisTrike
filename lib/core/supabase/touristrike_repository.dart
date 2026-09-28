@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/services/developer_settings.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
+import 'package:touristrike/core/supabase/participant_profiles.dart';
 
 class TourisTrikeTables {
   const TourisTrikeTables._();
@@ -235,7 +236,9 @@ class TourisTrikeRepository {
   }
 
   Future<Profile?> fetchProfile(String id) async {
-    final row = await fetchOne(TourisTrikeTables.profiles, equals: {'id': id});
+    final row = id == requireUserId()
+        ? await fetchOne(TourisTrikeTables.profiles, equals: {'id': id})
+        : await ParticipantProfiles.fetchOne(_client, id);
     return row == null ? null : Profile(row);
   }
 
@@ -352,10 +355,7 @@ class TourisTrikeRepository {
         .toList(growable: false);
     if (ids.isEmpty) return const {};
 
-    final profileRows = await _client
-        .from(TourisTrikeTables.profiles)
-        .select('*')
-        .inFilter('id', ids);
+    final profileRows = await ParticipantProfiles.fetchMany(_client, ids);
     final detailsRows = await _client
         .from(TourisTrikeTables.driverDetails)
         .select('*')
@@ -1472,19 +1472,15 @@ class TourisTrikeRepository {
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
-          'package_activities('
-          '  *, '
-          '  driver:profiles!package_activities_driver_id_fkey('
-          '    full_name, first_name, last_name, mobile'
-          '  )'
-          ')',
+          'package_activities(*)',
         )
         .eq('tourist_id', requireUserId())
         .order('created_at', ascending: false)
         .limit(limit);
-    return _rows(
-      rows,
-    ).map(packageActivityFromPersistedBooking).toList(growable: false);
+    final activities = await _withActivityParticipantIdentities(_rows(rows));
+    return activities
+        .map(packageActivityFromPersistedBooking)
+        .toList(growable: false);
   }
 
   Future<List<PackageActivity>> fetchDriverActivities({int limit = 60}) async {
@@ -1496,19 +1492,14 @@ class TourisTrikeRepository {
           'package_bookings('
           '  *, '
           '  tour_packages(title, city, cover_image_url, image_url), '
-          '  package_activities('
-          '    *, '
-          '    tourist:profiles!package_activities_tourist_id_fkey('
-          '      full_name, first_name, last_name, profile_image_url, mobile'
-          '    )'
-          '  )'
+          '  package_activities(*)'
           ')',
         )
         .eq('driver_id', driverId)
         .inFilter('status', const ['accepted', 'completed'])
         .order('created_at', ascending: false)
         .limit(limit);
-    return _rows(rows)
+    return (await _withActivityParticipantIdentities(_rows(rows)))
         .map((membership) {
           final bookingValue = membership['package_bookings'];
           if (bookingValue is! Map) return null;
@@ -1546,12 +1537,6 @@ class TourisTrikeRepository {
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
-          'tourist:profiles!package_activities_tourist_id_fkey('
-          '  full_name, first_name, last_name, profile_image_url, mobile'
-          '), '
-          'driver:profiles!package_activities_driver_id_fkey('
-          '  full_name, first_name, last_name, profile_image_url, mobile'
-          '), '
           'package_bookings('
           '  id, tourist_id, travel_date, scheduled_start_at, estimated_end_at, '
           '  adults, children, booking_type, '
@@ -1569,7 +1554,7 @@ class TourisTrikeRepository {
         )
         .eq('booking_id', bookingId)
         .limit(1);
-    final list = _rows(rows);
+    final list = await _withActivityParticipantIdentities(_rows(rows));
     if (list.isEmpty) return null;
     return PackageActivity(list.first);
   }
@@ -1698,12 +1683,6 @@ class TourisTrikeRepository {
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
-          'tourist:profiles!package_activities_tourist_id_fkey('
-          '  full_name, first_name, last_name, profile_image_url, mobile'
-          '), '
-          'driver:profiles!package_activities_driver_id_fkey('
-          '  full_name, first_name, last_name, profile_image_url, mobile'
-          '), '
           'package_bookings('
           '  id, tourist_id, travel_date, adults, children, booking_type, '
           '  pickup_address, pickup_latitude, pickup_longitude, '
@@ -1717,7 +1696,7 @@ class TourisTrikeRepository {
         )
         .eq('id', activityId)
         .limit(1);
-    final list = _rows(rows);
+    final list = await _withActivityParticipantIdentities(_rows(rows));
     if (list.isEmpty) return null;
     return PackageActivity(list.first);
   }
@@ -1747,9 +1726,6 @@ class TourisTrikeRepository {
         .select(
           '*, '
           'tour_packages(title, city, cover_image_url, image_url), '
-          'tourist:profiles!package_activities_tourist_id_fkey('
-          '  full_name, first_name, last_name, profile_image_url, mobile'
-          '), '
           'package_bookings('
           '  id, travel_date, scheduled_start_at, estimated_end_at, adults, '
           '  children, booking_type, status, booking_status, '
@@ -1764,7 +1740,7 @@ class TourisTrikeRepository {
         .order('created_at', ascending: true)
         .limit(limit * 3); // over-fetch so client filter doesn't under-return
 
-    return _rows(rows)
+    return (await _withActivityParticipantIdentities(_rows(rows)))
         .map(PackageActivity.new)
         .where((activity) {
           final booking = activity.bookingRow;
@@ -2696,6 +2672,24 @@ class TourisTrikeRepository {
     }
   }
 
+  Future<Map<String, dynamic>> advanceDriverTourAction({
+    required String bookingId,
+    required ConvoyJourneyState expectedState,
+    required int stopIndex,
+  }) async {
+    final result = await _client.rpc(
+      'advance_driver_tour_action',
+      params: {
+        'p_booking_id': bookingId,
+        'p_expected_state': expectedState.dbValue,
+        'p_stop_index': stopIndex,
+      },
+    );
+    return result is Map
+        ? Map<String, dynamic>.from(result)
+        : const {'success': true};
+  }
+
   /// DEBUG-only completion escape hatch for an allowlisted disposable booking.
   /// The server still verifies the authenticated driver is a real assignment.
   Future<Map<String, dynamic>> forceCompleteDebugTestTrip({
@@ -2872,11 +2866,46 @@ class TourisTrikeRepository {
   }
 
   Future<Profile?> fetchDriverProfile(String driverId) async {
-    final row = await fetchOne(
-      TourisTrikeTables.profiles,
-      equals: {'id': driverId},
-    );
-    return row == null ? null : Profile(row);
+    return fetchProfile(driverId);
+  }
+
+  Future<List<Json>> _withActivityParticipantIdentities(List<Json> rows) async {
+    final participantRows = <Map>[];
+    final ids = <String>{};
+    void collect(dynamic value) {
+      if (value is Map) {
+        if (value.containsKey('tourist_id') || value.containsKey('driver_id')) {
+          participantRows.add(value);
+          for (final key in ['tourist_id', 'driver_id', 'assigned_driver_id']) {
+            final id = dbString(value[key]).trim();
+            if (id.isNotEmpty) ids.add(id);
+          }
+        }
+        for (final child in value.values) {
+          collect(child);
+        }
+      } else if (value is List) {
+        for (final child in value) {
+          collect(child);
+        }
+      }
+    }
+
+    collect(rows);
+    final identities = await ParticipantProfiles.fetchMany(_client, ids);
+    final byId = {
+      for (final identity in identities) dbString(identity['id']): identity,
+    };
+    for (final row in participantRows) {
+      if (row.containsKey('tourist_id')) {
+        row['tourist'] = byId[dbString(row['tourist_id'])];
+      }
+      final driverId = dbString(row['driver_id']).isNotEmpty
+          ? dbString(row['driver_id'])
+          : dbString(row['assigned_driver_id']);
+      if (driverId.isNotEmpty) row['driver'] = byId[driverId];
+    }
+    return rows;
   }
 
   List<Json> _rows(dynamic rows) {

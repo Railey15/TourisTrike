@@ -17,10 +17,10 @@ void main() {
 
   test('web build inputs contain no committed Google key', () {
     final index = _read('web/index.html');
+    final configurator = _read('tool/configure_web_maps.cjs');
     final manifest = _read('android/app/src/main/AndroidManifest.xml');
     final infoPlist = _read('ios/Runner/Info.plist');
     final pubspec = _read('pubspec.yaml');
-    final configurator = _read('tool/configure_web_maps.cjs');
 
     expect(index, isNot(contains('AIza')));
     expect(index, contains('__GOOGLE_MAPS_BROWSER_API_KEY__'));
@@ -28,6 +28,14 @@ void main() {
     expect(index, contains('https://maps.googleapis.com/maps/api/js?key='));
     expect(configurator, contains('GOOGLE_MAPS_BROWSER_API_KEY'));
     expect(configurator, contains('keyPlaceholder'));
+    expect(
+      index,
+      contains("const mapsBrowserKey = '__GOOGLE_MAPS_BROWSER_API_KEY__'"),
+    );
+    expect(index, contains("!mapsBrowserKey.startsWith('__')"));
+    expect(configurator, contains('env.GOOGLE_MAPS_BROWSER_API_KEY'));
+    expect(configurator, contains("path.join(root, 'build/web/index.html')"));
+    expect(configurator, contains('injectHtml('));
     expect(manifest, isNot(contains('AIza')));
     expect(infoPlist, isNot(contains('AIza')));
     expect(

@@ -1,0 +1,591 @@
+{
+  "checked_at": "2026-09-28",
+  "phase": "historical_security_data_consistency_review",
+  "production_changes": "NONE",
+  "classification": {
+    "VERIFIED_PRESENT": 8,
+    "VERIFIED_SUPERSEDED": 35,
+    "INTENTIONALLY_OBSOLETE": 1,
+    "MISSING_EFFECT_REQUIRES_FORWARD_FIX": 10,
+    "STILL_NEEDS_REVIEW": 0
+  },
+  "historical_driver_status": {
+    "version": "20260523133000",
+    "classification": "VERIFIED_SUPERSEDED",
+    "successor": "20260827000000",
+    "source_statements": [
+      "ALTER TABLE public.profiles\r\n  ADD COLUMN IF NOT EXISTS driver_status text",
+      "UPDATE public.profiles p\r\nSET driver_status = COALESCE(d.status, p.driver_status, 'pending')\r\nFROM public.driver_details d\r\nWHERE p.id = d.driver_id\r\n  AND p.role = 'driver'\r\n  AND (\r\n    p.driver_status IS NULL\r\n    OR p.driver_status = ''\r\n    OR p.driver_status <> d.status\r\n  )"
+    ],
+    "acceptance_body_matches_successor": true,
+    "acceptance_body_sha256": "13dc91644c782e9ad68e94d3d1b849785aaad806587d77cc2c6cb7a6d19afab2",
+    "profile_status_column": {
+      "character_maximum_length": null,
+      "character_octet_length": 1073741824,
+      "character_set_catalog": null,
+      "character_set_name": null,
+      "character_set_schema": null,
+      "collation_catalog": null,
+      "collation_name": null,
+      "collation_schema": null,
+      "column_default": "'pending'::text",
+      "column_name": "driver_status",
+      "data_type": "text",
+      "datetime_precision": null,
+      "domain_catalog": null,
+      "domain_name": null,
+      "domain_schema": null,
+      "dtd_identifier": "27",
+      "generation_expression": null,
+      "identity_cycle": "NO",
+      "identity_generation": null,
+      "identity_increment": null,
+      "identity_maximum": null,
+      "identity_minimum": null,
+      "identity_start": null,
+      "interval_precision": null,
+      "interval_type": null,
+      "is_generated": "NEVER",
+      "is_identity": "NO",
+      "is_nullable": "YES",
+      "is_self_referencing": "NO",
+      "is_updatable": "YES",
+      "maximum_cardinality": null,
+      "numeric_precision": null,
+      "numeric_precision_radix": null,
+      "numeric_scale": null,
+      "ordinal_position": 27,
+      "scope_catalog": null,
+      "scope_name": null,
+      "scope_schema": null,
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "udt_catalog": "postgres",
+      "udt_name": "text",
+      "udt_schema": "pg_catalog"
+    },
+    "automatic_record_updates": false,
+    "records": [
+      {
+        "application_rows": 0,
+        "approved_at": "2026-05-21 21:12:04.998+00",
+        "assignments": null,
+        "details_status": "approved",
+        "driver_status": "pending",
+        "is_approved": false,
+        "is_available": false,
+        "is_online": true,
+        "is_verified": false,
+        "recorded_approver_role": "subtenant",
+        "reference": "a1b8f8e3",
+        "updated_at": "2026-08-04 15:37:26.656131+00",
+        "verification_status": "pending",
+        "classification": "REQUIRES_MANUAL_REVIEW"
+      },
+      {
+        "application_rows": 0,
+        "approved_at": "2026-05-20 19:22:53.351+00",
+        "assignments": null,
+        "details_status": "approved",
+        "driver_status": "pending",
+        "is_approved": false,
+        "is_available": true,
+        "is_online": true,
+        "is_verified": false,
+        "recorded_approver_role": "subtenant",
+        "reference": "59a7c2c3",
+        "updated_at": "2026-09-06 07:18:37.921168+00",
+        "verification_status": "pending",
+        "classification": "REQUIRES_MANUAL_REVIEW"
+      },
+      {
+        "application_rows": 0,
+        "approved_at": "2026-05-23 00:38:08.122+00",
+        "assignments": [
+          {
+            "accepted_at": "2026-09-26T11:13:43.868343+00:00",
+            "booking_status": "driver_on_the_way",
+            "municipality_matches": true,
+            "province_matches": true,
+            "status": "accepted"
+          }
+        ],
+        "details_status": "approved",
+        "driver_status": "pending",
+        "is_approved": false,
+        "is_available": true,
+        "is_online": true,
+        "is_verified": false,
+        "recorded_approver_role": "subtenant",
+        "reference": "a912c958",
+        "updated_at": "2026-09-06 07:18:37.921168+00",
+        "verification_status": "pending",
+        "classification": "REQUIRES_MANUAL_REVIEW"
+      }
+    ]
+  },
+  "observed_live_profile_policies": [
+    {
+      "cmd": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_insert_own",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": "(id = auth.uid())"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_select",
+      "qual": "((id = auth.uid()) OR is_main_tenant() OR is_system_administrator() OR ((current_subtenant_city() IS NOT NULL) AND cities_match(city, current_subtenant_city())))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_select_authenticated",
+      "qual": "true",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_select_driver_review_tourists",
+      "qual": "subtenant_can_view_review_tourist(id)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": null
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_update_main_tenant",
+      "qual": "(is_main_tenant() AND (role <> 'administrator'::text))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": "(is_main_tenant() AND (role <> 'administrator'::text) AND ((role <> 'main_tenant'::text) OR (id = auth.uid())))"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_update_own",
+      "qual": "(id = auth.uid())",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": "(id = auth.uid())"
+    },
+    {
+      "cmd": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_update_self",
+      "qual": "(id = auth.uid())",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "profiles",
+      "with_check": "((id = auth.uid()) AND (role = current_app_role()) AND ((role <> 'subtenant'::text) OR cities_match(city, current_subtenant_city())))"
+    }
+  ],
+  "observed_live_profile_grants": [
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "INSERT",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "SELECT",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "UPDATE",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "DELETE",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "TRUNCATE",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "REFERENCES",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "anon",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "TRIGGER",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "INSERT",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "SELECT",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "YES"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "UPDATE",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "DELETE",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "TRUNCATE",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "REFERENCES",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    },
+    {
+      "grantee": "authenticated",
+      "grantor": "postgres",
+      "is_grantable": "NO",
+      "privilege_type": "TRIGGER",
+      "table_catalog": "postgres",
+      "table_name": "profiles",
+      "table_schema": "public",
+      "with_hierarchy": "NO"
+    }
+  ],
+  "observed_live_driver_policies": [
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "driver_applications_select",
+      "qual": "((driver_id = auth.uid()) OR is_provincial_admin() OR cities_match(city, current_subtenant_city()))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "driver_applications",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "driver_applications_write",
+      "qual": "((driver_id = auth.uid()) OR is_provincial_admin() OR cities_match(city, current_subtenant_city()))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "driver_applications",
+      "with_check": "((driver_id = auth.uid()) OR is_provincial_admin() OR cities_match(city, current_subtenant_city()))"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "Tourists can view assigned driver details",
+      "qual": "((driver_id = auth.uid()) OR (EXISTS ( SELECT 1\n   FROM package_bookings b\n  WHERE ((b.assigned_driver_id = driver_details.driver_id) AND (b.tourist_id = auth.uid())))) OR (EXISTS ( SELECT 1\n   FROM profiles p\n  WHERE ((p.id = auth.uid()) AND (p.role = ANY (ARRAY['admin'::text, 'subtenant'::text]))))))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "driver_details",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "permissive": "PERMISSIVE",
+      "policyname": "driver_details_write",
+      "qual": "((driver_id = auth.uid()) OR is_provincial_admin() OR subtenant_can_access_driver(driver_id))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "driver_details",
+      "with_check": "((driver_id = auth.uid()) OR is_provincial_admin() OR subtenant_can_access_driver(driver_id))"
+    },
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "driver_profiles_select_staff_or_owner",
+      "qual": "((driver_id = auth.uid()) OR is_provincial_admin() OR subtenant_can_access_driver(driver_id))",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "driver_details",
+      "with_check": null
+    }
+  ],
+  "observed_live_membership_policies": [
+    {
+      "cmd": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policyname": "conversation_members_select_participants",
+      "qual": "is_conversation_member(conversation_id)",
+      "roles": [
+        "authenticated"
+      ],
+      "schemaname": "public",
+      "tablename": "conversation_members",
+      "with_check": null
+    }
+  ],
+  "observed_live_status_triggers": [
+    {
+      "definition": "CREATE TRIGGER notify_main_tenant_driver_status AFTER INSERT OR UPDATE OF status ON public.driver_applications FOR EACH ROW EXECUTE FUNCTION notify_main_tenant_driver_status()",
+      "function": "notify_main_tenant_driver_status",
+      "table": "driver_applications"
+    },
+    {
+      "definition": "CREATE TRIGGER trg_reset_gcash_verification BEFORE UPDATE ON public.driver_details FOR EACH ROW EXECUTE FUNCTION reset_gcash_verification_on_change()",
+      "function": "reset_gcash_verification_on_change",
+      "table": "driver_details"
+    },
+    {
+      "definition": "CREATE TRIGGER guard_subtenant_profile_scope BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION guard_subtenant_profile_scope()",
+      "function": "guard_subtenant_profile_scope",
+      "table": "profiles"
+    },
+    {
+      "definition": "CREATE TRIGGER on_subtenant_profile_created AFTER INSERT OR UPDATE OF role ON public.profiles FOR EACH ROW EXECUTE FUNCTION create_subtenant_details()",
+      "function": "create_subtenant_details",
+      "table": "profiles"
+    },
+    {
+      "definition": "CREATE TRIGGER protect_own_profile_scope BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION protect_own_profile_scope()",
+      "function": "protect_own_profile_scope",
+      "table": "profiles"
+    },
+    {
+      "definition": "CREATE TRIGGER trg_set_full_name BEFORE INSERT OR UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION set_full_name()",
+      "function": "set_full_name",
+      "table": "profiles"
+    }
+  ],
+  "related_live_functions": [
+    {
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "definition": "CREATE OR REPLACE FUNCTION public.is_main_tenant()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\n  select exists (\n    select 1 from public.profiles p\n    where p.id = auth.uid() and p.role = 'main_tenant'\n  );\n$function$\n",
+      "identity": "is_main_tenant()",
+      "name": "is_main_tenant"
+    },
+    {
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "definition": "CREATE OR REPLACE FUNCTION public.is_system_administrator()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\n  select exists (\n    select 1 from public.profiles p\n    where p.id = auth.uid() and p.role = 'administrator'\n  );\n$function$\n",
+      "identity": "is_system_administrator()",
+      "name": "is_system_administrator"
+    },
+    {
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "definition": "CREATE OR REPLACE FUNCTION public.current_app_role()\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\n  select role from public.profiles where id = auth.uid();\n$function$\n",
+      "identity": "current_app_role()",
+      "name": "current_app_role"
+    },
+    {
+      "acl": [
+        "=X/postgres",
+        "postgres=X/postgres",
+        "anon=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "definition": "CREATE OR REPLACE FUNCTION public.accept_package_booking(p_booking_id uuid)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_driver_id uuid := auth.uid();\r\n  v_driver public.profiles;\r\n  v_booking public.package_bookings;\r\n  v_activity_id uuid;\r\n  v_live_count integer;\r\n  v_new_count integer;\r\n  v_driver_status text;\r\n  v_driver_approved_at timestamptz;\r\n  v_application_status text;\r\nbegin\r\n  if v_driver_id is null then raise exception 'UNAUTHENTICATED'; end if;\r\n\r\n  select * into v_driver from public.profiles where id = v_driver_id;\r\n  if not found then raise exception 'DRIVER_NOT_FOUND'; end if;\r\n  if v_driver.role <> 'driver' then raise exception 'DRIVER_ROLE_REQUIRED'; end if;\r\n  if not (coalesce(v_driver.is_online, false) or coalesce(v_driver.is_available, false)) then\r\n    raise exception 'DRIVER_NOT_AVAILABLE';\r\n  end if;\r\n\r\n  select lower(coalesce(status, '')), approved_at\r\n    into v_driver_status, v_driver_approved_at\r\n  from public.driver_details where driver_id = v_driver_id;\r\n\r\n  select lower(coalesce(status, '')) into v_application_status\r\n  from public.driver_applications\r\n  where driver_id = v_driver_id\r\n  order by submitted_at desc limit 1;\r\n\r\n  if coalesce(v_driver_status, '') in ('disabled', 'inactive', 'rejected', 'suspended')\r\n     or (\r\n       coalesce(v_driver_status, '') not in ('active', 'approved', 'verified')\r\n       and not (coalesce(v_driver_status, '') = '' and v_driver_approved_at is not null)\r\n       and coalesce(v_application_status, '') not in ('active', 'approved', 'verified')\r\n     ) then\r\n    raise exception 'DRIVER_NOT_APPROVED';\r\n  end if;\r\n\r\n  -- A transaction-scoped lock keyed by driver serializes acceptance across\r\n  -- different bookings. Booking-row locks alone cannot prevent that race.\r\n  perform pg_advisory_xact_lock(hashtextextended(v_driver_id::text, 0));\r\n\r\n  select * into v_booking\r\n  from public.package_bookings\r\n  where id = p_booking_id\r\n  for update;\r\n\r\n  if not found then raise exception 'BOOKING_NOT_FOUND'; end if;\r\n  if v_booking.booking_status not in ('pending', 'waiting_for_drivers') then\r\n    raise exception 'BOOKING_NOT_AVAILABLE';\r\n  end if;\r\n\r\n  if v_booking.municipality is not null and trim(v_booking.municipality) <> ''\r\n     and trim(lower(coalesce(v_driver.city, ''))) <>\r\n         trim(lower(v_booking.municipality)) then\r\n    raise exception 'MUNICIPALITY_MISMATCH: Booking is for % only.',\r\n      v_booking.municipality;\r\n  end if;\r\n\r\n  if exists (\r\n    select 1\r\n    from public.booking_drivers bd\r\n    join public.package_bookings other_booking on other_booking.id = bd.booking_id\r\n    where bd.driver_id = v_driver_id\r\n      and bd.booking_id <> p_booking_id\r\n      and bd.status = 'accepted'\r\n      and lower(coalesce(other_booking.booking_status, other_booking.status, ''))\r\n            not in ('cancelled', 'completed', 'rejected', 'done')\r\n      and public.package_booking_schedule_window(other_booking)\r\n            && public.package_booking_schedule_window(v_booking)\r\n  ) then\r\n    raise exception 'DRIVER_SCHEDULE_CONFLICT';\r\n  end if;\r\n\r\n  select count(*) into v_live_count\r\n  from public.booking_drivers\r\n  where booking_id = p_booking_id and status = 'accepted';\r\n\r\n  if v_live_count >= greatest(coalesce(v_booking.required_drivers, 1), 1) then\r\n    raise exception 'BOOKING_ALREADY_FULL';\r\n  end if;\r\n\r\n  if exists (\r\n    select 1 from public.booking_drivers\r\n    where booking_id = p_booking_id and driver_id = v_driver_id\r\n  ) then\r\n    raise exception 'ALREADY_ACCEPTED';\r\n  end if;\r\n\r\n  select id into v_activity_id\r\n  from public.package_activities\r\n  where booking_id = p_booking_id\r\n  limit 1;\r\n\r\n  insert into public.booking_drivers\r\n    (booking_id, driver_id, status, accepted_at)\r\n  values (p_booking_id, v_driver_id, 'accepted', now());\r\n\r\n  v_new_count := v_live_count + 1;\r\n\r\n  if v_new_count >= greatest(coalesce(v_booking.required_drivers, 1), 1) then\r\n    if v_activity_id is not null then\r\n      update public.package_activities\r\n      set driver_id = v_driver_id,\r\n          status = 'accepted',\r\n          tour_status = 'driver_accepted',\r\n          accepted_at = now(),\r\n          updated_at = now()\r\n      where id = v_activity_id;\r\n    end if;\r\n\r\n    update public.package_bookings\r\n    set assigned_driver_id = v_driver_id,\r\n        accepted_drivers_count = v_new_count,\r\n        status = 'confirmed',\r\n        booking_status = 'accepted',\r\n        accepted_at = now(),\r\n        updated_at = now()\r\n    where id = p_booking_id;\r\n\r\n    update public.booking_drivers bd\r\n    set assigned_passengers = split.passenger_count\r\n    from public.compute_passenger_split(\r\n      p_booking_id,\r\n      case when coalesce(v_booking.total_passengers, 0) > 0\r\n        then v_booking.total_passengers\r\n        else v_booking.adults + coalesce(v_booking.children, 0)\r\n      end\r\n    ) as split\r\n    where bd.booking_id = p_booking_id and bd.driver_id = split.driver_id;\r\n\r\n    perform public.ensure_booking_payment_requirements(p_booking_id);\r\n    raise log '[TourisTrike booking] driver accepted booking=%, accepted=%/%, fully_assigned=true, payment_requirements=active',\r\n      p_booking_id, v_new_count,\r\n      greatest(coalesce(v_booking.required_drivers, 1), 1);\r\n  else\r\n    update public.package_bookings\r\n    set accepted_drivers_count = v_new_count,\r\n        booking_status = 'waiting_for_drivers',\r\n        updated_at = now()\r\n    where id = p_booking_id;\r\n    raise log '[TourisTrike booking] driver accepted booking=%, accepted=%/%, fully_assigned=false',\r\n      p_booking_id, v_new_count,\r\n      greatest(coalesce(v_booking.required_drivers, 1), 1);\r\n  end if;\r\n\r\n  return jsonb_build_object(\r\n    'success', true,\r\n    'booking_id', p_booking_id,\r\n    'accepted_count', v_new_count,\r\n    'required_count', greatest(coalesce(v_booking.required_drivers, 1), 1),\r\n    'all_filled', v_new_count >= greatest(coalesce(v_booking.required_drivers, 1), 1)\r\n  );\r\nend;\r\n$function$\n",
+      "identity": "accept_package_booking(uuid)",
+      "name": "accept_package_booking"
+    },
+    {
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres",
+        "anon=X/postgres"
+      ],
+      "definition": "CREATE OR REPLACE FUNCTION public.current_subtenant_city()\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select sd.city\r\n  from public.subtenant_details sd\r\n  join public.profiles p on p.id = sd.id\r\n  where sd.id = auth.uid()\r\n    and p.role = 'subtenant'\r\n    and sd.is_active = true\r\n    and nullif(trim(sd.city), '') is not null\r\n  limit 1;\r\n$function$\n",
+      "identity": "current_subtenant_city()",
+      "name": "current_subtenant_city"
+    },
+    {
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "definition": "CREATE OR REPLACE FUNCTION public.subtenant_can_access_booking(p_booking_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select public.current_subtenant_city() is not null\r\n     and exists (\r\n       select 1\r\n       from public.package_bookings pb\r\n       join public.tour_packages tp on tp.id = pb.package_id\r\n       where pb.id = p_booking_id\r\n         and public.cities_match(tp.city, public.current_subtenant_city())\r\n     );\r\n$function$\n",
+      "identity": "subtenant_can_access_booking(uuid)",
+      "name": "subtenant_can_access_booking"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.administrator_list_accounts()\n RETURNS TABLE(id uuid, role text, full_name text, first_name text, last_name text, email text, city text, province text, profile_created_at timestamp with time zone, auth_created_at timestamp with time zone, email_confirmed_at timestamp with time zone, last_sign_in_at timestamp with time zone, banned_until timestamp with time zone, suspension_id uuid, suspension_reason text, suspension_notes text, suspended_at timestamp with time zone, suspended_until timestamp with time zone, suspension_is_permanent boolean, suspended_by uuid, suspended_by_name text)\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\nbegin\n  if not public.is_system_administrator() then\n    raise exception 'SYSTEM_ADMINISTRATOR_REQUIRED'\n      using errcode = '42501';\n  end if;\n\n  return query\n  select\n    p.id,\n    p.role,\n    p.full_name,\n    p.first_name,\n    p.last_name,\n    u.email::text,\n    p.city,\n    p.province,\n    p.created_at,\n    u.created_at,\n    u.email_confirmed_at,\n    u.last_sign_in_at,\n    u.banned_until,\n    s.id,\n    s.reason,\n    s.notes,\n    s.suspended_at,\n    s.suspended_until,\n    s.is_permanent,\n    s.suspended_by,\n    s.suspended_by_name\n  from public.profiles p\n  join auth.users u on u.id = p.id\n  left join lateral (\n    select\n      suspension.id,\n      suspension.reason,\n      suspension.notes,\n      suspension.suspended_at,\n      suspension.suspended_until,\n      suspension.is_permanent,\n      suspension.suspended_by,\n      coalesce(\n        nullif(actor.full_name, ''),\n        nullif(concat_ws(' ', actor.first_name, actor.last_name), ''),\n        'System Administrator'\n      ) as suspended_by_name\n    from public.account_suspensions suspension\n    left join public.profiles actor on actor.id = suspension.suspended_by\n    where suspension.account_id = p.id\n      and suspension.reactivated_at is null\n      and suspension.state in ('pending', 'active', 'reactivation_pending')\n      and (\n        suspension.is_permanent\n        or suspension.suspended_until > now()\n      )\n    order by suspension.suspended_at desc\n    limit 1\n  ) s on true\n  order by u.created_at desc;\nend;\n$function$\n",
+      "identity": "administrator_list_accounts()"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.guard_subtenant_profile_scope()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\nbegin\r\n  if auth.uid() = old.id\r\n     and old.role = 'subtenant'\r\n     and not public.is_provincial_admin()\r\n     and (\r\n       new.role is distinct from old.role\r\n       or new.city is distinct from old.city\r\n       or new.province is distinct from old.province\r\n     ) then\r\n    raise exception 'SUBTENANT_SCOPE_IS_ADMIN_MANAGED' using errcode = '42501';\r\n  end if;\r\n  return new;\r\nend;\r\n$function$\n",
+      "identity": "guard_subtenant_profile_scope()"
+    },
+    {
+      "definition": "CREATE OR REPLACE FUNCTION public.protect_own_profile_scope()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\nbegin\n  if auth.uid() = old.id and coalesce(auth.role(), '') <> 'service_role' then\n    if new.role is distinct from old.role\n      or new.city is distinct from old.city\n      or new.province is distinct from old.province then\n      raise exception 'ROLE_AND_TENANT_SCOPE_ARE_READ_ONLY';\n    end if;\n  end if;\n  return new;\nend;\n$function$\n",
+      "identity": "protect_own_profile_scope()"
+    }
+  ],
+  "local_migration": "20260927230000_historical_schema_reconciliation.sql",
+  "local_migration_sha256": "8d01ad76d5e29f98920eb499b090fddb79718f84fd164270e1ed92ecabb0dae6",
+  "unchanged_tour_migration_sha256": "402426b068687d0455d6195172627d245da5f1e2a4e9a2581ea8f9d7c974b57f",
+  "isolated_sql_checks": 48,
+  "focused_client_checks": 3,
+  "targeted_dart_analysis": {
+    "errors": 0,
+    "existing_warnings": 6
+  },
+  "live_rollback_preflight": {
+    "booking_identity_pairs_checked": 8,
+    "messaging_identity_pairs_checked": 20,
+    "profile_actors_checked": 17,
+    "status": "reconciliation_preflight_ok",
+    "unrelated_pairs_checked": 172
+  },
+  "before_snapshot": {
+    "applied_repair": 0,
+    "broad_profile_policy": 1,
+    "conversation_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+    "driver_applications_hash": null,
+    "driver_details_hash": "3c039c659dcd23ef0bdba8bfb62b3d66",
+    "new_functions": 0,
+    "new_profile_policy": 0,
+    "profile_grant_hash": "7d556d550372e07b0198659b04ac2343",
+    "profile_hash": "c7016ed8de7cc71b1234523d0b631d44",
+    "profile_policy_hash": "e4e51a44fb7523b0a6c7af74e98d86e0"
+  },
+  "after_snapshot": {
+    "applied_repair": 0,
+    "broad_profile_policy": 1,
+    "conversation_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+    "driver_applications_hash": null,
+    "driver_details_hash": "3c039c659dcd23ef0bdba8bfb62b3d66",
+    "new_functions": 0,
+    "new_profile_policy": 0,
+    "profile_grant_hash": "7d556d550372e07b0198659b04ac2343",
+    "profile_hash": "c7016ed8de7cc71b1234523d0b631d44",
+    "profile_policy_hash": "e4e51a44fb7523b0a6c7af74e98d86e0"
+  },
+  "rollback_snapshots_match": true,
+  "migration_history": {
+    "aligned_applied": 90,
+    "local_only": [
+      "20260927230000",
+      "20260928000000"
+    ]
+  },
+  "readiness": "READY_TO_DEPLOY_HISTORICAL_RECONCILIATION",
+  "deployed": false
+}

@@ -86,6 +86,9 @@ void main() {
     final tracking = source(
       'lib/screens/tourist/tourist_activity_tracking_screen.dart',
     );
+    final routeService = source(
+      'lib/core/services/convoy_route_polylines.dart',
+    );
     expect(tracking, contains('buildBookingDriverMarkers('));
     expect(tracking, contains('_markerMotion.animateTo'));
     expect(tracking, contains('_convoyPositions[driverId] = position'));
@@ -93,10 +96,9 @@ void main() {
     expect(tracking, contains('ConvoyRouteState()'));
     expect(tracking, contains('_convoyRoutes.refresh('));
     expect(tracking, contains('_convoyRoutes.routes'));
-
-    final routeState = source('lib/core/services/convoy_route_polylines.dart');
+    expect(tracking, contains('buildConvoyRoutePolylines(routes)'));
     expect(
-      routeState,
+      routeService,
       contains("PolylineId('driver_route_\${id}_\${part++}')"),
     );
   });

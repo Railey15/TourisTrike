@@ -2,6 +2,8 @@ import '../../core/services/booking_driver_markers.dart';
 import '../../core/services/convoy_route_polylines.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
+import 'package:touristrike/widgets/tour_en_route_status_card.dart';
+import 'package:touristrike/widgets/tour_stay_status_card.dart';
 import 'package:touristrike/core/models/booking_feedback.dart';
 import 'package:touristrike/widgets/booking_feedback_card.dart';
 import 'package:touristrike/core/models/booking_payment_prompt.dart';
@@ -1332,13 +1334,20 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _convoy.isEmpty &&
         activity != null &&
         const {
-          'driver_accepted', 'driver_en_route', 'picked_up', 'on_tour',
-          'en_route_to_spot', 'en_route_to_dropoff',
+          'driver_accepted',
+          'driver_en_route',
+          'picked_up',
+          'on_tour',
+          'en_route_to_spot',
+          'en_route_to_dropoff',
         }.contains(activity.tourStatus) &&
         activity.driverId.isNotEmpty &&
         activity.driverLatitude != null &&
         activity.driverLongitude != null &&
-        validDriverCoordinates(activity.driverLatitude!, activity.driverLongitude!)) {
+        validDriverCoordinates(
+          activity.driverLatitude!,
+          activity.driverLongitude!,
+        )) {
       origins[activity.driverId] = LatLng(
         activity.driverLatitude!,
         activity.driverLongitude!,
@@ -1354,7 +1363,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         final routes = _convoyRoutes.routes;
         setState(() {
           _polylines = buildConvoyRoutePolylines(routes);
-          _eta = routes[_selectedDriverId]?.durationText ??
+          _eta =
+              routes[_selectedDriverId]?.durationText ??
               routes.values.firstOrNull?.durationText;
         });
       },
@@ -1603,6 +1613,85 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // BUILD
   // =========================================================================
 
+  Widget? _buildEnRouteStatusCard() {
+    if (_isTourCompleted() || _isCancelled) return null;
+    final driver =
+        _convoy
+            .where((driver) => driver.driverId == _selectedDriverId)
+            .firstOrNull ??
+        _convoy.firstOrNull;
+    final state = driver?.journeyState;
+    final status = driver == null
+        ? _activity?.tourStatus
+        : state?.legacyTourStatus;
+    final booking = _booking;
+    if (booking == null) return null;
+
+    String title;
+    LatLng? target;
+    switch (status) {
+      case 'driver_en_route':
+        title = 'Heading to pickup';
+        if (booking.pickupLatitude != null && booking.pickupLongitude != null) {
+          target = LatLng(booking.pickupLatitude!, booking.pickupLongitude!);
+        }
+      case 'en_route_to_spot':
+        final index = driver?.currentStopIndex;
+        final stop = index != null && index >= 0 && index < _spots.length
+            ? _spots[index]
+            : _currentItineraryItem;
+        title = 'Heading to ${stop?.destinationName ?? 'tour stop'}';
+        if (stop != null) target = LatLng(stop.latitude, stop.longitude);
+      case 'en_route_to_dropoff':
+        title = 'Heading to drop-off';
+        if (booking.dropoffLatitude != null &&
+            booking.dropoffLongitude != null) {
+          target = LatLng(booking.dropoffLatitude!, booking.dropoffLongitude!);
+        }
+      default:
+        return null;
+    }
+
+    final latitude =
+        driver?.latitude ?? (driver == null ? _activity?.driverLatitude : null);
+    final longitude =
+        driver?.longitude ??
+        (driver == null ? _activity?.driverLongitude : null);
+    final position =
+        _convoyPositions[driver?.driverId] ??
+        (latitude != null &&
+                longitude != null &&
+                validDriverCoordinates(latitude, longitude)
+            ? LatLng(latitude, longitude)
+            : null);
+    final eta = driver == null
+        ? _eta
+        : _convoyRoutes.routes[driver.driverId]?.durationText;
+    final details = <String>[
+      if (eta?.trim().isNotEmpty == true) 'ETA ${eta!.trim()}',
+    ];
+    if (position != null && target != null) {
+      final meters = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        target.latitude,
+        target.longitude,
+      );
+      details.add(
+        meters < 1000
+            ? '${meters.round()} m away'
+            : '${(meters / 1000).toStringAsFixed(1)} km away',
+      );
+    }
+    return TourEnRouteStatusCard(
+      title: title,
+      description: position == null
+          ? 'Waiting for your driver’s GPS location. Tour progress updates automatically on arrival.'
+          : 'Your driver’s GPS tracks the journey. Tour progress updates automatically on arrival.',
+      details: details.join(' · '),
+    );
+  }
+
   bool get _isCancelled {
     final values = [
       _booking?.status,
@@ -1776,6 +1865,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final remainingPaymentRecord = _paymentRecordForStage('remaining_balance');
     final itineraryComplete =
         _spots.isNotEmpty && _completedSpotCount == _spots.length;
+    final enRouteStatusCard = _buildEnRouteStatusCard();
 
     return Column(
       children: [
@@ -1955,6 +2045,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
                 const SizedBox(height: 14),
 
+                if (enRouteStatusCard != null) ...[
+                  enRouteStatusCard,
+                  const SizedBox(height: 14),
+                ],
+
                 // ===========================================================
                 // WAITING FOR MULTIPLE DRIVERS
                 // ===========================================================
@@ -1968,10 +2063,26 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
                 if (booking != null && !completed && _convoy.isNotEmpty)
                   LiveItineraryEstimates(
+                    showCard: false,
                     booking: booking,
                     drivers: _convoy,
                     stops: _spots,
                   ),
+                if (booking != null && !completed) ...[
+                  TourStayStatusCard(
+                    bookingId: widget.bookingId,
+                    currentItemId: _spots
+                        .where((spot) => spot.spotStatus == 'at_spot')
+                        .firstOrNull
+                        ?.id
+                        .toString(),
+                    currentDestination: _spots
+                        .where((spot) => spot.spotStatus != 'completed')
+                        .firstOrNull
+                        ?.destinationName,
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 if (_convoy.isNotEmpty) ...[
                   ConvoyTouristDriverList(
                     convoy: _convoy,
@@ -4695,51 +4806,63 @@ class _EmergencyPanelState extends State<_EmergencyPanel>
       final result = await showDialog<EmergencyAlertResult>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => EmergencyAlertForm(onSubmit: (alertId, note, photo) async {
-          if (mounted) setState(() => _sending = true);
-          try {
-            final touristId = _supabase.auth.currentUser?.id ?? '';
-            String? touristName;
+        builder: (_) => EmergencyAlertForm(
+          onSubmit: (alertId, note, photo) async {
+            if (mounted) setState(() => _sending = true);
             try {
-              final profile = await _supabase.from('profiles')
-                  .select('full_name, first_name, last_name')
-                  .eq('id', touristId).maybeSingle();
-              touristName = profile?['full_name']?.toString().trim();
-              if (touristName == null || touristName.isEmpty) {
-                touristName = [profile?['first_name'], profile?['last_name']]
-                    .whereType<String>().join(' ').trim();
-              }
-            } catch (_) {}
-            return await EmergencyService(_supabase).triggerAlert(
-              alertId: alertId,
-              touristId: touristId,
-              bookingId: widget.bookingId,
-              activityId: widget.activityId,
-              driverId: widget.driverId?.isEmpty == true ? null : widget.driverId,
-              tripStatus: widget.tripStatus,
-              currentSpotName: widget.currentSpotName,
-              touristName: touristName,
-              driverName: widget.driverName,
-              note: note.isEmpty ? null : note,
-              photo: photo,
-              knownPosition: widget.knownPosition,
-            );
-          } finally {
-            if (mounted) setState(() => _sending = false);
-          }
-        }),
+              final touristId = _supabase.auth.currentUser?.id ?? '';
+              String? touristName;
+              try {
+                final profile = await _supabase
+                    .from('profiles')
+                    .select('full_name, first_name, last_name')
+                    .eq('id', touristId)
+                    .maybeSingle();
+                touristName = profile?['full_name']?.toString().trim();
+                if (touristName == null || touristName.isEmpty) {
+                  touristName = [
+                    profile?['first_name'],
+                    profile?['last_name'],
+                  ].whereType<String>().join(' ').trim();
+                }
+              } catch (_) {}
+              return await EmergencyService(_supabase).triggerAlert(
+                alertId: alertId,
+                touristId: touristId,
+                bookingId: widget.bookingId,
+                activityId: widget.activityId,
+                driverId: widget.driverId?.isEmpty == true
+                    ? null
+                    : widget.driverId,
+                tripStatus: widget.tripStatus,
+                currentSpotName: widget.currentSpotName,
+                touristName: touristName,
+                driverName: widget.driverName,
+                note: note.isEmpty ? null : note,
+                photo: photo,
+                knownPosition: widget.knownPosition,
+              );
+            } finally {
+              if (mounted) setState(() => _sending = false);
+            }
+          },
+        ),
       );
       if (!mounted || result == null) return;
       _startCooldown();
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(result.emailSent
-              ? 'Emergency alert sent successfully.'
-              : 'Emergency alert was sent.'),
-          backgroundColor: result.emailSent ? _success : _danger,
-          behavior: SnackBarBehavior.floating,
-        ));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              result.emailSent
+                  ? 'Emergency alert sent successfully.'
+                  : 'Emergency alert was sent.',
+            ),
+            backgroundColor: result.emailSent ? _success : _danger,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
     } finally {
       _formOpen = false;
     }

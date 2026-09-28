@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/screens/main_tenant/main_tenant_models.dart';
 
 class MainTenantService {
@@ -90,11 +91,16 @@ class MainTenantService {
           cancellation['free_cancellation_hours'],
           fallback: 24,
         ),
-        termsAndConditions: mainTenantString(terms ?? const {}, const ['content']),
-        cancellationPolicy: mainTenantString(cancellationPolicy ?? const {}, const [
+        termsAndConditions: mainTenantString(terms ?? const {}, const [
           'content',
         ]),
-        dataPrivacyNotice: mainTenantString(privacy ?? const {}, const ['content']),
+        cancellationPolicy: mainTenantString(
+          cancellationPolicy ?? const {},
+          const ['content'],
+        ),
+        dataPrivacyNotice: mainTenantString(privacy ?? const {}, const [
+          'content',
+        ]),
         termsPolicyId: terms?['id'],
         cancellationPolicyId: cancellationPolicy?['id'],
         privacyPolicyId: privacy?['id'],
@@ -491,7 +497,9 @@ class MainTenantService {
         .eq('user_id', profile.id)
         .order('created_at', ascending: false)
         .limit(limit);
-    return _asRows(rows).map(MainTenantNotification.fromMap).toList(growable: false);
+    return _asRows(
+      rows,
+    ).map(MainTenantNotification.fromMap).toList(growable: false);
   }
 
   Future<void> markMainTenantNotificationRead(dynamic notificationId) async {
@@ -1299,9 +1307,13 @@ class MainTenantService {
     }
 
     final packages = await _safeFetchProvincePackages();
-    final packageById = {for (final item in packages) mainTenantId(item.id): item};
+    final packageById = {
+      for (final item in packages) mainTenantId(item.id): item,
+    };
     final bookings = await _safeFetchBookings(packages);
-    final bookingById = {for (final item in bookings) mainTenantId(item.id): item};
+    final bookingById = {
+      for (final item in bookings) mainTenantId(item.id): item,
+    };
     final spots = await _safeFetchProvinceSpots();
     final spotById = {for (final item in spots) mainTenantId(item.id): item};
 
@@ -1414,10 +1426,7 @@ class MainTenantService {
     if (cleanIds.isEmpty) return const {};
 
     try {
-      final rows = await _supabase
-          .from('profiles')
-          .select('*')
-          .inFilter('id', cleanIds);
+      final rows = await ParticipantProfiles.fetchMany(_supabase, cleanIds);
 
       return {for (final row in _asRows(rows)) mainTenantId(row['id']): row};
     } on PostgrestException {
@@ -1434,10 +1443,13 @@ class MainTenantService {
     required Map<String, Map<String, dynamic>> profileById,
   }) {
     final booking =
-        bookingById[mainTenantId(row['booking_id'] ?? row['package_booking_id'])];
+        bookingById[mainTenantId(
+          row['booking_id'] ?? row['package_booking_id'],
+        )];
     final package =
         packageById[mainTenantId(row['package_id'] ?? booking?.packageId)];
-    final spot = spotById[mainTenantId(row['spot_id'] ?? row['tourist_spot_id'])];
+    final spot =
+        spotById[mainTenantId(row['spot_id'] ?? row['tourist_spot_id'])];
     final touristId = mainTenantId(
       row['tourist_id'] ??
           row['user_id'] ??
@@ -1591,7 +1603,10 @@ class MainTenantService {
     );
   }
 
-  Future<void> updatePolicyStatus(MainTenantPolicy policy, String status) async {
+  Future<void> updatePolicyStatus(
+    MainTenantPolicy policy,
+    String status,
+  ) async {
     await _supabase
         .from('tourism_policies')
         .update({'status': status})

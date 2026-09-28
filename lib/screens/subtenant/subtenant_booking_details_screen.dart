@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
@@ -244,11 +245,7 @@ class _SubTenantBookingDetailsScreenState
         return const <String, dynamic>{};
       }
 
-      final row = await _supabase
-          .from('profiles')
-          .select()
-          .eq('id', touristId)
-          .maybeSingle();
+      final row = await ParticipantProfiles.fetchOne(_supabase, touristId);
 
       if (row == null) {
         return const <String, dynamic>{};
@@ -460,13 +457,7 @@ class _SubTenantBookingDetailsScreenState
         return const <_AssignedDriverView>[];
       }
 
-      final profileRowsRaw = await _supabase
-          .from('profiles')
-          .select()
-          .inFilter(
-            'id',
-            orderedDriverIds,
-          );
+      final profileRowsRaw = await ParticipantProfiles.fetchMany(_supabase, orderedDriverIds);
 
       final profilesById =
           <String, Map<String, dynamic>>{
@@ -919,13 +910,7 @@ class _SubTenantBookingDetailsScreenState
 
       final profileRowsRaw = driverIds.isEmpty
           ? const <dynamic>[]
-          : await _supabase
-                .from('profiles')
-                .select()
-                .inFilter(
-                  'id',
-                  driverIds,
-                );
+          : await ParticipantProfiles.fetchMany(_supabase, driverIds);
 
       final driverProfilesById =
           <String, Map<String, dynamic>>{

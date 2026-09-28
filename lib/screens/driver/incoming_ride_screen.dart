@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/supabase/participant_profiles.dart';
 
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import '../driver/driver_location_service.dart';
@@ -196,13 +197,7 @@ class _IncomingRideScreenState extends State<IncomingRideScreen> {
       final touristId = ride['tourist_id'];
 
       if (touristId != null) {
-        tourist = await supabase
-            .from('profiles')
-            .select(
-              'id, full_name, first_name, last_name, profile_image_url, mobile',
-            )
-            .eq('id', touristId)
-            .maybeSingle();
+        tourist = await ParticipantProfiles.fetchOne(supabase, touristId.toString());
       }
 
       final driverLat = ride['driver_lat'];

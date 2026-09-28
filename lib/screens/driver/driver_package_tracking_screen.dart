@@ -2,6 +2,9 @@ import '../../core/services/booking_driver_markers.dart';
 import '../../core/models/tour_tracking_status.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
+import 'package:touristrike/widgets/tour_en_route_status_card.dart';
+import 'package:touristrike/widgets/tour_stay_status_card.dart';
+import 'package:touristrike/widgets/driver_tourist_review_card.dart';
 import 'package:touristrike/core/services/stable_arrival_detector.dart';
 import 'dart:math' as math;
 
@@ -228,8 +231,6 @@ class _DriverPackageTrackingScreenState
   final RoutePolylineService _routeService = RoutePolylineService(
     apiKey: _apiKey,
   );
-
-  late double _proximityMeters;
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -488,7 +489,6 @@ class _DriverPackageTrackingScreenState
         _repo.fetchBookingItinerary(bookingId),
         _repo.fetchDriverArrivalRadiusMeters(),
       ]);
-      _proximityMeters = results[2] as double;
       _trackingStatus = TourTrackingStatus(
         await _repo.fetchTourTrackingStatus(bookingId),
       );
@@ -1495,57 +1495,14 @@ class _DriverPackageTrackingScreenState
     });
   }
 
-  Widget _buildJourneyAutomationNotice() {
-    final me = _myConvoyStatus;
-    if (me == null) return const SizedBox.shrink();
-    final gpsFailure = _arrivalGpsFailure;
-    final message = [
-      _trackingStatus.label,
-      ?gpsFailure,
-      'Arrival zone: ${_proximityMeters.toInt()} m; departure zone: ${(_proximityMeters + 100).toInt()} m. Accurate, sustained readings are required.',
-      if (me.journeyState == ConvoyJourneyState.atStop)
-        'Stop in progress. Planned stay is shown in the itinerary; actual departure is detected from GPS.',
-      'Keep precise location enabled. Progress resumes from this stop after reconnecting.',
-    ].join('\n');
-    final canRecover = const {
-      ConvoyJourneyState.enRoutePickup,
-      ConvoyJourneyState.atPickup,
-      ConvoyJourneyState.enRouteStop,
-      ConvoyJourneyState.atStop,
-      ConvoyJourneyState.enRouteDropoff,
-      ConvoyJourneyState.atDropoff,
-    }.contains(me.journeyState);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(message),
-            if (canRecover)
-              TextButton(
-                onPressed: _actionBusy || _automaticTransitionBusy
-                    ? null
-                    : _manualJourneyRecovery,
-                child: const Text('Manual recovery (audited)'),
-              ),
-            if (gpsFailure != null || _trackingStatus.interrupted)
-              Wrap(
-                children: [
-                  TextButton(
-                    onPressed: () async {
-                      await _startGpsStreaming();
-                      await _recoverGpsFix();
-                    },
-                    child: const Text('Retry GPS'),
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  bool get _canRecoverJourney => const {
+    ConvoyJourneyState.enRoutePickup,
+    ConvoyJourneyState.atPickup,
+    ConvoyJourneyState.enRouteStop,
+    ConvoyJourneyState.atStop,
+    ConvoyJourneyState.enRouteDropoff,
+    ConvoyJourneyState.atDropoff,
+  }.contains(_myConvoyStatus?.journeyState);
 
   Future<bool> _checkLocationPermission() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -2233,6 +2190,22 @@ class _DriverPackageTrackingScreenState
     _showSnack('Status: En route to pickup.');
   });
 
+  Future<void> _runDriverSlide(ConvoyDriverSnapshot expected) =>
+      _doAction(() async {
+        final result = await _repo.advanceDriverTourAction(
+          bookingId: _bookingId,
+          expectedState: expected.journeyState,
+          stopIndex: expected.currentStopIndex,
+        );
+        await Future.wait([
+          _loadConvoy(),
+          _refreshTrackingState(logTag: 'driver-slide'),
+        ]);
+        if (result['waiting_for_convoy_or_payment'] == true) {
+          _showSnack('Waiting for the convoy or remaining payment.');
+        }
+      });
+
   // =========================================================================
   // PAYMENTS
   // =========================================================================
@@ -2620,7 +2593,7 @@ class _DriverPackageTrackingScreenState
       title: title,
       description: gpsFailure == null
           ? 'GPS is monitoring your location. The next action will unlock automatically when you arrive.'
-          : 'GPS monitoring needs attention. Use the recovery options above to continue automatic arrival detection.',
+          : 'GPS monitoring needs attention. Use the recovery menu in the header to continue automatic arrival detection.',
       details: details.join(' · '),
     );
   }
@@ -2659,6 +2632,45 @@ class _DriverPackageTrackingScreenState
             'Begin the tour. Arrivals and departures are detected automatically.',
         icon: Icons.navigation_rounded,
         onTap: _markEnRoutePickup,
+      );
+    }
+    if (me.journeyState == ConvoyJourneyState.atPickup) {
+      return _PrimaryTourAction(
+        label: 'Confirm Pickup',
+        description: 'Confirm that the tourist has boarded.',
+        icon: Icons.person_pin_circle_rounded,
+        onTap: () => _runDriverSlide(me),
+      );
+    }
+    if (me.journeyState == ConvoyJourneyState.boarded) {
+      return _PrimaryTourAction(
+        label: 'Start Tour',
+        description: 'Navigate to the first booked destination.',
+        icon: Icons.route_rounded,
+        onTap: () => _runDriverSlide(me),
+      );
+    }
+    if (me.journeyState == ConvoyJourneyState.atStop ||
+        me.journeyState == ConvoyJourneyState.stopDone) {
+      final last = me.currentStopIndex >= _spots.length - 1;
+      return _PrimaryTourAction(
+        label: last
+            ? 'SLIDE TO NAVIGATE TO DROP-OFF'
+            : 'SLIDE TO NAVIGATE TO NEXT STOP',
+        description:
+            'Records departure and finalizes this stop’s waiting time.',
+        icon: Icons.swipe_right_rounded,
+        requiresSlide: true,
+        onTap: () => _runDriverSlide(me),
+      );
+    }
+    if (me.journeyState == ConvoyJourneyState.atDropoff) {
+      return _PrimaryTourAction(
+        label: 'SLIDE TO COMPLETE TOUR',
+        description: 'Complete the tour after arriving at drop-off.',
+        icon: Icons.flag_rounded,
+        requiresSlide: true,
+        onTap: () => _runDriverSlide(me),
       );
     }
     return null;
@@ -2798,6 +2810,16 @@ class _DriverPackageTrackingScreenState
           title: 'Tour Navigation',
           eta: _eta,
           onBack: () => Navigator.of(context).pop(),
+          onRecover:
+              _canRecoverJourney && !_actionBusy && !_automaticTransitionBusy
+              ? _manualJourneyRecovery
+              : null,
+          onRetryGps: _arrivalGpsFailure != null || _trackingStatus.interrupted
+              ? () async {
+                  await _startGpsStreaming();
+                  await _recoverGpsFix();
+                }
+              : null,
         ),
         Expanded(
           child: RefreshIndicator(
@@ -2811,18 +2833,29 @@ class _DriverPackageTrackingScreenState
               children: [
                 if (_booking != null && !_isBookingClosed)
                   LiveItineraryEstimates(
+                    showCard: false,
                     booking: _booking!,
                     drivers: _convoy,
                     stops: _spots,
                     onlyDriverId: _repo.currentUserId,
                   ),
-                _buildJourneyAutomationNotice(),
-                const SizedBox(height: 10),
+                if (_booking != null && !_isBookingClosed) ...[
+                  TourStayStatusCard(
+                    bookingId: _bookingId,
+                    currentItemId: _currentItineraryItem?.id.toString(),
+                    currentDestination: _currentItineraryItem?.destinationName,
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 _ModernStatusCard(
                   status: status,
                   completedCount: _completedItineraryItemsCount,
                   totalCount: _spots.length,
                 ),
+                if (bookingCompleted) ...[
+                  const SizedBox(height: 12),
+                  DriverTouristReviewCard(bookingId: _bookingId),
+                ],
 
                 const SizedBox(height: 12),
 
@@ -3108,11 +3141,15 @@ class _DriverTrackingTopBar extends StatelessWidget {
     required this.title,
     required this.onBack,
     this.eta,
+    this.onRecover,
+    this.onRetryGps,
   });
 
   final String title;
   final String? eta;
   final VoidCallback onBack;
+  final VoidCallback? onRecover;
+  final VoidCallback? onRetryGps;
 
   @override
   Widget build(BuildContext context) {
@@ -3145,6 +3182,27 @@ class _DriverTrackingTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 11),
           const ContainerTitle(),
+          if (onRecover != null || onRetryGps != null)
+            PopupMenuButton<String>(
+              tooltip: 'Tracking recovery',
+              icon: const Icon(Icons.more_vert_rounded, color: _ink),
+              onSelected: (value) {
+                if (value == 'recover') {
+                  onRecover?.call();
+                } else if (value == 'gps') {
+                  onRetryGps?.call();
+                }
+              },
+              itemBuilder: (_) => [
+                if (onRecover != null)
+                  const PopupMenuItem(
+                    value: 'recover',
+                    child: Text('Manual recovery (audited)'),
+                  ),
+                if (onRetryGps != null)
+                  const PopupMenuItem(value: 'gps', child: Text('Retry GPS')),
+              ],
+            ),
           if (eta != null && eta!.trim().isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -5252,7 +5310,11 @@ class _PersistentDriverActionBar extends StatelessWidget {
           : action == null
           ? enRouteStatus == null
                 ? const SizedBox.shrink()
-                : _DriverEnRouteStatusPanel(status: enRouteStatus!)
+                : TourEnRouteStatusCard(
+                    title: enRouteStatus!.title,
+                    description: enRouteStatus!.description,
+                    details: enRouteStatus!.details,
+                  )
           : Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -5274,146 +5336,75 @@ class _PersistentDriverActionBar extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 7),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [_primary, _primaryLight],
-                      ),
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _primary.withValues(alpha: 0.19),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
+                if (action!.requiresSlide)
+                  _SlideTourAction(action: action!, busy: busy)
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [_primary, _primaryLight],
                         ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      onPressed: busy ? null : action!.onTap,
-                      style: ElevatedButton.styleFrom(
-                        elevation: 0,
-                        backgroundColor: Colors.transparent,
-                        disabledBackgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _primary.withValues(alpha: 0.19),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
-                      child: busy
-                          ? const SizedBox(
-                              width: 19,
-                              height: 19,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(action!.icon, size: 18),
-                                const SizedBox(width: 7),
-                                Flexible(
-                                  child: Text(
-                                    action!.label,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12.5,
+                      child: ElevatedButton(
+                        onPressed: busy ? null : action!.onTap,
+                        style: ElevatedButton.styleFrom(
+                          elevation: 0,
+                          backgroundColor: Colors.transparent,
+                          disabledBackgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                        ),
+                        child: busy
+                            ? const SizedBox(
+                                width: 19,
+                                height: 19,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(action!.icon, size: 18),
+                                  const SizedBox(width: 7),
+                                  Flexible(
+                                    child: Text(
+                                      action!.label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 12.5,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                const Icon(
-                                  Icons.arrow_forward_rounded,
-                                  size: 16,
-                                ),
-                              ],
-                            ),
+                                  const SizedBox(width: 6),
+                                  const Icon(
+                                    Icons.arrow_forward_rounded,
+                                    size: 16,
+                                  ),
+                                ],
+                              ),
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
-    );
-  }
-}
-
-class _DriverEnRouteStatusPanel extends StatelessWidget {
-  const _DriverEnRouteStatusPanel({required this.status});
-
-  final _DriverEnRouteStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: _softBlue,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.location_searching_rounded,
-              color: _primary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  status.title,
-                  style: const TextStyle(
-                    color: _ink,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12.5,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  status.description,
-                  style: const TextStyle(
-                    color: _muted,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 9.5,
-                    height: 1.35,
-                  ),
-                ),
-                if (status.details.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    status.details,
-                    style: const TextStyle(
-                      color: _primary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 10.5,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -5436,6 +5427,7 @@ class _PrimaryTourAction {
     required this.description,
     required this.icon,
     required this.onTap,
+    this.requiresSlide = false,
   });
 
   final String label;
@@ -5444,6 +5436,81 @@ class _PrimaryTourAction {
   final IconData icon;
 
   final VoidCallback onTap;
+  final bool requiresSlide;
+}
+
+class _SlideTourAction extends StatefulWidget {
+  const _SlideTourAction({required this.action, required this.busy});
+
+  final _PrimaryTourAction action;
+  final bool busy;
+
+  @override
+  State<_SlideTourAction> createState() => _SlideTourActionState();
+}
+
+class _SlideTourActionState extends State<_SlideTourAction> {
+  double _fraction = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final travel = (constraints.maxWidth - 52)
+            .clamp(1.0, double.infinity)
+            .toDouble();
+        return GestureDetector(
+          onHorizontalDragUpdate: widget.busy
+              ? null
+              : (details) => setState(() {
+                  _fraction = (_fraction + details.delta.dx / travel)
+                      .clamp(0.0, 1.0)
+                      .toDouble();
+                }),
+          onHorizontalDragEnd: widget.busy
+              ? null
+              : (_) {
+                  final confirmed = _fraction >= 0.75;
+                  setState(() => _fraction = 0);
+                  if (confirmed) widget.action.onTap();
+                },
+          child: Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: _softBlue,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _primary),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Text(
+                  widget.busy ? 'Updating tour…' : widget.action.label,
+                  style: const TextStyle(
+                    color: _primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11,
+                  ),
+                ),
+                Positioned(
+                  left: 3 + travel * _fraction,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _primary,
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: Icon(widget.action.icon, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 // ============================================================================

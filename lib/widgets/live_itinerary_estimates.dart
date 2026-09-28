@@ -16,12 +16,16 @@ class LiveItineraryEstimates extends StatefulWidget {
     required this.stops,
     this.onlyDriverId,
     this.service,
+    this.showCard = true,
   });
   final PackageBooking booking;
   final List<ConvoyDriverSnapshot> drivers;
   final List<BookingItineraryItem> stops;
   final String? onlyDriverId;
   final ItineraryScheduleService? service;
+
+  /// Keep forecasts updating when the screen does not display the estimates card.
+  final bool showCard;
   @override
   State<LiveItineraryEstimates> createState() => _LiveItineraryEstimatesState();
 }
@@ -181,43 +185,45 @@ class _LiveItineraryEstimatesState extends State<LiveItineraryEstimates> {
   }
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Live Arrival Estimates',
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const Text(
-            'Estimates include remaining stays. Convoy and payment waits can delay departure.',
-            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-          ),
-          if (_loading) const LinearProgressIndicator(),
-          for (final driver in widget.drivers)
-            if ((_estimates[driver.driverId] ?? []).isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      driver.driverName,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    for (final label in _estimates[driver.driverId]!)
-                      Text(label),
-                  ],
+  Widget build(BuildContext context) => !widget.showCard
+      ? const SizedBox.shrink()
+      : Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Live Arrival Estimates',
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
-              ),
-          TextButton(
-            onPressed: _loading ? null : _refresh,
-            child: const Text('Refresh live ETAs'),
+                const Text(
+                  'Estimates include remaining stays. Convoy and payment waits can delay departure.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+                if (_loading) const LinearProgressIndicator(),
+                for (final driver in widget.drivers)
+                  if ((_estimates[driver.driverId] ?? []).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            driver.driverName,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          for (final label in _estimates[driver.driverId]!)
+                            Text(label),
+                        ],
+                      ),
+                    ),
+                TextButton(
+                  onPressed: _loading ? null : _refresh,
+                  child: const Text('Refresh live ETAs'),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
-    ),
-  );
+        );
 }

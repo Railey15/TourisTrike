@@ -5,7 +5,7 @@ create schema auth;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
 create table profiles(id uuid primary key, full_name text, first_name text, last_name text, profile_image_url text, role text,
   average_rating numeric default 0, total_reviews integer default 0, updated_at timestamptz);
-create function current_profile_role() returns text language sql stable as $$ select role from profiles where id = auth.uid() $$;
+create function current_profile_role() returns text language sql stable set search_path = public as $$ select role from public.profiles where id = auth.uid() $$;
 create table tour_packages(id bigint primary key, title text);
 create table package_bookings(id uuid primary key, tourist_id uuid, package_id bigint, booking_status text, status text,
   required_drivers integer default 2, scheduled_start_at timestamptz default now(), estimated_end_at timestamptz default now() + interval '1 day',
@@ -41,7 +41,7 @@ create publication supabase_realtime;
 create function is_package_booking_participant(uuid) returns boolean language sql stable as $$
  select exists(select 1 from package_bookings where id = $1 and tourist_id = auth.uid()) or
  exists(select 1 from booking_drivers where booking_id = $1 and driver_id = auth.uid()) $$;
-create function is_developer_test_booking(uuid) returns boolean language sql stable as $$ select test_mode from package_bookings where id = $1 $$;
+create function is_developer_test_booking(uuid) returns boolean language sql stable set search_path = public as $$ select test_mode from public.package_bookings where id = $1 $$;
 create function journey_state_order(text) returns integer language sql immutable as $$ select array_position(
  array['assigned','en_route_pickup','at_pickup','boarded','en_route_stop','at_stop','stop_done','en_route_dropoff','at_dropoff','completed'], $1) $$;
 create function package_booking_schedule_window(package_bookings) returns tstzrange language sql stable as $$ select tstzrange($1.scheduled_start_at, $1.estimated_end_at) $$;

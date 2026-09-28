@@ -1,0 +1,5101 @@
+{
+  "checked_at": "2026-09-28",
+  "rows": [
+    {
+      "kind": "index",
+      "object_name": "audit_logs_actor_created_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "notifications_user_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_bookings_package_status_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_bookings_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payments_booking_user_idx",
+      "present": false,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "profiles_role_city_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "rides_driver_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "rides_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "saved_places_user_idx",
+      "present": false,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tour_package_views_package_created_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tour_packages_city_status_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spot_views_spot_created_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spots_city_status_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "own_settings",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "audit_insert_authenticated",
+      "present": true,
+      "table_name": "audit_logs",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "audit_select_admin_subtenant",
+      "present": false,
+      "table_name": "audit_logs",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "assignments_select",
+      "present": true,
+      "table_name": "booking_driver_assignments",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "assignments_write_staff",
+      "present": true,
+      "table_name": "booking_driver_assignments",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "announcements_select",
+      "present": true,
+      "table_name": "city_announcements",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "announcements_write_subtenant_admin",
+      "present": true,
+      "table_name": "city_announcements",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "registrations_admin_update",
+      "present": true,
+      "table_name": "city_tenant_registrations",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "registrations_insert_owner",
+      "present": true,
+      "table_name": "city_tenant_registrations",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "registrations_select",
+      "present": true,
+      "table_name": "city_tenant_registrations",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_applications_select",
+      "present": true,
+      "table_name": "driver_applications",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_applications_write",
+      "present": true,
+      "table_name": "driver_applications",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_details_write",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_profiles_select_staff_or_owner",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_documents_select_staff_or_owner",
+      "present": true,
+      "table_name": "driver_documents",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_documents_write_owner",
+      "present": true,
+      "table_name": "driver_documents",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "notifications_insert_staff",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "notifications_update_own",
+      "present": false,
+      "table_name": "notifications",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "own_notifications",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_insert_tourist",
+      "present": false,
+      "table_name": "package_bookings",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_select",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_update_staff_or_owner",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payments_insert_owner",
+      "present": false,
+      "table_name": "payments",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payments_select",
+      "present": false,
+      "table_name": "payments",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_update_self_or_admin",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "ride_feedback_insert_tourist",
+      "present": true,
+      "table_name": "ride_feedback",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "ride_feedback_select_staff_or_participants",
+      "present": true,
+      "table_name": "ride_feedback",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "ride_reviews_insert_tourist",
+      "present": true,
+      "table_name": "ride_reviews",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "ride_reviews_select_staff_or_participants",
+      "present": true,
+      "table_name": "ride_reviews",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "rides_select_participants_staff",
+      "present": true,
+      "table_name": "rides",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "rides_write_participants",
+      "present": false,
+      "table_name": "rides",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "own_saved_places",
+      "present": false,
+      "table_name": "saved_places",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_details_select",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_details_write",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_day_items_read",
+      "present": true,
+      "table_name": "tour_package_day_items",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_day_items_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_day_items",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_children_read",
+      "present": true,
+      "table_name": "tour_package_days",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_days_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_days",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_spots_read",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_spots_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_views_insert_authenticated",
+      "present": true,
+      "table_name": "tour_package_views",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_views_select_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_views",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "packages_read",
+      "present": true,
+      "table_name": "tour_packages",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "packages_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_packages",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "categories_admin_write",
+      "present": true,
+      "table_name": "tourism_categories",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "categories_read_authenticated",
+      "present": true,
+      "table_name": "tourism_categories",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "policies_admin_write",
+      "present": true,
+      "table_name": "tourism_policies",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "policies_select_published_staff",
+      "present": true,
+      "table_name": "tourism_policies",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_images_read",
+      "present": true,
+      "table_name": "tourist_spot_images",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_images_write_admin_subtenant",
+      "present": true,
+      "table_name": "tourist_spot_images",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_views_insert_authenticated",
+      "present": true,
+      "table_name": "tourist_spot_views",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_views_select_admin_subtenant",
+      "present": true,
+      "table_name": "tourist_spot_views",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spots_read",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spots_write_admin_subtenant",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "admin_settings",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "audit_logs",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "booking_driver_assignments",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "city_announcements",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "city_tenant_registrations",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "driver_applications",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "driver_details",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "driver_documents",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "notifications",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "package_bookings",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payments",
+      "present": false,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "profiles",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "ride_feedback",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "ride_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "rides",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "saved_places",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "subtenant_details",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tour_package_day_items",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tour_package_days",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tour_package_spots",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tour_package_views",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tour_packages",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tourism_categories",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tourism_policies",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tourist_spot_images",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tourist_spot_views",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "tourist_spots",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "admin_settings",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "audit_logs",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "booking_driver_assignments",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "city_announcements",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "city_tenant_registrations",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "driver_applications",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "driver_details",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "driver_documents",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "notifications",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "package_bookings",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "payments",
+      "present": false,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "profiles",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "ride_feedback",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "ride_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "rides",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "saved_places",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "subtenant_details",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tour_package_day_items",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tour_package_days",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tour_package_spots",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tour_package_views",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tour_packages",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tourism_categories",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tourism_policies",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tourist_spot_images",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tourist_spot_views",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "tourist_spots",
+      "present": true,
+      "table_name": "",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_admin_settings_updated_at",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_city_announcements_updated_at",
+      "present": true,
+      "table_name": "city_announcements",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_package_bookings_updated_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_ride_feedback_updated_at",
+      "present": false,
+      "table_name": "ride_feedback",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_ride_reviews_updated_at",
+      "present": false,
+      "table_name": "ride_reviews",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_saved_places_updated_at",
+      "present": true,
+      "table_name": "saved_places",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_subtenant_details_updated_at",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_tour_packages_updated_at",
+      "present": true,
+      "table_name": "tour_packages",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_tourism_categories_updated_at",
+      "present": true,
+      "table_name": "tourism_categories",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_tourism_policies_updated_at",
+      "present": true,
+      "table_name": "tourism_policies",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_tourist_spots_updated_at",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260508000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "city_tenant_registrations_user_status_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260511000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_insert_self",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260511000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_update_admin",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260511000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_update_self",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260511000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "address",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "google_photo_reference",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "google_place_id",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "municipality",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "source_type",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "customized_package_spots_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "customized_package_spots_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spots_google_place_id_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spots_municipality_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spots_source_type_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "customized_package_spots_insert",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "customized_package_spots_select",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "customized_package_spots_update",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "customized_package_spots",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "customized_package_spots",
+      "present": true,
+      "table_name": "",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_customized_package_spots_updated_at",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260516000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "wallet_transactions_paymongo_ref_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_read_assigned_activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "tourist_read_own_activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "users_read_own_wallet_transactions",
+      "present": false,
+      "table_name": "wallet_transactions",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "users_read_own_wallet",
+      "present": false,
+      "table_name": "wallets",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "package_activities",
+      "present": true,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "wallet_transactions",
+      "present": false,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "wallets",
+      "present": false,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "package_activities",
+      "present": true,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "wallet_transactions",
+      "present": false,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "wallets",
+      "present": false,
+      "table_name": "",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_sync_activity_driver",
+      "present": true,
+      "table_name": "booking_driver_assignments",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_sync_package_activity",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260517000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "booking_type",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260518130000"
+    },
+    {
+      "kind": "column",
+      "object_name": "downpayment_amount",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260518130000"
+    },
+    {
+      "kind": "column",
+      "object_name": "remaining_balance",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260518130000"
+    },
+    {
+      "kind": "column",
+      "object_name": "payment_type",
+      "present": true,
+      "table_name": "payments",
+      "version": "20260519000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Admins and subtenants can view all payments",
+      "present": false,
+      "table_name": "payments",
+      "version": "20260519000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Admins can update payments",
+      "present": false,
+      "table_name": "payments",
+      "version": "20260519000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Tourists can insert own payments",
+      "present": false,
+      "table_name": "payments",
+      "version": "20260519000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Tourists can view own payments",
+      "present": false,
+      "table_name": "payments",
+      "version": "20260519000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payments",
+      "present": false,
+      "table_name": "",
+      "version": "20260519000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "accepted_at",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "current_spot_index",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_last_seen",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_latitude",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_longitude",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "dropped_off_at",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "picked_up_at",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "tour_status",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "booking_id",
+      "present": true,
+      "table_name": "wallet_transactions",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "description",
+      "present": true,
+      "table_name": "wallet_transactions",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Admins can manage all activities",
+      "present": false,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Drivers can update relevant activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Drivers can view relevant activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Tourists can insert own activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Tourists can view own activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Users can insert own transactions",
+      "present": false,
+      "table_name": "wallet_transactions",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Users can view own transactions",
+      "present": false,
+      "table_name": "wallet_transactions",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Users can view own wallet",
+      "present": false,
+      "table_name": "wallets",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "package_activities",
+      "present": true,
+      "table_name": "",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "wallet_transactions",
+      "present": false,
+      "table_name": "",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "wallets",
+      "present": false,
+      "table_name": "",
+      "version": "20260519020000"
+    },
+    {
+      "kind": "column",
+      "object_name": "arrived_at",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "accepted_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "arrived_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "booking_status",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "current_spot_index",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_latitude",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_longitude",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "picked_up_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "reference_key",
+      "present": true,
+      "table_name": "wallet_transactions",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "wallet_transactions_booking_ref_unique",
+      "present": true,
+      "table_name": "",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Tourists can view assigned driver details",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260519030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "closing_time",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_arrival_time",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_duration_minutes",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "opening_time",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "recommended_visit_duration_minutes",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "closing_time",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_arrival_time",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_duration_minutes",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "opening_time",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "recommended_visit_duration_minutes",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "index",
+      "object_name": "conversations_driver_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "index",
+      "object_name": "conversations_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "index",
+      "object_name": "conversations_unique_booking_pair_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "index",
+      "object_name": "messages_conversation_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "index",
+      "object_name": "messages_sender_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_insert_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_select_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_update_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_delete_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_insert_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_select_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_update_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_insert_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_select_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_update_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select_assigned_driver_or_chat",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "conversations",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "emergency_contacts",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "messages",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "table",
+      "object_name": "conversations",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "table",
+      "object_name": "emergency_contacts",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "table",
+      "object_name": "messages",
+      "present": true,
+      "table_name": "",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_emergency_contacts_updated_at",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260519040000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_insert_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_select_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_update_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_insert_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_select_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_update_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select_assigned_driver_or_chat",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_package_bookings_single_active_tour",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520093000"
+    },
+    {
+      "kind": "column",
+      "object_name": "closing_time",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_arrival_time",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_duration_minutes",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "opening_time",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "recommended_visit_duration_minutes",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "closing_time",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_arrival_time",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_duration_minutes",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "opening_time",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "recommended_visit_duration_minutes",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "closing_time",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_arrival_time",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_duration_minutes",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "opening_time",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "column",
+      "object_name": "recommended_visit_duration_minutes",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_insert_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_select_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "conversations_update_participants",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_delete_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_insert_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_select_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "emergency_contacts_update_own",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_insert_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_select_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_update_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select_assigned_driver_or_chat",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "conversations",
+      "present": true,
+      "table_name": "",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "emergency_contacts",
+      "present": true,
+      "table_name": "",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "messages",
+      "present": true,
+      "table_name": "",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "table",
+      "object_name": "emergency_contacts",
+      "present": true,
+      "table_name": "",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_emergency_contacts_updated_at",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260520120000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_itinerary_items_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_itinerary_items_booking_order_unique",
+      "present": true,
+      "table_name": "",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_itinerary_items_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_delete",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_insert",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_select",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_update",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "booking_itinerary_items",
+      "present": true,
+      "table_name": "",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "table",
+      "object_name": "booking_itinerary_items",
+      "present": true,
+      "table_name": "",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_booking_itinerary_items_updated_at",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520143000"
+    },
+    {
+      "kind": "column",
+      "object_name": "itinerary_source",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "order_number",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "dropoff_country_code",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "dropoff_locality",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "dropoff_province",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "pickup_country_code",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "pickup_locality",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "pickup_province",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_itinerary_items_booking_order_number_unique",
+      "present": true,
+      "table_name": "",
+      "version": "20260520150000"
+    },
+    {
+      "kind": "column",
+      "object_name": "actual_arrival_time",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "column",
+      "object_name": "actual_departure_time",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "column",
+      "object_name": "spot_status",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "column",
+      "object_name": "accepted_drivers_count",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "column",
+      "object_name": "required_drivers",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_driver_insert",
+      "present": false,
+      "table_name": "booking_drivers",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_driver_update",
+      "present": false,
+      "table_name": "booking_drivers",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_read_all",
+      "present": false,
+      "table_name": "booking_drivers",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "live_loc_driver_update",
+      "present": true,
+      "table_name": "driver_live_locations",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "live_loc_driver_upsert",
+      "present": true,
+      "table_name": "driver_live_locations",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "live_loc_read_all",
+      "present": false,
+      "table_name": "driver_live_locations",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "trip_logs_insert_any",
+      "present": false,
+      "table_name": "trip_status_logs",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "trip_logs_read_all",
+      "present": false,
+      "table_name": "trip_status_logs",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "booking_drivers",
+      "present": true,
+      "table_name": "",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "driver_live_locations",
+      "present": true,
+      "table_name": "",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "trip_status_logs",
+      "present": true,
+      "table_name": "",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "table",
+      "object_name": "booking_drivers",
+      "present": true,
+      "table_name": "",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "table",
+      "object_name": "driver_live_locations",
+      "present": true,
+      "table_name": "",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "table",
+      "object_name": "trip_status_logs",
+      "present": true,
+      "table_name": "",
+      "version": "20260520160000"
+    },
+    {
+      "kind": "column",
+      "object_name": "municipality",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520170000"
+    },
+    {
+      "kind": "column",
+      "object_name": "province",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520170000"
+    },
+    {
+      "kind": "column",
+      "object_name": "total_passengers",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520170000"
+    },
+    {
+      "kind": "column",
+      "object_name": "is_available",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260520170000"
+    },
+    {
+      "kind": "column",
+      "object_name": "is_verified",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260520180000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_driver_insert",
+      "present": false,
+      "table_name": "booking_drivers",
+      "version": "20260520180000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_driver_update",
+      "present": false,
+      "table_name": "booking_drivers",
+      "version": "20260520180000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_read_all",
+      "present": false,
+      "table_name": "booking_drivers",
+      "version": "20260520180000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "booking_drivers",
+      "present": true,
+      "table_name": "",
+      "version": "20260520180000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_sync_booking_drivers",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260520190000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_select",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260521020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_select",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260521020000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_update",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260521030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_update",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260521040000"
+    },
+    {
+      "kind": "column",
+      "object_name": "average_rating",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "column",
+      "object_name": "total_reviews",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "index",
+      "object_name": "driver_reviews_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "index",
+      "object_name": "driver_reviews_driver_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "index",
+      "object_name": "driver_reviews_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_insert",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_select",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_update",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "driver_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "table",
+      "object_name": "driver_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_update_driver_rating",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260521050000"
+    },
+    {
+      "kind": "column",
+      "object_name": "allow_cancellation",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "allow_instant_booking",
+      "present": false,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "auto_publish_spots",
+      "present": false,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "booking_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "default_package_visibility",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "default_spot_status",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "diverse_place_types",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_analytics",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_auto_approval",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "email_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "enable_ai_suggestions",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "manual_booking_confirmation",
+      "present": false,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "monthly_reports",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_food",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_historical",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_nature",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_nearby",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_popular",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_cover_image",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_driver_documents",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_map_pin",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_spot_verification",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_toda_verification",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "revenue_tracking",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "review_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "column",
+      "object_name": "spot_popularity_tracking",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_select",
+      "present": false,
+      "table_name": "objects",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_subtenant_insert",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_subtenant_update",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_fare_settings_owner_city",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "subtenant_fare_settings",
+      "present": true,
+      "table_name": "",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "table",
+      "object_name": "subtenant_fare_settings",
+      "present": true,
+      "table_name": "",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_subtenant_fare_settings_updated_at",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260521090000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_shared_trip_links_booking",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_shared_trip_links_token",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_shared_trip_links_tourist",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "stal_tourist_select",
+      "present": true,
+      "table_name": "shared_trip_access_logs",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "stl_tourist_insert",
+      "present": true,
+      "table_name": "shared_trip_links",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "stl_tourist_select",
+      "present": true,
+      "table_name": "shared_trip_links",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "stl_tourist_update",
+      "present": true,
+      "table_name": "shared_trip_links",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "shared_trip_access_logs",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "shared_trip_links",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "shared_trip_access_logs",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "shared_trip_links",
+      "present": true,
+      "table_name": "",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_shared_trip_links_updated_at",
+      "present": true,
+      "table_name": "shared_trip_links",
+      "version": "20260522000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "anon_shared_itinerary_select",
+      "present": false,
+      "table_name": "booking_itinerary_items",
+      "version": "20260522010000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "anon_shared_booking_select",
+      "present": false,
+      "table_name": "package_bookings",
+      "version": "20260522010000"
+    },
+    {
+      "kind": "column",
+      "object_name": "email",
+      "present": true,
+      "table_name": "emergency_contacts",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "admin_full_emergency_access",
+      "present": false,
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_read_assigned_emergency",
+      "present": true,
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "tourist_insert_own_emergency",
+      "present": true,
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "tourist_read_own_emergency",
+      "present": true,
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "emergency_alerts",
+      "present": true,
+      "table_name": "",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "table",
+      "object_name": "emergency_alerts",
+      "present": true,
+      "table_name": "",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_emergency_alerts_updated_at",
+      "present": true,
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_reviews_booking_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "policy",
+      "object_name": "admin_read_all_package_reviews",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "policy",
+      "object_name": "tourist_insert_own_package_review",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "policy",
+      "object_name": "tourist_read_own_package_review",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "policy",
+      "object_name": "tourist_update_own_package_review",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "rls",
+      "object_name": "package_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "table",
+      "object_name": "package_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "package_reviews_updated_at",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523000001"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_select",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260523100000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select_driver_review_tourists",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260523100000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_select",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260523110000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select_driver_review_tourists",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260523110000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_reviews_booking_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_reviews_package_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_reviews_tourist_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_reviews_insert_own",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_reviews_select_own",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_reviews_update_own",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "package_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "table",
+      "object_name": "package_reviews",
+      "present": true,
+      "table_name": "",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "package_reviews_updated_at",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260523123000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_status",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260523133000"
+    },
+    {
+      "kind": "column",
+      "object_name": "additional_passenger_fee",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "base_fare",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "city",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "created_at",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "fare_per_km",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "guide_fee",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "id",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "is_active",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "minimum_fare",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "subtenant_id",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "updated_at",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "waiting_fee",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "weekend_surcharge",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "index",
+      "object_name": "subtenant_fare_settings_city_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "index",
+      "object_name": "subtenant_fare_settings_subtenant_city_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "index",
+      "object_name": "subtenant_fare_settings_subtenant_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_fare_settings_owner_city",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "subtenant_fare_settings",
+      "present": true,
+      "table_name": "",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "table",
+      "object_name": "subtenant_fare_settings",
+      "present": true,
+      "table_name": "",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_subtenant_fare_settings_updated_at",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260523140000"
+    },
+    {
+      "kind": "column",
+      "object_name": "gcash_name",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "gcash_number",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "gcash_qr_url",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_disputes_record",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_disputes_status",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_records_booking",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_records_payee",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_records_payer",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_records_ride",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payment_records_status",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_proofs_insert",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_proofs_select",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_driver_payment_insert",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_driver_payment_update",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_disputes_select",
+      "present": true,
+      "table_name": "payment_disputes",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_insert",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_select",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_update",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payment_disputes",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payment_records",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "payment_disputes",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "payment_records",
+      "present": true,
+      "table_name": "",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_payment_records_updated_at",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_log_payment_audit",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_set_payment_receipt_no",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "assigned_passengers",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "current_stop_index",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "journey_state",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "state_updated_at",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payout_records_booking",
+      "present": true,
+      "table_name": "",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payout_records_driver",
+      "present": true,
+      "table_name": "",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "idx_payout_records_status",
+      "present": true,
+      "table_name": "",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payout_records_select",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payout_records",
+      "present": true,
+      "table_name": "",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "payout_records",
+      "present": true,
+      "table_name": "",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_booking_driver_state_updated_at",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_payout_records_updated_at",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260805000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Drivers can view relevant activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260805010000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancelled_at",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancellation_category",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancellation_fee",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancellation_note",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancellation_type",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancelled_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "cancelled_by",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "refund_status",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "refundable_amount",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "refund_requests_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "refund_requests_payee_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "cancellation_policy_read",
+      "present": true,
+      "table_name": "package_cancellation_policy",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "cancellation_policy_staff_update",
+      "present": false,
+      "table_name": "package_cancellation_policy",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "refund_requests_read_involved",
+      "present": true,
+      "table_name": "refund_requests",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "package_cancellation_policy",
+      "present": true,
+      "table_name": "",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "refund_requests",
+      "present": true,
+      "table_name": "",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "package_cancellation_policy",
+      "present": true,
+      "table_name": "",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "refund_requests",
+      "present": true,
+      "table_name": "",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_guard_cancelled_package_activity",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_package_cancellation_policy_updated_at",
+      "present": true,
+      "table_name": "package_cancellation_policy",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_guard_cancelled_booking_payment",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_refund_requests_updated_at",
+      "present": true,
+      "table_name": "refund_requests",
+      "version": "20260821000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "estimated_end_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "scheduled_start_at",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_id",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "new_state",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "previous_state",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_drivers_driver_active_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_payment_requirements_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "package_bookings_schedule_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_records_one_active_booking_stage_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "trip_status_logs_booking_logged_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_payment_requirements_select_participants",
+      "present": true,
+      "table_name": "booking_payment_requirements",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "live_loc_select_active_trip",
+      "present": true,
+      "table_name": "driver_live_locations",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "trip_logs_insert_assigned_driver",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "trip_logs_select_participants",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "booking_payment_requirements",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "booking_payment_requirements",
+      "present": true,
+      "table_name": "",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_booking_payment_requirements_updated_at",
+      "present": true,
+      "table_name": "booking_payment_requirements",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_guard_direct_package_activity_transition",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_guard_package_booking_client_write",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_validate_booking_payment_submission",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_stamp_trip_status_log_driver",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260827000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "checkout_url",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "currency",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "idempotency_key",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "paid_at",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_checkout_id",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_failure_code",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_failure_message",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_fee_amount",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_livemode",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_net_amount",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_payload",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_payment_id",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_payment_intent_id",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_reference",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_status",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "attempt_count",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "last_error",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "payment_allocation_id",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "processed_at",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_livemode",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_status",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_transfer_id",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_confirmed_at",
+      "present": true,
+      "table_name": "refund_requests",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_payload",
+      "present": true,
+      "table_name": "refund_requests",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_refund_id",
+      "present": true,
+      "table_name": "refund_requests",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "provider_refund_status",
+      "present": true,
+      "table_name": "refund_requests",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "driver_payout_accounts_one_default_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_allocations_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_allocations_driver_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_allocations_provider_transfer_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_provider_events_payment_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_records_provider_checkout_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_records_provider_idempotency_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_records_provider_payment_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payout_records_allocation_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payout_records_provider_transfer_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "refund_requests_provider_refund_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_payout_accounts_owner_or_staff_read",
+      "present": true,
+      "table_name": "driver_payout_accounts",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_allocations_participant_read",
+      "present": true,
+      "table_name": "payment_allocations",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_provider_events_staff_read",
+      "present": true,
+      "table_name": "payment_provider_events",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_select",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "driver_payout_accounts",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payment_allocations",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "payment_provider_events",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "table",
+      "object_name": "driver_payout_accounts",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "table",
+      "object_name": "payment_allocations",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "table",
+      "object_name": "payment_provider_events",
+      "present": true,
+      "table_name": "",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_driver_payout_accounts_updated_at",
+      "present": true,
+      "table_name": "driver_payout_accounts",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_payment_allocations_updated_at",
+      "present": true,
+      "table_name": "payment_allocations",
+      "version": "20260827030000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "developer_test_bookings",
+      "present": true,
+      "table_name": "",
+      "version": "20260830010000"
+    },
+    {
+      "kind": "table",
+      "object_name": "developer_test_bookings",
+      "present": true,
+      "table_name": "",
+      "version": "20260830010000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "developer_test_users",
+      "present": true,
+      "table_name": "",
+      "version": "20260831000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "developer_test_users",
+      "present": true,
+      "table_name": "",
+      "version": "20260831000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_finalize_booking_after_payment_requirement",
+      "present": true,
+      "table_name": "booking_payment_requirements",
+      "version": "20260831010000"
+    },
+    {
+      "kind": "column",
+      "object_name": "title",
+      "present": true,
+      "table_name": "conversations",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "client_message_id",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "message_type",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "system_event_key",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_participant_live_locations_user_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "driver_reviews_booking_driver_tourist_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "messages_sender_client_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "messages_system_event_uidx",
+      "present": true,
+      "table_name": "",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "participant_live_locations_read",
+      "present": true,
+      "table_name": "booking_participant_live_locations",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "participant_live_locations_update_tourist",
+      "present": true,
+      "table_name": "booking_participant_live_locations",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "participant_live_locations_write_tourist",
+      "present": true,
+      "table_name": "booking_participant_live_locations",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_insert",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_update",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "messages_insert_participants",
+      "present": true,
+      "table_name": "messages",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "booking_participant_live_locations",
+      "present": true,
+      "table_name": "",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "booking_participant_live_locations",
+      "present": true,
+      "table_name": "",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_guard_live_driver_journey_proximity",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_sync_driver_journey_milestones",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_sync_booking_payment_chat_event",
+      "present": true,
+      "table_name": "booking_payment_requirements",
+      "version": "20260902000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "allow_cancellation",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "booking_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "default_package_visibility",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "default_spot_status",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "diverse_place_types",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_analytics",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_auto_approval",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "driver_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "email_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "enable_ai_suggestions",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "monthly_reports",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_food",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_historical",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_nature",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_nearby",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "prioritize_popular",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_cover_image",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_driver_documents",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_map_pin",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_spot_verification",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "require_toda_verification",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "revenue_tracking",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "review_notifications",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "spot_popularity_tracking",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "own_settings",
+      "present": true,
+      "table_name": "admin_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "audit_insert_authenticated",
+      "present": true,
+      "table_name": "audit_logs",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "audit_select_admin_subtenant",
+      "present": false,
+      "table_name": "audit_logs",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_driver_arrivals_participant_read",
+      "present": true,
+      "table_name": "booking_driver_arrivals",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "assignments_select",
+      "present": true,
+      "table_name": "booking_driver_assignments",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "assignments_write_staff",
+      "present": true,
+      "table_name": "booking_driver_assignments",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_drivers_read_participants",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_itinerary_items_select",
+      "present": true,
+      "table_name": "booking_itinerary_items",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "booking_payment_requirements_select_participants",
+      "present": true,
+      "table_name": "booking_payment_requirements",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "announcements_select",
+      "present": true,
+      "table_name": "city_announcements",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "announcements_write_subtenant_admin",
+      "present": true,
+      "table_name": "city_announcements",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "customized_package_spots_insert",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "customized_package_spots_select",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "customized_package_spots_update",
+      "present": true,
+      "table_name": "customized_package_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_applications_select",
+      "present": true,
+      "table_name": "driver_applications",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_applications_write",
+      "present": true,
+      "table_name": "driver_applications",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_details_write",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_profiles_select_staff_or_owner",
+      "present": true,
+      "table_name": "driver_details",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_documents_select_staff_or_owner",
+      "present": true,
+      "table_name": "driver_documents",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_documents_write_owner",
+      "present": true,
+      "table_name": "driver_documents",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "live_loc_select_active_trip",
+      "present": true,
+      "table_name": "driver_live_locations",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_payout_accounts_owner_or_staff_read",
+      "present": true,
+      "table_name": "driver_payout_accounts",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "driver_reviews_select",
+      "present": true,
+      "table_name": "driver_reviews",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "admin_or_local_subtenant_emergency_access",
+      "present": true,
+      "table_name": "emergency_alerts",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "notifications_insert_staff",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_proofs_select",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_subtenant_insert",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "public_assets_subtenant_update",
+      "present": true,
+      "table_name": "objects",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "Admins and local subtenants manage activities",
+      "present": true,
+      "table_name": "package_activities",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_select",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_update_staff_or_owner",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "cancellation_policy_admin_update",
+      "present": true,
+      "table_name": "package_cancellation_policy",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_reviews_select_local_staff",
+      "present": true,
+      "table_name": "package_reviews",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_allocations_participant_read",
+      "present": true,
+      "table_name": "payment_allocations",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_disputes_select",
+      "present": true,
+      "table_name": "payment_disputes",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_provider_events_staff_read",
+      "present": true,
+      "table_name": "payment_provider_events",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_select",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_update",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payout_records_select",
+      "present": true,
+      "table_name": "payout_records",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_select",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_update_admin",
+      "present": false,
+      "table_name": "profiles",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "profiles_update_self",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "ride_feedback_select_staff_or_participants",
+      "present": true,
+      "table_name": "ride_feedback",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "ride_reviews_select_staff_or_participants",
+      "present": true,
+      "table_name": "ride_reviews",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "rides_select_participants_staff",
+      "present": true,
+      "table_name": "rides",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_details_select",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_details_write",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "subtenant_fare_settings_owner_city",
+      "present": true,
+      "table_name": "subtenant_fare_settings",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_day_items_read",
+      "present": true,
+      "table_name": "tour_package_day_items",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_day_items_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_day_items",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_children_read",
+      "present": true,
+      "table_name": "tour_package_days",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_days_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_days",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_spots_read",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_spots_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_views_select_admin_subtenant",
+      "present": true,
+      "table_name": "tour_package_views",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "packages_read",
+      "present": true,
+      "table_name": "tour_packages",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "packages_write_admin_subtenant",
+      "present": true,
+      "table_name": "tour_packages",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_images_read",
+      "present": true,
+      "table_name": "tourist_spot_images",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_images_write_admin_subtenant",
+      "present": true,
+      "table_name": "tourist_spot_images",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_views_select_admin_subtenant",
+      "present": true,
+      "table_name": "tourist_spot_views",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spots_read",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spots_write_admin_subtenant",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "trip_logs_select_participants",
+      "present": true,
+      "table_name": "trip_status_logs",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "guard_subtenant_profile_scope",
+      "present": true,
+      "table_name": "profiles",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "guard_subtenant_assignment_scope",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "sync_subtenant_assignment_profile",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "local_government_type",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905010000"
+    },
+    {
+      "kind": "column",
+      "object_name": "office_name_customized",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905010000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "set_subtenant_local_government_type",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905010000"
+    },
+    {
+      "kind": "column",
+      "object_name": "local_government_type_reviewed",
+      "present": true,
+      "table_name": "subtenant_details",
+      "version": "20260905020000"
+    },
+    {
+      "kind": "index",
+      "object_name": "profiles_driver_admin_search_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905020000"
+    },
+    {
+      "kind": "index",
+      "object_name": "subtenant_details_admin_search_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905020000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tour_packages_admin_search_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905020000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spots_admin_search_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905020000"
+    },
+    {
+      "kind": "index",
+      "object_name": "booking_itinerary_items_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "payment_disputes_booking_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tour_package_day_items_day_idx",
+      "present": true,
+      "table_name": "",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "index",
+      "object_name": "tourist_spot_images_spot_idx",
+      "present": false,
+      "table_name": "",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "announcements_select",
+      "present": true,
+      "table_name": "city_announcements",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_bookings_update_staff_or_owner",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "payment_records_update",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_day_items_read",
+      "present": true,
+      "table_name": "tour_package_day_items",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_children_read",
+      "present": true,
+      "table_name": "tour_package_days",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "package_spots_read",
+      "present": true,
+      "table_name": "tour_package_spots",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "packages_read",
+      "present": true,
+      "table_name": "tour_packages",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spot_images_read",
+      "present": true,
+      "table_name": "tourist_spot_images",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "spots_read",
+      "present": true,
+      "table_name": "tourist_spots",
+      "version": "20260905030000"
+    },
+    {
+      "kind": "column",
+      "object_name": "booking_id",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "channel",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "data",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "push_enabled",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "column",
+      "object_name": "read_at",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "index",
+      "object_name": "notification_delivery_pending",
+      "present": true,
+      "table_name": "",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "policy",
+      "object_name": "own_notifications",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "notification_deliveries",
+      "present": true,
+      "table_name": "",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "rls",
+      "object_name": "notification_devices",
+      "present": true,
+      "table_name": "",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "notification_deliveries",
+      "present": true,
+      "table_name": "",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "table",
+      "object_name": "notification_devices",
+      "present": true,
+      "table_name": "",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_stop_arrival",
+      "present": true,
+      "table_name": "booking_driver_arrivals",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_driver",
+      "present": true,
+      "table_name": "booking_drivers",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_requirement",
+      "present": true,
+      "table_name": "booking_payment_requirements",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_emergency",
+      "present": true,
+      "table_name": "emergency_alerts",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_enqueue",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_normalize",
+      "present": true,
+      "table_name": "notifications",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_booking",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_booking_created",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "trg_notify_available_package_job",
+      "present": true,
+      "table_name": "package_bookings",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_cash",
+      "present": true,
+      "table_name": "payment_allocations",
+      "version": "20260924000000"
+    },
+    {
+      "kind": "trigger",
+      "object_name": "notification_payment",
+      "present": true,
+      "table_name": "payment_records",
+      "version": "20260924000000"
+    }
+  ]
+}

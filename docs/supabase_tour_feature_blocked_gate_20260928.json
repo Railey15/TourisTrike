@@ -1,0 +1,459 @@
+{
+  "status": "BLOCKED",
+  "checked_at_utc": "2026-09-28T06:43:36.229Z",
+  "feature_deployed": false,
+  "historical_reconciliation": "HISTORICAL_RECONCILIATION_COMPLETE",
+  "applied_historical_repair_unchanged_sha256": "f5da587666e356ccaf58091b1996c66e543bfb584da50a5cd4232aa7a0174a65",
+  "pending_feature_sha256": "3b2e16883edec827020f0c434b510e973f3f3484ad43d11bb8872be5f0af9d46",
+  "migration_history": {
+    "aligned_applied": 91,
+    "local_only": [
+      "20260928000000"
+    ]
+  },
+  "blocker": {
+    "check": "Waiting charge after a previously confirmed remaining payment",
+    "original_requirement": 750,
+    "previous_confirmed_payment": 750,
+    "new_waiting_obligation": 40,
+    "actual_outstanding": 40,
+    "actual_reopened_requirement": 790,
+    "expected_reopened_requirement": 40,
+    "test": "supabase/tests/tour_waiting_and_review_regression.mjs",
+    "feature_function": "finalize_booking_stop_waiting_charge",
+    "deployed_validator": "validate_booking_payment_submission",
+    "consequence": "Correct outstanding payment fails PAYMENT_STAGE_NOT_REQUIRED because requirement.amount does not match remaining_balance; paying the historical amount again is invalid.",
+    "source": "Local PostgreSQL assertion plus current live payment validator definition; not a live payment transaction."
+  },
+  "local_changes": {
+    "pending_migration_only": true,
+    "province_qualified_rate_lookup": true,
+    "municipal_and_provincial_waiting_review_scope": true,
+    "subtenant_report_province_scope": true,
+    "main_tenant_fare_visibility_scope": true,
+    "fixed_empty_search_path_and_function_grants": true,
+    "test_fixture_relation_qualification": true,
+    "product_client_changes": false,
+    "applied_migrations_edited": false
+  },
+  "tests": {
+    "tour_waiting_reviews": {
+      "passed_before_blocker": 84,
+      "failed": 1
+    },
+    "explicit_slide_sql": {
+      "passed": 12,
+      "failed": 0
+    },
+    "rollback_live_preflight": "NOT_RUN_CRITICAL_LOCAL_SQL_GATE_FAILED",
+    "post_deployment_rls": "NOT_RUN_NOT_DEPLOYED",
+    "gps_hardware_navigation": "NOT_LIVE_TESTED",
+    "slide_departure": "NOT_LIVE_TESTED",
+    "notification_delivery": "NOT_LIVE_TESTED",
+    "payment_collection": "NOT_LIVE_TESTED",
+    "reports_and_pdf_export": "LOCAL_SOURCE_REVIEW_ONLY_NO_LIVE_EXPORT",
+    "focused_flutter": {
+      "passed": 7,
+      "failed": 0
+    },
+    "full_flutter": {
+      "passed": 301,
+      "failed": 0,
+      "opt_in_live_skipped": 5
+    },
+    "analyze": {
+      "errors": 0,
+      "warnings": 48,
+      "info": 135
+    },
+    "dart_format": {
+      "exit_code": 0,
+      "files": 239,
+      "changed": 66,
+      "original_source_bytes_restored": true
+    },
+    "git_diff_check": "PASS"
+  },
+  "rates": {
+    "approved_configuration": "REQUIRED",
+    "municipalities": [
+      {
+        "city": "Malolos",
+        "province": "Bulacan",
+        "active_fare_rows": 0,
+        "approved_tour_rate": null,
+        "status": "RATE_CONFIGURATION_REQUIRED"
+      },
+      {
+        "city": "Bustos",
+        "province": "Bulacan",
+        "active_fare_rows": 1,
+        "approved_tour_rate": null,
+        "status": "RATE_CONFIGURATION_REQUIRED"
+      },
+      {
+        "city": "Baliwag",
+        "province": "Bulacan",
+        "active_fare_rows": 1,
+        "approved_tour_rate": null,
+        "status": "RATE_CONFIGURATION_REQUIRED"
+      }
+    ],
+    "approved_values_supplied": false,
+    "business_rates_configured": false,
+    "ride_waiting_fee_semantics_unchanged": true,
+    "fixture_peso_values_are_not_approved_business_rates": true
+  },
+  "production": {
+    "changes_by_this_attempt": "NONE",
+    "anomalies": "Auth-user aggregate hash differs from the completed historical checkpoint; origin unverified. No production writes were issued by this attempt.",
+    "all_66_public_table_data_hashes_unchanged": true,
+    "auth_users_hash_unchanged": false,
+    "auth_users_hash_at_prior_checkpoint": "999068bd3e175801c4a25e7c984338b1",
+    "auth_users_hash_at_feature_gate": "792aaf38eeb8e01d5a3102e610c03082",
+    "schema_and_prior_profile_itinerary_security_hashes_unchanged": true,
+    "manual_review_driver_records_untouched": true
+  },
+  "snapshot": {
+    "auth_users": "792aaf38eeb8e01d5a3102e610c03082",
+    "feature_applied": false,
+    "initializer_hash": "60ef20498a05cfd1280f021faf1a2584",
+    "itinerary_policies": "eb8772d9a2e750c4e07e04bd95d56213",
+    "new_functions": 6,
+    "profile_policies": "84e196c0d101e32cf66ea4bee69165d9",
+    "repair_applied": true,
+    "table_data": [
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "_deprecated_payments"
+      },
+      {
+        "row_count": 38,
+        "row_hash": "6ceb2ccc8ff12e8c12a4e94fb4b7ed76",
+        "table_name": "_deprecated_wallet_transactions"
+      },
+      {
+        "row_count": 12,
+        "row_hash": "84e649452fe14450b318b392474d268c",
+        "table_name": "_deprecated_wallets"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "e55acb59a72a81de2681e6983e5eacd4",
+        "table_name": "account_suspensions"
+      },
+      {
+        "row_count": 3,
+        "row_hash": "a569954a515a5432d86aff19e1294dcd",
+        "table_name": "admin_settings"
+      },
+      {
+        "row_count": 153,
+        "row_hash": "594a6126a5abbf0f4382a3ca6ade0f2c",
+        "table_name": "audit_logs"
+      },
+      {
+        "row_count": 6,
+        "row_hash": "23bd5c9bd6bed274b106cf3a39a21599",
+        "table_name": "booking_driver_arrivals"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "booking_driver_assignments"
+      },
+      {
+        "row_count": 6,
+        "row_hash": "2438f29a7fd811037d1ddaf48dae3210",
+        "table_name": "booking_drivers"
+      },
+      {
+        "row_count": 15,
+        "row_hash": "0b12cee36898bf2387c3e0863c80e0a1",
+        "table_name": "booking_itinerary_items"
+      },
+      {
+        "row_count": 5,
+        "row_hash": "0d2f86b366063901d6e4d9c3a8a7489c",
+        "table_name": "booking_participant_live_locations"
+      },
+      {
+        "row_count": 8,
+        "row_hash": "555445fe10a84ffddc0f91558afee2b9",
+        "table_name": "booking_payment_requirements"
+      },
+      {
+        "row_count": 3,
+        "row_hash": "cc71df08898f7bc1976c3a262029cb38",
+        "table_name": "booking_service_areas"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "city_announcements"
+      },
+      {
+        "row_count": 2,
+        "row_hash": "4456661d4930996ee6849244ee46cc9f",
+        "table_name": "city_tenant_registrations"
+      },
+      {
+        "row_count": 68,
+        "row_hash": "84f9c17bd5319fe0ae5e895533bb796c",
+        "table_name": "conversation_members"
+      },
+      {
+        "row_count": 34,
+        "row_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+        "table_name": "conversations"
+      },
+      {
+        "row_count": 16,
+        "row_hash": "c084b1ade5e2c2de206896c45324e094",
+        "table_name": "customized_package_spots"
+      },
+      {
+        "row_count": 3,
+        "row_hash": "5372c042b7e330f8f494f68109633017",
+        "table_name": "developer_test_bookings"
+      },
+      {
+        "row_count": 4,
+        "row_hash": "73c3a5bff973029450c7ae22de5a8b9b",
+        "table_name": "developer_test_users"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "driver_applications"
+      },
+      {
+        "row_count": 5,
+        "row_hash": "3c050420f16b9377d07a6a3ff665f323",
+        "table_name": "driver_details"
+      },
+      {
+        "row_count": 5,
+        "row_hash": "6415cd73d5f5fed7f4fcea2a99d99889",
+        "table_name": "driver_documents"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "23cd24e8343215616349ea745032f7dd",
+        "table_name": "driver_journey_evidence"
+      },
+      {
+        "row_count": 3,
+        "row_hash": "418738fd95e1884e5bb28bcf2303230b",
+        "table_name": "driver_live_locations"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "driver_payout_accounts"
+      },
+      {
+        "row_count": 2,
+        "row_hash": "9ca79b37365447273432feebbf558e86",
+        "table_name": "driver_reviews"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "5e13439d95acee9e1c622e32da100199",
+        "table_name": "emergency_alerts"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "emergency_contacts"
+      },
+      {
+        "row_count": 189,
+        "row_hash": "b2d4dd9d2a46aefcb423ba30615ca7de",
+        "table_name": "messages"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "notification_deliveries"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "notification_devices"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "38a2a6b510efdfc7a6e2b45df94d30c6",
+        "table_name": "notification_settings"
+      },
+      {
+        "row_count": 344,
+        "row_hash": "0ab7796aa9f0f7b1ea6581adc93ee507",
+        "table_name": "notifications"
+      },
+      {
+        "row_count": 5,
+        "row_hash": "3184e082086ff14550c3fb3864c18156",
+        "table_name": "package_activities"
+      },
+      {
+        "row_count": 5,
+        "row_hash": "1cc4d87ff8fbf0d7548852abc6749061",
+        "table_name": "package_bookings"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "6e325842b13ef04bf9508a252b73e3eb",
+        "table_name": "package_cancellation_policy"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "7dfc49f0c8cc84cc05990488c6b74f33",
+        "table_name": "package_reviews"
+      },
+      {
+        "row_count": 8,
+        "row_hash": "cb3a152d847e1142e2559b19523dd9d4",
+        "table_name": "payment_allocations"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "a4e6b2eb5fc6c73b7637d46489c089bd",
+        "table_name": "payment_disputes"
+      },
+      {
+        "row_count": 28,
+        "row_hash": "225b527e079e297fc54194762d0b2d9c",
+        "table_name": "payment_provider_events"
+      },
+      {
+        "row_count": 5,
+        "row_hash": "44f6e86f5ff5e302c7c9d4114130af09",
+        "table_name": "payment_records"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "payout_records"
+      },
+      {
+        "row_count": 17,
+        "row_hash": "c7016ed8de7cc71b1234523d0b631d44",
+        "table_name": "profiles"
+      },
+      {
+        "row_count": 1,
+        "row_hash": "89b8d970344c9df9497b4127d5aec8aa",
+        "table_name": "provincial_office_details"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "refund_requests"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "ride_feedback"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "ride_reviews"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "rides"
+      },
+      {
+        "row_count": 2,
+        "row_hash": "3f226f0e1339e45d442f46df600a0bf0",
+        "table_name": "saved_places"
+      },
+      {
+        "row_count": 9,
+        "row_hash": "d22bf01b3cdd477febccac00c08ad089",
+        "table_name": "shared_trip_access_logs"
+      },
+      {
+        "row_count": 2,
+        "row_hash": "b909bedcb1d4b9322c98365b06dff39f",
+        "table_name": "shared_trip_links"
+      },
+      {
+        "row_count": 3,
+        "row_hash": "68051d23a39de565d323314505d401b8",
+        "table_name": "subtenant_details"
+      },
+      {
+        "row_count": 2,
+        "row_hash": "085f7fde292af1e142dc841988d99665",
+        "table_name": "subtenant_fare_settings"
+      },
+      {
+        "row_count": 16,
+        "row_hash": "c738c3dbc56041b53f52ce8ee174f493",
+        "table_name": "tour_package_day_items"
+      },
+      {
+        "row_count": 8,
+        "row_hash": "70917d9da08bba195121b559289b63de",
+        "table_name": "tour_package_days"
+      },
+      {
+        "row_count": 21,
+        "row_hash": "dfa27e5e66ed2774486442b7b17240a2",
+        "table_name": "tour_package_spots"
+      },
+      {
+        "row_count": 157,
+        "row_hash": "ec6e16a45838b8fe6c4223dd4eb7f344",
+        "table_name": "tour_package_views"
+      },
+      {
+        "row_count": 7,
+        "row_hash": "0a2cc90ae161817345094188a49729a7",
+        "table_name": "tour_packages"
+      },
+      {
+        "row_count": 6,
+        "row_hash": "f047febee68e7efbe1735628518130b9",
+        "table_name": "tourism_categories"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "tourism_policies"
+      },
+      {
+        "row_count": 7,
+        "row_hash": "af067c5968b1ecdbcff3525648f9ba90",
+        "table_name": "tourist_preferences"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "tourist_spot_images"
+      },
+      {
+        "row_count": 0,
+        "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+        "table_name": "tourist_spot_views"
+      },
+      {
+        "row_count": 19,
+        "row_hash": "e02bf88467b322ea6d08fdc62408adc4",
+        "table_name": "tourist_spots"
+      },
+      {
+        "row_count": 61,
+        "row_hash": "e388da279c8eb1c180799221507c76e1",
+        "table_name": "trip_status_logs"
+      }
+    ],
+    "table_schema": "039b4b56cb18881b110c57066301cb06"
+  }
+}

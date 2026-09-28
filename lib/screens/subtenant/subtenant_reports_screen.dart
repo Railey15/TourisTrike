@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:touristrike/core/reports/tour_operations_report.dart';
+import 'package:touristrike/widgets/tour_operations_report_section.dart';
 import 'package:printing/printing.dart';
 
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
@@ -413,6 +415,17 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
     _ReportTab tab,
   ) async {
     final document = pw.Document();
+    TourOperationsReport? operations;
+    try {
+      operations = await TourOperationsReport.fetch(
+        start: snapshot.window.start,
+        end: snapshot.window.end.add(const Duration(milliseconds: 1)),
+        city: snapshot.city,
+      );
+    } catch (_) {
+      // The existing report remains exportable while the forward migration is pending.
+    }
+
 
     final blue = PdfColor.fromHex('#1557D6');
     final dark = PdfColor.fromHex('#172033');
@@ -549,7 +562,7 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
                   '${snapshot.cancelledBookings}',
                 ),
                 metric(
-                  'Revenue',
+                  'Booking Value',
                   money.format(snapshot.revenue),
                 ),
                 metric(
@@ -572,6 +585,45 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
                 ),
               ],
             ),
+            if (operations != null) ...[
+              sectionTitle('Tour Operations & Tourist Feedback'),
+              pw.Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  metric(
+                    'Tours With Overtime',
+                    '${operations.count('tours_with_overtime')}',
+                  ),
+                  metric(
+                    'Overtime Minutes',
+                    '${operations.amount('total_overtime_minutes')}',
+                  ),
+                  metric(
+                    'Waiting Intervals',
+                    '${operations.count('chargeable_intervals')}',
+                  ),
+                  metric(
+                    'Waiting Fees',
+                    money.format(operations.amount('additional_waiting_fees')),
+                  ),
+                  metric(
+                    'Confirmed Collections',
+                    money.format(operations.amount('confirmed_collections')),
+                  ),
+                  metric(
+                    'Tourists Reviewed',
+                    '${operations.count('tourists_reviewed')}',
+                  ),
+                  metric(
+                    'Tourist Rating',
+                    operations
+                        .amount('average_tourist_rating')
+                        .toStringAsFixed(2),
+                  ),
+                ],
+              ),
+            ],
             sectionTitle('Booking Performance'),
             table(
               headers: const [
@@ -653,7 +705,7 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
                   '${snapshot.cancelledBookings}',
                 ),
                 metric(
-                  'Revenue',
+                  'Booking Value',
                   money.format(snapshot.revenue),
                 ),
               ],
@@ -1477,7 +1529,7 @@ class _OverviewReport extends StatelessWidget {
                     : '${_percent(snapshot.cancelledBookings / snapshot.totalBookings)} of bookings',
               ),
               _PaperMetric(
-                label: 'Revenue',
+                label: 'Booking Value',
                 value: money.format(
                   snapshot.revenue,
                 ),
@@ -1502,6 +1554,12 @@ class _OverviewReport extends StatelessWidget {
                     '${snapshot.totalDrivers} registered',
               ),
             ],
+          ),
+          const SizedBox(height: 28),
+          TourOperationsReportSection(
+            start: snapshot.window.start,
+            end: snapshot.window.end,
+            city: snapshot.city,
           ),
           const SizedBox(height: 28),
           const _PaperSectionTitle(
@@ -1648,7 +1706,7 @@ class _BookingsReport extends StatelessWidget {
                 helper: 'Other booking states',
               ),
               _PaperMetric(
-                label: 'Revenue',
+                label: 'Booking Value',
                 value: money.format(
                   snapshot.revenue,
                 ),

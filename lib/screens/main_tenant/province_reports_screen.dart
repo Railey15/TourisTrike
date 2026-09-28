@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:touristrike/core/reports/tour_operations_report.dart';
+import 'package:touristrike/widgets/tour_operations_report_section.dart';
 import 'package:printing/printing.dart';
 
 import 'package:touristrike/screens/main_tenant/main_tenant_models.dart';
@@ -48,8 +50,8 @@ enum _ReportTab {
     Icons.receipt_long_outlined,
   ),
   revenue(
-    'Revenue',
-    'Provincial Revenue Report',
+    'Booking Value',
+    'Provincial Booking Value Report',
     Icons.payments_outlined,
   ),
   packages(
@@ -820,6 +822,17 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
     _ReportTab tab,
   ) async {
     final document = pw.Document();
+    TourOperationsReport? operations;
+    try {
+      operations = await TourOperationsReport.fetch(
+        start: report.window.start,
+        end: report.window.end.add(const Duration(milliseconds: 1)),
+        city: report.cityFilter == _allCities ? null : report.cityFilter,
+      );
+    } catch (_) {
+      // The existing report remains exportable while the forward migration is pending.
+    }
+
 
     final dark =
         PdfColor.fromHex('#172033');
@@ -1002,7 +1015,7 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                   'Completed transactions',
                 ),
                 metric(
-                  'Revenue',
+                  'Booking Value',
                   money.format(
                     report.totalRevenue,
                   ),
@@ -1025,6 +1038,52 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                 ),
               ],
             ),
+            if (operations != null) ...[
+              section('Tour Operations & Tourist Feedback'),
+              pw.Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  metric(
+                    'Tours With Overtime',
+                    '${operations.count('tours_with_overtime')}',
+                    'Completed tours',
+                  ),
+                  metric(
+                    'Overtime Minutes',
+                    '${operations.amount('total_overtime_minutes')}',
+                    'Finalized stops',
+                  ),
+                  metric(
+                    'Waiting Intervals',
+                    '${operations.count('chargeable_intervals')}',
+                    '15-minute intervals',
+                  ),
+                  metric(
+                    'Waiting Fees',
+                    money.format(operations.amount('additional_waiting_fees')),
+                    'Finalized obligations',
+                  ),
+                  metric(
+                    'Confirmed Collections',
+                    money.format(operations.amount('confirmed_collections')),
+                    'Confirmed payments only',
+                  ),
+                  metric(
+                    'Tourists Reviewed',
+                    '${operations.count('tourists_reviewed')}',
+                    'Driver feedback',
+                  ),
+                  metric(
+                    'Tourist Rating',
+                    operations
+                        .amount('average_tourist_rating')
+                        .toStringAsFixed(2),
+                    'Average of driver reviews',
+                  ),
+                ],
+              ),
+            ],
             section(
               'City / Municipality Performance',
             ),
@@ -1033,7 +1092,7 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                 'City',
                 'Bookings',
                 'Completed',
-                'Revenue',
+                'Booking Value',
                 'Packages',
                 'Spots',
                 'Drivers',
@@ -1143,13 +1202,13 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
 
         case _ReportTab.revenue:
           return [
-            section('Revenue Summary'),
+            section('Booking Value Summary'),
             pw.Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 metric(
-                  'Completed Revenue',
+                  'Completed Booking Value',
                   money.format(
                     report.totalRevenue,
                   ),
@@ -1158,7 +1217,7 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                 metric(
                   'Completed Bookings',
                   '${report.completedBookings}',
-                  'Revenue-generating bookings',
+                  'Completed bookings',
                 ),
                 metric(
                   'Average Value',
@@ -1172,12 +1231,12 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                 ),
               ],
             ),
-            section('Revenue by City / Municipality'),
+            section('Booking Value by City / Municipality'),
             table(
               columns: const [
                 'City',
                 'Completed',
-                'Revenue',
+                'Booking Value',
                 'Average Value',
               ],
               rows: report.cityRows
@@ -1203,7 +1262,7 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                   )
                   .toList(),
               emptyMessage:
-                  'No completed booking revenue is available.',
+                  'No completed booking value is available.',
             ),
           ];
 
@@ -1228,7 +1287,7 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                   'Selected period',
                 ),
                 metric(
-                  'Revenue',
+                  'Booking Value',
                   money.format(
                     report.totalRevenue,
                   ),
@@ -1244,7 +1303,7 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
                 'Package',
                 'City',
                 'Bookings',
-                'Revenue',
+                'Booking Value',
                 'Budget',
                 'Status',
               ],
@@ -2265,7 +2324,7 @@ class _OverviewReport
                 ),
               ),
               _PaperMetric(
-                label: 'Revenue',
+                label: 'Booking Value',
                 value: _money(
                   snapshot.totalRevenue,
                 ),
@@ -2296,6 +2355,14 @@ class _OverviewReport
             ],
           ),
           const SizedBox(height: 26),
+          TourOperationsReportSection(
+            start: snapshot.window.start,
+            end: snapshot.window.end,
+            city: snapshot.cityFilter == _allCities
+                ? null
+                : snapshot.cityFilter,
+          ),
+          const SizedBox(height: 26),
           _PaperSectionTitle(
             title:
                 'City / Municipality Performance',
@@ -2307,7 +2374,7 @@ class _OverviewReport
               'City',
               'Bookings',
               'Completed',
-              'Revenue',
+              'Booking Value',
               'Packages',
               'Spots',
               'Drivers',
@@ -2432,7 +2499,7 @@ class _BookingsReport
                     'Other booking states',
               ),
               _PaperMetric(
-                label: 'Revenue',
+                label: 'Booking Value',
                 value: _money(
                   snapshot.totalRevenue,
                 ),
@@ -2536,22 +2603,22 @@ class _RevenueReport
     return _ReportWorkspace(
       child: _PaperReport(
         reportTitle:
-            'Provincial Revenue Report',
+            'Provincial Booking Value Report',
         location:
             _locationLabel(snapshot),
         period:
             snapshot.window.formatted,
         children: [
           const _PaperSectionTitle(
-            title: 'Revenue Summary',
+            title: 'Booking Value Summary',
             subtitle:
-                'Revenue generated from completed tourism package bookings.',
+                'Value of completed bookings; confirmed collections are shown separately.',
           ),
           _MetricGrid(
             metrics: [
               _PaperMetric(
                 label:
-                    'Completed Revenue',
+                    'Completed Booking Value',
                 value: _money(
                   snapshot.totalRevenue,
                 ),
@@ -2564,7 +2631,7 @@ class _RevenueReport
                 value:
                     '${snapshot.completedBookings}',
                 helper:
-                    'Revenue-generating bookings',
+                    'Completed bookings',
               ),
               _PaperMetric(
                 label:
@@ -2579,13 +2646,13 @@ class _RevenueReport
           const SizedBox(height: 26),
           const _PaperSectionTitle(
             title:
-                'Revenue by City / Municipality',
+                'Booking Value by City / Municipality',
           ),
           _PaperTable(
             columns: const [
               'City',
               'Completed',
-              'Revenue',
+              'Booking Value',
               'Average Value',
             ],
             columnFlex: const [
@@ -2673,7 +2740,7 @@ class _PackagesReport
                     'Selected period',
               ),
               _PaperMetric(
-                label: 'Revenue',
+                label: 'Booking Value',
                 value: _money(
                   snapshot.totalRevenue,
                 ),
@@ -2700,7 +2767,7 @@ class _PackagesReport
                 'Package',
                 'City',
                 'Bookings',
-                'Revenue',
+                'Booking Value',
                 'Budget',
                 'Status',
               ],

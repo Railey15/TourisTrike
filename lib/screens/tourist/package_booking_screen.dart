@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/widgets/booking_review_sheet.dart';
 import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
 
@@ -1366,6 +1367,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       await _recalculateSelectedItinerary();
       if (!mounted) return;
 
+      final rateValue = await Supabase.instance.client.rpc(
+        'get_municipal_tour_waiting_rate',
+        params: {'p_municipality': package.city},
+      );
+      if (!mounted) return;
+      final waitingRate = rateValue is num
+          ? rateValue.toDouble()
+          : double.tryParse('$rateValue');
+      if (waitingRate == null) {
+        _snack('The municipality has not configured its tour waiting rate.');
+        return;
+      }
+
       final recalculatedError = _itineraryValidationMessage();
       if (recalculatedError != null) {
         _snack(recalculatedError);
@@ -1421,6 +1435,23 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               value: _money(_remainingBalance(package)),
             ),
             (label: 'Payment Method', value: 'GCash via PayMongo'),
+            (
+              label: 'Included Driver Waiting',
+              value: 'Your selected Time of Stay at each destination',
+            ),
+            (
+              label: 'Additional Waiting',
+              value:
+                  '${_money(waitingRate)} per started 15 minutes after included stay',
+            ),
+            (
+              label: 'Waiting Rate Set By',
+              value: '${package.city} tourism office',
+            ),
+            (
+              label: 'If Time of Stay Is Exceeded',
+              value: 'Additional waiting is added to the outstanding balance',
+            ),
           ],
           itinerary: _selectedItinerary.indexed
               .map(

@@ -1,0 +1,2587 @@
+{
+  "checked_at": "2026-09-28",
+  "normalization": "MD5 of function body with whitespace removed; identity, security-definer, volatility, search_path and ACL are recorded separately.",
+  "rows": [
+    {
+      "body_digest": "4822a48150fd259f489b852d432aceb2",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "current_profile_city",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260508000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "19096c1597cc107d6218647fdcf59c55",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "current_profile_role",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260508000000",
+      "direct": false,
+      "successors": [
+        "20260927010000"
+      ]
+    },
+    {
+      "body_digest": "d258fba5feeb9ce8126471bef81c3228",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_updated_at",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "v",
+      "version": "20260508000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "",
+      "live_identity": null,
+      "live_present": false,
+      "name": "activate_approved_city_admin",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260513000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "a508db927c88e6b0d209b14d97838a47",
+      "identity": "p_registration_id text, p_status text, p_rejection_reason text",
+      "live_identity": "p_registration_id text, p_status text, p_rejection_reason text",
+      "live_present": true,
+      "name": "approve_city_registration",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260513000000",
+      "direct": false,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": null,
+      "identity": "",
+      "live_identity": null,
+      "live_present": false,
+      "name": "activate_approved_city_admin",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260513001000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "a508db927c88e6b0d209b14d97838a47",
+      "identity": "p_registration_id text, p_status text, p_rejection_reason text",
+      "live_identity": "p_registration_id text, p_status text, p_rejection_reason text",
+      "live_present": true,
+      "name": "approve_city_registration",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260513001000",
+      "direct": false,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": null,
+      "identity": "p_wallet_id uuid, p_amount numeric",
+      "live_identity": null,
+      "live_present": false,
+      "name": "credit_wallet",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260517000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_user_id uuid, p_role text, p_amount numeric",
+      "live_identity": null,
+      "live_present": false,
+      "name": "debit_wallet",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260517000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "",
+      "live_identity": null,
+      "live_present": false,
+      "name": "get_or_create_wallet",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260517000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "be9b56024213055e3637a43740d77bea",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "sync_activity_driver",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260517000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "40e5cab7f7cc2ca2b9f1a8e4b0676d11",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "sync_package_activity",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260517000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_transaction_id uuid, p_paymongo_reference_id text, p_metadata jsonb, p_paid_amount numeric, p_final_status text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "complete_wallet_cash_in",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260518093000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_driver_id uuid, p_amount numeric, p_booking_id uuid, p_description text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "credit_driver_wallet",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260519020000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_user_id uuid, p_role text, p_amount numeric, p_booking_id uuid, p_transaction_type text, p_description text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "deduct_wallet_balance",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260519020000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "8cf46636e547023d186456033a7f0e86",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_package_tour",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260519030000",
+      "direct": false,
+      "successors": [
+        "20260831010000"
+      ]
+    },
+    {
+      "body_digest": null,
+      "identity": "p_driver_id uuid, p_amount numeric, p_booking_id uuid, p_description text, p_reference_key text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "credit_driver_wallet",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260519030000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_user_id uuid, p_role text, p_amount numeric, p_booking_id uuid, p_transaction_type text, p_description text, p_reference_key text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "deduct_wallet_balance",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260519030000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "b79f976d807f204b5b257b29f37f836b",
+      "identity": "p_activity_id uuid",
+      "live_identity": "p_activity_id uuid",
+      "live_present": true,
+      "name": "driver_accept_package_activity",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260519030000",
+      "direct": false,
+      "successors": [
+        "20260725000000"
+      ]
+    },
+    {
+      "body_digest": "b06a5f6a9f782189516a875d1fdf807f",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "ensure_single_active_tour_booking",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "v",
+      "version": "20260520093000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "3c97dfad8a8cd729e981e0f32c810ca1",
+      "identity": "p_tourist_id uuid",
+      "live_identity": "p_tourist_id uuid",
+      "live_present": true,
+      "name": "has_active_tour",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "s",
+      "version": "20260520093000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_activity_id uuid, p_booking_id uuid",
+      "live_identity": null,
+      "live_present": false,
+      "name": "driver_accept_group_booking",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260520170000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "e8e97c7957ae3b1d25fa393f980612a2",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "accept_package_booking",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260520180000",
+      "direct": false,
+      "successors": [
+        "20260827000000"
+      ]
+    },
+    {
+      "body_digest": "b5db7b06a951b705b112ddf9b0e47c34",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "sync_booking_drivers_on_complete",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260520190000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "9ab988cd1e6003fc75acb79677cc6424",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "ensure_booking_itinerary",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260521020000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "6bc11595bc0e41f471bb704fbe0b97c2",
+      "identity": "p_activity_id uuid, p_itinerary_item_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_itinerary_item_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_current_itinerary_item",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260521040000",
+      "direct": false,
+      "successors": [
+        "20260927000000"
+      ]
+    },
+    {
+      "body_digest": "9bf150c5144b1bb412678a3806d7f050",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_current_itinerary_item",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260521040000",
+      "direct": false,
+      "successors": [
+        "20260831010000"
+      ]
+    },
+    {
+      "body_digest": "adb33c32b96196241ed4a68fdf3eb65b",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "update_driver_average_rating",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260521050000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": null,
+      "identity": "p_public_token text, p_access_code text, p_device_info text, p_user_agent text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "get_shared_trip_details",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260522000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "15ebcf54049284f3662a5b46e11e124e",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_shared_trip_links_updated_at",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260522000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "02be2f6ab8f31b3c5149a388a9c73ebc",
+      "identity": "p_public_token text, p_access_code text, p_device_info text, p_user_agent text, p_silent boolean",
+      "live_identity": "p_public_token text, p_access_code text, p_device_info text, p_user_agent text, p_silent boolean",
+      "live_present": true,
+      "name": "get_shared_trip_details",
+      "proacl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260522010000",
+      "direct": false,
+      "successors": [
+        "20260907020000"
+      ]
+    },
+    {
+      "body_digest": null,
+      "identity": "p_public_token text, p_access_code text",
+      "live_identity": null,
+      "live_present": false,
+      "name": "get_shared_trip_details",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260522020000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "a3a8dcc15e232b73d3f5c4abfa43f3d8",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_emergency_alerts_updated_at",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "v",
+      "version": "20260522080000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a3a8dcc15e232b73d3f5c4abfa43f3d8",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "touch_package_reviews_updated_at",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "v",
+      "version": "20260523000001",
+      "direct": true,
+      "successors": [
+        "20260523123000"
+      ]
+    },
+    {
+      "body_digest": "5382e00c351b6a10b983045c85c0ec38",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "tourist_has_reviewed_booking",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260523000001",
+      "direct": false,
+      "successors": [
+        "20260906000000"
+      ]
+    },
+    {
+      "body_digest": "b4e621b01801bb74a1adef72d9dfb3ab",
+      "identity": "p_profile_id uuid",
+      "live_identity": "p_profile_id uuid",
+      "live_present": true,
+      "name": "profile_city",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260523100000",
+      "direct": true,
+      "successors": [
+        "20260523110000"
+      ]
+    },
+    {
+      "body_digest": "15834ebe8b4f9582670f486cfd686fbb",
+      "identity": "p_tourist_id uuid",
+      "live_identity": "p_tourist_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_view_review_tourist",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260523100000",
+      "direct": false,
+      "successors": [
+        "20260905000000"
+      ]
+    },
+    {
+      "body_digest": "b4e621b01801bb74a1adef72d9dfb3ab",
+      "identity": "p_profile_id uuid",
+      "live_identity": "p_profile_id uuid",
+      "live_present": true,
+      "name": "profile_city",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260523110000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "15834ebe8b4f9582670f486cfd686fbb",
+      "identity": "p_tourist_id uuid",
+      "live_identity": "p_tourist_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_view_review_tourist",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260523110000",
+      "direct": false,
+      "successors": [
+        "20260905000000"
+      ]
+    },
+    {
+      "body_digest": "8cf46636e547023d186456033a7f0e86",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_package_tour",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260523123000",
+      "direct": false,
+      "successors": [
+        "20260831010000"
+      ]
+    },
+    {
+      "body_digest": "a3a8dcc15e232b73d3f5c4abfa43f3d8",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "touch_package_reviews_updated_at",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "v",
+      "version": "20260523123000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "5382e00c351b6a10b983045c85c0ec38",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "tourist_has_reviewed_booking",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260523123000",
+      "direct": false,
+      "successors": [
+        "20260906000000"
+      ]
+    },
+    {
+      "body_digest": "e8e97c7957ae3b1d25fa393f980612a2",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "accept_package_booking",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": false,
+      "successors": [
+        "20260827000000"
+      ]
+    },
+    {
+      "body_digest": "9bb84acc4597fc6427dd5642e9953446",
+      "identity": "p_payment_record_id uuid, p_proof_image_url text",
+      "live_identity": "p_payment_record_id uuid, p_proof_image_url text",
+      "live_present": true,
+      "name": "attach_payment_proof",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "8cf46636e547023d186456033a7f0e86",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_package_tour",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": false,
+      "successors": [
+        "20260831010000"
+      ]
+    },
+    {
+      "body_digest": "b79f976d807f204b5b257b29f37f836b",
+      "identity": "p_activity_id uuid",
+      "live_identity": "p_activity_id uuid",
+      "live_present": true,
+      "name": "driver_accept_package_activity",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a3c6eb207fede168e5d5816f8f727ca9",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "log_payment_audit",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "6ac9d70fa3af6a989b28c2fa51a0b5f6",
+      "identity": "p_payment_record_id uuid, p_reason text, p_description text, p_evidence_url text",
+      "live_identity": "p_payment_record_id uuid, p_reason text, p_description text, p_evidence_url text",
+      "live_present": true,
+      "name": "raise_payment_dispute",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "ac13edd3f34b72c8608b18dc121adb15",
+      "identity": "p_ride_id uuid, p_payment_method text, p_amount numeric, p_external_reference_no text",
+      "live_identity": "p_ride_id uuid, p_payment_method text, p_amount numeric, p_external_reference_no text",
+      "live_present": true,
+      "name": "record_ride_payment",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "5c7188f60357e2e21ea43fc4510748f9",
+      "identity": "p_dispute_id uuid, p_new_status text, p_resolution_note text",
+      "live_identity": "p_dispute_id uuid, p_new_status text, p_resolution_note text",
+      "live_present": true,
+      "name": "resolve_payment_dispute",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": false,
+      "successors": [
+        "20260905000000"
+      ]
+    },
+    {
+      "body_digest": "091189631146e45a0ac1d215c752f5c5",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_payment_receipt_no",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260725000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "164083804399419c332c619b2dac9eea",
+      "identity": "p_booking_id uuid, p_total_passengers integer",
+      "live_identity": "p_booking_id uuid, p_total_passengers integer",
+      "live_present": true,
+      "name": "compute_passenger_split",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": false,
+      "provolatile": "s",
+      "version": "20260805000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "7cab9071e4faeb2516529ffa32488530",
+      "identity": "p_booking_id uuid, p_total_amount numeric, p_strategy text",
+      "live_identity": "p_booking_id uuid, p_total_amount numeric, p_strategy text",
+      "live_present": true,
+      "name": "compute_payout_split",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": false,
+      "provolatile": "s",
+      "version": "20260805000000",
+      "direct": false,
+      "successors": [
+        "20260827040000"
+      ]
+    },
+    {
+      "body_digest": "6ad0f1b5e0d15811f6e10b39053739a0",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_booking_driver_state_updated_at",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "v",
+      "version": "20260805000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a0e02388fbf69d74d32002636ecf96cf",
+      "identity": "p_booking_id uuid, p_target_state text",
+      "live_identity": "p_booking_id uuid, p_target_state text",
+      "live_present": true,
+      "name": "advance_driver_journey_state",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260805020000",
+      "direct": false,
+      "successors": [
+        "20260927000000"
+      ]
+    },
+    {
+      "body_digest": "34c0451a5fa5fb28eb9db930b7b7b79f",
+      "identity": "p_state text",
+      "live_identity": "p_state text",
+      "live_present": true,
+      "name": "journey_state_order",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": null,
+      "prosecdef": false,
+      "provolatile": "i",
+      "version": "20260805020000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "93505faf99f9908f03f1c86ac3dd018e",
+      "identity": "p_booking_id uuid, p_reason text, p_note text, p_category text",
+      "live_identity": "p_booking_id uuid, p_reason text, p_note text, p_category text",
+      "live_present": true,
+      "name": "cancel_package_booking",
+      "proacl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260821000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "e6326c117bb358b85d4fcf1f8a72813d",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "get_package_booking_cancellation_eligibility",
+      "proacl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260821000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "b5fa39d5bc62f138bc700f15e71b4123",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_cancelled_booking_payment_confirmation",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260821000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "8d12ae8e10054a6848d1ef1bfdd7e2b0",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_cancelled_package_activity_update",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260821000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "587eda3f57f7f5f6bad26fadbe5fdb0d",
+      "identity": "p_booking_id uuid, p_actor_id uuid",
+      "live_identity": "p_booking_id uuid, p_actor_id uuid",
+      "live_present": true,
+      "name": "package_booking_cancellation_eligibility",
+      "proacl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260821000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "b6542b0b1521dd6764dec3dc197c6c9b",
+      "identity": "p_refund_request_id uuid, p_status text, p_reference_no text, p_note text",
+      "live_identity": "p_refund_request_id uuid, p_status text, p_reference_no text, p_note text",
+      "live_present": true,
+      "name": "resolve_package_refund_request",
+      "proacl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260821000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "e8e97c7957ae3b1d25fa393f980612a2",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "accept_package_booking",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a0e02388fbf69d74d32002636ecf96cf",
+      "identity": "p_booking_id uuid, p_target_state text",
+      "live_identity": "p_booking_id uuid, p_target_state text",
+      "live_present": true,
+      "name": "advance_driver_journey_state",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": false,
+      "successors": [
+        "20260927000000"
+      ]
+    },
+    {
+      "body_digest": "8cf46636e547023d186456033a7f0e86",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_package_tour",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": false,
+      "successors": [
+        "20260831010000"
+      ]
+    },
+    {
+      "body_digest": "32763f2eee5154867766b49218be4f1c",
+      "identity": "p_payment_record_id uuid",
+      "live_identity": "p_payment_record_id uuid",
+      "live_present": true,
+      "name": "confirm_payment_record",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": false,
+      "successors": [
+        "20260905000000"
+      ]
+    },
+    {
+      "body_digest": "f8b16258569bf6a96a2e44a9b14dc8fc",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "ensure_booking_payment_requirements",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": null,
+      "identity": "p_public_token text, p_access_code text, p_device_info text, p_ip_address text, p_log_access boolean",
+      "live_identity": null,
+      "live_present": false,
+      "name": "get_shared_trip_details",
+      "proacl": null,
+      "proconfig": null,
+      "prosecdef": null,
+      "provolatile": null,
+      "version": "20260827000000",
+      "direct": false,
+      "successors": []
+    },
+    {
+      "body_digest": "bf63878853a4692ed5b304024e8cd613",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_direct_package_activity_transition",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "6abf49c3b113e62b803206bb16798305",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_package_booking_client_write",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "c99c4389c85949c6565241b02bf4ea40",
+      "identity": "p_booking package_bookings",
+      "live_identity": "p_booking package_bookings",
+      "live_present": true,
+      "name": "package_booking_schedule_window",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": false,
+      "provolatile": "s",
+      "version": "20260827000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "5b869787e3ba2d51ecf39768c9a0e253",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "stamp_trip_status_log_driver",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "62c830c33cf64ea8df414ea2103cdc24",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "validate_booking_payment_submission",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827000000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "6abf49c3b113e62b803206bb16798305",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_package_booking_client_write",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827010000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "c450da225ef296fc954bac87c7321aa0",
+      "identity": "p_payment_record_id uuid",
+      "live_identity": "p_payment_record_id uuid",
+      "live_present": true,
+      "name": "confirm_group_cash_share",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827060000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "fa2ddeabf6efb0f563045646b2ae270e",
+      "identity": "p_booking_id uuid, p_idempotency_key text",
+      "live_identity": "p_booking_id uuid, p_idempotency_key text",
+      "live_present": true,
+      "name": "prepare_group_cash_remaining_balance",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827060000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "62c830c33cf64ea8df414ea2103cdc24",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "validate_booking_payment_submission",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260827060000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "6abf49c3b113e62b803206bb16798305",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_package_booking_client_write",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260828000000",
+      "direct": false,
+      "successors": [
+        "20260831010000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "44a18dd7757c2fe75c7b8c5f5348934e",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "debug_reset_test_trip",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260830010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "baa888a48bb4f5ece21d8d4007dd9eaf",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "debug_get_test_booking_state",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "07903e305927596407fc4d124ed015d0",
+      "identity": "p_booking_id uuid, p_enabled boolean",
+      "live_identity": "p_booking_id uuid, p_enabled boolean",
+      "live_present": true,
+      "name": "debug_set_test_booking_mode",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "1855dfdb5b4a6a2666e73c1db33ea585",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "debug_test_driver_assignment",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "bb8f9e31ad429fbf6c12a8798142039a",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_developer_test_booking",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a0e02388fbf69d74d32002636ecf96cf",
+      "identity": "p_booking_id uuid, p_target_state text",
+      "live_identity": "p_booking_id uuid, p_target_state text",
+      "live_present": true,
+      "name": "advance_driver_journey_state",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": false,
+      "successors": [
+        "20260927000000"
+      ]
+    },
+    {
+      "body_digest": "6bc11595bc0e41f471bb704fbe0b97c2",
+      "identity": "p_activity_id uuid, p_itinerary_item_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_itinerary_item_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_current_itinerary_item",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": false,
+      "successors": [
+        "20260927000000"
+      ]
+    },
+    {
+      "body_digest": "9bf150c5144b1bb412678a3806d7f050",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_current_itinerary_item",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "8cf46636e547023d186456033a7f0e86",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "complete_package_tour",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "52b30035b858810d4de7b6e467bab531",
+      "identity": "p_booking_id uuid, p_stage text, p_stop_index integer",
+      "live_identity": "p_booking_id uuid, p_stage text, p_stop_index integer",
+      "live_present": true,
+      "name": "compute_convoy_stage_progress",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "c01bcccfe4f4029525e9d42d8d9d1793",
+      "identity": "p_booking_id uuid, p_target_state text",
+      "live_identity": "p_booking_id uuid, p_target_state text",
+      "live_present": true,
+      "name": "debug_advance_driver_journey_state",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": false,
+      "successors": [
+        "20260906030000"
+      ]
+    },
+    {
+      "body_digest": "4130a74018e4741117f08dd98b0df653",
+      "identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_identity": "p_activity_id uuid, p_remaining_payment_method text",
+      "live_present": true,
+      "name": "debug_complete_package_tour",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "faa3b600bd75f2b3f990c98cbf15c9f6",
+      "identity": "p_booking_id uuid, p_force_all_assignments boolean",
+      "live_identity": "p_booking_id uuid, p_force_all_assignments boolean",
+      "live_present": true,
+      "name": "debug_force_complete_test_trip",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "560500487e90a31039bedb421f4e1f67",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "debug_mark_remaining_balance_paid",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "f8b16258569bf6a96a2e44a9b14dc8fc",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "ensure_booking_payment_requirements",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "1914f6e6943094720f86298a7e0dfd75",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "finalize_booking_after_payment_requirement",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "010db6845413d0b8326de58730963086",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "finalize_package_booking_if_eligible",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "ad36b80ea5b2ec2091db6601e77b55b3",
+      "identity": "p_booking_id uuid, p_stage text, p_stop_index integer",
+      "live_identity": "p_booking_id uuid, p_stage text, p_stop_index integer",
+      "live_present": true,
+      "name": "get_convoy_stage_progress",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": false,
+      "successors": [
+        "20260905000000"
+      ]
+    },
+    {
+      "body_digest": "6abf49c3b113e62b803206bb16798305",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_package_booking_client_write",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "c086ec4ff4b00a99da10183cdf8f2af2",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_booking_downpayment_confirmed",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260906020000"
+      ]
+    },
+    {
+      "body_digest": "f8430c7096534115cada50e36c33ab91",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_booking_driver_roster_full",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "27418610f44a5bc71a064b6369773a47",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_booking_itinerary_complete",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "ca4576dd5ca14f9fb069ccec066e78d6",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_booking_remaining_payment_satisfied",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "fa2ddeabf6efb0f563045646b2ae270e",
+      "identity": "p_booking_id uuid, p_idempotency_key text",
+      "live_identity": "p_booking_id uuid, p_idempotency_key text",
+      "live_present": true,
+      "name": "prepare_group_cash_remaining_balance",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "32dd458766c59126a8964f6adc20fd02",
+      "identity": "p_booking_id uuid, p_payment_stage text, p_idempotency_key text, p_tourist_id uuid, p_provider_livemode boolean",
+      "live_identity": "p_booking_id uuid, p_payment_stage text, p_idempotency_key text, p_tourist_id uuid, p_provider_livemode boolean",
+      "live_present": true,
+      "name": "prepare_paymongo_payment_authenticated_impl",
+      "proacl": "{postgres=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "8928487926171c7c0a5b5aa200db4845",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "required_booking_driver_roster",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "62c830c33cf64ea8df414ea2103cdc24",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "validate_booking_payment_submission",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260831010000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "c807bff0a0184236cc644e6e2c1f3949",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "ensure_booking_group_conversation",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": false,
+      "successors": [
+        "20260905000000",
+        "20260905030000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "d212da1dfee3af4ec7f15d76d379a18e",
+      "identity": "p_conversation_id uuid",
+      "live_identity": "p_conversation_id uuid",
+      "live_present": true,
+      "name": "get_conversation_message_feed",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "859646887cf8df71d39aed362f36cb34",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_conversation_identity_update",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "59cd13fb2c0e8a8d92bfbe6c1f07871a",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_live_driver_journey_proximity",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": false,
+      "successors": [
+        "20260906040000"
+      ]
+    },
+    {
+      "body_digest": "ed1e96ebfc69a657de71851ba4a1ad3e",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_message_identity_update",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "13e7c5df50a82a3d759f47d19734a66c",
+      "identity": "p_booking_id uuid, p_event_key text, p_message_text text",
+      "live_identity": "p_booking_id uuid, p_event_key text, p_message_text text",
+      "live_present": true,
+      "name": "insert_booking_system_message",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a358600bb068b9f4d64b559dcd2584b1",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_package_booking_participant",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260902000000",
+      "direct": false,
+      "successors": [
+        "20260905000000"
+      ]
+    },
+    {
+      "body_digest": "fdd79685fcfd71b5ec9ec659de427024",
+      "identity": "p_conversation_id uuid, p_message_text text, p_client_message_id uuid",
+      "live_identity": "p_conversation_id uuid, p_message_text text, p_client_message_id uuid",
+      "live_present": true,
+      "name": "send_conversation_message",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "b21a8303498242797cedfb4d5c2fc027",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "sync_booking_payment_chat_event",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "7d6d83818e6e80e193c371c22a23f348",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "sync_driver_journey_milestones",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": false,
+      "successors": [
+        "20260906000000"
+      ]
+    },
+    {
+      "body_digest": "5382e00c351b6a10b983045c85c0ec38",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "tourist_has_reviewed_booking",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260902000000",
+      "direct": false,
+      "successors": [
+        "20260906000000"
+      ]
+    },
+    {
+      "body_digest": "d7010d8b098a4496c15c0afeb49aac18",
+      "identity": "p_booking_id uuid, p_latitude double precision, p_longitude double precision, p_heading double precision, p_speed double precision, p_accuracy_meters double precision",
+      "live_identity": "p_booking_id uuid, p_latitude double precision, p_longitude double precision, p_heading double precision, p_speed double precision, p_accuracy_meters double precision",
+      "live_present": true,
+      "name": "upsert_tourist_live_location",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260902000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "5f227c95edc771e0a2451d028a951695",
+      "identity": "p_left text, p_right text",
+      "live_identity": "p_left text, p_right text",
+      "live_present": true,
+      "name": "cities_match",
+      "proacl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": false,
+      "provolatile": "i",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "32763f2eee5154867766b49218be4f1c",
+      "identity": "p_payment_record_id uuid",
+      "live_identity": "p_payment_record_id uuid",
+      "live_present": true,
+      "name": "confirm_payment_record",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "7b74d57d99946a325d42094c76ba1af4",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "current_subtenant_city",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres,anon=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "c807bff0a0184236cc644e6e2c1f3949",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "ensure_booking_group_conversation",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": [
+        "20260905030000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "ad36b80ea5b2ec2091db6601e77b55b3",
+      "identity": "p_booking_id uuid, p_stage text, p_stop_index integer",
+      "live_identity": "p_booking_id uuid, p_stage text, p_stop_index integer",
+      "live_present": true,
+      "name": "get_convoy_stage_progress",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "e3725a3289dbd8c5a11f49232e0ec336",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "get_payment_reconciliation",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "75cb4f168d2ca45566067c513a03ab69",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_subtenant_assignment_scope",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": false,
+      "successors": [
+        "20260905020000"
+      ]
+    },
+    {
+      "body_digest": "1d63aec98d158ff9cc78583ee5cfc469",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_subtenant_profile_scope",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "a358600bb068b9f4d64b559dcd2584b1",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "is_package_booking_participant",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "23361e58aaae6fdf0c0f4e6ae38e7f3f",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "is_provincial_admin",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres,anon=X/postgres}",
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": false,
+      "successors": [
+        "20260927010000"
+      ]
+    },
+    {
+      "body_digest": "5c7188f60357e2e21ea43fc4510748f9",
+      "identity": "p_dispute_id uuid, p_new_status text, p_resolution_note text",
+      "live_identity": "p_dispute_id uuid, p_new_status text, p_resolution_note text",
+      "live_present": true,
+      "name": "resolve_payment_dispute",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "c2afd466769e1d0dd9d7aec0bbda5c9e",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_access_booking",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "b4056841d07bd4d9326c5e872e01c696",
+      "identity": "p_driver_id uuid",
+      "live_identity": "p_driver_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_access_driver",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "c6c7c79ffaa601fee99f703eb1bed042",
+      "identity": "p_payment_record_id uuid",
+      "live_identity": "p_payment_record_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_access_payment_record",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": [
+        "20260905030000",
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "15834ebe8b4f9582670f486cfd686fbb",
+      "identity": "p_tourist_id uuid",
+      "live_identity": "p_tourist_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_view_review_tourist",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "5e91e9319e20f353814e8c23da35adfd",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "subtenant_city_storage_slug",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "002bbb2aa9b5c4b11cee530a26151bb5",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "sync_subtenant_assignment_profile",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "75cb4f168d2ca45566067c513a03ab69",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_subtenant_assignment_scope",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905010000",
+      "direct": false,
+      "successors": [
+        "20260905020000"
+      ]
+    },
+    {
+      "body_digest": "3e00164a02efdce27feb8475cb4883b5",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_subtenant_local_government_type",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905010000",
+      "direct": false,
+      "successors": [
+        "20260905020000"
+      ]
+    },
+    {
+      "body_digest": "75cb4f168d2ca45566067c513a03ab69",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "guard_subtenant_assignment_scope",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905020000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "3e00164a02efdce27feb8475cb4883b5",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "set_subtenant_local_government_type",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905020000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "c807bff0a0184236cc644e6e2c1f3949",
+      "identity": "p_booking_id uuid",
+      "live_identity": "p_booking_id uuid",
+      "live_present": true,
+      "name": "ensure_booking_group_conversation",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260905030000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "c6c7c79ffaa601fee99f703eb1bed042",
+      "identity": "p_payment_record_id uuid",
+      "live_identity": "p_payment_record_id uuid",
+      "live_present": true,
+      "name": "subtenant_can_access_payment_record",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260905030000",
+      "direct": true,
+      "successors": [
+        "20260927005000"
+      ]
+    },
+    {
+      "body_digest": "a7f3b6db5a67d88e5a18c3667d8abd89",
+      "identity": "p_limit integer",
+      "live_identity": "p_limit integer",
+      "live_present": true,
+      "name": "claim_notification_deliveries",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "cb0b43493e0a0340401ace8bfdac71e1",
+      "identity": "p_user uuid, p_booking uuid, p_key text, p_type text, p_title text, p_body text, p_push boolean, p_data jsonb",
+      "live_identity": "p_user uuid, p_booking uuid, p_key text, p_type text, p_title text, p_body text, p_push boolean, p_data jsonb",
+      "live_present": true,
+      "name": "emit_tour_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": false,
+      "successors": [
+        "20260925000000"
+      ]
+    },
+    {
+      "body_digest": "4cb3b705132dcfd44b4dd748ddf9f1b2",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "enqueue_notification_delivery",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "464e121b50214ef4d6a5c8d150e4b93a",
+      "identity": "p_id uuid, p_lease uuid, p_result text, p_code text",
+      "live_identity": "p_id uuid, p_lease uuid, p_result text, p_code text",
+      "live_present": true,
+      "name": "finish_notification_delivery",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "0f0776c681511cbb33e5e93f1a682c17",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "normalize_tour_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": false,
+      "successors": [
+        "20260925000000"
+      ]
+    },
+    {
+      "body_digest": "fbad42ba02501a8a7496b5f80fc16ff9",
+      "identity": "p_notification_id text",
+      "live_identity": "p_notification_id text",
+      "live_present": true,
+      "name": "notification_destination",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "d02df035395912b9b846865ff6009694",
+      "identity": "p_user uuid, p_type text",
+      "live_identity": "p_user uuid, p_type text",
+      "live_present": true,
+      "name": "notification_push_allowed",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "s",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "5ddd1f543533811ba469f366ffaa34af",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "notify_drivers_of_available_booking",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "fe67f381adcb613e20057ce452861c3f",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "observe_booking_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "68d60d16ac183b7184e8b1ea193b5f59",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "observe_cash_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "201453bfa43a3ccb64a741cced703b2c",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "observe_driver_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "70981df8e2cc9f3b57da7dddb0aff1b4",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "observe_emergency_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "eb2030ba951dc5d35897bebf803537f1",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "observe_payment_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "72915ff915e662c9dca0b35b33591a39",
+      "identity": "",
+      "live_identity": "",
+      "live_present": true,
+      "name": "observe_stop_arrival_notification",
+      "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "c968b583681ea160542b54858be7ee1e",
+      "identity": "p_installation_id uuid, p_token text",
+      "live_identity": "p_installation_id uuid, p_token text",
+      "live_present": true,
+      "name": "register_notification_device",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    },
+    {
+      "body_digest": "b46818bf69b11ce2bfb5728bdb23daa8",
+      "identity": "p_installation_id uuid",
+      "live_identity": "p_installation_id uuid",
+      "live_present": true,
+      "name": "unregister_notification_device",
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "provolatile": "v",
+      "version": "20260924000000",
+      "direct": true,
+      "successors": []
+    }
+  ]
+}

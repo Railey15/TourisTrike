@@ -350,6 +350,7 @@ class SubTenantFareSettings {
     this.farePerKm = 50,
     this.minimumFare = 0,
     this.waitingFee = 0,
+    this.tourWaitingFeePer15Minutes,
     this.isActive = true,
   });
 
@@ -360,7 +361,43 @@ class SubTenantFareSettings {
   final double farePerKm;
   final double minimumFare;
   final double waitingFee;
+  final double? tourWaitingFeePer15Minutes;
   final bool isActive;
+
+  /// Money entered in Fare Matrix: finite PHP amounts, at most two decimals.
+  /// Blank stays unset; it must never acquire the hourly ride waiting rate.
+  static double? parseMoneyAmount(String text) {
+    final value = text.trim();
+    if (!RegExp(
+      r'^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$',
+    ).hasMatch(value)) {
+      return null;
+    }
+    final amount = double.tryParse(value.replaceAll(',', ''));
+    if (amount == null || !amount.isFinite || amount > 999999999999.99) {
+      return null;
+    }
+    return amount;
+  }
+
+  void validateMonetaryAmounts() {
+    for (final amount in [
+      baseFare,
+      farePerKm,
+      minimumFare,
+      waitingFee,
+      ?tourWaitingFeePer15Minutes,
+    ]) {
+      if (!amount.isFinite ||
+          amount < 0 ||
+          amount > 999999999999.99 ||
+          (amount * 100 - (amount * 100).round()).abs() > 0.001) {
+        throw const FormatException(
+          'Enter a valid non-negative PHP amount with at most two decimal places.',
+        );
+      }
+    }
+  }
 
   factory SubTenantFareSettings.defaults(SubTenantProfile profile) {
     return SubTenantFareSettings(
@@ -387,8 +424,19 @@ class SubTenantFareSettings {
         fallback: defaults.minimumFare,
       ),
       waitingFee: stDouble(map['waiting_fee'], fallback: defaults.waitingFee),
+      tourWaitingFeePer15Minutes: _tourRateFromMap(map),
       isActive: _stBool(map['is_active'], fallback: defaults.isActive),
     );
+  }
+
+  static double? _tourRateFromMap(Map<String, dynamic> map) {
+    final value = map['tour_waiting_fee_per_15_minutes'];
+    if (value == null) return null;
+    final amount = parseMoneyAmount(value.toString());
+    if (amount == null) {
+      throw const FormatException('Invalid municipality tour waiting rate.');
+    }
+    return amount;
   }
 
   Map<String, dynamic> toMap() {
@@ -399,6 +447,7 @@ class SubTenantFareSettings {
       'fare_per_km': farePerKm,
       'minimum_fare': minimumFare,
       'waiting_fee': waitingFee,
+      'tour_waiting_fee_per_15_minutes': tourWaitingFeePer15Minutes,
       'is_active': isActive,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };

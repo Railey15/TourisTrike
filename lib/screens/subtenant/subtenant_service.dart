@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_media_url.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
@@ -174,11 +175,12 @@ class SubTenantService {
   Future<SubTenantFareSettings> loadFareSettings(
     SubTenantProfile profile,
   ) async {
+    final assignedCity = await _validateFareScope(profile);
     final row = await _supabase
         .from('subtenant_fare_settings')
         .select('*')
         .eq('subtenant_id', profile.id)
-        .eq('city', profile.assignedCity)
+        .eq('city', assignedCity)
         .eq('is_active', true)
         .order('updated_at', ascending: false)
         .limit(1)
@@ -194,9 +196,22 @@ class SubTenantService {
     SubTenantProfile profile,
     SubTenantFareSettings settings,
   ) async {
+    settings.validateMonetaryAmounts();
+    if (settings.subtenantId != profile.id ||
+        settings.city.trim().toLowerCase() !=
+            profile.assignedCity.trim().toLowerCase()) {
+      throw StateError(
+        'Fare settings must belong to your assigned municipality.',
+      );
+    }
+    final assignedCity = await _validateFareScope(profile);
     await _supabase
         .from('subtenant_fare_settings')
-        .upsert(settings.toMap(), onConflict: 'subtenant_id,city')
+        .upsert({
+          ...settings.toMap(),
+          'subtenant_id': profile.id,
+          'city': assignedCity,
+        }, onConflict: 'subtenant_id,city')
         .select('id')
         .single();
     await _logAudit(
@@ -206,6 +221,38 @@ class SubTenantService {
       recordId: profile.id,
       description: 'Updated fare matrix for ${profile.assignedCity}.',
     );
+  }
+
+  Future<String> _validateFareScope(SubTenantProfile profile) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null || user.id != profile.id || profile.role != 'subtenant') {
+      throw StateError(
+        'Only the authenticated municipality Subtenant may configure fares.',
+      );
+    }
+    final rows = await Future.wait([
+      _supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+      _supabase
+          .from('subtenant_details')
+          .select('city, province, is_active')
+          .eq('id', user.id)
+          .maybeSingle(),
+    ]);
+    final actor = rows[0];
+    final assignment = rows[1];
+    final city = assignment?['city']?.toString().trim() ?? '';
+    final province = assignment?['province']?.toString().trim() ?? '';
+    if (actor?['role'] != 'subtenant' ||
+        assignment?['is_active'] != true ||
+        city.isEmpty ||
+        province.isEmpty ||
+        city.toLowerCase() != profile.assignedCity.trim().toLowerCase() ||
+        province.toLowerCase() != profile.province.trim().toLowerCase()) {
+      throw StateError(
+        'An active matching municipality and province assignment is required.',
+      );
+    }
+    return city;
   }
 
   Future<String> uploadPublicAsset({
@@ -1340,10 +1387,10 @@ class SubTenantService {
     final touristNames = <String, String>{};
 
     if (touristIds.isNotEmpty) {
-      final profileResponse = await _supabase
-          .from('profiles')
-          .select('id, full_name, first_name, last_name, mobile')
-          .inFilter('id', touristIds);
+      final profileResponse = await ParticipantProfiles.fetchMany(
+        _supabase,
+        touristIds,
+      );
 
       for (final row in profileResponse as List) {
         if (row is! Map) continue;
@@ -1492,10 +1539,10 @@ class SubTenantService {
 
     final touristById = <String, Map<String, dynamic>>{};
     if (touristIds.isNotEmpty) {
-      final touristRows = await _supabase
-          .from('profiles')
-          .select('*')
-          .inFilter('id', touristIds);
+      final touristRows = await ParticipantProfiles.fetchMany(
+        _supabase,
+        touristIds,
+      );
       for (final row in touristRows as List) {
         final tourist = Map<String, dynamic>.from(row);
         touristById[stId(tourist['id'])] = tourist;
@@ -1730,10 +1777,10 @@ class SubTenantService {
 
       final touristById = <String, Map<String, dynamic>>{};
       if (touristIds.isNotEmpty) {
-        final touristRows = await _supabase
-            .from('profiles')
-            .select('*')
-            .inFilter('id', touristIds);
+        final touristRows = await ParticipantProfiles.fetchMany(
+          _supabase,
+          touristIds,
+        );
         for (final row in touristRows as List) {
           final tourist = Map<String, dynamic>.from(row);
           touristById[stId(tourist['id'])] = tourist;

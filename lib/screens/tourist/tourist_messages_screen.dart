@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -87,13 +88,10 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
       Map<String, Map<String, dynamic>> profileMap = {};
 
       if (driverIds.isNotEmpty) {
-        final profileRows = await _supabase
-            .from('profiles')
-            .select(
-              'id, full_name, first_name, last_name, '
-              'mobile, avatar_url, profile_image_url',
-            )
-            .inFilter('id', driverIds);
+        final profileRows = await ParticipantProfiles.fetchMany(
+          _supabase,
+          driverIds,
+        );
 
         profileMap = {
           for (final profile in profileRows as List<dynamic>)

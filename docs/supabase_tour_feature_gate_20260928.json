@@ -1,0 +1,1923 @@
+{
+  "status": "TOUR_FEATURE_DEPLOYED_RATE_CONFIGURATION_REQUIRED",
+  "checked_at_utc": "2026-09-28T07:42:07.019Z",
+  "feature_deployed": true,
+  "feature_sha256": "9a46ee3d95645f569ecff16f4c5aa301bab69081982a8ade871f07cf3c2b163d",
+  "deployment_receipt": {
+    "upToDate": false,
+    "dryRun": false,
+    "migrations": [
+      "20260928000000_tour_stay_waiting_and_tourist_reviews.sql"
+    ],
+    "seeds": [],
+    "roles": [],
+    "message": "Finished supabase db push."
+  },
+  "deployment_receipt_file_completed_at_utc": "2026-09-28T07:30:42.907Z",
+  "migration_history": {
+    "status": "ALIGNED",
+    "applied": 92,
+    "local_only": [],
+    "historical_applied_unchanged": 91
+  },
+  "payment_fix": {
+    "status": "PASS",
+    "source": "authoritative departure trigger and existing collection workflows",
+    "original_remaining_obligation": 750,
+    "prior_confirmed_remaining_payment": 750,
+    "finalized_waiting": 40,
+    "historical_remaining_obligation": 790,
+    "current_outstanding_before_new_payment": 40,
+    "current_requirement": 40,
+    "legitimate_new_40_payment": "ACCEPTED",
+    "confirmed_remaining_collections_after_payment": 790,
+    "final_outstanding": 0,
+    "waiting_ledger_after_settlement": 40,
+    "changes": [
+      "Requirement uses updated net remaining_balance, not old historical stage target.",
+      "Only confirmed remaining-stage receipts are excluded from the one-unresolved-stage index.",
+      "Cash and PayMongo stage reuse ignore historical confirmed remaining receipts; existing identity, amount, roster, route, split and provider-key rules remain.",
+      "Paid-event replay for an already confirmed remaining receipt cannot settle a later equal-value obligation."
+    ],
+    "partial_new_submissions": "UNSUPPORTED_PRESERVED: validator requires the entire current outstanding stage amount.",
+    "existing_partial_credit_example": {
+      "original_remaining": 1000,
+      "credited": 400,
+      "new_waiting": 40,
+      "required": 640,
+      "outstanding": 640
+    },
+    "original_package_prices_and_confirmed_history_unchanged": true
+  },
+  "tests": {
+    "waiting_review_sql": {
+      "passed": 134,
+      "failed": 0
+    },
+    "slide_sql": {
+      "passed": 12,
+      "failed": 0
+    },
+    "focused_flutter": {
+      "passed": 7,
+      "failed": 0
+    },
+    "full_flutter": {
+      "passed": 301,
+      "failed": 0,
+      "opt_in_historical_live_skipped": 5
+    },
+    "analyze": {
+      "errors": 0,
+      "warnings": 48,
+      "info": 135
+    },
+    "rollback_preflight": {
+      "status": "PASS",
+      "checks": 38,
+      "all_original_data_auth_schema_security_and_payment_definitions_restored": true
+    },
+    "deployed_backend": {
+      "status": "PASS",
+      "recorded_gates": 57,
+      "synthetic_bookings_rolled_back": true,
+      "existing_identities_with_SQL_JWT_context": true,
+      "real_authenticated_HTTP_or_UI_sessions": false,
+      "legacy_booking_setup": "Only the new INSERT rate-snapshot trigger suspended in the rollback transaction to seed pre-policy legacy fixtures, then re-enabled before all feature checks. Other security/payment triggers remain active."
+    },
+    "git_diff_check": "PASS"
+  },
+  "live_verification": {
+    "rls": "PASS_DEPLOYED_SQL_TOURIST_DRIVER_SUBTENANT_MAIN_TENANT_ADMINISTRATOR_ANONYMOUS",
+    "rate_lookup_missing_rate_safety": "PASS_DEPLOYED_SQL",
+    "booked_time_of_stay": "PASS_DEPLOYED_SQL",
+    "waiting_calculation": "PASS_LOCAL_BOUNDARIES_AND_DEPLOYED_ONE_MINUTE_CASE",
+    "rate_snapshot": "PASS_LOCAL_CONFIGURED_RATE_AND_DEPLOYED_LEGACY_NULL_RATE",
+    "remaining_balance": "PASS_DEPLOYED_SQL",
+    "legitimate_payment_validation_and_confirmation": "PASS_DEPLOYED_SQL_ROLLBACK_CASH_FIXTURE",
+    "driver_to_tourist_review": "PASS_DEPLOYED_SQL",
+    "subtenant_reports": "PASS_DEPLOYED_SQL",
+    "main_tenant_reports": "PASS_DEPLOYED_SQL",
+    "feature_function_security": "PASS_20_NEW_OR_REPLACED_BODIES_EMPTY_PATH_POSTGRES_OWNER_ANON_DENIED; retained 2-argument completion overload keeps prior path with checked owner/ACL.",
+    "gps_device_arrival": "NOT_LIVE_TESTED",
+    "UI_slide_departure": "NOT_LIVE_TESTED",
+    "tourist_driver_UI_synchronization": "NOT_LIVE_TESTED",
+    "physical_final_dropoff_completion": "NOT_LIVE_TESTED",
+    "notification_delivery": "NOT_LIVE_TESTED",
+    "realtime_reconnect": "NOT_LIVE_TESTED",
+    "live_pdf_export": "NOT_LIVE_TESTED_EXISTING_EXPORT_SOURCE_REVIEW_ONLY",
+    "external_real_money_provider_collection": "NOT_LIVE_TESTED"
+  },
+  "rates": {
+    "status": "RATE_CONFIGURATION_REQUIRED",
+    "municipalities": [
+      {
+        "approved_tour_rate": null,
+        "city": "Malolos",
+        "fare_rows": 0,
+        "province": "Bulacan",
+        "status": "RATE_CONFIGURATION_REQUIRED"
+      },
+      {
+        "approved_tour_rate": null,
+        "city": "Bustos",
+        "fare_rows": 1,
+        "province": "Bulacan",
+        "status": "RATE_CONFIGURATION_REQUIRED"
+      },
+      {
+        "approved_tour_rate": null,
+        "city": "Baliwag",
+        "fare_rows": 1,
+        "province": "Bulacan",
+        "status": "RATE_CONFIGURATION_REQUIRED"
+      }
+    ],
+    "configured_business_rates": 0,
+    "approved_peso_values_supplied": false,
+    "ride_waiting_fee_unchanged": true,
+    "fixture_40_is_not_an_approved_business_rate": true,
+    "malolos_configuration_path": "Existing authenticated Subtenant City Profile / Fare Settings save calls saveFareSettings -> authorized own subtenant/city upsert. Create its missing row only after approved tour and required fare inputs are supplied; no row/rates were invented."
+  },
+  "auth_investigation": {
+    "status": "EXPLAINED_EXPECTED_MUTABLE_AUTH_ACTIVITY",
+    "mutations_performed_by_task": false,
+    "prior_historical_hash": "999068bd3e175801c4a25e7c984338b1",
+    "initial_this_phase_hash": "792aaf38eeb8e01d5a3102e610c03082",
+    "final_hash": "1ea973f1550c0dee4cdd9aabc37b971b",
+    "earlier_sign_in_at_utc": "2026-09-28T06:31:41.30736+00:00",
+    "refresh_evidence": {
+      "account_updates_matching_session_refresh": 1,
+      "accounts_updated_after_checkpoint": 1,
+      "latest_account_update": "2026-09-28T07:31:06.154735+00:00",
+      "latest_refresh_token_created": "2026-09-28T07:31:06.149633+00:00",
+      "latest_session_refresh": "2026-09-28T07:31:06.168844+00:00",
+      "matching_new_refresh_tokens": 1,
+      "new_auth_users": 0
+    },
+    "interpretation": "Timestamp correlation supports ordinary sign-in/session-refresh metadata as the cause of aggregate hash changes. One account signed in between earlier checkpoints, then its update, refresh-token creation and session refresh occurred within milliseconds at 07:31:06 UTC. No new auth user, task-issued auth mutation, or evidence of feature-caused/unauthorized identity edits.",
+    "limit": "No full historical per-field auth baseline exists; this explains mutable metadata activity and is not a forensic certification of every auth field."
+  },
+  "production": {
+    "anomalies": "NONE_OTHER_THAN_EXPLAINED_MUTABLE_AUTH_HASH_CHANGE",
+    "all_original_fields_in_66_existing_public_tables_unchanged": true,
+    "profile_and_itinerary_security_hashes_unchanged": true,
+    "confirmed_payments_allocations_package_prices_unchanged": true,
+    "fixture_rows_remaining": 0,
+    "manual_review_driver_records_untouched": true,
+    "expected_persistent_changes": "Only deployed feature schema/function/index/RLS/cron definitions and migration history; new nullable feature fields on existing rows remain unset."
+  },
+  "snapshots": {
+    "preflight_before": {
+      "auth_users": "792aaf38eeb8e01d5a3102e610c03082",
+      "feature_applied": false,
+      "initializer_hash": "60ef20498a05cfd1280f021faf1a2584",
+      "itinerary_policies": "eb8772d9a2e750c4e07e04bd95d56213",
+      "new_functions": 6,
+      "profile_policies": "84e196c0d101e32cf66ea4bee69165d9",
+      "repair_applied": true,
+      "table_data": [
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "_deprecated_payments"
+        },
+        {
+          "row_count": 38,
+          "row_hash": "6ceb2ccc8ff12e8c12a4e94fb4b7ed76",
+          "table_name": "_deprecated_wallet_transactions"
+        },
+        {
+          "row_count": 12,
+          "row_hash": "84e649452fe14450b318b392474d268c",
+          "table_name": "_deprecated_wallets"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "e55acb59a72a81de2681e6983e5eacd4",
+          "table_name": "account_suspensions"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "a569954a515a5432d86aff19e1294dcd",
+          "table_name": "admin_settings"
+        },
+        {
+          "row_count": 153,
+          "row_hash": "594a6126a5abbf0f4382a3ca6ade0f2c",
+          "table_name": "audit_logs"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "23bd5c9bd6bed274b106cf3a39a21599",
+          "table_name": "booking_driver_arrivals"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_driver_assignments"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "2438f29a7fd811037d1ddaf48dae3210",
+          "table_name": "booking_drivers"
+        },
+        {
+          "row_count": 15,
+          "row_hash": "0b12cee36898bf2387c3e0863c80e0a1",
+          "table_name": "booking_itinerary_items"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "0d2f86b366063901d6e4d9c3a8a7489c",
+          "table_name": "booking_participant_live_locations"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "555445fe10a84ffddc0f91558afee2b9",
+          "table_name": "booking_payment_requirements"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "cc71df08898f7bc1976c3a262029cb38",
+          "table_name": "booking_service_areas"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "city_announcements"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "4456661d4930996ee6849244ee46cc9f",
+          "table_name": "city_tenant_registrations"
+        },
+        {
+          "row_count": 68,
+          "row_hash": "84f9c17bd5319fe0ae5e895533bb796c",
+          "table_name": "conversation_members"
+        },
+        {
+          "row_count": 34,
+          "row_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+          "table_name": "conversations"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c084b1ade5e2c2de206896c45324e094",
+          "table_name": "customized_package_spots"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "5372c042b7e330f8f494f68109633017",
+          "table_name": "developer_test_bookings"
+        },
+        {
+          "row_count": 4,
+          "row_hash": "73c3a5bff973029450c7ae22de5a8b9b",
+          "table_name": "developer_test_users"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_applications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3c050420f16b9377d07a6a3ff665f323",
+          "table_name": "driver_details"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "6415cd73d5f5fed7f4fcea2a99d99889",
+          "table_name": "driver_documents"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "23cd24e8343215616349ea745032f7dd",
+          "table_name": "driver_journey_evidence"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "418738fd95e1884e5bb28bcf2303230b",
+          "table_name": "driver_live_locations"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_payout_accounts"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "9ca79b37365447273432feebbf558e86",
+          "table_name": "driver_reviews"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "5e13439d95acee9e1c622e32da100199",
+          "table_name": "emergency_alerts"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "emergency_contacts"
+        },
+        {
+          "row_count": 189,
+          "row_hash": "b2d4dd9d2a46aefcb423ba30615ca7de",
+          "table_name": "messages"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_deliveries"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_devices"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "38a2a6b510efdfc7a6e2b45df94d30c6",
+          "table_name": "notification_settings"
+        },
+        {
+          "row_count": 344,
+          "row_hash": "32162823b6260d254b06c325c159b156",
+          "table_name": "notifications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3184e082086ff14550c3fb3864c18156",
+          "table_name": "package_activities"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "1cc4d87ff8fbf0d7548852abc6749061",
+          "table_name": "package_bookings"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "6e325842b13ef04bf9508a252b73e3eb",
+          "table_name": "package_cancellation_policy"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "7dfc49f0c8cc84cc05990488c6b74f33",
+          "table_name": "package_reviews"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "cb3a152d847e1142e2559b19523dd9d4",
+          "table_name": "payment_allocations"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "a4e6b2eb5fc6c73b7637d46489c089bd",
+          "table_name": "payment_disputes"
+        },
+        {
+          "row_count": 28,
+          "row_hash": "225b527e079e297fc54194762d0b2d9c",
+          "table_name": "payment_provider_events"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "44f6e86f5ff5e302c7c9d4114130af09",
+          "table_name": "payment_records"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "payout_records"
+        },
+        {
+          "row_count": 17,
+          "row_hash": "c7016ed8de7cc71b1234523d0b631d44",
+          "table_name": "profiles"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "89b8d970344c9df9497b4127d5aec8aa",
+          "table_name": "provincial_office_details"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "refund_requests"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_feedback"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "rides"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "3f226f0e1339e45d442f46df600a0bf0",
+          "table_name": "saved_places"
+        },
+        {
+          "row_count": 9,
+          "row_hash": "d22bf01b3cdd477febccac00c08ad089",
+          "table_name": "shared_trip_access_logs"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "b909bedcb1d4b9322c98365b06dff39f",
+          "table_name": "shared_trip_links"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "68051d23a39de565d323314505d401b8",
+          "table_name": "subtenant_details"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "085f7fde292af1e142dc841988d99665",
+          "table_name": "subtenant_fare_settings"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c738c3dbc56041b53f52ce8ee174f493",
+          "table_name": "tour_package_day_items"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "70917d9da08bba195121b559289b63de",
+          "table_name": "tour_package_days"
+        },
+        {
+          "row_count": 21,
+          "row_hash": "dfa27e5e66ed2774486442b7b17240a2",
+          "table_name": "tour_package_spots"
+        },
+        {
+          "row_count": 157,
+          "row_hash": "ec6e16a45838b8fe6c4223dd4eb7f344",
+          "table_name": "tour_package_views"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "0a2cc90ae161817345094188a49729a7",
+          "table_name": "tour_packages"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "f047febee68e7efbe1735628518130b9",
+          "table_name": "tourism_categories"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourism_policies"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "af067c5968b1ecdbcff3525648f9ba90",
+          "table_name": "tourist_preferences"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_images"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_views"
+        },
+        {
+          "row_count": 19,
+          "row_hash": "e02bf88467b322ea6d08fdc62408adc4",
+          "table_name": "tourist_spots"
+        },
+        {
+          "row_count": 61,
+          "row_hash": "e388da279c8eb1c180799221507c76e1",
+          "table_name": "trip_status_logs"
+        }
+      ],
+      "table_schema": "039b4b56cb18881b110c57066301cb06"
+    },
+    "preflight_after_rollback": {
+      "auth_users": "792aaf38eeb8e01d5a3102e610c03082",
+      "feature_applied": false,
+      "initializer_hash": "60ef20498a05cfd1280f021faf1a2584",
+      "itinerary_policies": "eb8772d9a2e750c4e07e04bd95d56213",
+      "new_functions": 6,
+      "profile_policies": "84e196c0d101e32cf66ea4bee69165d9",
+      "repair_applied": true,
+      "table_data": [
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "_deprecated_payments"
+        },
+        {
+          "row_count": 38,
+          "row_hash": "6ceb2ccc8ff12e8c12a4e94fb4b7ed76",
+          "table_name": "_deprecated_wallet_transactions"
+        },
+        {
+          "row_count": 12,
+          "row_hash": "84e649452fe14450b318b392474d268c",
+          "table_name": "_deprecated_wallets"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "e55acb59a72a81de2681e6983e5eacd4",
+          "table_name": "account_suspensions"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "a569954a515a5432d86aff19e1294dcd",
+          "table_name": "admin_settings"
+        },
+        {
+          "row_count": 153,
+          "row_hash": "594a6126a5abbf0f4382a3ca6ade0f2c",
+          "table_name": "audit_logs"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "23bd5c9bd6bed274b106cf3a39a21599",
+          "table_name": "booking_driver_arrivals"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_driver_assignments"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "2438f29a7fd811037d1ddaf48dae3210",
+          "table_name": "booking_drivers"
+        },
+        {
+          "row_count": 15,
+          "row_hash": "0b12cee36898bf2387c3e0863c80e0a1",
+          "table_name": "booking_itinerary_items"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "0d2f86b366063901d6e4d9c3a8a7489c",
+          "table_name": "booking_participant_live_locations"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "555445fe10a84ffddc0f91558afee2b9",
+          "table_name": "booking_payment_requirements"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "cc71df08898f7bc1976c3a262029cb38",
+          "table_name": "booking_service_areas"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "city_announcements"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "4456661d4930996ee6849244ee46cc9f",
+          "table_name": "city_tenant_registrations"
+        },
+        {
+          "row_count": 68,
+          "row_hash": "84f9c17bd5319fe0ae5e895533bb796c",
+          "table_name": "conversation_members"
+        },
+        {
+          "row_count": 34,
+          "row_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+          "table_name": "conversations"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c084b1ade5e2c2de206896c45324e094",
+          "table_name": "customized_package_spots"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "5372c042b7e330f8f494f68109633017",
+          "table_name": "developer_test_bookings"
+        },
+        {
+          "row_count": 4,
+          "row_hash": "73c3a5bff973029450c7ae22de5a8b9b",
+          "table_name": "developer_test_users"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_applications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3c050420f16b9377d07a6a3ff665f323",
+          "table_name": "driver_details"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "6415cd73d5f5fed7f4fcea2a99d99889",
+          "table_name": "driver_documents"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "23cd24e8343215616349ea745032f7dd",
+          "table_name": "driver_journey_evidence"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "418738fd95e1884e5bb28bcf2303230b",
+          "table_name": "driver_live_locations"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_payout_accounts"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "9ca79b37365447273432feebbf558e86",
+          "table_name": "driver_reviews"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "5e13439d95acee9e1c622e32da100199",
+          "table_name": "emergency_alerts"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "emergency_contacts"
+        },
+        {
+          "row_count": 189,
+          "row_hash": "b2d4dd9d2a46aefcb423ba30615ca7de",
+          "table_name": "messages"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_deliveries"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_devices"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "38a2a6b510efdfc7a6e2b45df94d30c6",
+          "table_name": "notification_settings"
+        },
+        {
+          "row_count": 344,
+          "row_hash": "32162823b6260d254b06c325c159b156",
+          "table_name": "notifications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3184e082086ff14550c3fb3864c18156",
+          "table_name": "package_activities"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "1cc4d87ff8fbf0d7548852abc6749061",
+          "table_name": "package_bookings"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "6e325842b13ef04bf9508a252b73e3eb",
+          "table_name": "package_cancellation_policy"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "7dfc49f0c8cc84cc05990488c6b74f33",
+          "table_name": "package_reviews"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "cb3a152d847e1142e2559b19523dd9d4",
+          "table_name": "payment_allocations"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "a4e6b2eb5fc6c73b7637d46489c089bd",
+          "table_name": "payment_disputes"
+        },
+        {
+          "row_count": 28,
+          "row_hash": "225b527e079e297fc54194762d0b2d9c",
+          "table_name": "payment_provider_events"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "44f6e86f5ff5e302c7c9d4114130af09",
+          "table_name": "payment_records"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "payout_records"
+        },
+        {
+          "row_count": 17,
+          "row_hash": "c7016ed8de7cc71b1234523d0b631d44",
+          "table_name": "profiles"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "89b8d970344c9df9497b4127d5aec8aa",
+          "table_name": "provincial_office_details"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "refund_requests"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_feedback"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "rides"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "3f226f0e1339e45d442f46df600a0bf0",
+          "table_name": "saved_places"
+        },
+        {
+          "row_count": 9,
+          "row_hash": "d22bf01b3cdd477febccac00c08ad089",
+          "table_name": "shared_trip_access_logs"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "b909bedcb1d4b9322c98365b06dff39f",
+          "table_name": "shared_trip_links"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "68051d23a39de565d323314505d401b8",
+          "table_name": "subtenant_details"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "085f7fde292af1e142dc841988d99665",
+          "table_name": "subtenant_fare_settings"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c738c3dbc56041b53f52ce8ee174f493",
+          "table_name": "tour_package_day_items"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "70917d9da08bba195121b559289b63de",
+          "table_name": "tour_package_days"
+        },
+        {
+          "row_count": 21,
+          "row_hash": "dfa27e5e66ed2774486442b7b17240a2",
+          "table_name": "tour_package_spots"
+        },
+        {
+          "row_count": 157,
+          "row_hash": "ec6e16a45838b8fe6c4223dd4eb7f344",
+          "table_name": "tour_package_views"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "0a2cc90ae161817345094188a49729a7",
+          "table_name": "tour_packages"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "f047febee68e7efbe1735628518130b9",
+          "table_name": "tourism_categories"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourism_policies"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "af067c5968b1ecdbcff3525648f9ba90",
+          "table_name": "tourist_preferences"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_images"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_views"
+        },
+        {
+          "row_count": 19,
+          "row_hash": "e02bf88467b322ea6d08fdc62408adc4",
+          "table_name": "tourist_spots"
+        },
+        {
+          "row_count": 61,
+          "row_hash": "e388da279c8eb1c180799221507c76e1",
+          "table_name": "trip_status_logs"
+        }
+      ],
+      "table_schema": "039b4b56cb18881b110c57066301cb06"
+    },
+    "deployed_before_postchecks": {
+      "auth_users": "1ea973f1550c0dee4cdd9aabc37b971b",
+      "feature_applied": true,
+      "initializer_hash": "60ef20498a05cfd1280f021faf1a2584",
+      "itinerary_policies": "eb8772d9a2e750c4e07e04bd95d56213",
+      "new_functions": 6,
+      "profile_policies": "84e196c0d101e32cf66ea4bee69165d9",
+      "repair_applied": true,
+      "table_data": [
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "_deprecated_payments"
+        },
+        {
+          "row_count": 38,
+          "row_hash": "6ceb2ccc8ff12e8c12a4e94fb4b7ed76",
+          "table_name": "_deprecated_wallet_transactions"
+        },
+        {
+          "row_count": 12,
+          "row_hash": "84e649452fe14450b318b392474d268c",
+          "table_name": "_deprecated_wallets"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "e55acb59a72a81de2681e6983e5eacd4",
+          "table_name": "account_suspensions"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "a569954a515a5432d86aff19e1294dcd",
+          "table_name": "admin_settings"
+        },
+        {
+          "row_count": 153,
+          "row_hash": "594a6126a5abbf0f4382a3ca6ade0f2c",
+          "table_name": "audit_logs"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "23bd5c9bd6bed274b106cf3a39a21599",
+          "table_name": "booking_driver_arrivals"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_driver_assignments"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "2438f29a7fd811037d1ddaf48dae3210",
+          "table_name": "booking_drivers"
+        },
+        {
+          "row_count": 15,
+          "row_hash": "0b12cee36898bf2387c3e0863c80e0a1",
+          "table_name": "booking_itinerary_items"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "0d2f86b366063901d6e4d9c3a8a7489c",
+          "table_name": "booking_participant_live_locations"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "555445fe10a84ffddc0f91558afee2b9",
+          "table_name": "booking_payment_requirements"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "cc71df08898f7bc1976c3a262029cb38",
+          "table_name": "booking_service_areas"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_stop_waiting_charges"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "city_announcements"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "4456661d4930996ee6849244ee46cc9f",
+          "table_name": "city_tenant_registrations"
+        },
+        {
+          "row_count": 68,
+          "row_hash": "84f9c17bd5319fe0ae5e895533bb796c",
+          "table_name": "conversation_members"
+        },
+        {
+          "row_count": 34,
+          "row_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+          "table_name": "conversations"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c084b1ade5e2c2de206896c45324e094",
+          "table_name": "customized_package_spots"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "5372c042b7e330f8f494f68109633017",
+          "table_name": "developer_test_bookings"
+        },
+        {
+          "row_count": 4,
+          "row_hash": "73c3a5bff973029450c7ae22de5a8b9b",
+          "table_name": "developer_test_users"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_applications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3c050420f16b9377d07a6a3ff665f323",
+          "table_name": "driver_details"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "6415cd73d5f5fed7f4fcea2a99d99889",
+          "table_name": "driver_documents"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "23cd24e8343215616349ea745032f7dd",
+          "table_name": "driver_journey_evidence"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "418738fd95e1884e5bb28bcf2303230b",
+          "table_name": "driver_live_locations"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_payout_accounts"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "9ca79b37365447273432feebbf558e86",
+          "table_name": "driver_reviews"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "5e13439d95acee9e1c622e32da100199",
+          "table_name": "emergency_alerts"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "emergency_contacts"
+        },
+        {
+          "row_count": 189,
+          "row_hash": "b2d4dd9d2a46aefcb423ba30615ca7de",
+          "table_name": "messages"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_deliveries"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_devices"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "38a2a6b510efdfc7a6e2b45df94d30c6",
+          "table_name": "notification_settings"
+        },
+        {
+          "row_count": 344,
+          "row_hash": "32162823b6260d254b06c325c159b156",
+          "table_name": "notifications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3184e082086ff14550c3fb3864c18156",
+          "table_name": "package_activities"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "42714978d83e83aa14137a5c8bec1215",
+          "table_name": "package_bookings"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "6e325842b13ef04bf9508a252b73e3eb",
+          "table_name": "package_cancellation_policy"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "7dfc49f0c8cc84cc05990488c6b74f33",
+          "table_name": "package_reviews"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "cb3a152d847e1142e2559b19523dd9d4",
+          "table_name": "payment_allocations"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "a4e6b2eb5fc6c73b7637d46489c089bd",
+          "table_name": "payment_disputes"
+        },
+        {
+          "row_count": 28,
+          "row_hash": "225b527e079e297fc54194762d0b2d9c",
+          "table_name": "payment_provider_events"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "44f6e86f5ff5e302c7c9d4114130af09",
+          "table_name": "payment_records"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "payout_records"
+        },
+        {
+          "row_count": 17,
+          "row_hash": "c7016ed8de7cc71b1234523d0b631d44",
+          "table_name": "profiles"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "89b8d970344c9df9497b4127d5aec8aa",
+          "table_name": "provincial_office_details"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "refund_requests"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_feedback"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "rides"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "3f226f0e1339e45d442f46df600a0bf0",
+          "table_name": "saved_places"
+        },
+        {
+          "row_count": 9,
+          "row_hash": "d22bf01b3cdd477febccac00c08ad089",
+          "table_name": "shared_trip_access_logs"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "b909bedcb1d4b9322c98365b06dff39f",
+          "table_name": "shared_trip_links"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "68051d23a39de565d323314505d401b8",
+          "table_name": "subtenant_details"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "1f95e52da05891f564ab3b7a2751458e",
+          "table_name": "subtenant_fare_settings"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c738c3dbc56041b53f52ce8ee174f493",
+          "table_name": "tour_package_day_items"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "70917d9da08bba195121b559289b63de",
+          "table_name": "tour_package_days"
+        },
+        {
+          "row_count": 21,
+          "row_hash": "dfa27e5e66ed2774486442b7b17240a2",
+          "table_name": "tour_package_spots"
+        },
+        {
+          "row_count": 157,
+          "row_hash": "ec6e16a45838b8fe6c4223dd4eb7f344",
+          "table_name": "tour_package_views"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "0a2cc90ae161817345094188a49729a7",
+          "table_name": "tour_packages"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "f047febee68e7efbe1735628518130b9",
+          "table_name": "tourism_categories"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourism_policies"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "af067c5968b1ecdbcff3525648f9ba90",
+          "table_name": "tourist_preferences"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_images"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_views"
+        },
+        {
+          "row_count": 19,
+          "row_hash": "e02bf88467b322ea6d08fdc62408adc4",
+          "table_name": "tourist_spots"
+        },
+        {
+          "row_count": 61,
+          "row_hash": "e388da279c8eb1c180799221507c76e1",
+          "table_name": "trip_status_logs"
+        }
+      ],
+      "table_schema": "8d3966578afabb7714c240b57ab58bd2"
+    },
+    "after_postchecks_rollback": {
+      "auth_users": "1ea973f1550c0dee4cdd9aabc37b971b",
+      "feature_applied": true,
+      "initializer_hash": "60ef20498a05cfd1280f021faf1a2584",
+      "itinerary_policies": "eb8772d9a2e750c4e07e04bd95d56213",
+      "new_functions": 6,
+      "profile_policies": "84e196c0d101e32cf66ea4bee69165d9",
+      "repair_applied": true,
+      "table_data": [
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "_deprecated_payments"
+        },
+        {
+          "row_count": 38,
+          "row_hash": "6ceb2ccc8ff12e8c12a4e94fb4b7ed76",
+          "table_name": "_deprecated_wallet_transactions"
+        },
+        {
+          "row_count": 12,
+          "row_hash": "84e649452fe14450b318b392474d268c",
+          "table_name": "_deprecated_wallets"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "e55acb59a72a81de2681e6983e5eacd4",
+          "table_name": "account_suspensions"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "a569954a515a5432d86aff19e1294dcd",
+          "table_name": "admin_settings"
+        },
+        {
+          "row_count": 153,
+          "row_hash": "594a6126a5abbf0f4382a3ca6ade0f2c",
+          "table_name": "audit_logs"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "23bd5c9bd6bed274b106cf3a39a21599",
+          "table_name": "booking_driver_arrivals"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_driver_assignments"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "2438f29a7fd811037d1ddaf48dae3210",
+          "table_name": "booking_drivers"
+        },
+        {
+          "row_count": 15,
+          "row_hash": "0b12cee36898bf2387c3e0863c80e0a1",
+          "table_name": "booking_itinerary_items"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "0d2f86b366063901d6e4d9c3a8a7489c",
+          "table_name": "booking_participant_live_locations"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "555445fe10a84ffddc0f91558afee2b9",
+          "table_name": "booking_payment_requirements"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "cc71df08898f7bc1976c3a262029cb38",
+          "table_name": "booking_service_areas"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_stop_waiting_charges"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "city_announcements"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "4456661d4930996ee6849244ee46cc9f",
+          "table_name": "city_tenant_registrations"
+        },
+        {
+          "row_count": 68,
+          "row_hash": "84f9c17bd5319fe0ae5e895533bb796c",
+          "table_name": "conversation_members"
+        },
+        {
+          "row_count": 34,
+          "row_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+          "table_name": "conversations"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c084b1ade5e2c2de206896c45324e094",
+          "table_name": "customized_package_spots"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "5372c042b7e330f8f494f68109633017",
+          "table_name": "developer_test_bookings"
+        },
+        {
+          "row_count": 4,
+          "row_hash": "73c3a5bff973029450c7ae22de5a8b9b",
+          "table_name": "developer_test_users"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_applications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3c050420f16b9377d07a6a3ff665f323",
+          "table_name": "driver_details"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "6415cd73d5f5fed7f4fcea2a99d99889",
+          "table_name": "driver_documents"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "23cd24e8343215616349ea745032f7dd",
+          "table_name": "driver_journey_evidence"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "418738fd95e1884e5bb28bcf2303230b",
+          "table_name": "driver_live_locations"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_payout_accounts"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "9ca79b37365447273432feebbf558e86",
+          "table_name": "driver_reviews"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "5e13439d95acee9e1c622e32da100199",
+          "table_name": "emergency_alerts"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "emergency_contacts"
+        },
+        {
+          "row_count": 189,
+          "row_hash": "b2d4dd9d2a46aefcb423ba30615ca7de",
+          "table_name": "messages"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_deliveries"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_devices"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "38a2a6b510efdfc7a6e2b45df94d30c6",
+          "table_name": "notification_settings"
+        },
+        {
+          "row_count": 344,
+          "row_hash": "32162823b6260d254b06c325c159b156",
+          "table_name": "notifications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3184e082086ff14550c3fb3864c18156",
+          "table_name": "package_activities"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "42714978d83e83aa14137a5c8bec1215",
+          "table_name": "package_bookings"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "6e325842b13ef04bf9508a252b73e3eb",
+          "table_name": "package_cancellation_policy"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "7dfc49f0c8cc84cc05990488c6b74f33",
+          "table_name": "package_reviews"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "cb3a152d847e1142e2559b19523dd9d4",
+          "table_name": "payment_allocations"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "a4e6b2eb5fc6c73b7637d46489c089bd",
+          "table_name": "payment_disputes"
+        },
+        {
+          "row_count": 28,
+          "row_hash": "225b527e079e297fc54194762d0b2d9c",
+          "table_name": "payment_provider_events"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "44f6e86f5ff5e302c7c9d4114130af09",
+          "table_name": "payment_records"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "payout_records"
+        },
+        {
+          "row_count": 17,
+          "row_hash": "c7016ed8de7cc71b1234523d0b631d44",
+          "table_name": "profiles"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "89b8d970344c9df9497b4127d5aec8aa",
+          "table_name": "provincial_office_details"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "refund_requests"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_feedback"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "rides"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "3f226f0e1339e45d442f46df600a0bf0",
+          "table_name": "saved_places"
+        },
+        {
+          "row_count": 9,
+          "row_hash": "d22bf01b3cdd477febccac00c08ad089",
+          "table_name": "shared_trip_access_logs"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "b909bedcb1d4b9322c98365b06dff39f",
+          "table_name": "shared_trip_links"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "68051d23a39de565d323314505d401b8",
+          "table_name": "subtenant_details"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "1f95e52da05891f564ab3b7a2751458e",
+          "table_name": "subtenant_fare_settings"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c738c3dbc56041b53f52ce8ee174f493",
+          "table_name": "tour_package_day_items"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "70917d9da08bba195121b559289b63de",
+          "table_name": "tour_package_days"
+        },
+        {
+          "row_count": 21,
+          "row_hash": "dfa27e5e66ed2774486442b7b17240a2",
+          "table_name": "tour_package_spots"
+        },
+        {
+          "row_count": 157,
+          "row_hash": "ec6e16a45838b8fe6c4223dd4eb7f344",
+          "table_name": "tour_package_views"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "0a2cc90ae161817345094188a49729a7",
+          "table_name": "tour_packages"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "f047febee68e7efbe1735628518130b9",
+          "table_name": "tourism_categories"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourism_policies"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "af067c5968b1ecdbcff3525648f9ba90",
+          "table_name": "tourist_preferences"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_images"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_views"
+        },
+        {
+          "row_count": 19,
+          "row_hash": "e02bf88467b322ea6d08fdc62408adc4",
+          "table_name": "tourist_spots"
+        },
+        {
+          "row_count": 61,
+          "row_hash": "e388da279c8eb1c180799221507c76e1",
+          "table_name": "trip_status_logs"
+        }
+      ],
+      "table_schema": "8d3966578afabb7714c240b57ab58bd2"
+    },
+    "preserved_original_data": {
+      "applied_migrations": 92,
+      "auth_users": "1ea973f1550c0dee4cdd9aabc37b971b",
+      "configured_tour_rates": 0,
+      "feature_deployed": true,
+      "initializer_hash": "60ef20498a05cfd1280f021faf1a2584",
+      "itinerary_policies": "eb8772d9a2e750c4e07e04bd95d56213",
+      "municipalities": [
+        {
+          "approved_tour_rate": null,
+          "city": "Malolos",
+          "fare_rows": 0,
+          "province": "Bulacan"
+        },
+        {
+          "approved_tour_rate": null,
+          "city": "Bustos",
+          "fare_rows": 1,
+          "province": "Bulacan"
+        },
+        {
+          "approved_tour_rate": null,
+          "city": "Baliwag",
+          "fare_rows": 1,
+          "province": "Bulacan"
+        }
+      ],
+      "original_table_data": [
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "_deprecated_payments"
+        },
+        {
+          "row_count": 38,
+          "row_hash": "6ceb2ccc8ff12e8c12a4e94fb4b7ed76",
+          "table_name": "_deprecated_wallet_transactions"
+        },
+        {
+          "row_count": 12,
+          "row_hash": "84e649452fe14450b318b392474d268c",
+          "table_name": "_deprecated_wallets"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "e55acb59a72a81de2681e6983e5eacd4",
+          "table_name": "account_suspensions"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "a569954a515a5432d86aff19e1294dcd",
+          "table_name": "admin_settings"
+        },
+        {
+          "row_count": 153,
+          "row_hash": "594a6126a5abbf0f4382a3ca6ade0f2c",
+          "table_name": "audit_logs"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "23bd5c9bd6bed274b106cf3a39a21599",
+          "table_name": "booking_driver_arrivals"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "booking_driver_assignments"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "2438f29a7fd811037d1ddaf48dae3210",
+          "table_name": "booking_drivers"
+        },
+        {
+          "row_count": 15,
+          "row_hash": "0b12cee36898bf2387c3e0863c80e0a1",
+          "table_name": "booking_itinerary_items"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "0d2f86b366063901d6e4d9c3a8a7489c",
+          "table_name": "booking_participant_live_locations"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "555445fe10a84ffddc0f91558afee2b9",
+          "table_name": "booking_payment_requirements"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "cc71df08898f7bc1976c3a262029cb38",
+          "table_name": "booking_service_areas"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "city_announcements"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "4456661d4930996ee6849244ee46cc9f",
+          "table_name": "city_tenant_registrations"
+        },
+        {
+          "row_count": 68,
+          "row_hash": "84f9c17bd5319fe0ae5e895533bb796c",
+          "table_name": "conversation_members"
+        },
+        {
+          "row_count": 34,
+          "row_hash": "39bd04d5e770d4afeab40fdb3338b0f8",
+          "table_name": "conversations"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c084b1ade5e2c2de206896c45324e094",
+          "table_name": "customized_package_spots"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "5372c042b7e330f8f494f68109633017",
+          "table_name": "developer_test_bookings"
+        },
+        {
+          "row_count": 4,
+          "row_hash": "73c3a5bff973029450c7ae22de5a8b9b",
+          "table_name": "developer_test_users"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_applications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3c050420f16b9377d07a6a3ff665f323",
+          "table_name": "driver_details"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "6415cd73d5f5fed7f4fcea2a99d99889",
+          "table_name": "driver_documents"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "23cd24e8343215616349ea745032f7dd",
+          "table_name": "driver_journey_evidence"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "418738fd95e1884e5bb28bcf2303230b",
+          "table_name": "driver_live_locations"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "driver_payout_accounts"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "9ca79b37365447273432feebbf558e86",
+          "table_name": "driver_reviews"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "5e13439d95acee9e1c622e32da100199",
+          "table_name": "emergency_alerts"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "emergency_contacts"
+        },
+        {
+          "row_count": 189,
+          "row_hash": "b2d4dd9d2a46aefcb423ba30615ca7de",
+          "table_name": "messages"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_deliveries"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "notification_devices"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "38a2a6b510efdfc7a6e2b45df94d30c6",
+          "table_name": "notification_settings"
+        },
+        {
+          "row_count": 344,
+          "row_hash": "32162823b6260d254b06c325c159b156",
+          "table_name": "notifications"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "3184e082086ff14550c3fb3864c18156",
+          "table_name": "package_activities"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "1cc4d87ff8fbf0d7548852abc6749061",
+          "table_name": "package_bookings"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "6e325842b13ef04bf9508a252b73e3eb",
+          "table_name": "package_cancellation_policy"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "7dfc49f0c8cc84cc05990488c6b74f33",
+          "table_name": "package_reviews"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "cb3a152d847e1142e2559b19523dd9d4",
+          "table_name": "payment_allocations"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "a4e6b2eb5fc6c73b7637d46489c089bd",
+          "table_name": "payment_disputes"
+        },
+        {
+          "row_count": 28,
+          "row_hash": "225b527e079e297fc54194762d0b2d9c",
+          "table_name": "payment_provider_events"
+        },
+        {
+          "row_count": 5,
+          "row_hash": "44f6e86f5ff5e302c7c9d4114130af09",
+          "table_name": "payment_records"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "payout_records"
+        },
+        {
+          "row_count": 17,
+          "row_hash": "c7016ed8de7cc71b1234523d0b631d44",
+          "table_name": "profiles"
+        },
+        {
+          "row_count": 1,
+          "row_hash": "89b8d970344c9df9497b4127d5aec8aa",
+          "table_name": "provincial_office_details"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "refund_requests"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_feedback"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "ride_reviews"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "rides"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "3f226f0e1339e45d442f46df600a0bf0",
+          "table_name": "saved_places"
+        },
+        {
+          "row_count": 9,
+          "row_hash": "d22bf01b3cdd477febccac00c08ad089",
+          "table_name": "shared_trip_access_logs"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "b909bedcb1d4b9322c98365b06dff39f",
+          "table_name": "shared_trip_links"
+        },
+        {
+          "row_count": 3,
+          "row_hash": "68051d23a39de565d323314505d401b8",
+          "table_name": "subtenant_details"
+        },
+        {
+          "row_count": 2,
+          "row_hash": "085f7fde292af1e142dc841988d99665",
+          "table_name": "subtenant_fare_settings"
+        },
+        {
+          "row_count": 16,
+          "row_hash": "c738c3dbc56041b53f52ce8ee174f493",
+          "table_name": "tour_package_day_items"
+        },
+        {
+          "row_count": 8,
+          "row_hash": "70917d9da08bba195121b559289b63de",
+          "table_name": "tour_package_days"
+        },
+        {
+          "row_count": 21,
+          "row_hash": "dfa27e5e66ed2774486442b7b17240a2",
+          "table_name": "tour_package_spots"
+        },
+        {
+          "row_count": 157,
+          "row_hash": "ec6e16a45838b8fe6c4223dd4eb7f344",
+          "table_name": "tour_package_views"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "0a2cc90ae161817345094188a49729a7",
+          "table_name": "tour_packages"
+        },
+        {
+          "row_count": 6,
+          "row_hash": "f047febee68e7efbe1735628518130b9",
+          "table_name": "tourism_categories"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourism_policies"
+        },
+        {
+          "row_count": 7,
+          "row_hash": "af067c5968b1ecdbcff3525648f9ba90",
+          "table_name": "tourist_preferences"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_images"
+        },
+        {
+          "row_count": 0,
+          "row_hash": "d41d8cd98f00b204e9800998ecf8427e",
+          "table_name": "tourist_spot_views"
+        },
+        {
+          "row_count": 19,
+          "row_hash": "e02bf88467b322ea6d08fdc62408adc4",
+          "table_name": "tourist_spots"
+        },
+        {
+          "row_count": 61,
+          "row_hash": "e388da279c8eb1c180799221507c76e1",
+          "table_name": "trip_status_logs"
+        }
+      ],
+      "profile_policies": "84e196c0d101e32cf66ea4bee69165d9",
+      "tourist_review_rows": 0,
+      "waiting_rows": 0
+    }
+  }
+}

@@ -1,0 +1,384 @@
+{
+  "checked_at": "2026-09-28",
+  "normalization": "Statements joined with semicolons, whitespace removed, final source semicolon removed; matching digest is supporting provenance, not proof of current effects.",
+  "rows": [
+    {
+      "version": "20260508000000",
+      "statement_count": 203,
+      "local_digest": "536fd7bee1c061d0fa76df65df521967",
+      "remote_digest": "536fd7bee1c061d0fa76df65df521967",
+      "matches": true
+    },
+    {
+      "version": "20260511000000",
+      "statement_count": 8,
+      "local_digest": "ebebfe8ccec4e9870351051cd83d407c",
+      "remote_digest": "ebebfe8ccec4e9870351051cd83d407c",
+      "matches": true
+    },
+    {
+      "version": "20260513000000",
+      "statement_count": 10,
+      "local_digest": "580beb4b1d14c5cfb941d26aceff2c36",
+      "remote_digest": "580beb4b1d14c5cfb941d26aceff2c36",
+      "matches": true
+    },
+    {
+      "version": "20260513001000",
+      "statement_count": 10,
+      "local_digest": "6e8079b874df1f1a4722b330a523c1f6",
+      "remote_digest": "6e8079b874df1f1a4722b330a523c1f6",
+      "matches": true
+    },
+    {
+      "version": "20260516000000",
+      "statement_count": 17,
+      "local_digest": "14a492e8d0c286b984b8b118ada156f2",
+      "remote_digest": "14a492e8d0c286b984b8b118ada156f2",
+      "matches": true
+    },
+    {
+      "version": "20260517000000",
+      "statement_count": 19,
+      "local_digest": "09f95e3f9badbc5841435c8f4c067ac1",
+      "remote_digest": "09f95e3f9badbc5841435c8f4c067ac1",
+      "matches": true
+    },
+    {
+      "version": "20260518093000",
+      "statement_count": 1,
+      "local_digest": "4e7847777d2f8ed15717b752fa103061",
+      "remote_digest": "4e7847777d2f8ed15717b752fa103061",
+      "matches": true
+    },
+    {
+      "version": "20260518130000",
+      "statement_count": 3,
+      "local_digest": "7e3f7336633b547554a5f853ec7138b2",
+      "remote_digest": "7e3f7336633b547554a5f853ec7138b2",
+      "matches": true
+    },
+    {
+      "version": "20260519000000",
+      "statement_count": 10,
+      "local_digest": "ec3721bd7ace367949903b94f0f52527",
+      "remote_digest": "ec3721bd7ace367949903b94f0f52527",
+      "matches": true
+    },
+    {
+      "version": "20260519020000",
+      "statement_count": 28,
+      "local_digest": "2fc9319c9de0ed71af58bc4af0fc2172",
+      "remote_digest": "2fc9319c9de0ed71af58bc4af0fc2172",
+      "matches": true
+    },
+    {
+      "version": "20260519030000",
+      "statement_count": 12,
+      "local_digest": "a66b74c9cd956484536d7b057dfe1ac5",
+      "remote_digest": "a66b74c9cd956484536d7b057dfe1ac5",
+      "matches": true
+    },
+    {
+      "version": "20260519040000",
+      "statement_count": 38,
+      "local_digest": "40a0f810cfe7ba556501b3155644633d",
+      "remote_digest": "40a0f810cfe7ba556501b3155644633d",
+      "matches": true
+    },
+    {
+      "version": "20260520093000",
+      "statement_count": 19,
+      "local_digest": "87d0bbc12a0c5889bc4d047a935e1a33",
+      "remote_digest": "87d0bbc12a0c5889bc4d047a935e1a33",
+      "matches": true
+    },
+    {
+      "version": "20260520120000",
+      "statement_count": 31,
+      "local_digest": "8d88fdede5c82a293d14dc9af3270eb3",
+      "remote_digest": "8d88fdede5c82a293d14dc9af3270eb3",
+      "matches": true
+    },
+    {
+      "version": "20260520143000",
+      "statement_count": 15,
+      "local_digest": "aa8b8c9e7f7c7df358f2746e57cedccf",
+      "remote_digest": "aa8b8c9e7f7c7df358f2746e57cedccf",
+      "matches": true
+    },
+    {
+      "version": "20260520150000",
+      "statement_count": 8,
+      "local_digest": "43810a6ce96e3b29d59c000361666751",
+      "remote_digest": "43810a6ce96e3b29d59c000361666751",
+      "matches": true
+    },
+    {
+      "version": "20260520160000",
+      "statement_count": 29,
+      "local_digest": "68e1b6538045b2cc2f4c7f9ca872a3a2",
+      "remote_digest": "68e1b6538045b2cc2f4c7f9ca872a3a2",
+      "matches": true
+    },
+    {
+      "version": "20260520170000",
+      "statement_count": 8,
+      "local_digest": "21dc7ffd5ce0d8378b39839337d0ef63",
+      "remote_digest": "21dc7ffd5ce0d8378b39839337d0ef63",
+      "matches": true
+    },
+    {
+      "version": "20260520180000",
+      "statement_count": 11,
+      "local_digest": "0f14a4a9f87231f1807d3755fddcecd2",
+      "remote_digest": "0f14a4a9f87231f1807d3755fddcecd2",
+      "matches": true
+    },
+    {
+      "version": "20260520190000",
+      "statement_count": 6,
+      "local_digest": "68598d347d445c8c2f17cd9fb6a8fb6b",
+      "remote_digest": "68598d347d445c8c2f17cd9fb6a8fb6b",
+      "matches": true
+    },
+    {
+      "version": "20260521020000",
+      "statement_count": 6,
+      "local_digest": "5bd4804b97a7aec2b04bfb86705a51b8",
+      "remote_digest": "5bd4804b97a7aec2b04bfb86705a51b8",
+      "matches": true
+    },
+    {
+      "version": "20260521030000",
+      "statement_count": 2,
+      "local_digest": "0154ba8a97d9c471f43d99084df48315",
+      "remote_digest": "0154ba8a97d9c471f43d99084df48315",
+      "matches": true
+    },
+    {
+      "version": "20260521040000",
+      "statement_count": 6,
+      "local_digest": "0208eed284a9ac187a78c2728c290927",
+      "remote_digest": "0208eed284a9ac187a78c2728c290927",
+      "matches": true
+    },
+    {
+      "version": "20260521050000",
+      "statement_count": 15,
+      "local_digest": "a43e757d5897bfb1d524105a89a51b06",
+      "remote_digest": "a43e757d5897bfb1d524105a89a51b06",
+      "matches": true
+    },
+    {
+      "version": "20260521090000",
+      "statement_count": 14,
+      "local_digest": "5237772562b2e184e1525dd5cd104a76",
+      "remote_digest": "5237772562b2e184e1525dd5cd104a76",
+      "matches": true
+    },
+    {
+      "version": "20260522000000",
+      "statement_count": 21,
+      "local_digest": "d8c71320c4b65e9c2c8774c0ea2c68e9",
+      "remote_digest": "d8c71320c4b65e9c2c8774c0ea2c68e9",
+      "matches": true
+    },
+    {
+      "version": "20260522010000",
+      "statement_count": 9,
+      "local_digest": "26c2e9b76e94aaa3ff9ea1963fddfbea",
+      "remote_digest": "26c2e9b76e94aaa3ff9ea1963fddfbea",
+      "matches": true
+    },
+    {
+      "version": "20260522020000",
+      "statement_count": 6,
+      "local_digest": "22fa9e2494c7997d01c08eec0e795cd9",
+      "remote_digest": "22fa9e2494c7997d01c08eec0e795cd9",
+      "matches": true
+    },
+    {
+      "version": "20260522080000",
+      "statement_count": 10,
+      "local_digest": "8fac6f2a4e10cb34a5f07e6cc29b0f2d",
+      "remote_digest": "8fac6f2a4e10cb34a5f07e6cc29b0f2d",
+      "matches": true
+    },
+    {
+      "version": "20260523000001",
+      "statement_count": 16,
+      "local_digest": "4dfa1ef2bdbc41f95aab6df8028aeb4d",
+      "remote_digest": "4dfa1ef2bdbc41f95aab6df8028aeb4d",
+      "matches": true
+    },
+    {
+      "version": "20260523100000",
+      "statement_count": 6,
+      "local_digest": "95e561b8f6bb63d706842154d85b27cc",
+      "remote_digest": "95e561b8f6bb63d706842154d85b27cc",
+      "matches": true
+    },
+    {
+      "version": "20260523110000",
+      "statement_count": 6,
+      "local_digest": "57db824a4ee360f5201726c0cde3e242",
+      "remote_digest": "57db824a4ee360f5201726c0cde3e242",
+      "matches": true
+    },
+    {
+      "version": "20260523123000",
+      "statement_count": 18,
+      "local_digest": "2b7a0fe261ee30e14e4d09a93e48f49e",
+      "remote_digest": "2b7a0fe261ee30e14e4d09a93e48f49e",
+      "matches": true
+    },
+    {
+      "version": "20260523133000",
+      "statement_count": 2,
+      "local_digest": "cb161e8b4e40d7e07e8fb25099d353fa",
+      "remote_digest": "cb161e8b4e40d7e07e8fb25099d353fa",
+      "matches": true
+    },
+    {
+      "version": "20260523140000",
+      "statement_count": 12,
+      "local_digest": "ba442c0f783ba04560802133fc42dce5",
+      "remote_digest": "ba442c0f783ba04560802133fc42dce5",
+      "matches": true
+    },
+    {
+      "version": "20260725000000",
+      "statement_count": 62,
+      "local_digest": "69a4cb138f49243aee7a97795acdc389",
+      "remote_digest": "69a4cb138f49243aee7a97795acdc389",
+      "matches": true
+    },
+    {
+      "version": "20260805000000",
+      "statement_count": 17,
+      "local_digest": "e2da02da3a08943b20f19cfc5fad9aef",
+      "remote_digest": "e2da02da3a08943b20f19cfc5fad9aef",
+      "matches": true
+    },
+    {
+      "version": "20260805010000",
+      "statement_count": 3,
+      "local_digest": "41011d9e71a2d8f45b959ecad9a43a52",
+      "remote_digest": "41011d9e71a2d8f45b959ecad9a43a52",
+      "matches": true
+    },
+    {
+      "version": "20260805020000",
+      "statement_count": 4,
+      "local_digest": "1d92e3da08e2023f48829b04cd66ce0e",
+      "remote_digest": "1d92e3da08e2023f48829b04cd66ce0e",
+      "matches": true
+    },
+    {
+      "version": "20260821000000",
+      "statement_count": 38,
+      "local_digest": "5f58a51f2a1fb0d6c50e074bb9bffd95",
+      "remote_digest": "5f58a51f2a1fb0d6c50e074bb9bffd95",
+      "matches": true
+    },
+    {
+      "version": "20260827000000",
+      "statement_count": 56,
+      "local_digest": "34d8ec2bb2e866dac7f3820c10559a37",
+      "remote_digest": "34d8ec2bb2e866dac7f3820c10559a37",
+      "matches": true
+    },
+    {
+      "version": "20260827010000",
+      "statement_count": 2,
+      "local_digest": "d1d4efdd059dad37b936b0158a900b26",
+      "remote_digest": "d1d4efdd059dad37b936b0158a900b26",
+      "matches": true
+    },
+    {
+      "version": "20260827030000",
+      "statement_count": 48,
+      "local_digest": "0b000b5a46193cf1ed7a40ff1950ca87",
+      "remote_digest": "0b000b5a46193cf1ed7a40ff1950ca87",
+      "matches": true
+    },
+    {
+      "version": "20260827060000",
+      "statement_count": 11,
+      "local_digest": "2842343a4fe5163ec0e64a67304bd723",
+      "remote_digest": "2842343a4fe5163ec0e64a67304bd723",
+      "matches": true
+    },
+    {
+      "version": "20260828000000",
+      "statement_count": 2,
+      "local_digest": "b4a6869188d83e9d13e208cdc6e56878",
+      "remote_digest": "b4a6869188d83e9d13e208cdc6e56878",
+      "matches": true
+    },
+    {
+      "version": "20260830010000",
+      "statement_count": 6,
+      "local_digest": "4240a5ca2f51e39e4fd9a29848fe8677",
+      "remote_digest": "4240a5ca2f51e39e4fd9a29848fe8677",
+      "matches": true
+    },
+    {
+      "version": "20260831000000",
+      "statement_count": 16,
+      "local_digest": "953460fd8653d0c00518397114d8706f",
+      "remote_digest": "953460fd8653d0c00518397114d8706f",
+      "matches": true
+    },
+    {
+      "version": "20260831010000",
+      "statement_count": 58,
+      "local_digest": "666d308f186ad3dbd1528a40948c389c",
+      "remote_digest": "666d308f186ad3dbd1528a40948c389c",
+      "matches": true
+    },
+    {
+      "version": "20260902000000",
+      "statement_count": 65,
+      "local_digest": "f3b5c4fef30c96a9ccbd6b26f2521ea7",
+      "remote_digest": "f3b5c4fef30c96a9ccbd6b26f2521ea7",
+      "matches": true
+    },
+    {
+      "version": "20260905000000",
+      "statement_count": 188,
+      "local_digest": "791d3d7cb9a3b26ccc4d21ccfe49b96a",
+      "remote_digest": "791d3d7cb9a3b26ccc4d21ccfe49b96a",
+      "matches": true
+    },
+    {
+      "version": "20260905010000",
+      "statement_count": 15,
+      "local_digest": "401bb1d90ca193247ef836547b6ca285",
+      "remote_digest": "401bb1d90ca193247ef836547b6ca285",
+      "matches": true
+    },
+    {
+      "version": "20260905020000",
+      "statement_count": 13,
+      "local_digest": "10f933875fcd8e249738614e461fbaf1",
+      "remote_digest": "10f933875fcd8e249738614e461fbaf1",
+      "matches": true
+    },
+    {
+      "version": "20260905030000",
+      "statement_count": 34,
+      "local_digest": "4d3d7444b7c0fe7810e3ea58416b4030",
+      "remote_digest": "4d3d7444b7c0fe7810e3ea58416b4030",
+      "matches": true
+    },
+    {
+      "version": "20260924000000",
+      "statement_count": 50,
+      "local_digest": "51891544b5e4fa314f66842b49bde021",
+      "remote_digest": "51891544b5e4fa314f66842b49bde021",
+      "matches": true
+    }
+  ]
+}

@@ -1,0 +1,356 @@
+{
+  "checked_at": "2026-09-28",
+  "rows": [
+    {
+      "contype": "c",
+      "definition": "CHECK ((role = ANY (ARRAY['tourist'::text, 'driver'::text, 'subtenant'::text, 'main_tenant'::text, 'administrator'::text])))",
+      "name": "profiles_role_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "profiles",
+      "version": "20260508000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (booking_id) REFERENCES package_bookings(id) ON DELETE CASCADE",
+      "name": "package_activities_booking_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "u",
+      "definition": "UNIQUE (booking_id)",
+      "name": "package_activities_booking_id_key",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (driver_id) REFERENCES profiles(id)",
+      "name": "package_activities_driver_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (package_id) REFERENCES tour_packages(id)",
+      "name": "package_activities_package_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "p",
+      "definition": "PRIMARY KEY (id)",
+      "name": "package_activities_pkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (tourist_id) REFERENCES profiles(id)",
+      "name": "package_activities_tourist_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_activities",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "p",
+      "definition": "PRIMARY KEY (id)",
+      "name": "wallet_transactions_pkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallet_transactions",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "name": "wallet_transactions_user_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallet_transactions",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (wallet_id) REFERENCES _deprecated_wallets(id) ON DELETE CASCADE",
+      "name": "wallet_transactions_wallet_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallet_transactions",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "p",
+      "definition": "PRIMARY KEY (id)",
+      "name": "wallets_pkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallets",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "name": "wallets_user_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallets",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "u",
+      "definition": "UNIQUE (user_id, role)",
+      "name": "wallets_user_id_role_key",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallets",
+      "version": "20260517000000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((payment_status = ANY (ARRAY['pending'::text, 'paid'::text, 'failed'::text, 'cancelled'::text, 'refunded'::text, 'dp_paid'::text, 'fully_paid'::text])))",
+      "name": "payments_payment_status_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_payments",
+      "version": "20260518130000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((type = ANY (ARRAY['cash_in'::text, 'package_payment'::text, 'driver_earning'::text, 'withdrawal'::text, 'refund'::text, 'remaining_balance_payment'::text])))",
+      "name": "wallet_transactions_type_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "_deprecated_wallet_transactions",
+      "version": "20260519020000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((itinerary_source = ANY (ARRAY['ai_suggested'::text, 'customized'::text])))",
+      "name": "booking_itinerary_items_itinerary_source_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "booking_itinerary_items",
+      "version": "20260520150000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text, 'completed'::text])))",
+      "name": "booking_drivers_status_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "booking_drivers",
+      "version": "20260520160000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((spot_status = ANY (ARRAY['pending'::text, 'travelling'::text, 'at_spot'::text, 'completed'::text])))",
+      "name": "booking_itinerary_items_spot_status_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "booking_itinerary_items",
+      "version": "20260520160000"
+    },
+    {
+      "contype": null,
+      "definition": null,
+      "name": "to",
+      "present": false,
+      "schema_name": null,
+      "table_name": null,
+      "version": "20260520170000"
+    },
+    {
+      "contype": null,
+      "definition": null,
+      "name": "subtenant_fare_settings_unique_city",
+      "present": false,
+      "schema_name": null,
+      "table_name": null,
+      "version": "20260521090000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (booking_id) REFERENCES package_bookings(id)",
+      "name": "emergency_alerts_booking_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (driver_id) REFERENCES auth.users(id)",
+      "name": "emergency_alerts_driver_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "contype": "p",
+      "definition": "PRIMARY KEY (id)",
+      "name": "emergency_alerts_pkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (tourist_id) REFERENCES auth.users(id) ON DELETE CASCADE",
+      "name": "emergency_alerts_tourist_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "emergency_alerts",
+      "version": "20260522080000"
+    },
+    {
+      "contype": "f",
+      "definition": "FOREIGN KEY (package_id) REFERENCES tour_packages(id) ON DELETE SET NULL",
+      "name": "package_reviews_package_id_fkey",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_reviews",
+      "version": "20260523123000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK (((ride_id IS NOT NULL) OR (booking_id IS NOT NULL)))",
+      "name": "payment_records_link_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_records",
+      "version": "20260725000000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((journey_state = ANY (ARRAY['assigned'::text, 'en_route_pickup'::text, 'at_pickup'::text, 'boarded'::text, 'en_route_stop'::text, 'at_stop'::text, 'stop_done'::text, 'en_route_dropoff'::text, 'at_dropoff'::text, 'completed'::text])))",
+      "name": "booking_drivers_journey_state_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "booking_drivers",
+      "version": "20260805000000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((((scheduled_start_at IS NULL) AND (estimated_end_at IS NULL)) OR ((scheduled_start_at IS NOT NULL) AND (estimated_end_at IS NOT NULL) AND (estimated_end_at > scheduled_start_at))))",
+      "name": "package_bookings_schedule_window_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "package_bookings",
+      "version": "20260827000000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((currency = 'PHP'::text))",
+      "name": "payment_records_currency_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((((provider_fee_amount IS NULL) OR (provider_fee_amount >= (0)::numeric)) AND ((provider_net_amount IS NULL) OR (provider_net_amount >= (0)::numeric))))",
+      "name": "payment_records_provider_amounts_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((provider = ANY (ARRAY['manual'::text, 'paymongo'::text])))",
+      "name": "payment_records_provider_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((((provider = 'manual'::text) AND ((payee_id IS NOT NULL) OR ((booking_id IS NOT NULL) AND (payment_method = 'cash'::text) AND (provider_status = ANY (ARRAY['awaiting_cash_receipt'::text, 'cash_received'::text]))))) OR ((provider = 'paymongo'::text) AND (booking_id IS NOT NULL) AND (payee_id IS NULL))))",
+      "name": "payment_records_provider_party_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_records",
+      "version": "20260827030000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'held'::text, 'eligible'::text, 'processing'::text, 'paid'::text, 'failed'::text, 'cancelled'::text, 'manual_review'::text])))",
+      "name": "payout_records_status_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payout_records",
+      "version": "20260827030000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['held'::text, 'eligible'::text, 'processing'::text, 'paid'::text, 'failed'::text, 'cancelled'::text, 'manual_review'::text, 'awaiting_cash'::text, 'cash_confirmed'::text])))",
+      "name": "payment_allocations_status_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_allocations",
+      "version": "20260827060000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((((provider = 'manual'::text) AND ((payee_id IS NOT NULL) OR ((booking_id IS NOT NULL) AND (payment_method = 'cash'::text) AND (provider_status = ANY (ARRAY['awaiting_cash_receipt'::text, 'cash_received'::text]))))) OR ((provider = 'paymongo'::text) AND (booking_id IS NOT NULL) AND (payee_id IS NULL))))",
+      "name": "payment_records_provider_party_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "payment_records",
+      "version": "20260827060000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((((latitude >= ('-90'::integer)::double precision) AND (latitude <= (90)::double precision)) AND ((longitude >= ('-180'::integer)::double precision) AND (longitude <= (180)::double precision)) AND ((heading >= (0)::double precision) AND (heading <= (360)::double precision)) AND (speed >= (0)::double precision))) NOT VALID",
+      "name": "driver_live_locations_coordinate_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "driver_live_locations",
+      "version": "20260902000000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((message_type = ANY (ARRAY['user'::text, 'system'::text])))",
+      "name": "messages_type_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "messages",
+      "version": "20260902000000"
+    },
+    {
+      "contype": "c",
+      "definition": "CHECK ((local_government_type = ANY (ARRAY['city'::text, 'municipality'::text])))",
+      "name": "subtenant_details_local_government_type_check",
+      "present": true,
+      "schema_name": "public",
+      "table_name": "subtenant_details",
+      "version": "20260905010000"
+    },
+    {
+      "contype": null,
+      "definition": null,
+      "name": "trigger",
+      "present": false,
+      "schema_name": null,
+      "table_name": null,
+      "version": "20260924000000"
+    }
+  ]
+}
