@@ -4,12 +4,16 @@ import 'package:http/http.dart' as http;
 
 import 'google_maps_api_key_resolver.dart';
 import 'google_places_errors.dart';
+import 'google_places_diagnostics.dart';
 
 class GooglePlacesGateway {
-  GooglePlacesGateway({required this.apiKey}) : _resolvedApiKey = apiKey;
+  GooglePlacesGateway({required this.apiKey, http.Client? client})
+    : _resolvedApiKey = apiKey,
+      _client = client;
 
   final String apiKey;
   String _resolvedApiKey;
+  final http.Client? _client;
 
   Future<String> _loadApiKey() async {
     _resolvedApiKey = await GoogleMapsApiKeyResolver.resolve(
@@ -22,14 +26,6 @@ class GooglePlacesGateway {
     String operation,
     Map<String, String> parameters,
   ) async {
-    final effectiveApiKey = await _loadApiKey();
-    if (effectiveApiKey.isEmpty) {
-      throw const GooglePlacesException(
-        kind: GooglePlacesFailureKind.notConfigured,
-        message: 'Google Places is not configured on this device.',
-      );
-    }
-
     final path = switch (operation) {
       'textSearch' => '/maps/api/place/textsearch/json',
       'nearbySearch' => '/maps/api/place/nearbysearch/json',
@@ -41,6 +37,20 @@ class GooglePlacesGateway {
         message: 'Unsupported Google Places request.',
       ),
     };
+    final endpoint = 'https://maps.googleapis.com$path';
+    final effectiveApiKey = await _loadApiKey();
+    if (effectiveApiKey.isEmpty) {
+      await GooglePlacesDiagnostics.record(
+        operation: operation,
+        endpoint: endpoint,
+        key: '',
+        googleStatus: 'NOT_CONFIGURED',
+      );
+      throw const GooglePlacesException(
+        kind: GooglePlacesFailureKind.notConfigured,
+        message: 'Google Places is not configured on this device.',
+      );
+    }
     final uri = Uri.https('maps.googleapis.com', path, {
       ...parameters,
       'key': effectiveApiKey,
@@ -48,8 +58,16 @@ class GooglePlacesGateway {
 
     http.Response response;
     try {
-      response = await http.get(uri).timeout(const Duration(seconds: 12));
+      response = await (_client?.get(uri) ?? http.get(uri)).timeout(
+        const Duration(seconds: 12),
+      );
     } catch (_) {
+      await GooglePlacesDiagnostics.record(
+        operation: operation,
+        endpoint: endpoint,
+        key: effectiveApiKey,
+        googleStatus: 'NETWORK_FAILURE',
+      );
       throw const GooglePlacesException(
         kind: GooglePlacesFailureKind.network,
         message:
@@ -61,10 +79,37 @@ class GooglePlacesGateway {
     try {
       body = jsonDecode(response.body) as Map<String, dynamic>;
     } catch (_) {
+      await GooglePlacesDiagnostics.record(
+        operation: operation,
+        endpoint: endpoint,
+        key: effectiveApiKey,
+        httpStatus: response.statusCode,
+        googleStatus: 'UNREADABLE_RESPONSE',
+      );
       throw GooglePlacesException(
         kind: GooglePlacesFailureKind.upstream,
         message: 'Google Places returned an unreadable response.',
         statusCode: response.statusCode,
+      );
+    }
+
+    if (body['status'] != 'OK' && body['status'] != 'ZERO_RESULTS' ||
+        response.statusCode < 200 ||
+        response.statusCode >= 300) {
+      final error = body['error'];
+      await GooglePlacesDiagnostics.record(
+        operation: operation,
+        endpoint: endpoint,
+        key: effectiveApiKey,
+        httpStatus: response.statusCode,
+        googleStatus:
+            body['status']?.toString() ??
+            (error is Map ? error['status']?.toString() : null) ??
+            'UNKNOWN',
+        googleMessage:
+            body['error_message']?.toString() ??
+            (error is Map ? error['message']?.toString() : null) ??
+            '',
       );
     }
 

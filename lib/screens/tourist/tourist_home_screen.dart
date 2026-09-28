@@ -11,6 +11,7 @@ import 'package:touristrike/core/places/city_spot_suggestions.dart';
 
 import 'package:touristrike/screens/tourist/profile/tourist_profile_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
+import 'package:touristrike/widgets/optional_places_builder.dart';
 import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 import 'tourist_location_state.dart';
 import 'tourist_explore_screen.dart';
@@ -116,13 +117,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     final avatarUrl = (profile?['profile_image_url'] as String?) ?? '';
 
-    final allSpots = municipality == null
-        ? <_NearbySpot>[]
-        : (await _recommendationService.loadMunicipalitySpots(
+    final savedSpots = municipality == null
+        ? <TouristAiRecommendationSpot>[]
+        : await _recommendationService.loadSavedTouristSpots(
             municipality: municipality,
             center: currentCenter,
-            googleLimit: 20,
-          )).map(_NearbySpot.fromRecommendationSpot).toList(growable: false);
+          );
+    final allSpots = savedSpots
+        .map(_NearbySpot.fromRecommendationSpot)
+        .toList(growable: false);
 
     final famousSpots = _buildFamousSpots(allSpots);
 
@@ -138,6 +141,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       allSpots: allSpots,
       famousSpots: famousSpots,
       suggestionPackages: packages,
+      recommendationSpots: savedSpots,
     );
   }
 
@@ -178,11 +182,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       final selectedCity = _normalText(municipality);
 
       final packages = (rows as List)
-          .map(
-            (e) => _SuggestionPackage.fromMap(
-              e as Map<String, dynamic>,
-            ),
-          )
+          .map((e) => _SuggestionPackage.fromMap(e as Map<String, dynamic>))
           .where((p) {
             final packageCity = _normalText(p.city);
 
@@ -234,10 +234,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
         desiredAccuracy: LocationAccuracy.high,
       ).timeout(const Duration(seconds: 12));
 
-      final center = LatLng(
-        position.latitude,
-        position.longitude,
-      );
+      final center = LatLng(position.latitude, position.longitude);
 
       _lastKnownCenter = center;
       _lastMunicipality = _detectBulacanMunicipality(center);
@@ -264,9 +261,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             return Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(30),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
               ),
               child: Column(
                 children: [
@@ -280,12 +275,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      20,
-                      20,
-                      20,
-                      14,
-                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
                     child: Row(
                       children: [
                         Container(
@@ -303,8 +293,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                         const SizedBox(width: 12),
                         const Expanded(
                           child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Choose your location',
@@ -330,30 +319,19 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                       ],
                     ),
                   ),
-                  const Divider(
-                    height: 1,
-                    color: Color(0xFFF0F4F8),
-                  ),
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
                   Expanded(
                     child: ListView.separated(
                       controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(
-                        14,
-                        12,
-                        14,
-                        24,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
                       itemCount: _bulacanMunicipalities.length,
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(height: 7),
+                      separatorBuilder: (_, _) => const SizedBox(height: 7),
                       itemBuilder: (_, i) {
                         final m = _bulacanMunicipalities[i];
 
-                        final selectedNow =
-                            _selectedArea?.name == m.name;
+                        final selectedNow = _selectedArea?.name == m.name;
 
-                        final isActive =
-                            _activeMunicipalities.contains(m.name);
+                        final isActive = _activeMunicipalities.contains(m.name);
 
                         return Material(
                           color: selectedNow
@@ -361,8 +339,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                               : const Color(0xFFF8FAFD),
                           borderRadius: BorderRadius.circular(17),
                           child: InkWell(
-                            onTap: () =>
-                                Navigator.pop(context, m),
+                            onTap: () => Navigator.pop(context, m),
                             borderRadius: BorderRadius.circular(17),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
@@ -380,15 +357,13 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                                           : isActive
                                           ? const Color(0xFFE5F9EC)
                                           : const Color(0xFFEDF1F5),
-                                      borderRadius:
-                                          BorderRadius.circular(13),
+                                      borderRadius: BorderRadius.circular(13),
                                     ),
                                     child: Icon(
                                       selectedNow
                                           ? Icons.check_rounded
                                           : isActive
-                                          ? Icons
-                                                .local_activity_rounded
+                                          ? Icons.local_activity_rounded
                                           : Icons.place_outlined,
                                       color: selectedNow
                                           ? Colors.white
@@ -407,8 +382,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                                         Text(
                                           m.name,
                                           style: const TextStyle(
-                                            fontWeight:
-                                                FontWeight.w700,
+                                            fontWeight: FontWeight.w700,
                                             color: Color(0xFF182235),
                                             fontSize: 14.5,
                                           ),
@@ -420,15 +394,10 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                                               : 'No listings yet',
                                           style: TextStyle(
                                             color: isActive
-                                                ? const Color(
-                                                    0xFF16A34A,
-                                                  )
-                                                : const Color(
-                                                    0xFF9AA7B8,
-                                                  ),
+                                                ? const Color(0xFF16A34A)
+                                                : const Color(0xFF9AA7B8),
                                             fontSize: 11.5,
-                                            fontWeight:
-                                                FontWeight.w500,
+                                            fontWeight: FontWeight.w500,
                                           ),
                                         ),
                                       ],
@@ -465,20 +434,14 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     });
 
     touristLocationStore.useManualLocation(
-      TouristMunicipalityArea(
-        name: selected.name,
-        center: selected.center,
-      ),
+      TouristMunicipalityArea(name: selected.name, center: selected.center),
     );
 
     if (_mapController.isCompleted) {
       final controller = await _mapController.future;
 
       controller.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          selected.center,
-          14.5,
-        ),
+        CameraUpdate.newLatLngZoom(selected.center, 14.5),
       );
     }
   }
@@ -517,19 +480,13 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
       _positionSub?.cancel();
 
-      _positionSub =
-          Geolocator.getPositionStream(
-            locationSettings: settings,
-          ).listen((position) async {
+      _positionSub = Geolocator.getPositionStream(locationSettings: settings)
+          .listen((position) async {
             if (_usingManualLocation) return;
 
-            final center = LatLng(
-              position.latitude,
-              position.longitude,
-            );
+            final center = LatLng(position.latitude, position.longitude);
 
-            final municipality =
-                _detectBulacanMunicipality(center);
+            final municipality = _detectBulacanMunicipality(center);
 
             final movedKm = _lastKnownCenter == null
                 ? 999.0
@@ -540,20 +497,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                     center.longitude,
                   );
 
-            if (municipality != _lastMunicipality ||
-                movedKm >= 1.0) {
+            if (municipality != _lastMunicipality || movedKm >= 1.0) {
               _lastKnownCenter = center;
               _lastMunicipality = municipality;
 
               if (_mapController.isCompleted) {
-                final controller =
-                    await _mapController.future;
+                final controller = await _mapController.future;
 
                 controller.animateCamera(
-                  CameraUpdate.newLatLngZoom(
-                    center,
-                    14.5,
-                  ),
+                  CameraUpdate.newLatLngZoom(center, 14.5),
                 );
               }
 
@@ -565,9 +517,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             }
           });
     } catch (e) {
-      debugPrint(
-        'HOME location watch unavailable: $e',
-      );
+      debugPrint('HOME location watch unavailable: $e');
     }
   }
 
@@ -600,17 +550,14 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     try {
       final row = await supabase
           .from('tourist_preferences')
-          .select(
-            'preferred_location, preferred_categories',
-          )
+          .select('preferred_location, preferred_categories')
           .eq('tourist_id', user.id)
           .maybeSingle();
 
       if (!mounted) return;
 
       setState(() {
-        _prefLocation =
-            (row?['preferred_location'] as String?) ?? '';
+        _prefLocation = (row?['preferred_location'] as String?) ?? '';
 
         final cats = row?['preferred_categories'];
 
@@ -633,36 +580,30 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   void _showFirstTimePreferencePopupIfNeeded() {
     final hasPreferences =
-        _prefLocation.trim().isNotEmpty ||
-        _prefCategories.isNotEmpty;
+        _prefLocation.trim().isNotEmpty || _prefCategories.isNotEmpty;
 
     if (hasPreferences || !mounted) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
-      _showPreferencesSheet(
-        forceSetup: true,
-      );
+      _showPreferencesSheet(forceSetup: true);
     });
   }
 
-  Future<void> _showPreferencesSheet({
-    bool forceSetup = false,
-  }) async {
-    final result =
-        await showModalBottomSheet<Map<String, dynamic>>(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          isDismissible: !forceSetup,
-          enableDrag: !forceSetup,
-          builder: (_) => _PreferencesSheet(
-            initialLocation: _prefLocation,
-            initialCategories: _prefCategories,
-            forceSetup: forceSetup,
-          ),
-        );
+  Future<void> _showPreferencesSheet({bool forceSetup = false}) async {
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: !forceSetup,
+      enableDrag: !forceSetup,
+      builder: (_) => _PreferencesSheet(
+        initialLocation: _prefLocation,
+        initialCategories: _prefCategories,
+        forceSetup: forceSetup,
+      ),
+    );
 
     if (result == null) {
       if (forceSetup) {
@@ -673,8 +614,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     }
 
     final location = result['location'] as String;
-    final categories =
-        result['categories'] as List<String>;
+    final categories = result['categories'] as List<String>;
 
     setState(() {
       _prefLocation = location;
@@ -693,26 +633,18 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'tourist_id');
     } catch (e) {
-      debugPrint(
-        'Preferences save failed: $e',
-      );
+      debugPrint('Preferences save failed: $e');
     }
   }
 
   bool _isInsideBulacan(LatLng point) {
-    return point.latitude >=
-            _bulacanBounds.southwest.latitude &&
-        point.latitude <=
-            _bulacanBounds.northeast.latitude &&
-        point.longitude >=
-            _bulacanBounds.southwest.longitude &&
-        point.longitude <=
-            _bulacanBounds.northeast.longitude;
+    return point.latitude >= _bulacanBounds.southwest.latitude &&
+        point.latitude <= _bulacanBounds.northeast.latitude &&
+        point.longitude >= _bulacanBounds.southwest.longitude &&
+        point.longitude <= _bulacanBounds.northeast.longitude;
   }
 
-  String? _detectBulacanMunicipality(
-    LatLng point,
-  ) {
+  String? _detectBulacanMunicipality(LatLng point) {
     if (!_isInsideBulacan(point)) return null;
 
     _MunicipalityArea? nearest;
@@ -745,12 +677,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
         .replaceAll('.', '');
   }
 
-  double _haversineKm(
-    double lat1,
-    double lon1,
-    double lat2,
-    double lon2,
-  ) {
+  double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
     const r = 6371.0;
 
     final dLat = _deg2rad(lat2 - lat1);
@@ -763,17 +690,12 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             math.sin(dLon / 2) *
             math.sin(dLon / 2);
 
-    final c = 2 *
-        math.atan2(
-          math.sqrt(a),
-          math.sqrt(1 - a),
-        );
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
 
     return r * c;
   }
 
-  double _deg2rad(double deg) =>
-      deg * (math.pi / 180);
+  double _deg2rad(double deg) => deg * (math.pi / 180);
 
   @override
   Widget build(BuildContext context) {
@@ -782,26 +704,22 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     final bottomInset = media.padding.bottom;
 
     const navBarBodyHeight = 92.0;
-    final navTotalH =
-        navBarBodyHeight + bottomInset;
+    final navTotalH = navBarBodyHeight + bottomInset;
 
     // UI improvement:
     // Keeps the map useful without allowing it to dominate the
     // screen on tall mobile devices.
-    final mapH =
-        (size.height * 0.43).clamp(345.0, 420.0);
+    final mapH = (size.height * 0.43).clamp(345.0, 420.0);
 
     final sheetTop = mapH - 35;
 
     return TouristAiChatbotWrapper(
       child: Scaffold(
-        backgroundColor:
-            const Color(0xFFF7F9FC),
+        backgroundColor: const Color(0xFFF7F9FC),
         body: FutureBuilder<_HomeData>(
           future: _homeFuture,
           builder: (context, snap) {
-            if (snap.connectionState !=
-                ConnectionState.done) {
+            if (snap.connectionState != ConnectionState.done) {
               return const _LoadingState();
             }
 
@@ -816,79 +734,102 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
               );
             }
 
-            final data = snap.data!;
-
-            final packages =
-                data.suggestionPackages
-                    .take(3)
+            final coreData = snap.data!;
+            return OptionalPlacesBuilder<List<TouristAiRecommendationSpot>>(
+              // A new location/core refresh gets a fresh optional load. Rebuilds
+              // and preference edits keep the current request and result.
+              key: ObjectKey(_homeFuture),
+              load: () => coreData.municipality == null
+                  ? Future.value(const <TouristAiRecommendationSpot>[])
+                  : _recommendationService.loadGoogleFamousSpots(
+                      municipality: coreData.municipality!,
+                      center: coreData.center,
+                      limit: 20,
+                    ),
+              builder: (context, googleSpots, loading, unavailable, retry) {
+                final spots = _recommendationService.mergeAndDeduplicateSpots([
+                  ...coreData.recommendationSpots,
+                  ...?googleSpots,
+                ])..sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+                final allSpots = spots
+                    .map(_NearbySpot.fromRecommendationSpot)
                     .toList();
+                final data = _HomeData(
+                  fullName: coreData.fullName,
+                  avatarUrl: coreData.avatarUrl,
+                  cityText: coreData.cityText,
+                  center: coreData.center,
+                  municipality: coreData.municipality,
+                  isInsideBulacan: coreData.isInsideBulacan,
+                  allSpots: allSpots,
+                  famousSpots: _buildFamousSpots(allSpots),
+                  suggestionPackages: coreData.suggestionPackages,
+                  recommendationSpots: spots,
+                );
+                final packages = data.suggestionPackages.take(3).toList();
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      height: mapH,
+                      child: _MapHero(
+                        data: data,
+                        mapController: _mapController,
+                        bounds: _bulacanBounds,
+                        usingManualLocation: _usingManualLocation,
+                        onUsePhoneLocation: _usePhoneLocation,
+                        onPickLocation: _selectMunicipality,
+                        onProfileTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ProfileScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
 
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: mapH,
-                  child: _MapHero(
-                    data: data,
-                    mapController:
-                        _mapController,
-                    bounds:
-                        _bulacanBounds,
-                    usingManualLocation:
-                        _usingManualLocation,
-                    onUsePhoneLocation:
-                        _usePhoneLocation,
-                    onPickLocation:
-                        _selectMunicipality,
-                    onProfileTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const ProfileScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: sheetTop,
+                      bottom: navTotalH,
+                      child: _HomeSheet(
+                        data: data,
+                        packages: packages,
+                        prefLocation: _prefLocation,
+                        prefCategories: _prefCategories,
+                        prefLoaded: _prefLoaded,
+                        onSetPreferences: _showPreferencesSheet,
+                        placesNotice: loading || unavailable
+                            ? OptionalPlacesNotice(
+                                loading: loading,
+                                onRetry: retry,
+                              )
+                            : null,
+                      ),
+                    ),
 
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: sheetTop,
-                  bottom: navTotalH,
-                  child: _HomeSheet(
-                    data: data,
-                    packages: packages,
-                    prefLocation:
-                        _prefLocation,
-                    prefCategories:
-                        _prefCategories,
-                    prefLoaded:
-                        _prefLoaded,
-                    onSetPreferences:
-                        _showPreferencesSheet,
-                  ),
-                ),
-
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: AppBottomNav(
-                    selectedIndex:
-                        _navIndex,
-                    onSelect: (i) {
-                      setState(() {
-                        _navIndex = i;
-                      });
-                    },
-                  ),
-                ),
-              ],
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: AppBottomNav(
+                        selectedIndex: _navIndex,
+                        onSelect: (i) {
+                          setState(() {
+                            _navIndex = i;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -913,8 +854,7 @@ class _MapHero extends StatelessWidget {
   });
 
   final _HomeData data;
-  final Completer<GoogleMapController>
-  mapController;
+  final Completer<GoogleMapController> mapController;
   final LatLngBounds bounds;
   final bool usingManualLocation;
   final VoidCallback onUsePhoneLocation;
@@ -932,25 +872,17 @@ class _MapHero extends StatelessWidget {
               '${data.center.longitude}-'
               '${data.cityText}',
             ),
-            initialCameraPosition:
-                CameraPosition(
-                  target: data.center,
-                  zoom: 14.5,
-                ),
+            initialCameraPosition: CameraPosition(
+              target: data.center,
+              zoom: 14.5,
+            ),
             onMapCreated: (controller) {
               if (!mapController.isCompleted) {
-                mapController.complete(
-                  controller,
-                );
+                mapController.complete(controller);
               }
             },
-            cameraTargetBounds:
-                CameraTargetBounds(bounds),
-            minMaxZoomPreference:
-                const MinMaxZoomPreference(
-                  10.5,
-                  19.0,
-                ),
+            cameraTargetBounds: CameraTargetBounds(bounds),
+            minMaxZoomPreference: const MinMaxZoomPreference(10.5, 19.0),
             zoomControlsEnabled: false,
             myLocationEnabled: true,
             myLocationButtonEnabled: false,
@@ -959,38 +891,25 @@ class _MapHero extends StatelessWidget {
             buildingsEnabled: true,
             markers: {
               Marker(
-                markerId:
-                    const MarkerId(
-                      'selected-location',
-                    ),
+                markerId: const MarkerId('selected-location'),
                 position: data.center,
                 infoWindow: InfoWindow(
                   title: data.cityText,
-                  snippet:
-                      usingManualLocation
+                  snippet: usingManualLocation
                       ? 'Selected location'
                       : 'Phone location',
                 ),
-                icon:
-                    BitmapDescriptor
-                        .defaultMarkerWithHue(
-                          BitmapDescriptor
-                              .hueAzure,
-                        ),
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
               ),
               ...data.famousSpots.map(
                 (s) => Marker(
-                  markerId: MarkerId(
-                    'spot-${s.id}',
-                  ),
-                  position: LatLng(
-                    s.latitude,
-                    s.longitude,
-                  ),
+                  markerId: MarkerId('spot-${s.id}'),
+                  position: LatLng(s.latitude, s.longitude),
                   infoWindow: InfoWindow(
                     title: s.title,
-                    snippet:
-                        s.distanceText,
+                    snippet: s.distanceText,
                   ),
                 ),
               ),
@@ -1004,32 +923,15 @@ class _MapHero extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin:
-                      Alignment.topCenter,
-                  end:
-                      Alignment.bottomCenter,
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(
-                      alpha: 0.33,
-                    ),
-                    Colors.black.withValues(
-                      alpha: 0.06,
-                    ),
-                    Colors.black.withValues(
-                      alpha: 0.02,
-                    ),
-                    const Color(
-                      0xFFF7F9FC,
-                    ).withValues(
-                      alpha: 0.62,
-                    ),
+                    Colors.black.withValues(alpha: 0.33),
+                    Colors.black.withValues(alpha: 0.06),
+                    Colors.black.withValues(alpha: 0.02),
+                    const Color(0xFFF7F9FC).withValues(alpha: 0.62),
                   ],
-                  stops: const [
-                    0.0,
-                    0.35,
-                    0.72,
-                    1.0,
-                  ],
+                  stops: const [0.0, 0.35, 0.72, 1.0],
                 ),
               ),
             ),
@@ -1039,39 +941,19 @@ class _MapHero extends StatelessWidget {
         SafeArea(
           bottom: false,
           child: Padding(
-            padding:
-                const EdgeInsets.fromLTRB(
-                  18,
-                  10,
-                  18,
-                  0,
-                ),
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
             child: Column(
               children: [
                 Row(
                   children: [
-                    _AvatarWithDot(
-                      imageUrl:
-                          data.avatarUrl,
-                    ),
-                    const SizedBox(
-                      width: 11,
-                    ),
-                    Expanded(
-                      child: _GreetingBlock(
-                        fullName:
-                            data.fullName,
-                      ),
-                    ),
-                    const SizedBox(
-                      width: 8,
-                    ),
+                    _AvatarWithDot(imageUrl: data.avatarUrl),
+                    const SizedBox(width: 11),
+                    Expanded(child: _GreetingBlock(fullName: data.fullName)),
+                    const SizedBox(width: 8),
                     const NotificationBell(color: Color(0xFF2563EB)),
                     _WhiteCircleButton(
-                      icon: Icons
-                          .person_outline_rounded,
-                      onTap:
-                          onProfileTap,
+                      icon: Icons.person_outline_rounded,
+                      onTap: onProfileTap,
                     ),
                   ],
                 ),
@@ -1079,60 +961,37 @@ class _MapHero extends StatelessWidget {
                 const Spacer(),
 
                 Align(
-                  alignment:
-                      Alignment.centerLeft,
+                  alignment: Alignment.centerLeft,
                   child: Padding(
-                    padding:
-                        const EdgeInsets.only(
-                          left: 2,
-                          bottom: 9,
-                        ),
+                    padding: const EdgeInsets.only(left: 2, bottom: 9),
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment
-                              .start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
                           'Where do you want to go?',
                           style: TextStyle(
-                            color:
-                                Colors.white,
-                            fontWeight:
-                                FontWeight.w800,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
                             fontSize: 19,
-                            letterSpacing:
-                                -0.35,
+                            letterSpacing: -0.35,
                             shadows: [
                               Shadow(
                                 blurRadius: 9,
-                                color:
-                                    Colors.black26,
-                                offset:
-                                    Offset(0, 2),
+                                color: Colors.black26,
+                                offset: Offset(0, 2),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(
-                          height: 3,
-                        ),
+                        const SizedBox(height: 3),
                         Text(
                           'Discover places, packages and experiences nearby',
                           style: TextStyle(
-                            color: Colors.white
-                                .withValues(
-                                  alpha:
-                                      0.88,
-                                ),
-                            fontWeight:
-                                FontWeight.w500,
+                            color: Colors.white.withValues(alpha: 0.88),
+                            fontWeight: FontWeight.w500,
                             fontSize: 11.5,
                             shadows: const [
-                              Shadow(
-                                blurRadius: 8,
-                                color:
-                                    Colors.black26,
-                              ),
+                              Shadow(blurRadius: 8, color: Colors.black26),
                             ],
                           ),
                         ),
@@ -1144,40 +1003,24 @@ class _MapHero extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child:
-                          _LocationChip(
-                            text:
-                                data.cityText,
-                            onTap:
-                                onPickLocation,
-                          ),
+                      child: _LocationChip(
+                        text: data.cityText,
+                        onTap: onPickLocation,
+                      ),
                     ),
-                    const SizedBox(
-                      width: 10,
-                    ),
+                    const SizedBox(width: 10),
                     _MapActionButton(
-                      icon:
-                          usingManualLocation
-                          ? Icons
-                                .gps_fixed_rounded
-                          : Icons
-                                .my_location_rounded,
+                      icon: usingManualLocation
+                          ? Icons.gps_fixed_rounded
+                          : Icons.my_location_rounded,
                       onTap: () async {
                         onUsePhoneLocation();
 
-                        if (mapController
-                            .isCompleted) {
-                          final controller =
-                              await mapController
-                                  .future;
+                        if (mapController.isCompleted) {
+                          final controller = await mapController.future;
 
-                          controller
-                              .animateCamera(
-                            CameraUpdate
-                                .newLatLngZoom(
-                                  data.center,
-                                  14.5,
-                                ),
+                          controller.animateCamera(
+                            CameraUpdate.newLatLngZoom(data.center, 14.5),
                           );
                         }
                       },
@@ -1185,9 +1028,7 @@ class _MapHero extends StatelessWidget {
                   ],
                 ),
 
-                const SizedBox(
-                  height: 58,
-                ),
+                const SizedBox(height: 58),
               ],
             ),
           ),
@@ -1209,6 +1050,7 @@ class _HomeSheet extends StatelessWidget {
     required this.prefCategories,
     required this.prefLoaded,
     required this.onSetPreferences,
+    this.placesNotice,
   });
 
   final _HomeData data;
@@ -1217,179 +1059,106 @@ class _HomeSheet extends StatelessWidget {
   final List<String> prefCategories;
   final bool prefLoaded;
   final VoidCallback onSetPreferences;
+  final Widget? placesNotice;
 
-  static const TouristAiRecommendationService
-  _recommendationService =
+  static const TouristAiRecommendationService _recommendationService =
       TouristAiRecommendationService();
 
-  bool _spotMatchesPreferredCategory(
-    _NearbySpot spot,
-  ) {
-    return _recommendationService
-        .matchesPreferredCategory(
-          spot.toRecommendationSpot(),
-          prefCategories,
-        );
+  bool _spotMatchesPreferredCategory(_NearbySpot spot) {
+    return _recommendationService.matchesPreferredCategory(
+      spot.toRecommendationSpot(),
+      prefCategories,
+    );
   }
 
-  List<_NearbySpot>
-  _rankedPreferredSpots() {
-    final locationKey =
-        prefLocation.trim().toLowerCase();
+  List<_NearbySpot> _rankedPreferredSpots() {
+    final locationKey = prefLocation.trim().toLowerCase();
 
-    final matched =
-        data.allSpots
-            .where(
-              _spotMatchesPreferredCategory,
-            )
-            .map((spot) {
-              var score = 0.0;
+    final matched = data.allSpots.where(_spotMatchesPreferredCategory).map((
+      spot,
+    ) {
+      var score = 0.0;
 
-              final spotText =
-                  '${spot.title} '
-                          '${spot.description} '
-                          '${spot.city} '
-                          '${spot.barangay} '
-                          '${spot.tag}'
-                      .toLowerCase();
+      final spotText =
+          '${spot.title} '
+                  '${spot.description} '
+                  '${spot.city} '
+                  '${spot.barangay} '
+                  '${spot.tag}'
+              .toLowerCase();
 
-              score += 25;
-              score += spot.rating * 6;
-              score += math.max(
-                0,
-                12 - spot.distanceKm,
-              );
+      score += 25;
+      score += spot.rating * 6;
+      score += math.max(0, 12 - spot.distanceKm);
 
-              if (locationKey.isNotEmpty &&
-                  spotText.contains(
-                    locationKey,
-                  )) {
-                score += 8;
-              }
+      if (locationKey.isNotEmpty && spotText.contains(locationKey)) {
+        score += 8;
+      }
 
-              return MapEntry(
-                spot,
-                score,
-              );
-            })
-            .toList()
-          ..sort(
-            (a, b) => b.value
-                .compareTo(a.value),
-          );
+      return MapEntry(spot, score);
+    }).toList()..sort((a, b) => b.value.compareTo(a.value));
 
-    return matched
-        .map((entry) => entry.key)
-        .take(6)
-        .toList(growable: false);
+    return matched.map((entry) => entry.key).take(6).toList(growable: false);
   }
 
-  List<_NearbySpot>
-  _exploreBeyondPreferences(
-    List<_NearbySpot> preferred,
-  ) {
-    final preferredIds =
-        preferred.map((spot) => spot.id).toSet();
+  List<_NearbySpot> _exploreBeyondPreferences(List<_NearbySpot> preferred) {
+    final preferredIds = preferred.map((spot) => spot.id).toSet();
 
     final outside =
         data.allSpots.where((spot) {
-          return !preferredIds.contains(
-                spot.id,
-              ) &&
-              !_spotMatchesPreferredCategory(
-                spot,
-              );
-        }).toList()
-          ..sort((a, b) {
-            final scoreA =
-                (a.rating * 100) -
-                (a.distanceKm * 8);
+          return !preferredIds.contains(spot.id) &&
+              !_spotMatchesPreferredCategory(spot);
+        }).toList()..sort((a, b) {
+          final scoreA = (a.rating * 100) - (a.distanceKm * 8);
 
-            final scoreB =
-                (b.rating * 100) -
-                (b.distanceKm * 8);
+          final scoreB = (b.rating * 100) - (b.distanceKm * 8);
 
-            return scoreB.compareTo(
-              scoreA,
-            );
-          });
+          return scoreB.compareTo(scoreA);
+        });
 
-    return outside
-        .take(6)
-        .toList(growable: false);
+    return outside.take(6).toList(growable: false);
   }
 
-  List<_NearbySpot>
-  _famousSpotsExcluding(
-    List<_NearbySpot> excluded,
-  ) {
-    final excludedIds =
-        excluded.map((spot) => spot.id).toSet();
+  List<_NearbySpot> _famousSpotsExcluding(List<_NearbySpot> excluded) {
+    final excludedIds = excluded.map((spot) => spot.id).toSet();
 
     final ranked = data.famousSpots
-        .where(
-          (spot) =>
-              !excludedIds.contains(
-                spot.id,
-              ),
-        )
+        .where((spot) => !excludedIds.contains(spot.id))
         .toList(growable: false);
 
     if (ranked.isNotEmpty) {
-      return ranked
-          .take(6)
-          .toList(growable: false);
+      return ranked.take(6).toList(growable: false);
     }
 
-    return data.famousSpots
-        .take(6)
-        .toList(growable: false);
+    return data.famousSpots.take(6).toList(growable: false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedText =
-        data.municipality == null
+    final selectedText = data.municipality == null
         ? 'Select a city or municipality in Bulacan'
         : '${data.municipality}, Bulacan';
 
-    final preferredSpots =
-        _rankedPreferredSpots();
+    final preferredSpots = _rankedPreferredSpots();
 
-    final beyondPreferenceSpots =
-        _exploreBeyondPreferences(
-          preferredSpots,
-        );
+    final beyondPreferenceSpots = _exploreBeyondPreferences(preferredSpots);
 
-    final famousSpots =
-        _famousSpotsExcluding([
-          ...preferredSpots,
-          ...beyondPreferenceSpots,
-        ]);
+    final famousSpots = _famousSpotsExcluding([
+      ...preferredSpots,
+      ...beyondPreferenceSpots,
+    ]);
 
-    final hasPreferences =
-        prefCategories.isNotEmpty ||
-        prefLocation.isNotEmpty;
+    final hasPreferences = prefCategories.isNotEmpty || prefLocation.isNotEmpty;
 
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFF7F9FC),
-        borderRadius:
-            const BorderRadius.vertical(
-              top: Radius.circular(30),
-            ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
         boxShadow: [
           BoxShadow(
-            color: const Color(
-              0xFF25334A,
-            ).withValues(
-              alpha: 0.13,
-            ),
+            color: const Color(0xFF25334A).withValues(alpha: 0.13),
             blurRadius: 28,
-            offset: const Offset(
-              0,
-              -10,
-            ),
+            offset: const Offset(0, -10),
           ),
         ],
       ),
@@ -1401,230 +1170,145 @@ class _HomeSheet extends StatelessWidget {
             width: 42,
             height: 4,
             decoration: BoxDecoration(
-              color: const Color(
-                0xFFD8E1EC,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                    100,
-                  ),
+              color: const Color(0xFFD8E1EC),
+              borderRadius: BorderRadius.circular(100),
             ),
           ),
 
           Expanded(
             child: SingleChildScrollView(
-              physics:
-                  const BouncingScrollPhysics(),
-              padding:
-                  const EdgeInsets.fromLTRB(
-                    18,
-                    13,
-                    18,
-                    30,
-                  ),
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 13, 18, 30),
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (placesNotice != null) ...[
+                    placesNotice!,
+                    const SizedBox(height: 14),
+                  ],
                   if (hasPreferences)
                     _HomePreferenceEditRow(
-                      hasPreferences:
-                          hasPreferences,
-                      prefLocation:
-                          prefLocation,
-                      prefCategories:
-                          prefCategories,
-                      onEdit:
-                          onSetPreferences,
+                      hasPreferences: hasPreferences,
+                      prefLocation: prefLocation,
+                      prefCategories: prefCategories,
+                      onEdit: onSetPreferences,
                     )
                   else
-                    _PreferenceEmptyState(
-                      onSetPreferences:
-                          onSetPreferences,
-                    ),
+                    _PreferenceEmptyState(onSetPreferences: onSetPreferences),
 
                   if (hasPreferences) ...[
-                    const SizedBox(
-                      height: 24,
-                    ),
+                    const SizedBox(height: 24),
                     _RecommendedSection(
-                      title:
-                          'Recommended For You',
-                      subtitle:
-                          prefCategories
-                              .isEmpty
+                      title: 'Recommended For You',
+                      subtitle: prefCategories.isEmpty
                           ? 'Places matching your selected destination'
                           : 'Picked from your ${prefCategories.take(3).join(', ')} interests',
-                      icon: Icons
-                          .auto_awesome_rounded,
-                      iconColor:
-                          const Color(
-                            0xFF2185F5,
-                          ),
-                      emptyTitle:
-                          'No exact matches yet',
+                      icon: Icons.auto_awesome_rounded,
+                      iconColor: const Color(0xFF2185F5),
+                      emptyTitle: 'No exact matches yet',
                       emptySubtitle:
                           'Try choosing more interests or another Bulacan city to improve your suggestions.',
-                      spots:
-                          preferredSpots,
+                      spots: preferredSpots,
                     ),
-                    const SizedBox(
-                      height: 27,
-                    ),
+                    const SizedBox(height: 27),
                     _RecommendedSection(
-                      title:
-                          'Explore Something New',
-                      subtitle:
-                          'Discover places beyond your usual interests',
-                      icon: Icons
-                          .explore_outlined,
-                      iconColor:
-                          const Color(
-                            0xFF64748B,
-                          ),
-                      emptyTitle:
-                          'No extra suggestions yet',
+                      title: 'Explore Something New',
+                      subtitle: 'Discover places beyond your usual interests',
+                      icon: Icons.explore_outlined,
+                      iconColor: const Color(0xFF64748B),
+                      emptyTitle: 'No extra suggestions yet',
                       emptySubtitle:
                           'More places will appear once nearby destinations become available.',
-                      spots:
-                          beyondPreferenceSpots,
+                      spots: beyondPreferenceSpots,
                     ),
                   ],
 
-                  const SizedBox(
-                    height: 28,
-                  ),
+                  const SizedBox(height: 28),
 
                   _SectionHeader(
-                    title:
-                        data.municipality ==
-                            null
+                    title: data.municipality == null
                         ? 'Famous Spots'
                         : 'Famous Spots in ${data.municipality}',
-                    subtitle:
-                        data.municipality ==
-                            null
+                    subtitle: data.municipality == null
                         ? 'Choose a Bulacan location to discover destinations'
                         : 'Popular destinations around $selectedText',
                     onSeeAll: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              const TouristExploreScreen(),
+                          builder: (_) => const TouristExploreScreen(),
                         ),
                       );
                     },
                   ),
 
-                  const SizedBox(
-                    height: 13,
-                  ),
+                  const SizedBox(height: 13),
 
                   if (famousSpots.isEmpty)
                     const _EmptyCard(
-                      icon: Icons
-                          .travel_explore_rounded,
-                      title:
-                          'No famous spots found',
+                      icon: Icons.travel_explore_rounded,
+                      title: 'No famous spots found',
                       subtitle:
                           'Choose another Bulacan city or refresh your phone location to discover places.',
                     )
                   else
                     SizedBox(
                       height: 215,
-                      child:
-                          ListView.separated(
-                            physics:
-                                const BouncingScrollPhysics(),
-                            clipBehavior:
-                                Clip.none,
-                            scrollDirection:
-                                Axis.horizontal,
-                            itemCount:
-                                famousSpots.length,
-                            separatorBuilder:
-                                (_, _) =>
-                                    const SizedBox(
-                                      width:
-                                          12,
-                                    ),
-                            itemBuilder:
-                                (_, i) =>
-                                    _NearbySpotCard(
-                                      spot:
-                                          famousSpots[i],
-                                    ),
-                          ),
+                      child: ListView.separated(
+                        physics: const BouncingScrollPhysics(),
+                        clipBehavior: Clip.none,
+                        scrollDirection: Axis.horizontal,
+                        itemCount: famousSpots.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (_, i) =>
+                            _NearbySpotCard(spot: famousSpots[i]),
+                      ),
                     ),
 
-                  const SizedBox(
-                    height: 29,
-                  ),
+                  const SizedBox(height: 29),
 
                   _SectionHeader(
-                    title:
-                        data.municipality ==
-                            null
+                    title: data.municipality == null
                         ? 'Tour Packages'
                         : '${data.municipality} Packages',
-                    subtitle:
-                        data.municipality ==
-                            null
+                    subtitle: data.municipality == null
                         ? 'Choose a location to view available packages'
                         : 'Curated experiences available in $selectedText',
                     onSeeAll: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              const TouristExploreScreen(),
+                          builder: (_) => const TouristExploreScreen(),
                         ),
                       );
                     },
                   ),
 
-                  const SizedBox(
-                    height: 13,
-                  ),
+                  const SizedBox(height: 13),
 
                   if (packages.isEmpty)
                     const _EmptyCard(
-                      icon:
-                          Icons.map_rounded,
-                      title:
-                          'No packages available yet',
+                      icon: Icons.map_rounded,
+                      title: 'No packages available yet',
                       subtitle:
                           'Admin-created tour packages for this location will appear here.',
                     )
                   else
                     ...packages.map(
                       (pkg) => Padding(
-                        padding:
-                            const EdgeInsets.only(
-                              bottom: 11,
-                            ),
+                        padding: const EdgeInsets.only(bottom: 11),
                         child: InkWell(
-                          borderRadius:
-                              BorderRadius.circular(
-                                19,
-                              ),
+                          borderRadius: BorderRadius.circular(19),
                           onTap: () {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (_) =>
-                                    PackageDetailsScreen(
-                                      packageId:
-                                          pkg.id,
-                                    ),
+                                    PackageDetailsScreen(packageId: pkg.id),
                               ),
                             );
                           },
-                          child:
-                              _SuggestionPackageTile(
-                                pkg: pkg,
-                              ),
+                          child: _SuggestionPackageTile(pkg: pkg),
                         ),
                       ),
                     ),
@@ -1652,55 +1336,36 @@ class _LoadingState extends StatelessWidget {
       child: Center(
         child: Container(
           margin: const EdgeInsets.all(28),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 30,
-            vertical: 25,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 25),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: const Color(0xFFEDF1F6),
-            ),
+            border: Border.all(color: const Color(0xFFEDF1F6)),
             boxShadow: [
               BoxShadow(
-                color: const Color(
-                  0xFF25334A,
-                ).withValues(
-                  alpha: 0.07,
-                ),
+                color: const Color(0xFF25334A).withValues(alpha: 0.07),
                 blurRadius: 25,
-                offset: const Offset(
-                  0,
-                  12,
-                ),
+                offset: const Offset(0, 12),
               ),
             ],
           ),
           child: const Column(
-            mainAxisSize:
-                MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
                 width: 30,
                 height: 30,
-                child:
-                    CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: Color(
-                        0xFF2185F5,
-                      ),
-                    ),
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Color(0xFF2185F5),
+                ),
               ),
               SizedBox(height: 15),
               Text(
                 'Loading your travel guide...',
                 style: TextStyle(
-                  color: Color(
-                    0xFF64748B,
-                  ),
-                  fontWeight:
-                      FontWeight.w600,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w600,
                   fontSize: 13,
                 ),
               ),
@@ -1713,10 +1378,7 @@ class _LoadingState extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.error,
-    required this.onRetry,
-  });
+  const _ErrorState({required this.error, required this.onRetry});
 
   final String error;
   final VoidCallback onRetry;
@@ -1731,47 +1393,29 @@ class _ErrorState extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius:
-                BorderRadius.circular(24),
-            border: Border.all(
-              color:
-                  const Color(0xFFEDF1F6),
-            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFEDF1F6)),
             boxShadow: [
               BoxShadow(
-                color: const Color(
-                  0xFF25334A,
-                ).withValues(
-                  alpha: 0.08,
-                ),
+                color: const Color(0xFF25334A).withValues(alpha: 0.08),
                 blurRadius: 25,
-                offset: const Offset(
-                  0,
-                  12,
-                ),
+                offset: const Offset(0, 12),
               ),
             ],
           ),
           child: Column(
-            mainAxisSize:
-                MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 width: 58,
                 height: 58,
-                decoration:
-                    const BoxDecoration(
-                      color: Color(
-                        0xFFFFECEC,
-                      ),
-                      shape:
-                          BoxShape.circle,
-                    ),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFECEC),
+                  shape: BoxShape.circle,
+                ),
                 child: const Icon(
                   Icons.wifi_off_rounded,
-                  color: Color(
-                    0xFFDC2626,
-                  ),
+                  color: Color(0xFFDC2626),
                   size: 28,
                 ),
               ),
@@ -1779,26 +1423,19 @@ class _ErrorState extends StatelessWidget {
               const Text(
                 'Unable to load home',
                 style: TextStyle(
-                  color: Color(
-                    0xFF172033,
-                  ),
+                  color: Color(0xFF172033),
                   fontSize: 19,
-                  fontWeight:
-                      FontWeight.w800,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: -0.3,
                 ),
               ),
               const SizedBox(height: 7),
               Text(
                 error,
-                textAlign:
-                    TextAlign.center,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Color(
-                    0xFF728096,
-                  ),
-                  fontWeight:
-                      FontWeight.w500,
+                  color: Color(0xFF728096),
+                  fontWeight: FontWeight.w500,
                   height: 1.4,
                   fontSize: 12.5,
                 ),
@@ -1807,10 +1444,7 @@ class _ErrorState extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 height: 48,
-                child: _GradientButton(
-                  text: 'Try Again',
-                  onPressed: onRetry,
-                ),
+                child: _GradientButton(text: 'Try Again', onPressed: onRetry),
               ),
             ],
           ),
@@ -1825,45 +1459,33 @@ class _ErrorState extends StatelessWidget {
 // ============================================================================
 
 class _GreetingBlock extends StatelessWidget {
-  const _GreetingBlock({
-    required this.fullName,
-  });
+  const _GreetingBlock({required this.fullName});
 
   final String fullName;
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'WELCOME BACK',
           style: TextStyle(
-            color: Colors.white.withValues(
-              alpha: 0.82,
-            ),
+            color: Colors.white.withValues(alpha: 0.82),
             fontWeight: FontWeight.w700,
             letterSpacing: 1.05,
             fontSize: 10.5,
-            shadows: const [
-              Shadow(
-                color: Colors.black26,
-                blurRadius: 6,
-              ),
-            ],
+            shadows: const [Shadow(color: Colors.black26, blurRadius: 6)],
           ),
         ),
         const SizedBox(height: 3),
         Text(
           fullName,
           maxLines: 1,
-          overflow:
-              TextOverflow.ellipsis,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: Colors.white,
-            fontWeight:
-                FontWeight.w800,
+            fontWeight: FontWeight.w800,
             fontSize: 20,
             height: 1.08,
             letterSpacing: -0.35,
@@ -1882,9 +1504,7 @@ class _GreetingBlock extends StatelessWidget {
 }
 
 class _AvatarWithDot extends StatelessWidget {
-  const _AvatarWithDot({
-    required this.imageUrl,
-  });
+  const _AvatarWithDot({required this.imageUrl});
 
   final String imageUrl;
 
@@ -1902,21 +1522,14 @@ class _AvatarWithDot extends StatelessWidget {
                 shape: BoxShape.circle,
                 color: Colors.white,
                 border: Border.all(
-                  color:
-                      Colors.white.withValues(
-                        alpha: 0.96,
-                      ),
+                  color: Colors.white.withValues(alpha: 0.96),
                   width: 2.5,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black
-                        .withValues(
-                          alpha: 0.13,
-                        ),
+                    color: Colors.black.withValues(alpha: 0.13),
                     blurRadius: 14,
-                    offset:
-                        const Offset(0, 5),
+                    offset: const Offset(0, 5),
                   ),
                 ],
               ),
@@ -1927,9 +1540,7 @@ class _AvatarWithDot extends StatelessWidget {
                         width: 56,
                         height: 56,
                         fit: BoxFit.cover,
-                        errorBuilder:
-                            (_, _, _) =>
-                                const _AvatarFallback(),
+                        errorBuilder: (_, _, _) => const _AvatarFallback(),
                       )
                     : const _AvatarFallback(),
               ),
@@ -1942,20 +1553,12 @@ class _AvatarWithDot extends StatelessWidget {
               width: 13,
               height: 13,
               decoration: BoxDecoration(
-                color: const Color(
-                  0xFF22C55E,
-                ),
+                color: const Color(0xFF22C55E),
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: 2,
-                ),
+                border: Border.all(color: Colors.white, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black
-                        .withValues(
-                          alpha: 0.15,
-                        ),
+                    color: Colors.black.withValues(alpha: 0.15),
                     blurRadius: 4,
                   ),
                 ],
@@ -1968,8 +1571,7 @@ class _AvatarWithDot extends StatelessWidget {
   }
 }
 
-class _AvatarFallback
-    extends StatelessWidget {
+class _AvatarFallback extends StatelessWidget {
   const _AvatarFallback();
 
   @override
@@ -1985,8 +1587,7 @@ class _AvatarFallback
   }
 }
 
-class _WhiteCircleButton
-    extends StatelessWidget {
+class _WhiteCircleButton extends StatelessWidget {
   const _WhiteCircleButton({
     required this.icon,
     required this.onTap,
@@ -2000,78 +1601,48 @@ class _WhiteCircleButton
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white.withValues(
-        alpha: 0.96,
-      ),
+      color: Colors.white.withValues(alpha: 0.96),
       shape: const CircleBorder(),
       elevation: 0,
       child: InkWell(
         onTap: onTap,
-        customBorder:
-            const CircleBorder(),
+        customBorder: const CircleBorder(),
         child: Container(
           width: size,
           height: size,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(
-              color:
-                  Colors.white.withValues(
-                    alpha: 0.9,
-                  ),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black
-                    .withValues(
-                      alpha: 0.12,
-                    ),
+                color: Colors.black.withValues(alpha: 0.12),
                 blurRadius: 15,
-                offset:
-                    const Offset(0, 6),
+                offset: const Offset(0, 6),
               ),
             ],
           ),
-          child: Icon(
-            icon,
-            color: const Color(
-              0xFF2185F5,
-            ),
-            size: 21,
-          ),
+          child: Icon(icon, color: const Color(0xFF2185F5), size: 21),
         ),
       ),
     );
   }
 }
 
-class _MapActionButton
-    extends StatelessWidget {
-  const _MapActionButton({
-    required this.icon,
-    required this.onTap,
-  });
+class _MapActionButton extends StatelessWidget {
+  const _MapActionButton({required this.icon, required this.onTap});
 
   final IconData icon;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return _WhiteCircleButton(
-      icon: icon,
-      onTap: onTap,
-      size: 48,
-    );
+    return _WhiteCircleButton(icon: icon, onTap: onTap, size: 48);
   }
 }
 
-class _LocationChip
-    extends StatelessWidget {
-  const _LocationChip({
-    required this.text,
-    required this.onTap,
-  });
+class _LocationChip extends StatelessWidget {
+  const _LocationChip({required this.text, required this.onTap});
 
   final String text;
   final VoidCallback onTap;
@@ -2079,45 +1650,23 @@ class _LocationChip
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white.withValues(
-        alpha: 0.97,
-      ),
-      borderRadius:
-          BorderRadius.circular(16),
+      color: Colors.white.withValues(alpha: 0.97),
+      borderRadius: BorderRadius.circular(16),
       elevation: 0,
       child: InkWell(
         onTap: onTap,
-        borderRadius:
-            BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           height: 50,
-          padding:
-              const EdgeInsets.symmetric(
-                horizontal: 13,
-              ),
+          padding: const EdgeInsets.symmetric(horizontal: 13),
           decoration: BoxDecoration(
-            borderRadius:
-                BorderRadius.circular(
-                  16,
-                ),
-            border: Border.all(
-              color: Colors.white
-                  .withValues(
-                    alpha: 0.85,
-                  ),
-            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
             boxShadow: [
               BoxShadow(
-                color: const Color(
-                  0xFF24334B,
-                ).withValues(
-                  alpha: 0.10,
-                ),
+                color: const Color(0xFF24334B).withValues(alpha: 0.10),
                 blurRadius: 16,
-                offset: const Offset(
-                  0,
-                  6,
-                ),
+                offset: const Offset(0, 6),
               ),
             ],
           ),
@@ -2127,49 +1676,32 @@ class _LocationChip
                 width: 29,
                 height: 29,
                 decoration: BoxDecoration(
-                  color: const Color(
-                    0xFFEAF4FF,
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(
-                        9,
-                      ),
+                  color: const Color(0xFFEAF4FF),
+                  borderRadius: BorderRadius.circular(9),
                 ),
                 child: const Icon(
-                  Icons
-                      .location_on_rounded,
-                  color: Color(
-                    0xFF2185F5,
-                  ),
+                  Icons.location_on_rounded,
+                  color: Color(0xFF2185F5),
                   size: 18,
                 ),
               ),
-              const SizedBox(
-                width: 10,
-              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   text,
                   maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                        color: Color(
-                          0xFF172033,
-                        ),
-                        fontWeight:
-                            FontWeight.w700,
-                        fontSize: 13.5,
-                      ),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF172033),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
               const Icon(
-                Icons
-                    .keyboard_arrow_down_rounded,
-                color:
-                    Color(0xFF7B899C),
+                Icons.keyboard_arrow_down_rounded,
+                color: Color(0xFF7B899C),
                 size: 22,
               ),
             ],
@@ -2184,8 +1716,7 @@ class _LocationChip
 // SECTION HEADER
 // ============================================================================
 
-class _SectionHeader
-    extends StatelessWidget {
+class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
     required this.title,
     required this.subtitle,
@@ -2199,25 +1730,20 @@ class _SectionHeader
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment:
-          CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 title,
                 maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 19,
-                  fontWeight:
-                      FontWeight.w800,
-                  color:
-                      Color(0xFF172033),
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF172033),
                   letterSpacing: -0.35,
                   height: 1.1,
                 ),
@@ -2226,13 +1752,10 @@ class _SectionHeader
               Text(
                 subtitle,
                 maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color:
-                      Color(0xFF8A98AB),
-                  fontWeight:
-                      FontWeight.w500,
+                  color: Color(0xFF8A98AB),
+                  fontWeight: FontWeight.w500,
                   fontSize: 11.5,
                   height: 1.2,
                 ),
@@ -2244,37 +1767,21 @@ class _SectionHeader
         TextButton(
           onPressed: onSeeAll,
           style: TextButton.styleFrom(
-            foregroundColor:
-                const Color(
-                  0xFF2185F5,
-                ),
-            minimumSize:
-                const Size(0, 38),
-            padding:
-                const EdgeInsets.symmetric(
-                  horizontal: 8,
-                ),
-            tapTargetSize:
-                MaterialTapTargetSize
-                    .shrinkWrap,
-            textStyle:
-                const TextStyle(
-                  fontWeight:
-                      FontWeight.w700,
-                  fontSize: 12,
-                ),
+            foregroundColor: const Color(0xFF2185F5),
+            minimumSize: const Size(0, 38),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
           ),
           child: const Row(
-            mainAxisSize:
-                MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text('See All'),
               SizedBox(width: 2),
-              Icon(
-                Icons
-                    .arrow_forward_ios_rounded,
-                size: 11,
-              ),
+              Icon(Icons.arrow_forward_ios_rounded, size: 11),
             ],
           ),
         ),
@@ -2287,11 +1794,8 @@ class _SectionHeader
 // FAMOUS SPOT CARD
 // ============================================================================
 
-class _NearbySpotCard
-    extends StatelessWidget {
-  const _NearbySpotCard({
-    required this.spot,
-  });
+class _NearbySpotCard extends StatelessWidget {
+  const _NearbySpotCard({required this.spot});
 
   final _NearbySpot spot;
 
@@ -2301,104 +1805,59 @@ class _NearbySpotCard
       width: 176,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(
-            0xFFE8EDF4,
-          ),
-        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE8EDF4)),
         boxShadow: [
           BoxShadow(
-            color: const Color(
-              0xFF24334B,
-            ).withValues(
-              alpha: 0.09,
-            ),
+            color: const Color(0xFF24334B).withValues(alpha: 0.09),
             blurRadius: 18,
-            offset:
-                const Offset(0, 8),
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius:
-            BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20),
         child: Stack(
           fit: StackFit.expand,
           children: [
             Image.network(
               spot.imageForCard,
               fit: BoxFit.cover,
-              errorBuilder: (_, _, _) =>
-                  Container(
-                    color:
-                        const Color(
-                          0xFFE8EEF5,
-                        ),
-                    child: const Center(
-                      child: Icon(
-                        Icons
-                            .image_outlined,
-                        size: 30,
-                        color: Color(
-                          0xFF93A2B6,
-                        ),
-                      ),
-                    ),
+              errorBuilder: (_, _, _) => Container(
+                color: const Color(0xFFE8EEF5),
+                child: const Center(
+                  child: Icon(
+                    Icons.image_outlined,
+                    size: 30,
+                    color: Color(0xFF93A2B6),
                   ),
+                ),
+              ),
             ),
 
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  gradient:
-                      LinearGradient(
-                        begin: Alignment
-                            .topCenter,
-                        end: Alignment
-                            .bottomCenter,
-                        colors: [
-                          Colors.black
-                              .withValues(
-                                alpha:
-                                    0.04,
-                              ),
-                          Colors.black
-                              .withValues(
-                                alpha:
-                                    0.05,
-                              ),
-                          Colors.black
-                              .withValues(
-                                alpha:
-                                    0.78,
-                              ),
-                        ],
-                        stops: const [
-                          0.0,
-                          0.42,
-                          1.0,
-                        ],
-                      ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.04),
+                      Colors.black.withValues(alpha: 0.05),
+                      Colors.black.withValues(alpha: 0.78),
+                    ],
+                    stops: const [0.0, 0.42, 1.0],
+                  ),
                 ),
               ),
             ),
 
-            Positioned(
-              top: 10,
-              left: 10,
-              child: _CategoryBadge(
-                tag: spot.tag,
-              ),
-            ),
+            Positioned(top: 10, left: 10, child: _CategoryBadge(tag: spot.tag)),
 
             Positioned(
               top: 10,
               right: 10,
-              child: _RatingBadge(
-                rating: spot.rating,
-              ),
+              child: _RatingBadge(rating: spot.rating),
             ),
 
             Positioned(
@@ -2406,96 +1865,58 @@ class _NearbySpotCard
               right: 12,
               bottom: 12,
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     spot.title,
                     maxLines: 2,
-                    overflow:
-                        TextOverflow
-                            .ellipsis,
-                    style:
-                        const TextStyle(
-                          color:
-                              Colors.white,
-                          fontWeight:
-                              FontWeight
-                                  .w800,
-                          fontSize: 15,
-                          height: 1.12,
-                          letterSpacing:
-                              -0.15,
-                        ),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      height: 1.12,
+                      letterSpacing: -0.15,
+                    ),
                   ),
-                  const SizedBox(
-                    height: 6,
-                  ),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       const Icon(
-                        Icons
-                            .near_me_rounded,
-                        color: Color(
-                          0xFF9CCAFF,
-                        ),
+                        Icons.near_me_rounded,
+                        color: Color(0xFF9CCAFF),
                         size: 13,
                       ),
-                      const SizedBox(
-                        width: 4,
-                      ),
+                      const SizedBox(width: 4),
                       Text(
                         spot.distanceText,
-                        style:
-                            const TextStyle(
-                              color: Color(
-                                0xFFB9DAFF,
-                              ),
-                              fontWeight:
-                                  FontWeight
-                                      .w700,
-                              fontSize:
-                                  11,
-                            ),
+                        style: const TextStyle(
+                          color: Color(0xFFB9DAFF),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(
-                    height: 4,
-                  ),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       const Icon(
-                        Icons
-                            .place_outlined,
-                        color:
-                            Colors.white70,
+                        Icons.place_outlined,
+                        color: Colors.white70,
                         size: 12,
                       ),
-                      const SizedBox(
-                        width: 4,
-                      ),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          spot.barangay
-                                  .isEmpty
-                              ? spot.city
-                              : spot.barangay,
+                          spot.barangay.isEmpty ? spot.city : spot.barangay,
                           maxLines: 1,
-                          overflow:
-                              TextOverflow
-                                  .ellipsis,
-                          style:
-                              const TextStyle(
-                                color: Colors
-                                    .white70,
-                                fontWeight:
-                                    FontWeight
-                                        .w500,
-                                fontSize:
-                                    10.5,
-                              ),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 10.5,
+                          ),
                         ),
                       ),
                     ],
@@ -2510,41 +1931,27 @@ class _NearbySpotCard
   }
 }
 
-class _CategoryBadge
-    extends StatelessWidget {
-  const _CategoryBadge({
-    required this.tag,
-  });
+class _CategoryBadge extends StatelessWidget {
+  const _CategoryBadge({required this.tag});
 
   final String tag;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints:
-          const BoxConstraints(
-            maxWidth: 88,
-          ),
-      padding:
-          const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 5,
-          ),
+      constraints: const BoxConstraints(maxWidth: 88),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white
-            .withValues(alpha: 0.94),
-        borderRadius:
-            BorderRadius.circular(100),
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(100),
       ),
       child: Text(
         tag,
         maxLines: 1,
-        overflow:
-            TextOverflow.ellipsis,
+        overflow: TextOverflow.ellipsis,
         style: const TextStyle(
           color: Color(0xFF28364A),
-          fontWeight:
-              FontWeight.w700,
+          fontWeight: FontWeight.w700,
           fontSize: 9.5,
         ),
       ),
@@ -2552,52 +1959,32 @@ class _CategoryBadge
   }
 }
 
-class _RatingBadge
-    extends StatelessWidget {
-  const _RatingBadge({
-    required this.rating,
-  });
+class _RatingBadge extends StatelessWidget {
+  const _RatingBadge({required this.rating});
 
   final double rating;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(
-            horizontal: 7,
-            vertical: 5,
-          ),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.black
-            .withValues(alpha: 0.42),
-        borderRadius:
-            BorderRadius.circular(100),
-        border: Border.all(
-          color: Colors.white
-              .withValues(alpha: 0.13),
-        ),
+        color: Colors.black.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
       ),
       child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.star_rounded,
-            color:
-                Color(0xFFFFD166),
-            size: 13,
-          ),
+          const Icon(Icons.star_rounded, color: Color(0xFFFFD166), size: 13),
           const SizedBox(width: 3),
           Text(
             rating.toStringAsFixed(1),
-            style:
-                const TextStyle(
-                  color: Colors.white,
-                  fontWeight:
-                      FontWeight.w700,
-                  fontSize: 10.5,
-                ),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 10.5,
+            ),
           ),
         ],
       ),
@@ -2609,11 +1996,8 @@ class _RatingBadge
 // PACKAGE CARD
 // ============================================================================
 
-class _SuggestionPackageTile
-    extends StatelessWidget {
-  const _SuggestionPackageTile({
-    required this.pkg,
-  });
+class _SuggestionPackageTile extends StatelessWidget {
+  const _SuggestionPackageTile({required this.pkg});
 
   final _SuggestionPackage pkg;
 
@@ -2623,41 +2007,28 @@ class _SuggestionPackageTile
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(19),
-        border: Border.all(
-          color:
-              const Color(0xFFE8EDF4),
-        ),
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: const Color(0xFFE8EDF4)),
         boxShadow: [
           BoxShadow(
-            color: const Color(
-              0xFF24334B,
-            ).withValues(
-              alpha: 0.055,
-            ),
+            color: const Color(0xFF24334B).withValues(alpha: 0.055),
             blurRadius: 15,
-            offset:
-                const Offset(0, 6),
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Row(
         children: [
           ClipRRect(
-            borderRadius:
-                BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(15),
             child: SizedBox(
               width: 84,
               height: 84,
-              child:
-                  pkg.imageUrl.isNotEmpty
+              child: pkg.imageUrl.isNotEmpty
                   ? Image.network(
                       pkg.imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder:
-                          (_, _, _) =>
-                              const _PackageImageFallback(),
+                      errorBuilder: (_, _, _) => const _PackageImageFallback(),
                     )
                   : const _PackageImageFallback(),
             ),
@@ -2667,46 +2038,32 @@ class _SuggestionPackageTile
 
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   pkg.title,
                   maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                        color: Color(
-                          0xFF172033,
-                        ),
-                        fontWeight:
-                            FontWeight.w800,
-                        fontSize: 14.5,
-                        letterSpacing:
-                            -0.15,
-                      ),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF172033),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                    letterSpacing: -0.15,
+                  ),
                 ),
 
                 const SizedBox(height: 4),
 
                 Text(
-                  pkg.subtitle.isEmpty
-                      ? pkg.city
-                      : pkg.subtitle,
+                  pkg.subtitle.isEmpty ? pkg.city : pkg.subtitle,
                   maxLines: 2,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                        color: Color(
-                          0xFF77869A,
-                        ),
-                        fontWeight:
-                            FontWeight.w500,
-                        height: 1.25,
-                        fontSize: 11.5,
-                      ),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF77869A),
+                    fontWeight: FontWeight.w500,
+                    height: 1.25,
+                    fontSize: 11.5,
+                  ),
                 ),
 
                 const SizedBox(height: 9),
@@ -2715,29 +2072,17 @@ class _SuggestionPackageTile
                   children: [
                     Flexible(
                       child: _MiniInfoPill(
-                        icon: Icons
-                            .payments_outlined,
-                        text:
-                            pkg.priceText,
-                        color:
-                            const Color(
-                              0xFF2185F5,
-                            ),
+                        icon: Icons.payments_outlined,
+                        text: pkg.priceText,
+                        color: const Color(0xFF2185F5),
                       ),
                     ),
-                    const SizedBox(
-                      width: 7,
-                    ),
+                    const SizedBox(width: 7),
                     Flexible(
                       child: _MiniInfoPill(
-                        icon: Icons
-                            .schedule_rounded,
-                        text: pkg
-                            .durationText,
-                        color:
-                            const Color(
-                              0xFF64748B,
-                            ),
+                        icon: Icons.schedule_rounded,
+                        text: pkg.durationText,
+                        color: const Color(0xFF64748B),
                       ),
                     ),
                   ],
@@ -2752,20 +2097,13 @@ class _SuggestionPackageTile
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              color: const Color(
-                0xFFF3F7FB,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                    10,
-                  ),
+              color: const Color(0xFFF3F7FB),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
-              Icons
-                  .arrow_forward_ios_rounded,
+              Icons.arrow_forward_ios_rounded,
               size: 12,
-              color:
-                  Color(0xFF718197),
+              color: Color(0xFF718197),
             ),
           ),
         ],
@@ -2774,8 +2112,7 @@ class _SuggestionPackageTile
   }
 }
 
-class _MiniInfoPill
-    extends StatelessWidget {
+class _MiniInfoPill extends StatelessWidget {
   const _MiniInfoPill({
     required this.icon,
     required this.text,
@@ -2789,42 +2126,25 @@ class _MiniInfoPill
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints:
-          const BoxConstraints(
-            minWidth: 0,
-          ),
-      padding:
-          const EdgeInsets.symmetric(
-            horizontal: 7,
-            vertical: 5,
-          ),
+      constraints: const BoxConstraints(minWidth: 0),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(
-          0xFFF4F7FA,
-        ),
-        borderRadius:
-            BorderRadius.circular(100),
+        color: const Color(0xFFF4F7FA),
+        borderRadius: BorderRadius.circular(100),
       ),
       child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 12,
-            color: color,
-          ),
+          Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
           Flexible(
             child: Text(
               text,
               maxLines: 1,
-              overflow:
-                  TextOverflow.ellipsis,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: color,
-                fontWeight:
-                    FontWeight.w700,
+                fontWeight: FontWeight.w700,
                 fontSize: 10,
               ),
             ),
@@ -2854,80 +2174,48 @@ class _EmptyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.fromLTRB(
-            14,
-            14,
-            15,
-            14,
-          ),
+      padding: const EdgeInsets.fromLTRB(14, 14, 15, 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
-        border: Border.all(
-          color:
-              const Color(0xFFE7EDF4),
-        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7EDF4)),
       ),
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 43,
             height: 43,
             decoration: BoxDecoration(
-              color: const Color(
-                0xFFEDF6FF,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                    13,
-                  ),
+              color: const Color(0xFFEDF6FF),
+              borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(
-              icon,
-              color:
-                  const Color(
-                    0xFF2185F5,
-                  ),
-              size: 22,
-            ),
+            child: Icon(icon, color: const Color(0xFF2185F5), size: 22),
           ),
 
           const SizedBox(width: 12),
 
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style:
-                      const TextStyle(
-                        color: Color(
-                          0xFF172033,
-                        ),
-                        fontWeight:
-                            FontWeight.w700,
-                        fontSize: 13.5,
-                      ),
+                  style: const TextStyle(
+                    color: Color(0xFF172033),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
-                  style:
-                      const TextStyle(
-                        color: Color(
-                          0xFF8391A4,
-                        ),
-                        fontWeight:
-                            FontWeight.w500,
-                        height: 1.3,
-                        fontSize: 11,
-                      ),
+                  style: const TextStyle(
+                    color: Color(0xFF8391A4),
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
@@ -2938,23 +2226,14 @@ class _EmptyCard extends StatelessWidget {
   }
 }
 
-class _PackageImageFallback
-    extends StatelessWidget {
+class _PackageImageFallback extends StatelessWidget {
   const _PackageImageFallback();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(
-        0xFFEAF4FF,
-      ),
-      child: const Icon(
-        Icons
-            .map_outlined,
-        color:
-            Color(0xFF2185F5),
-        size: 28,
-      ),
+      color: const Color(0xFFEAF4FF),
+      child: const Icon(Icons.map_outlined, color: Color(0xFF2185F5), size: 28),
     );
   }
 }
@@ -2963,12 +2242,8 @@ class _PackageImageFallback
 // BUTTON
 // ============================================================================
 
-class _GradientButton
-    extends StatelessWidget {
-  const _GradientButton({
-    required this.text,
-    required this.onPressed,
-  });
+class _GradientButton extends StatelessWidget {
+  const _GradientButton({required this.text, required this.onPressed});
 
   final String text;
   final VoidCallback onPressed;
@@ -2977,61 +2252,38 @@ class _GradientButton
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient:
-            const LinearGradient(
-              begin:
-                  Alignment.centerLeft,
-              end:
-                  Alignment.centerRight,
-              colors: [
-                Color(0xFF45A4FF),
-                Color(0xFF2185F5),
-                Color(0xFF2563EB),
-              ],
-            ),
-        borderRadius:
-            BorderRadius.circular(15),
+        gradient: const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xFF45A4FF), Color(0xFF2185F5), Color(0xFF2563EB)],
+        ),
+        borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: const Color(
-              0xFF2185F5,
-            ).withValues(
-              alpha: 0.20,
-            ),
+            color: const Color(0xFF2185F5).withValues(alpha: 0.20),
             blurRadius: 15,
-            offset:
-                const Offset(0, 7),
+            offset: const Offset(0, 7),
           ),
         ],
       ),
       child: ElevatedButton(
         onPressed: onPressed,
-        style:
-            ElevatedButton.styleFrom(
-              elevation: 0,
-              shadowColor:
-                  Colors.transparent,
-              backgroundColor:
-                  Colors.transparent,
-              foregroundColor:
-                  Colors.white,
-              shape:
-                  RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(
-                          15,
-                        ),
-                  ),
-            ),
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+        ),
         child: Text(
           text,
-          style:
-              const TextStyle(
-                color: Colors.white,
-                fontWeight:
-                    FontWeight.w700,
-                fontSize: 14,
-              ),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+          ),
         ),
       ),
     );
@@ -3042,8 +2294,7 @@ class _GradientButton
 // AI PREFERENCE CARD
 // ============================================================================
 
-class _HomePreferenceEditRow
-    extends StatelessWidget {
+class _HomePreferenceEditRow extends StatelessWidget {
   const _HomePreferenceEditRow({
     required this.hasPreferences,
     required this.prefLocation,
@@ -3063,41 +2314,21 @@ class _HomePreferenceEditRow
     }
 
     final label = [
-      if (prefLocation.trim().isNotEmpty)
-        prefLocation.trim(),
-      if (prefCategories.isNotEmpty)
-        prefCategories
-            .take(3)
-            .join(' • '),
+      if (prefLocation.trim().isNotEmpty) prefLocation.trim(),
+      if (prefCategories.isNotEmpty) prefCategories.take(3).join(' • '),
     ].join(' • ');
 
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.fromLTRB(
-            13,
-            11,
-            9,
-            11,
-          ),
+      padding: const EdgeInsets.fromLTRB(13, 11, 9, 11),
       decoration: BoxDecoration(
-        gradient:
-            const LinearGradient(
-              begin:
-                  Alignment.centerLeft,
-              end:
-                  Alignment.centerRight,
-              colors: [
-                Color(0xFFF0F7FF),
-                Color(0xFFF7FAFE),
-              ],
-            ),
-        borderRadius:
-            BorderRadius.circular(17),
-        border: Border.all(
-          color:
-              const Color(0xFFDCEBFB),
+        gradient: const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xFFF0F7FF), Color(0xFFF7FAFE)],
         ),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: const Color(0xFFDCEBFB)),
       ),
       child: Row(
         children: [
@@ -3105,21 +2336,12 @@ class _HomePreferenceEditRow
             width: 39,
             height: 39,
             decoration: BoxDecoration(
-              color: const Color(
-                0xFF2185F5,
-              ).withValues(
-                alpha: 0.10,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                    12,
-                  ),
+              color: const Color(0xFF2185F5).withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(
-              Icons
-                  .auto_awesome_rounded,
-              color:
-                  Color(0xFF2185F5),
+              Icons.auto_awesome_rounded,
+              color: Color(0xFF2185F5),
               size: 19,
             ),
           ),
@@ -3128,39 +2350,28 @@ class _HomePreferenceEditRow
 
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'Your travel preferences',
                   maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      TextStyle(
-                        color: Color(
-                          0xFF26364B,
-                        ),
-                        fontWeight:
-                            FontWeight.w700,
-                        fontSize: 12.5,
-                      ),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Color(0xFF26364B),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   label,
                   maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                        color: Color(
-                          0xFF8190A3,
-                        ),
-                        fontWeight:
-                            FontWeight.w500,
-                        fontSize: 10.5,
-                      ),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF8190A3),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 10.5,
+                  ),
                 ),
               ],
             ),
@@ -3168,35 +2379,16 @@ class _HomePreferenceEditRow
 
           TextButton(
             onPressed: onEdit,
-            style:
-                TextButton.styleFrom(
-                  foregroundColor:
-                      const Color(
-                        0xFF2185F5,
-                      ),
-                  padding:
-                      const EdgeInsets
-                          .symmetric(
-                            horizontal: 8,
-                          ),
-                  minimumSize:
-                      const Size(
-                        0,
-                        34,
-                      ),
-                  tapTargetSize:
-                      MaterialTapTargetSize
-                          .shrinkWrap,
-                ),
-            child:
-                const Text(
-                  'Edit',
-                  style: TextStyle(
-                    fontWeight:
-                        FontWeight.w700,
-                    fontSize: 11.5,
-                  ),
-                ),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF2185F5),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 34),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Edit',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+            ),
           ),
         ],
       ),
@@ -3204,11 +2396,8 @@ class _HomePreferenceEditRow
   }
 }
 
-class _PreferenceEmptyState
-    extends StatelessWidget {
-  const _PreferenceEmptyState({
-    required this.onSetPreferences,
-  });
+class _PreferenceEmptyState extends StatelessWidget {
+  const _PreferenceEmptyState({required this.onSetPreferences});
 
   final VoidCallback onSetPreferences;
 
@@ -3216,118 +2405,66 @@ class _PreferenceEmptyState
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.fromLTRB(
-            16,
-            15,
-            16,
-            15,
-          ),
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(19),
-        border: Border.all(
-          color:
-              const Color(0xFFE5ECF4),
-        ),
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: const Color(0xFFE5ECF4)),
         boxShadow: [
           BoxShadow(
-            color: const Color(
-              0xFF24334B,
-            ).withValues(
-              alpha: 0.05,
-            ),
+            color: const Color(0xFF24334B).withValues(alpha: 0.05),
             blurRadius: 14,
-            offset:
-                const Offset(0, 6),
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         children: [
           Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  gradient:
-                      const LinearGradient(
-                        begin: Alignment
-                            .topLeft,
-                        end: Alignment
-                            .bottomRight,
-                        colors: [
-                          Color(
-                            0xFFEAF5FF,
-                          ),
-                          Color(
-                            0xFFDDEEFF,
-                          ),
-                        ],
-                      ),
-                  borderRadius:
-                      BorderRadius.circular(
-                        14,
-                      ),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFFEAF5FF), Color(0xFFDDEEFF)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Icon(
-                  Icons
-                      .auto_awesome_rounded,
-                  color: Color(
-                    0xFF2185F5,
-                  ),
+                  Icons.auto_awesome_rounded,
+                  color: Color(0xFF2185F5),
                   size: 22,
                 ),
               ),
 
-              const SizedBox(
-                width: 12,
-              ),
+              const SizedBox(width: 12),
 
               const Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment
-                          .start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Make TourisTrike yours',
-                      style:
-                          TextStyle(
-                            color: Color(
-                              0xFF172033,
-                            ),
-                            fontWeight:
-                                FontWeight
-                                    .w800,
-                            fontSize:
-                                15,
-                            letterSpacing:
-                                -0.15,
-                          ),
+                      style: TextStyle(
+                        color: Color(0xFF172033),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        letterSpacing: -0.15,
+                      ),
                     ),
-                    SizedBox(
-                      height: 4,
-                    ),
+                    SizedBox(height: 4),
                     Text(
                       'Choose the places you enjoy and we\'ll personalize your travel suggestions.',
-                      style:
-                          TextStyle(
-                            color: Color(
-                              0xFF79889B,
-                            ),
-                            fontWeight:
-                                FontWeight
-                                    .w500,
-                            height:
-                                1.32,
-                            fontSize:
-                                11.5,
-                          ),
+                      style: TextStyle(
+                        color: Color(0xFF79889B),
+                        fontWeight: FontWeight.w500,
+                        height: 1.32,
+                        fontSize: 11.5,
+                      ),
                     ),
                   ],
                 ),
@@ -3341,10 +2478,8 @@ class _PreferenceEmptyState
             width: double.infinity,
             height: 43,
             child: _GradientButton(
-              text:
-                  'Set My Preferences',
-              onPressed:
-                  onSetPreferences,
+              text: 'Set My Preferences',
+              onPressed: onSetPreferences,
             ),
           ),
         ],
@@ -3357,8 +2492,7 @@ class _PreferenceEmptyState
 // RECOMMENDATION SECTION
 // ============================================================================
 
-class _RecommendedSection
-    extends StatelessWidget {
+class _RecommendedSection extends StatelessWidget {
   const _RecommendedSection({
     required this.title,
     required this.subtitle,
@@ -3380,83 +2514,50 @@ class _RecommendedSection
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          crossAxisAlignment:
-              CrossAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
               width: 37,
               height: 37,
               decoration: BoxDecoration(
-                color: iconColor
-                    .withValues(
-                      alpha: 0.10,
-                    ),
-                borderRadius:
-                    BorderRadius.circular(
-                      12,
-                    ),
+                color: iconColor.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                icon,
-                color: iconColor,
-                size: 19,
-              ),
+              child: Icon(icon, color: iconColor, size: 19),
             ),
 
             const SizedBox(width: 10),
 
             Expanded(
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
                     maxLines: 1,
-                    overflow:
-                        TextOverflow
-                            .ellipsis,
-                    style:
-                        const TextStyle(
-                          color: Color(
-                            0xFF172033,
-                          ),
-                          fontWeight:
-                              FontWeight
-                                  .w800,
-                          fontSize: 18,
-                          letterSpacing:
-                              -0.3,
-                          height: 1.1,
-                        ),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF172033),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      letterSpacing: -0.3,
+                      height: 1.1,
+                    ),
                   ),
-                  const SizedBox(
-                    height: 3,
-                  ),
+                  const SizedBox(height: 3),
                   Text(
                     subtitle,
                     maxLines: 2,
-                    overflow:
-                        TextOverflow
-                            .ellipsis,
-                    style:
-                        const TextStyle(
-                          color: Color(
-                            0xFF8A98AB,
-                          ),
-                          fontWeight:
-                              FontWeight
-                                  .w500,
-                          fontSize:
-                              11.5,
-                          height:
-                              1.25,
-                        ),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF8A98AB),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 11.5,
+                      height: 1.25,
+                    ),
                   ),
                 ],
               ),
@@ -3467,51 +2568,31 @@ class _RecommendedSection
         const SizedBox(height: 12),
 
         if (spots.isEmpty)
-          _EmptyCard(
-            icon: icon,
-            title: emptyTitle,
-            subtitle: emptySubtitle,
-          )
+          _EmptyCard(icon: icon, title: emptyTitle, subtitle: emptySubtitle)
         else
           SizedBox(
             height: 160,
-            child:
-                ListView.separated(
-                  physics:
-                      const BouncingScrollPhysics(),
-                  clipBehavior:
-                      Clip.none,
-                  scrollDirection:
-                      Axis.horizontal,
-                  itemCount:
-                      spots.length,
-                  separatorBuilder:
-                      (_, _) =>
-                          const SizedBox(
-                            width: 11,
-                          ),
-                  itemBuilder: (_, i) =>
-                      _AiSpotMiniCard(
-                        spot: spots[i],
-                        matchLabel:
-                            title ==
-                                'Recommended For You'
-                            ? 'For you'
-                            : 'Discover',
-                      ),
-                ),
+            child: ListView.separated(
+              physics: const BouncingScrollPhysics(),
+              clipBehavior: Clip.none,
+              scrollDirection: Axis.horizontal,
+              itemCount: spots.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 11),
+              itemBuilder: (_, i) => _AiSpotMiniCard(
+                spot: spots[i],
+                matchLabel: title == 'Recommended For You'
+                    ? 'For you'
+                    : 'Discover',
+              ),
+            ),
           ),
       ],
     );
   }
 }
 
-class _AiSpotMiniCard
-    extends StatelessWidget {
-  const _AiSpotMiniCard({
-    required this.spot,
-    required this.matchLabel,
-  });
+class _AiSpotMiniCard extends StatelessWidget {
+  const _AiSpotMiniCard({required this.spot, required this.matchLabel});
 
   final _NearbySpot spot;
   final String matchLabel;
@@ -3522,28 +2603,18 @@ class _AiSpotMiniCard
       width: 245,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
-        border: Border.all(
-          color:
-              const Color(0xFFE5ECF4),
-        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5ECF4)),
         boxShadow: [
           BoxShadow(
-            color: const Color(
-              0xFF24334B,
-            ).withValues(
-              alpha: 0.055,
-            ),
+            color: const Color(0xFF24334B).withValues(alpha: 0.055),
             blurRadius: 15,
-            offset:
-                const Offset(0, 7),
+            offset: const Offset(0, 7),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius:
-            BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(18),
         child: Row(
           children: [
             SizedBox(
@@ -3555,46 +2626,26 @@ class _AiSpotMiniCard
                   Image.network(
                     spot.imageForCard,
                     fit: BoxFit.cover,
-                    errorBuilder:
-                        (_, _, _) =>
-                            Container(
-                              color:
-                                  const Color(
-                                    0xFFEAF4FF,
-                                  ),
-                              child: const Icon(
-                                Icons
-                                    .image_outlined,
-                                color: Color(
-                                  0xFF2185F5,
-                                ),
-                              ),
-                            ),
+                    errorBuilder: (_, _, _) => Container(
+                      color: const Color(0xFFEAF4FF),
+                      child: const Icon(
+                        Icons.image_outlined,
+                        color: Color(0xFF2185F5),
+                      ),
+                    ),
                   ),
                   Positioned.fill(
                     child: DecoratedBox(
-                      decoration:
-                          BoxDecoration(
-                            gradient:
-                                LinearGradient(
-                                  begin:
-                                      Alignment
-                                          .centerLeft,
-                                  end:
-                                      Alignment
-                                          .centerRight,
-                                  colors: [
-                                    Colors
-                                        .transparent,
-                                    Colors
-                                        .black
-                                        .withValues(
-                                          alpha:
-                                              0.04,
-                                        ),
-                                  ],
-                                ),
-                          ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.04),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -3603,127 +2654,66 @@ class _AiSpotMiniCard
 
             Expanded(
               child: Padding(
-                padding:
-                    const EdgeInsets
-                        .fromLTRB(
-                          11,
-                          10,
-                          11,
-                          10,
-                        ),
+                padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment
-                          .start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding:
-                          const EdgeInsets
-                              .symmetric(
-                                horizontal:
-                                    7,
-                                vertical:
-                                    4,
-                              ),
-                      decoration:
-                          BoxDecoration(
-                            color:
-                                const Color(
-                                  0xFF2185F5,
-                                ).withValues(
-                                  alpha:
-                                      0.09,
-                                ),
-                            borderRadius:
-                                BorderRadius
-                                    .circular(
-                                      100,
-                                    ),
-                          ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2185F5).withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
                       child: Row(
-                        mainAxisSize:
-                            MainAxisSize
-                                .min,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(
-                            Icons
-                                .auto_awesome_rounded,
-                            color: Color(
-                              0xFF2185F5,
-                            ),
+                            Icons.auto_awesome_rounded,
+                            color: Color(0xFF2185F5),
                             size: 11,
                           ),
-                          const SizedBox(
-                            width: 3,
-                          ),
+                          const SizedBox(width: 3),
                           Text(
                             matchLabel,
-                            style:
-                                const TextStyle(
-                                  color:
-                                      Color(
-                                        0xFF2185F5,
-                                      ),
-                                  fontWeight:
-                                      FontWeight
-                                          .w700,
-                                  fontSize:
-                                      9,
-                                ),
+                            style: const TextStyle(
+                              color: Color(0xFF2185F5),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 9,
+                            ),
                           ),
                         ],
                       ),
                     ),
 
-                    const SizedBox(
-                      height: 7,
-                    ),
+                    const SizedBox(height: 7),
 
                     Text(
                       spot.title,
                       maxLines: 2,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                      style:
-                          const TextStyle(
-                            color: Color(
-                              0xFF172033,
-                            ),
-                            fontWeight:
-                                FontWeight
-                                    .w800,
-                            fontSize:
-                                13.5,
-                            height: 1.15,
-                            letterSpacing:
-                                -0.1,
-                          ),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF172033),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13.5,
+                        height: 1.15,
+                        letterSpacing: -0.1,
+                      ),
                     ),
 
-                    const SizedBox(
-                      height: 5,
-                    ),
+                    const SizedBox(height: 5),
 
                     Text(
-                      spot.tag.isEmpty
-                          ? spot.city
-                          : spot.tag,
+                      spot.tag.isEmpty ? spot.city : spot.tag,
                       maxLines: 1,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                      style:
-                          const TextStyle(
-                            color: Color(
-                              0xFF7F8EA1,
-                            ),
-                            fontWeight:
-                                FontWeight
-                                    .w500,
-                            fontSize:
-                                10.5,
-                          ),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF7F8EA1),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 10.5,
+                      ),
                     ),
 
                     const Spacer(),
@@ -3731,55 +2721,30 @@ class _AiSpotMiniCard
                     Row(
                       children: [
                         const Icon(
-                          Icons
-                              .star_rounded,
-                          color: Color(
-                            0xFFFFC857,
-                          ),
+                          Icons.star_rounded,
+                          color: Color(0xFFFFC857),
                           size: 14,
                         ),
-                        const SizedBox(
-                          width: 3,
-                        ),
+                        const SizedBox(width: 3),
                         Text(
-                          spot.rating
-                              .toStringAsFixed(
-                                1,
-                              ),
-                          style:
-                              const TextStyle(
-                                color: Color(
-                                  0xFF26364B,
-                                ),
-                                fontWeight:
-                                    FontWeight
-                                        .w700,
-                                fontSize:
-                                    10.5,
-                              ),
+                          spot.rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Color(0xFF26364B),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
                         ),
-                        const SizedBox(
-                          width: 7,
-                        ),
+                        const SizedBox(width: 7),
                         Expanded(
                           child: Text(
                             spot.distanceText,
                             maxLines: 1,
-                            overflow:
-                                TextOverflow
-                                    .ellipsis,
-                            style:
-                                const TextStyle(
-                                  color:
-                                      Color(
-                                        0xFF95A2B3,
-                                      ),
-                                  fontWeight:
-                                      FontWeight
-                                          .w500,
-                                  fontSize:
-                                      9.5,
-                                ),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF95A2B3),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 9.5,
+                            ),
                           ),
                         ),
                       ],
@@ -3799,8 +2764,7 @@ class _AiSpotMiniCard
 // PREFERENCES SHEET
 // ============================================================================
 
-class _PreferencesSheet
-    extends StatefulWidget {
+class _PreferencesSheet extends StatefulWidget {
   const _PreferencesSheet({
     required this.initialLocation,
     required this.initialCategories,
@@ -3808,23 +2772,17 @@ class _PreferencesSheet
   });
 
   final String initialLocation;
-  final List<String>
-  initialCategories;
+  final List<String> initialCategories;
   final bool forceSetup;
 
   @override
-  State<_PreferencesSheet>
-  createState() =>
-      _PreferencesSheetState();
+  State<_PreferencesSheet> createState() => _PreferencesSheetState();
 }
 
-class _PreferencesSheetState
-    extends State<_PreferencesSheet> {
-  late TextEditingController
-  _locationCtrl;
+class _PreferencesSheetState extends State<_PreferencesSheet> {
+  late TextEditingController _locationCtrl;
 
-  late List<String>
-  _selectedCategories;
+  late List<String> _selectedCategories;
 
   static const _allCategories = [
     'Nature',
@@ -3844,16 +2802,9 @@ class _PreferencesSheetState
   void initState() {
     super.initState();
 
-    _locationCtrl =
-        TextEditingController(
-          text:
-              widget.initialLocation,
-        );
+    _locationCtrl = TextEditingController(text: widget.initialLocation);
 
-    _selectedCategories =
-        List.from(
-          widget.initialCategories,
-        );
+    _selectedCategories = List.from(widget.initialCategories);
   }
 
   @override
@@ -3864,112 +2815,56 @@ class _PreferencesSheetState
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset =
-        MediaQuery.of(
-          context,
-        ).viewInsets.bottom;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        14,
-        20,
-        20 + bottomInset,
+      padding: EdgeInsets.fromLTRB(20, 14, 20, 20 + bottomInset),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      decoration:
-          const BoxDecoration(
-            color: Colors.white,
-            borderRadius:
-                BorderRadius.vertical(
-                  top:
-                      Radius.circular(
-                        28,
-                      ),
-                ),
-          ),
       child: SafeArea(
         top: false,
         child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(
               child: Container(
                 width: 42,
                 height: 4,
-                decoration:
-                    BoxDecoration(
-                      color:
-                          const Color(
-                            0xFFDCE4ED,
-                          ),
-                      borderRadius:
-                          BorderRadius
-                              .circular(
-                                100,
-                              ),
-                    ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDCE4ED),
+                  borderRadius: BorderRadius.circular(100),
+                ),
               ),
             ),
 
             const SizedBox(height: 18),
 
             Row(
-              crossAxisAlignment:
-                  CrossAxisAlignment
-                      .center,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
                   width: 45,
                   height: 45,
-                  decoration:
-                      BoxDecoration(
-                        gradient:
-                            const LinearGradient(
-                              begin:
-                                  Alignment
-                                      .topLeft,
-                              end:
-                                  Alignment
-                                      .bottomRight,
-                              colors: [
-                                Color(
-                                  0xFF4BA8FF,
-                                ),
-                                Color(
-                                  0xFF2185F5,
-                                ),
-                              ],
-                            ),
-                        borderRadius:
-                            BorderRadius
-                                .circular(
-                                  14,
-                                ),
-                        boxShadow: [
-                          BoxShadow(
-                            color:
-                                const Color(
-                                  0xFF2185F5,
-                                ).withValues(
-                                  alpha:
-                                      0.18,
-                                ),
-                            blurRadius:
-                                12,
-                            offset:
-                                const Offset(
-                                  0,
-                                  5,
-                                ),
-                          ),
-                        ],
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF4BA8FF), Color(0xFF2185F5)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF2185F5).withValues(alpha: 0.18),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
                       ),
+                    ],
+                  ),
                   child: const Icon(
-                    Icons
-                        .auto_awesome_rounded,
+                    Icons.auto_awesome_rounded,
                     color: Colors.white,
                     size: 22,
                   ),
@@ -3979,44 +2874,28 @@ class _PreferencesSheetState
 
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment
-                            .start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         widget.forceSetup
                             ? 'Personalize Your Trip'
                             : 'Travel Preferences',
-                        style:
-                            const TextStyle(
-                              fontSize: 18,
-                              fontWeight:
-                                  FontWeight
-                                      .w800,
-                              color: Color(
-                                0xFF172033,
-                              ),
-                              letterSpacing:
-                                  -0.3,
-                            ),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF172033),
+                          letterSpacing: -0.3,
+                        ),
                       ),
-                      const SizedBox(
-                        height: 3,
-                      ),
+                      const SizedBox(height: 3),
                       const Text(
                         'Choose what you enjoy so TourisTrike can recommend better places.',
-                        style:
-                            TextStyle(
-                              fontSize:
-                                  11.5,
-                              color: Color(
-                                0xFF7B899C,
-                              ),
-                              fontWeight:
-                                  FontWeight
-                                      .w500,
-                              height: 1.3,
-                            ),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF7B899C),
+                          fontWeight: FontWeight.w500,
+                          height: 1.3,
+                        ),
                       ),
                     ],
                   ),
@@ -4029,10 +2908,8 @@ class _PreferencesSheetState
             const Text(
               'What do you love exploring?',
               style: TextStyle(
-                fontWeight:
-                    FontWeight.w800,
-                color:
-                    Color(0xFF172033),
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF172033),
                 fontSize: 14.5,
                 letterSpacing: -0.1,
               ),
@@ -4043,11 +2920,9 @@ class _PreferencesSheetState
             const Text(
               'Select one or more interests.',
               style: TextStyle(
-                color:
-                    Color(0xFF8A98AB),
+                color: Color(0xFF8A98AB),
                 fontSize: 11.5,
-                fontWeight:
-                    FontWeight.w500,
+                fontWeight: FontWeight.w500,
               ),
             ),
 
@@ -4056,135 +2931,74 @@ class _PreferencesSheetState
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children:
-                  _allCategories.map((
-                    cat,
-                  ) {
-                    final selected =
-                        _selectedCategories
-                            .contains(cat);
+              children: _allCategories.map((cat) {
+                final selected = _selectedCategories.contains(cat);
 
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          if (selected) {
-                            _selectedCategories
-                                .remove(
-                                  cat,
-                                );
-                          } else {
-                            _selectedCategories
-                                .add(
-                                  cat,
-                                );
-                          }
-                        });
-                      },
-                      child:
-                          AnimatedContainer(
-                            duration:
-                                const Duration(
-                                  milliseconds:
-                                      160,
-                                ),
-                            curve: Curves
-                                .easeOut,
-                            padding:
-                                const EdgeInsets
-                                    .symmetric(
-                                      horizontal:
-                                          12,
-                                      vertical:
-                                          8,
-                                    ),
-                            decoration:
-                                BoxDecoration(
-                                  color:
-                                      selected
-                                      ? const Color(
-                                          0xFF2185F5,
-                                        )
-                                      : const Color(
-                                          0xFFF5F7FA,
-                                        ),
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(
-                                            100,
-                                          ),
-                                  border:
-                                      Border.all(
-                                        color:
-                                            selected
-                                            ? const Color(
-                                                0xFF2185F5,
-                                              )
-                                            : const Color(
-                                                0xFFE2E8F0,
-                                              ),
-                                      ),
-                                  boxShadow:
-                                      selected
-                                      ? [
-                                          BoxShadow(
-                                            color:
-                                                const Color(
-                                                  0xFF2185F5,
-                                                ).withValues(
-                                                  alpha:
-                                                      0.14,
-                                                ),
-                                            blurRadius:
-                                                8,
-                                            offset:
-                                                const Offset(
-                                                  0,
-                                                  3,
-                                                ),
-                                          ),
-                                        ]
-                                      : null,
-                                ),
-                            child: Row(
-                              mainAxisSize:
-                                  MainAxisSize
-                                      .min,
-                              children: [
-                                if (selected) ...[
-                                  const Icon(
-                                    Icons
-                                        .check_rounded,
-                                    color:
-                                        Colors.white,
-                                    size: 14,
-                                  ),
-                                  const SizedBox(
-                                    width: 4,
-                                  ),
-                                ],
-                                Text(
-                                  cat,
-                                  style:
-                                      TextStyle(
-                                        fontWeight:
-                                            FontWeight
-                                                .w600,
-                                        fontSize:
-                                            12,
-                                        color:
-                                            selected
-                                            ? Colors
-                                                  .white
-                                            : const Color(
-                                                0xFF627186,
-                                              ),
-                                      ),
-                                ),
-                              ],
-                            ),
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (selected) {
+                        _selectedCategories.remove(cat);
+                      } else {
+                        _selectedCategories.add(cat);
+                      }
+                    });
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOut,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? const Color(0xFF2185F5)
+                          : const Color(0xFFF5F7FA),
+                      borderRadius: BorderRadius.circular(100),
+                      border: Border.all(
+                        color: selected
+                            ? const Color(0xFF2185F5)
+                            : const Color(0xFFE2E8F0),
+                      ),
+                      boxShadow: selected
+                          ? [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFF2185F5,
+                                ).withValues(alpha: 0.14),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (selected) ...[
+                          const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 14,
                           ),
-                    );
-                  }).toList(),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          cat,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: selected
+                                ? Colors.white
+                                : const Color(0xFF627186),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
 
             const SizedBox(height: 24),
@@ -4193,110 +3007,62 @@ class _PreferencesSheetState
               width: double.infinity,
               height: 50,
               child: DecoratedBox(
-                decoration:
-                    BoxDecoration(
-                      gradient:
-                          const LinearGradient(
-                            begin: Alignment
-                                .centerLeft,
-                            end: Alignment
-                                .centerRight,
-                            colors: [
-                              Color(
-                                0xFF45A4FF,
-                              ),
-                              Color(
-                                0xFF2185F5,
-                              ),
-                              Color(
-                                0xFF2563EB,
-                              ),
-                            ],
-                          ),
-                      borderRadius:
-                          BorderRadius
-                              .circular(
-                                15,
-                              ),
-                      boxShadow: [
-                        BoxShadow(
-                          color:
-                              const Color(
-                                0xFF2185F5,
-                              ).withValues(
-                                alpha:
-                                    0.20,
-                              ),
-                          blurRadius:
-                              15,
-                          offset:
-                              const Offset(
-                                0,
-                                7,
-                              ),
-                        ),
-                      ],
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Color(0xFF45A4FF),
+                      Color(0xFF2185F5),
+                      Color(0xFF2563EB),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(15),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2185F5).withValues(alpha: 0.20),
+                      blurRadius: 15,
+                      offset: const Offset(0, 7),
                     ),
+                  ],
+                ),
                 child: ElevatedButton(
                   onPressed: () {
-                    if (widget
-                            .forceSetup &&
-                        _selectedCategories
-                            .isEmpty) {
-                      ScaffoldMessenger
-                          .of(context)
-                          .showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Please choose at least one preferred kind of place.',
-                              ),
-                            ),
-                          );
+                    if (widget.forceSetup && _selectedCategories.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Please choose at least one preferred kind of place.',
+                          ),
+                        ),
+                      );
 
                       return;
                     }
 
-                    Navigator.pop(
-                      context,
-                      {
-                        'location': '',
-                        'categories':
-                            _selectedCategories,
-                      },
-                    );
+                    Navigator.pop(context, {
+                      'location': '',
+                      'categories': _selectedCategories,
+                    });
                   },
-                  style:
-                      ElevatedButton
-                          .styleFrom(
-                            elevation: 0,
-                            backgroundColor:
-                                Colors
-                                    .transparent,
-                            shadowColor:
-                                Colors
-                                    .transparent,
-                            foregroundColor:
-                                Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(
-                                    15,
-                                  ),
-                            ),
-                          ),
+                  style: ElevatedButton.styleFrom(
+                    elevation: 0,
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                  ),
                   child: Text(
                     widget.forceSetup
                         ? 'Show My Suggestions'
                         : 'Save Preferences',
-                    style:
-                        const TextStyle(
-                          color:
-                              Colors.white,
-                          fontWeight:
-                              FontWeight
-                                  .w700,
-                          fontSize: 14.5,
-                        ),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                    ),
                   ),
                 ),
               ),
@@ -4321,8 +3087,8 @@ class _HomeData {
   final bool isInsideBulacan;
   final List<_NearbySpot> allSpots;
   final List<_NearbySpot> famousSpots;
-  final List<_SuggestionPackage>
-  suggestionPackages;
+  final List<_SuggestionPackage> suggestionPackages;
+  final List<TouristAiRecommendationSpot> recommendationSpots;
 
   _HomeData({
     required this.fullName,
@@ -4334,6 +3100,7 @@ class _HomeData {
     required this.allSpots,
     required this.famousSpots,
     required this.suggestionPackages,
+    required this.recommendationSpots,
   });
 }
 
@@ -4341,132 +3108,39 @@ class _MunicipalityArea {
   final String name;
   final LatLng center;
 
-  const _MunicipalityArea({
-    required this.name,
-    required this.center,
-  });
+  const _MunicipalityArea({required this.name, required this.center});
 }
 
 const _bulacanMunicipalities = [
-  _MunicipalityArea(
-    name: 'Bustos',
-    center:
-        LatLng(14.9597, 120.9206),
-  ),
-  _MunicipalityArea(
-    name: 'Baliwag',
-    center:
-        LatLng(14.9547, 120.8969),
-  ),
-  _MunicipalityArea(
-    name: 'Malolos',
-    center:
-        LatLng(14.8434, 120.8114),
-  ),
-  _MunicipalityArea(
-    name: 'Pulilan',
-    center:
-        LatLng(14.9017, 120.8492),
-  ),
-  _MunicipalityArea(
-    name: 'Plaridel',
-    center:
-        LatLng(14.8873, 120.8572),
-  ),
-  _MunicipalityArea(
-    name: 'San Rafael',
-    center:
-        LatLng(15.0265, 120.9283),
-  ),
-  _MunicipalityArea(
-    name: 'San Ildefonso',
-    center:
-        LatLng(15.0809, 120.9410),
-  ),
-  _MunicipalityArea(
-    name: 'San Miguel',
-    center:
-        LatLng(15.1458, 120.9783),
-  ),
-  _MunicipalityArea(
-    name: 'Calumpit',
-    center:
-        LatLng(14.9164, 120.7658),
-  ),
-  _MunicipalityArea(
-    name: 'Hagonoy',
-    center:
-        LatLng(14.8340, 120.7328),
-  ),
-  _MunicipalityArea(
-    name: 'Paombong',
-    center:
-        LatLng(14.8319, 120.7897),
-  ),
-  _MunicipalityArea(
-    name: 'Guiguinto',
-    center:
-        LatLng(14.8333, 120.8833),
-  ),
-  _MunicipalityArea(
-    name: 'Balagtas',
-    center:
-        LatLng(14.8167, 120.8667),
-  ),
-  _MunicipalityArea(
-    name: 'Bocaue',
-    center:
-        LatLng(14.7983, 120.9261),
-  ),
-  _MunicipalityArea(
-    name: 'Marilao',
-    center:
-        LatLng(14.7581, 120.9481),
-  ),
-  _MunicipalityArea(
-    name: 'Meycauayan',
-    center:
-        LatLng(14.7369, 120.9608),
-  ),
-  _MunicipalityArea(
-    name: 'Norzagaray',
-    center:
-        LatLng(14.9109, 121.0493),
-  ),
-  _MunicipalityArea(
-    name: 'Santa Maria',
-    center:
-        LatLng(14.8208, 120.9636),
-  ),
-  _MunicipalityArea(
-    name: 'Angat',
-    center:
-        LatLng(14.9285, 121.0292),
-  ),
-  _MunicipalityArea(
-    name: 'Pandi',
-    center:
-        LatLng(14.8650, 120.9572),
-  ),
-  _MunicipalityArea(
-    name: 'Obando',
-    center:
-        LatLng(14.7098, 120.9362),
-  ),
-  _MunicipalityArea(
-    name: 'Bulakan',
-    center:
-        LatLng(14.7928, 120.8789),
-  ),
+  _MunicipalityArea(name: 'Bustos', center: LatLng(14.9597, 120.9206)),
+  _MunicipalityArea(name: 'Baliwag', center: LatLng(14.9547, 120.8969)),
+  _MunicipalityArea(name: 'Malolos', center: LatLng(14.8434, 120.8114)),
+  _MunicipalityArea(name: 'Pulilan', center: LatLng(14.9017, 120.8492)),
+  _MunicipalityArea(name: 'Plaridel', center: LatLng(14.8873, 120.8572)),
+  _MunicipalityArea(name: 'San Rafael', center: LatLng(15.0265, 120.9283)),
+  _MunicipalityArea(name: 'San Ildefonso', center: LatLng(15.0809, 120.9410)),
+  _MunicipalityArea(name: 'San Miguel', center: LatLng(15.1458, 120.9783)),
+  _MunicipalityArea(name: 'Calumpit', center: LatLng(14.9164, 120.7658)),
+  _MunicipalityArea(name: 'Hagonoy', center: LatLng(14.8340, 120.7328)),
+  _MunicipalityArea(name: 'Paombong', center: LatLng(14.8319, 120.7897)),
+  _MunicipalityArea(name: 'Guiguinto', center: LatLng(14.8333, 120.8833)),
+  _MunicipalityArea(name: 'Balagtas', center: LatLng(14.8167, 120.8667)),
+  _MunicipalityArea(name: 'Bocaue', center: LatLng(14.7983, 120.9261)),
+  _MunicipalityArea(name: 'Marilao', center: LatLng(14.7581, 120.9481)),
+  _MunicipalityArea(name: 'Meycauayan', center: LatLng(14.7369, 120.9608)),
+  _MunicipalityArea(name: 'Norzagaray', center: LatLng(14.9109, 121.0493)),
+  _MunicipalityArea(name: 'Santa Maria', center: LatLng(14.8208, 120.9636)),
+  _MunicipalityArea(name: 'Angat', center: LatLng(14.9285, 121.0292)),
+  _MunicipalityArea(name: 'Pandi', center: LatLng(14.8650, 120.9572)),
+  _MunicipalityArea(name: 'Obando', center: LatLng(14.7098, 120.9362)),
+  _MunicipalityArea(name: 'Bulakan', center: LatLng(14.7928, 120.8789)),
   _MunicipalityArea(
     name: 'Dona Remedios Trinidad',
-    center:
-        LatLng(15.0005, 121.0838),
+    center: LatLng(15.0005, 121.0838),
   ),
   _MunicipalityArea(
     name: 'San Jose del Monte',
-    center:
-        LatLng(14.8139, 121.0453),
+    center: LatLng(14.8139, 121.0453),
   ),
 ];
 
@@ -4497,9 +3171,7 @@ class _NearbySpot {
     required this.distanceKm,
   });
 
-  factory _NearbySpot.fromRecommendationSpot(
-    TouristAiRecommendationSpot spot,
-  ) {
+  factory _NearbySpot.fromRecommendationSpot(TouristAiRecommendationSpot spot) {
     return _NearbySpot(
       id: spot.id,
       title: spot.title,
@@ -4515,8 +3187,7 @@ class _NearbySpot {
     );
   }
 
-  TouristAiRecommendationSpot
-  toRecommendationSpot() {
+  TouristAiRecommendationSpot toRecommendationSpot() {
     return TouristAiRecommendationSpot(
       id: id,
       title: title,
@@ -4547,11 +3218,10 @@ class _NearbySpot {
       return imageUrl;
     }
 
-    return CitySpotSuggestionService
-        .buildStaticMapUrl(
-          latitude: latitude,
-          longitude: longitude,
-        );
+    return CitySpotSuggestionService.buildStaticMapUrl(
+      latitude: latitude,
+      longitude: longitude,
+    );
   }
 }
 
@@ -4574,38 +3244,20 @@ class _SuggestionPackage {
     required this.imageUrl,
   });
 
-  factory _SuggestionPackage.fromMap(
-    Map<String, dynamic> m,
-  ) {
-    final cover =
-        (m['cover_image_url']
-            as String?) ??
-        '';
+  factory _SuggestionPackage.fromMap(Map<String, dynamic> m) {
+    final cover = (m['cover_image_url'] as String?) ?? '';
 
     final image = cover.isNotEmpty
         ? cover
-        : ((m['image_url']
-                  as String?) ??
-              '');
+        : ((m['image_url'] as String?) ?? '');
 
     return _SuggestionPackage(
       id: m['id'],
-      title:
-          (m['title'] as String?) ??
-          'Untitled Package',
-      subtitle:
-          (m['subtitle'] as String?) ??
-          '',
-      city:
-          (m['city'] as String?) ?? '',
-      priceText:
-          (m['price_text']
-              as String?) ??
-          'Ask admin',
-      durationText:
-          (m['duration_text']
-              as String?) ??
-          'Flexible',
+      title: (m['title'] as String?) ?? 'Untitled Package',
+      subtitle: (m['subtitle'] as String?) ?? '',
+      city: (m['city'] as String?) ?? '',
+      priceText: (m['price_text'] as String?) ?? 'Ask admin',
+      durationText: (m['duration_text'] as String?) ?? 'Flexible',
       imageUrl: image,
     );
   }

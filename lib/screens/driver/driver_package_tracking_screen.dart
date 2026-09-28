@@ -1,5 +1,8 @@
 import '../../core/services/booking_driver_markers.dart';
 import '../../core/models/tour_tracking_status.dart';
+import '../../core/models/driver_tour_action.dart';
+import 'package:touristrike/widgets/driver_tour_slide_action.dart';
+import 'package:touristrike/widgets/driver_tour_payment_required_card.dart';
 import 'dart:async';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
 import 'package:touristrike/widgets/tour_en_route_status_card.dart';
@@ -243,6 +246,8 @@ class _DriverPackageTrackingScreenState
   List<BookingItineraryItem> _spots = [];
   List<PaymentRecord> _paymentRecords = [];
   List<PaymentAllocation> _paymentAllocations = [];
+  DriverTourPaymentGate? _dropoffPaymentGate;
+  int _trackingRefreshGeneration = 0;
 
   bool _loading = true;
   bool _actionBusy = false;
@@ -353,13 +358,12 @@ class _DriverPackageTrackingScreenState
       }
     }
 
-    if (!_bypassTransactionValidation &&
-        const {
+    if (const {
           ConvoyJourneyState.stopDone,
           ConvoyJourneyState.atDropoff,
         }.contains(me.journeyState) &&
         _allItineraryItemsCompleted &&
-        !_hasConfirmedPayment('remaining_balance', booking.remainingBalance)) {
+        _dropoffPaymentGate?.canDropOff != true) {
       return 'Waiting for remaining payment. Drop-off unlocks after secure GCash confirmation or every convoy driver confirms cash.';
     }
 
@@ -519,6 +523,14 @@ class _DriverPackageTrackingScreenState
 
       var paymentRecords = <PaymentRecord>[];
       var paymentAllocations = <PaymentAllocation>[];
+      DriverTourPaymentGate? dropoffPaymentGate;
+      try {
+        dropoffPaymentGate = DriverTourPaymentGate.fromMap(
+          await _repo.fetchDriverTourPaymentGate(bookingId),
+        );
+      } catch (_) {
+        // Fail closed; the existing refresh paths retry authoritative eligibility.
+      }
 
       try {
         paymentRecords = await _repo.fetchPaymentRecordsFor(
@@ -540,6 +552,7 @@ class _DriverPackageTrackingScreenState
         _spots = spots;
         _paymentRecords = paymentRecords;
         _paymentAllocations = paymentAllocations;
+        _dropoffPaymentGate = dropoffPaymentGate;
         _serverTestModeEnabled = serverTestModeEnabled;
         _loading = false;
       });
@@ -1624,6 +1637,7 @@ class _DriverPackageTrackingScreenState
   // =========================================================================
 
   Future<void> _refreshTrackingState({String logTag = 'refresh'}) async {
+    final generation = ++_trackingRefreshGeneration;
     final bookingId = _bookingId.isNotEmpty
         ? _bookingId
         : (_activity?.bookingId.isNotEmpty == true ? _activity!.bookingId : '');
@@ -1648,6 +1662,14 @@ class _DriverPackageTrackingScreenState
 
     var paymentRecords = _paymentRecords;
     var paymentAllocations = _paymentAllocations;
+    DriverTourPaymentGate? dropoffPaymentGate;
+    try {
+      dropoffPaymentGate = DriverTourPaymentGate.fromMap(
+        await _repo.fetchDriverTourPaymentGate(bookingId),
+      );
+    } catch (_) {
+      // Never unlock using stale receipts or a failed eligibility refresh.
+    }
 
     try {
       paymentRecords = await _repo.fetchPaymentRecordsFor(bookingId: bookingId);
@@ -1656,7 +1678,7 @@ class _DriverPackageTrackingScreenState
       );
     } catch (_) {}
 
-    if (!mounted) return;
+    if (!mounted || generation != _trackingRefreshGeneration) return;
 
     setState(() {
       _activity = results[0] as PackageActivity?;
@@ -1667,6 +1689,7 @@ class _DriverPackageTrackingScreenState
 
       _paymentRecords = paymentRecords;
       _paymentAllocations = paymentAllocations;
+      _dropoffPaymentGate = dropoffPaymentGate;
     });
 
     _debugTourState(logTag);
@@ -2129,7 +2152,10 @@ class _DriverPackageTrackingScreenState
     }
   }
 
-  Future<void> _doAction(Future<void> Function() action) async {
+  Future<void> _doAction(
+    Future<void> Function() action, {
+    bool propagateError = false,
+  }) async {
     if (_actionBusy) {
       return;
     }
@@ -2145,6 +2171,7 @@ class _DriverPackageTrackingScreenState
       if (mounted) {
         _showSnack(_actionErrorMessage(e), error: true);
       }
+      if (propagateError) rethrow;
     } finally {
       if (mounted) {
         setState(() {
@@ -2156,6 +2183,12 @@ class _DriverPackageTrackingScreenState
 
   String _actionErrorMessage(Object error) {
     final raw = error.toString();
+    if (raw.contains('REMAINING_BALANCE_NOT_CONFIRMED')) {
+      return 'Payment required. Drop-off is locked until the outstanding package and finalized waiting balance is confirmed settled.';
+    }
+    if (raw.contains('ITINERARY_NOT_FINALIZED')) {
+      return 'The final stop is still being finalized. Refresh the tour and wait for the convoy before starting drop-off.';
+    }
     if (kDebugMode && _bypassTransactionValidation) {
       if (raw.contains('TEST_BOOKING_NOT_REGISTERED')) {
         return 'Server-side Testing Mode is not active for this booking. Re-enable Testing Mode in Developer Tools, then retry.';
@@ -2204,19 +2237,14 @@ class _DriverPackageTrackingScreenState
         if (result['waiting_for_convoy_or_payment'] == true) {
           _showSnack('Waiting for the convoy or remaining payment.');
         }
-      });
+      }, propagateError: true);
 
   // =========================================================================
   // PAYMENTS
   // =========================================================================
 
   bool get _hasConfirmedRemainingBalance =>
-      (_booking?.remainingBalance ?? 0) <= 0 ||
-      _paymentRecords.any(
-        (record) =>
-            record.paymentStage == 'remaining_balance' &&
-            record.status == 'confirmed',
-      );
+      _dropoffPaymentGate?.canDropOff == true;
 
   Future<void> _confirmPayment(PaymentRecord record) async {
     try {
@@ -2629,47 +2657,56 @@ class _DriverPackageTrackingScreenState
       return _PrimaryTourAction(
         label: _testActionLabel('Start Navigation to Pickup'),
         description:
-            'Begin the tour. Arrivals and departures are detected automatically.',
+            'Navigate to pickup. GPS detects arrivals; slide to confirm tour actions.',
         icon: Icons.navigation_rounded,
         onTap: _markEnRoutePickup,
       );
     }
     if (me.journeyState == ConvoyJourneyState.atPickup) {
       return _PrimaryTourAction(
-        label: 'Confirm Pickup',
+        label: DriverTourSlideStage.confirmPickup.label,
         description: 'Confirm that the tourist has boarded.',
         icon: Icons.person_pin_circle_rounded,
+        requiresSlide: true,
+        actionId: '${me.journeyState.dbValue}:${me.currentStopIndex}',
         onTap: () => _runDriverSlide(me),
       );
     }
     if (me.journeyState == ConvoyJourneyState.boarded) {
       return _PrimaryTourAction(
-        label: 'Start Tour',
+        label: DriverTourSlideStage.startTour.label,
         description: 'Navigate to the first booked destination.',
         icon: Icons.route_rounded,
+        requiresSlide: true,
+        actionId: '${me.journeyState.dbValue}:${me.currentStopIndex}',
         onTap: () => _runDriverSlide(me),
       );
     }
     if (me.journeyState == ConvoyJourneyState.atStop ||
         me.journeyState == ConvoyJourneyState.stopDone) {
-      final last = me.currentStopIndex >= _spots.length - 1;
+      final stage = DriverTourSlideStage.forJourney(
+        me.journeyState,
+        stopIndex: me.currentStopIndex,
+        totalStops: _spots.length,
+      )!;
       return _PrimaryTourAction(
-        label: last
-            ? 'SLIDE TO NAVIGATE TO DROP-OFF'
-            : 'SLIDE TO NAVIGATE TO NEXT STOP',
-        description:
-            'Records departure and finalizes this stop’s waiting time.',
+        label: stage.label,
+        description: stage == DriverTourSlideStage.dropOff
+            ? 'Payment settled. Navigate to the tourist’s drop-off.'
+            : 'Records departure and finalizes this stop’s waiting time.',
         icon: Icons.swipe_right_rounded,
         requiresSlide: true,
+        actionId: '${me.journeyState.dbValue}:${me.currentStopIndex}',
         onTap: () => _runDriverSlide(me),
       );
     }
     if (me.journeyState == ConvoyJourneyState.atDropoff) {
       return _PrimaryTourAction(
-        label: 'SLIDE TO COMPLETE TOUR',
+        label: DriverTourSlideStage.completeTour.label,
         description: 'Complete the tour after arriving at drop-off.',
         icon: Icons.flag_rounded,
         requiresSlide: true,
+        actionId: '${me.journeyState.dbValue}:${me.currentStopIndex}',
         onTap: () => _runDriverSlide(me),
       );
     }
@@ -2859,7 +2896,15 @@ class _DriverPackageTrackingScreenState
 
                 const SizedBox(height: 12),
 
-                if (awaitingRemainingPayment) ...[
+                if (_allItineraryItemsCompleted &&
+                    _myConvoyStatus?.journeyState ==
+                        ConvoyJourneyState.stopDone &&
+                    _dropoffPaymentGate?.canDropOff != true) ...[
+                  DriverTourPaymentRequiredCard(gate: _dropoffPaymentGate),
+                  const SizedBox(height: 12),
+                ],
+                if (awaitingRemainingPayment &&
+                    _dropoffPaymentGate?.canDropOff != true) ...[
                   _ServerGateNotice(message: paymentGateMessage),
                   const SizedBox(height: 12),
                 ] else if (awaitingFinalPayment) ...[
@@ -5262,6 +5307,7 @@ class _PersistentDriverActionBar extends StatelessWidget {
     final bottom = MediaQuery.of(context).padding.bottom;
 
     return Container(
+      width: double.infinity,
       padding: EdgeInsets.fromLTRB(16, 10, 16, 10 + bottom),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -5276,7 +5322,8 @@ class _PersistentDriverActionBar extends StatelessWidget {
       ),
       child: completed
           ? Container(
-              height: 52,
+              constraints: const BoxConstraints(minHeight: 52),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: _successSoft,
                 borderRadius: BorderRadius.circular(16),
@@ -5291,17 +5338,19 @@ class _PersistentDriverActionBar extends StatelessWidget {
                     size: 19,
                   ),
                   const SizedBox(width: 7),
-                  Text(
-                    bookingCompleted
-                        ? 'TOUR COMPLETED'
-                        : awaitingFinalPayment
-                        ? 'ASSIGNMENT COMPLETED • AWAITING FINAL PAYMENT'
-                        : 'ASSIGNMENT COMPLETED • $completedDriverCount OF $totalDriverCount DRIVERS',
-                    style: const TextStyle(
-                      color: Color(0xFF166534),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 10.5,
-                      letterSpacing: 0.3,
+                  Flexible(
+                    child: Text(
+                      bookingCompleted
+                          ? 'TOUR COMPLETED'
+                          : awaitingFinalPayment
+                          ? 'ASSIGNMENT COMPLETED • AWAITING FINAL PAYMENT'
+                          : 'ASSIGNMENT COMPLETED • $completedDriverCount OF $totalDriverCount DRIVERS',
+                      style: const TextStyle(
+                        color: Color(0xFF166534),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 10.5,
+                        letterSpacing: 0.3,
+                      ),
                     ),
                   ),
                 ],
@@ -5317,19 +5366,17 @@ class _PersistentDriverActionBar extends StatelessWidget {
                   )
           : Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
                   children: [
                     Expanded(
                       child: Text(
                         action!.description,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: _subtle,
                           fontWeight: FontWeight.w600,
-                          fontSize: 8.8,
+                          fontSize: 12,
                         ),
                       ),
                     ),
@@ -5337,7 +5384,12 @@ class _PersistentDriverActionBar extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 if (action!.requiresSlide)
-                  _SlideTourAction(action: action!, busy: busy)
+                  DriverTourSlideAction(
+                    actionId: action!.actionId,
+                    label: action!.label,
+                    onConfirmed: action!.onTap,
+                    busy: busy,
+                  )
                 else
                   SizedBox(
                     width: double.infinity,
@@ -5428,6 +5480,7 @@ class _PrimaryTourAction {
     required this.icon,
     required this.onTap,
     this.requiresSlide = false,
+    this.actionId = '',
   });
 
   final String label;
@@ -5435,88 +5488,12 @@ class _PrimaryTourAction {
 
   final IconData icon;
 
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
   final bool requiresSlide;
+  final String actionId;
 }
 
-class _SlideTourAction extends StatefulWidget {
-  const _SlideTourAction({required this.action, required this.busy});
-
-  final _PrimaryTourAction action;
-  final bool busy;
-
-  @override
-  State<_SlideTourAction> createState() => _SlideTourActionState();
-}
-
-class _SlideTourActionState extends State<_SlideTourAction> {
-  double _fraction = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final travel = (constraints.maxWidth - 52)
-            .clamp(1.0, double.infinity)
-            .toDouble();
-        return GestureDetector(
-          onHorizontalDragUpdate: widget.busy
-              ? null
-              : (details) => setState(() {
-                  _fraction = (_fraction + details.delta.dx / travel)
-                      .clamp(0.0, 1.0)
-                      .toDouble();
-                }),
-          onHorizontalDragEnd: widget.busy
-              ? null
-              : (_) {
-                  final confirmed = _fraction >= 0.75;
-                  setState(() => _fraction = 0);
-                  if (confirmed) widget.action.onTap();
-                },
-          child: Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: _softBlue,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _primary),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Text(
-                  widget.busy ? 'Updating tour…' : widget.action.label,
-                  style: const TextStyle(
-                    color: _primary,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 11,
-                  ),
-                ),
-                Positioned(
-                  left: 3 + travel * _fraction,
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: _primary,
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Icon(widget.action.icon, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ============================================================================
-// SHARED CARD HEADER
-// ============================================================================
-
+// Shared card header.
 class _CardHeader extends StatelessWidget {
   const _CardHeader({
     required this.icon,

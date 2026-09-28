@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { runPaymentCases } from './tour_payment_consistency_cases.mjs';
 
 const db = new PGlite();
-const migration = readFileSync(new URL('../migrations/20260928000000_tour_stay_waiting_and_tourist_reviews.sql', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../migrations/20260928000000_tour_stay_waiting_and_tourist_reviews.sql', import.meta.url), 'utf8').replaceAll('\r\n','\n');
 const uuid = n => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
 const office = uuid(1), tourist = uuid(2), driver = uuid(3), outsider = uuid(4);
 const booking = uuid(10), stop1 = uuid(11), stop2 = uuid(12);

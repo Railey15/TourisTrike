@@ -10,7 +10,7 @@ class TourTrackingStatus {
       : switch (phase) {
           'detecting_arrival' => 'Detecting Arrival — remain safely stopped',
           'arrived' => 'Arrived — stop in progress',
-          'stop_in_progress' => 'Stop in Progress — departure is automatic',
+          'stop_in_progress' => 'Stop in Progress — slide when ready to leave',
           'detecting_departure' => 'Detecting Departure',
           'departure_detected' => 'Departure Detected',
           'next_stop' => 'Next Stop — navigation updated',

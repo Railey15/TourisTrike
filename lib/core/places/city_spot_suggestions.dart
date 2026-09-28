@@ -91,8 +91,8 @@ class CitySpotSuggestionService {
   final String apiKey;
   late final GooglePlacesGateway _gateway = GooglePlacesGateway(apiKey: apiKey);
 
-  /// Native builds receive this through `--dart-define`; web always returns
-  /// an empty value and talks to the authenticated Edge Function instead.
+  /// Native builds use a Dart define or cached native application configuration.
+  /// Web uses the authenticated Edge Function instead.
   static String resolveApiKey() => resolveGoogleMapsApiKey().trim();
 
   Future<List<CitySpotSuggestion>> fetchSuggestions({

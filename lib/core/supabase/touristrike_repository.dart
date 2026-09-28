@@ -2579,6 +2579,14 @@ class TourisTrikeRepository {
     return result.toDouble();
   }
 
+  Future<Json> fetchDriverTourPaymentGate(String bookingId) async => Json.from(
+    await _client.rpc(
+          'get_driver_tour_payment_gate',
+          params: {'p_booking_id': bookingId},
+        )
+        as Map,
+  );
+
   Future<Json> fetchTourTrackingStatus(String bookingId) async => Json.from(
     await _client.rpc(
           'get_tour_tracking_status',

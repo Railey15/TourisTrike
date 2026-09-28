@@ -24,6 +24,30 @@ class GoogleMapsApiKeyResolver {
     return defined.isNotEmpty ? defined : _nativeKey;
   }
 
+  static String sourceFor(String key) {
+    if (key.isEmpty) return 'unavailable';
+    if (_dartDefineKey.trim().isNotEmpty && key == _dartDefineKey.trim()) {
+      return '--dart-define GOOGLE_MAPS_API_KEY';
+    }
+    if (_nativeKey.isNotEmpty && key == _nativeKey) {
+      return 'Android/iOS native application configuration';
+    }
+    return 'explicitly injected key';
+  }
+
+  static Future<Map<String, dynamic>> diagnosticContext() async {
+    try {
+      return Map<String, dynamic>.from(
+        await _configChannel.invokeMapMethod<String, dynamic>(
+              'getGooglePlacesDiagnosticContext',
+            ) ??
+            const <String, dynamic>{},
+      );
+    } catch (_) {
+      return const {};
+    }
+  }
+
   static Future<String> resolve({String? explicitKey}) async {
     final injected = explicitKey?.trim() ?? '';
     if (injected.isNotEmpty) return injected;
