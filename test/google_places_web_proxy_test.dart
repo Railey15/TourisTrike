@@ -20,11 +20,14 @@ void main() {
     final manifest = _read('android/app/src/main/AndroidManifest.xml');
     final infoPlist = _read('ios/Runner/Info.plist');
     final pubspec = _read('pubspec.yaml');
+    final configurator = _read('tool/configure_web_maps.cjs');
 
     expect(index, isNot(contains('AIza')));
-    expect(index, contains('google_maps_config.js'));
-    expect(index, contains('window.tourisTrikeConfig'));
+    expect(index, contains('__GOOGLE_MAPS_BROWSER_API_KEY__'));
+    expect(index, contains('__GOOGLE_MAPS_BROWSER_KEY_FINGERPRINT__'));
     expect(index, contains('https://maps.googleapis.com/maps/api/js?key='));
+    expect(configurator, contains('GOOGLE_MAPS_BROWSER_API_KEY'));
+    expect(configurator, contains('keyPlaceholder'));
     expect(manifest, isNot(contains('AIza')));
     expect(infoPlist, isNot(contains('AIza')));
     expect(

@@ -14,6 +14,7 @@ void main() {
   late String phase4;
   late String rlsRegression;
   late String subtenantSettingsScreen;
+  late String mainTenantSettingsScreen;
   late String adminService;
   late String adminHeader;
   late String allSubtenantCode;
@@ -37,8 +38,13 @@ void main() {
     subtenantSettingsScreen = _read(
       'lib/screens/subtenant/subtenant_city_profile_screen.dart',
     );
-    adminService = _read('lib/screens/admin/provincial_admin_service.dart');
-    adminHeader = _read('lib/screens/admin/widgets/admin_header_tools.dart');
+    mainTenantSettingsScreen = _read(
+      'lib/screens/main_tenant/main_tenant_settings_screen.dart',
+    );
+    adminService = _read('lib/screens/main_tenant/main_tenant_service.dart');
+    adminHeader = _read(
+      'lib/screens/main_tenant/widgets/main_tenant_header_tools.dart',
+    );
     allSubtenantCode = Directory('lib/screens/subtenant')
         .listSync(recursive: true)
         .whereType<File>()
@@ -186,11 +192,11 @@ void main() {
         subtenantSettingsScreen,
         isNot(contains('Tourism Office Settings')),
       );
+      expect(mainTenantSettingsScreen, contains('Provincial Office'));
+      expect(mainTenantSettingsScreen, isNot(contains('AI Suggestions')));
       expect(
-        File(
-          'lib/screens/admin/provincial_admin_settings_screen.dart',
-        ).existsSync(),
-        isFalse,
+        mainTenantSettingsScreen,
+        isNot(contains('enable_ai_suggestions')),
       );
       expect(allSubtenantCode, isNot(contains('enable_ai_suggestions')));
       expect(allSubtenantCode, isNot(contains('enableAiSuggestions')));
@@ -203,14 +209,14 @@ void main() {
     () {
       expect(
         adminService,
-        contains('Future<List<AdminSearchResult>> searchProvince'),
+        contains('Future<List<MainTenantSearchResult>> searchProvince'),
       );
       expect(adminService, contains('.limit(5)'));
-      expect(adminService, contains('fetchAdminNotifications'));
-      expect(adminService, contains('markAdminNotificationRead'));
+      expect(adminService, contains('fetchMainTenantNotifications'));
+      expect(adminService, contains('markMainTenantNotificationRead'));
       expect(adminService, contains(".select('id')\n        .single()"));
-      expect(adminHeader, contains('AdminSearchResultType.tenant'));
-      expect(adminHeader, contains('AdminSearchResultType.booking'));
+      expect(adminHeader, contains('MainTenantSearchResultType.tenant'));
+      expect(adminHeader, contains('MainTenantSearchResultType.booking'));
       expect(adminHeader, contains('No matching province records.'));
       expect(adminHeader, contains('Unable to load notifications'));
     },

@@ -1,4 +1,5 @@
 import 'package:touristrike/core/models/convoy_state.dart';
+import 'package:touristrike/core/auth/app_role.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -146,10 +147,12 @@ class Profile extends TourisTrikeRow {
     return '${averageRating.toStringAsFixed(1)} ($totalReviews review${totalReviews == 1 ? '' : 's'})';
   }
 
-  bool get isTourist => role == 'tourist';
-  bool get isDriver => role == 'driver';
-  bool get isAdmin => role == 'admin';
-  bool get isSubtenant => role == 'subtenant';
+  AppRole? get appRole => AppRole.tryParse(role);
+  bool get isTourist => appRole == AppRole.tourist;
+  bool get isDriver => appRole == AppRole.driver;
+  bool get isAdministrator => appRole == AppRole.administrator;
+  bool get isMainTenant => appRole == AppRole.mainTenant;
+  bool get isSubtenant => appRole == AppRole.subtenant;
 }
 
 class DriverReview extends TourisTrikeRow {

@@ -18,3 +18,8 @@ verify_jwt = false
 # Authenticated by a dedicated server-only secret; never callable with a user JWT alone.
 [functions.send-notifications]
 verify_jwt = false
+
+# Authenticated System Administrators only; the function performs an additional
+# database role check before using the server-only Auth admin API.
+[functions.administrator-account-access]
+verify_jwt = true

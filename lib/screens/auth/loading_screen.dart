@@ -5,12 +5,15 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/core/auth/app_role_destination.dart';
+import 'package:touristrike/screens/administrator/administrator_portal_screen.dart';
 import 'login_screen.dart';
 import 'web_portal_landing_screen.dart';
 import '../tourist/tourist_home_screen.dart';
 import '../tourist/tourist_activity_tracking_screen.dart';
 import '../driver/driver_home_screen.dart';
-import '../admin/layouts/provincial_admin_shell.dart';
+import '../main_tenant/layouts/main_tenant_shell.dart';
 import '../subtenant/layouts/subtenant_admin_shell.dart';
 
 class TourisTrikeLoadingScreen extends StatefulWidget {
@@ -90,27 +93,32 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
         return;
       }
 
-      final role = (profile['role'] as String? ?? '').toLowerCase().trim();
+      final role = AppRole.tryParse(profile['role'] as String?);
       Widget destination;
-      switch (role) {
-        case 'tourist':
-          final bookingId = await _initialPaymentReturnBookingId();
-          if (!mounted) return;
-          destination = bookingId == null
-              ? const TouristHomeScreen()
-              : ActivityTrackingScreen(bookingId: bookingId);
-          break;
-        case 'driver':
-          destination = const DriverHomeScreen();
-          break;
-        case 'admin':
-          destination = const ProvincialAdminPortalScreen();
-          break;
-        case 'subtenant':
-          destination = const SubTenantPortalScreen();
-          break;
-        default:
-          destination = const LoginScreen();
+      if (role == null) {
+        destination = const LoginScreen();
+      } else {
+        switch (destinationForRole(role)) {
+          case AppRoleDestination.touristApp:
+            final bookingId = await _initialPaymentReturnBookingId();
+            if (!mounted) return;
+            destination = bookingId == null
+                ? const TouristHomeScreen()
+                : ActivityTrackingScreen(bookingId: bookingId);
+            break;
+          case AppRoleDestination.driverApp:
+            destination = const DriverHomeScreen();
+            break;
+          case AppRoleDestination.administratorPortal:
+            destination = const AdministratorPortalScreen();
+            break;
+          case AppRoleDestination.mainTenantPortal:
+            destination = const MainTenantPortalScreen();
+            break;
+          case AppRoleDestination.subtenantPortal:
+            destination = const SubTenantPortalScreen();
+            break;
+        }
       }
 
       Navigator.pushReplacement(

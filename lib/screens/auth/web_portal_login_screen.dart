@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/screens/administrator/administrator_portal_screen.dart';
 
-import '../admin/layouts/provincial_admin_shell.dart';
+import '../main_tenant/layouts/main_tenant_shell.dart';
 import '../subtenant/layouts/subtenant_admin_shell.dart';
 import 'city_admin_signup_screen.dart';
-
-enum WebPortalRole { admin, subtenant }
 
 class WebPortalLoginScreen extends StatefulWidget {
   const WebPortalLoginScreen({super.key});
@@ -59,19 +59,6 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
   // ============================================================
   // ROLE
   // ============================================================
-
-  WebPortalRole? _parseRole(String? role) {
-    switch ((role ?? '').trim().toLowerCase()) {
-      case 'admin':
-        return WebPortalRole.admin;
-
-      case 'subtenant':
-        return WebPortalRole.subtenant;
-
-      default:
-        return null;
-    }
-  }
 
   // ============================================================
   // SNACKBAR
@@ -159,15 +146,13 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
         await _supabase.auth.signOut();
 
         _showSnack(
-          'Admin profile not found. Contact the system owner.',
+          'Administrator profile not found. Contact the system owner.',
         );
 
         return;
       }
 
-      final role = _parseRole(
-        profile['role'] as String?,
-      );
+      final role = AppRole.tryParse(profile['role'] as String?);
 
       if (role == null) {
         final registration =
@@ -205,18 +190,29 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
       if (!mounted) return;
 
       switch (role) {
-        case WebPortalRole.admin:
+        case AppRole.administrator:
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (_) => const ProvincialAdminPortalScreen(),
+              builder: (_) => const AdministratorPortalScreen(),
             ),
             (_) => false,
           );
 
           break;
 
-        case WebPortalRole.subtenant:
+        case AppRole.mainTenant:
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const MainTenantPortalScreen(),
+            ),
+            (_) => false,
+          );
+
+          break;
+
+        case AppRole.subtenant:
           final active =
               await _subtenantAccessActive(user.id);
 
@@ -224,7 +220,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
             await _supabase.auth.signOut();
 
             _showSnack(
-              'Your city admin account is not active yet. Please wait for provincial admin approval.',
+              'Your city admin account is not active yet. Please wait for Provincial Administrator approval.',
             );
 
             return;
@@ -240,6 +236,12 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
             (_) => false,
           );
 
+          break;
+
+        case AppRole.driver:
+        case AppRole.tourist:
+          await _supabase.auth.signOut();
+          _showSnack('Use the TourisTrike mobile app for this account.');
           break;
       }
     } on TimeoutException catch (e) {
@@ -300,7 +302,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
             .toLowerCase();
 
     if (status == 'pending') {
-      return 'Your city admin application is pending provincial admin approval.';
+      return 'Your city admin application is pending Provincial Administrator approval.';
     }
 
     if (status == 'rejected') {
@@ -315,7 +317,7 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
     }
 
     if (status == 'approved') {
-      return 'Your application is approved, but account activation could not finish. Ask the provincial admin to run the latest Supabase migration or approve it again.';
+      return 'Your application is approved, but account activation could not finish. Ask the Provincial Administrator to run the latest Supabase migration or approve it again.';
     }
 
     return 'This web portal is only for approved admin and city admin accounts. If you recently applied as a city admin and saw an error, your application may not have saved — please try applying again.';
@@ -352,10 +354,8 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           .eq('id', userId)
           .maybeSingle();
 
-      if (_parseRole(
-            profile?['role'] as String?,
-          ) !=
-          WebPortalRole.subtenant) {
+      if (AppRole.tryParse(profile?['role'] as String?) !=
+          AppRole.subtenant) {
         return false;
       }
 
@@ -913,7 +913,7 @@ class _MobileHero
             _SmallAccessChip(
               icon:
                   Icons.location_city_rounded,
-              label: 'City Admin',
+              label: 'City/Municipal Administrator',
             ),
             _SmallAccessChip(
               icon: Icons.lock_rounded,
@@ -1026,13 +1026,18 @@ class _PortalHero
           children: [
             _AccessChip(
               icon:
+                  Icons.admin_panel_settings_rounded,
+              label: 'System Administrator',
+            ),
+            _AccessChip(
+              icon:
                   Icons.account_balance_rounded,
-              label: 'Provincial Admin',
+              label: 'Provincial Administrator',
             ),
             _AccessChip(
               icon:
                   Icons.location_city_rounded,
-              label: 'City Admin',
+              label: 'City/Municipal Administrator',
             ),
             _AccessChip(
               icon: Icons.lock_rounded,

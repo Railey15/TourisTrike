@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
 class SubTenantSidebar extends StatefulWidget {
@@ -16,8 +17,8 @@ class SubTenantSidebar extends StatefulWidget {
     required this.currentIndex,
     required this.onDestinationSelected,
     required this.onLogout,
-  }) : compact = false,
-       asDrawer = true;
+  })  : compact = false,
+        asDrawer = true;
 
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -38,7 +39,11 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       icon: Icons.dashboard_rounded,
       index: 0,
     ),
-    _SidebarDestination(label: 'Spots', icon: Icons.place_rounded, index: 1),
+    _SidebarDestination(
+      label: 'Spots',
+      icon: Icons.place_rounded,
+      index: 1,
+    ),
     _SidebarDestination(
       label: 'Packages',
       icon: Icons.inventory_2_rounded,
@@ -49,7 +54,11 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       icon: Icons.receipt_long_rounded,
       index: 3,
     ),
-    _SidebarDestination(label: 'Drivers', icon: Icons.badge_rounded, index: 4),
+    _SidebarDestination(
+      label: 'Drivers',
+      icon: Icons.badge_rounded,
+      index: 4,
+    ),
     _SidebarDestination(
       label: 'Reports',
       icon: Icons.bar_chart_rounded,
@@ -73,30 +82,64 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
     return _expanded;
   }
 
+  bool get _canToggle {
+    return !widget.asDrawer && !widget.compact;
+  }
+
+  void _toggleSidebar() {
+    if (!_canToggle) return;
+
+    setState(() {
+      _expanded = !_expanded;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final expanded = _effectiveExpanded;
-    final width = widget.asDrawer ? 292.0 : (expanded ? 258.0 : 86.0);
+
+    final width = widget.asDrawer
+        ? 292.0
+        : expanded
+            ? 258.0
+            : 86.0;
 
     final sidebar = AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       width: width,
-      margin: widget.asDrawer ? EdgeInsets.zero : const EdgeInsets.all(12),
-      padding: const EdgeInsets.fromLTRB(10, 14, 10, 14),
+      margin: widget.asDrawer
+          ? EdgeInsets.zero
+          : const EdgeInsets.all(12),
+      padding: EdgeInsets.fromLTRB(
+        expanded ? 10 : 8,
+        14,
+        expanded ? 10 : 8,
+        14,
+      ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF536DFE), Color(0xFF2A86FF), Color(0xFF1E63E9)],
+          colors: [
+            Color(0xFF536DFE),
+            Color(0xFF2A86FF),
+            Color(0xFF1E63E9),
+          ],
         ),
-        borderRadius: BorderRadius.circular(widget.asDrawer ? 0 : 28),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+        borderRadius: BorderRadius.circular(
+          widget.asDrawer ? 0 : 28,
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.24),
+        ),
         boxShadow: widget.asDrawer
             ? null
             : [
                 BoxShadow(
-                  color: SubTenantColors.blue.withValues(alpha: 0.30),
+                  color: SubTenantColors.blue.withValues(
+                    alpha: 0.30,
+                  ),
                   blurRadius: 30,
                   offset: const Offset(0, 18),
                 ),
@@ -106,29 +149,40 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
         children: [
           _SidebarBrand(
             expanded: expanded,
-            showToggle: !widget.asDrawer && !widget.compact,
-            isPinnedOpen: _expanded,
-            onToggle: () => setState(() => _expanded = !_expanded),
+            showToggle: _canToggle,
+            onToggle: _toggleSidebar,
           ),
-          const SizedBox(height: 22),
+
+          SizedBox(
+            height: expanded ? 22 : 14,
+          ),
+
           Expanded(
             child: ListView.separated(
               padding: EdgeInsets.zero,
+              physics: const ClampingScrollPhysics(),
+              itemCount: _destinations.length,
+              separatorBuilder: (_, __) {
+                return const SizedBox(height: 9);
+              },
               itemBuilder: (context, index) {
                 final item = _destinations[index];
+
                 return SidebarNavItem(
                   label: item.label,
                   icon: item.icon,
                   expanded: expanded,
                   active: widget.currentIndex == item.index,
-                  onTap: () => widget.onDestinationSelected(item.index),
+                  onTap: () {
+                    widget.onDestinationSelected(item.index);
+                  },
                 );
               },
-              separatorBuilder: (_, _) => const SizedBox(height: 9),
-              itemCount: _destinations.length,
             ),
           ),
+
           const SizedBox(height: 12),
+
           SidebarNavItem(
             label: 'Logout',
             icon: Icons.logout_rounded,
@@ -145,13 +199,19 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       return Drawer(
         elevation: 0,
         backgroundColor: Colors.transparent,
-        child: SafeArea(child: sidebar),
+        child: SafeArea(
+          child: sidebar,
+        ),
       );
     }
 
     return sidebar;
   }
 }
+
+// ============================================================
+// SIDEBAR NAVIGATION ITEM
+// ============================================================
 
 class SidebarNavItem extends StatefulWidget {
   const SidebarNavItem({
@@ -180,14 +240,28 @@ class _SidebarNavItemState extends State<SidebarNavItem> {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = widget.danger ? const Color(0xFFFFE4E6) : Colors.white;
-    final activeColor = Colors.white.withValues(alpha: 0.18);
-    final hoverColor = Colors.white.withValues(alpha: 0.10);
+    final foreground = widget.danger
+        ? const Color(0xFFFFE4E6)
+        : Colors.white;
+
+    final activeColor =
+        Colors.white.withValues(alpha: 0.18);
+
+    final hoverColor =
+        Colors.white.withValues(alpha: 0.10);
 
     final item = MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) {
+        setState(() {
+          _hovered = true;
+        });
+      },
+      onExit: (_) {
+        setState(() {
+          _hovered = false;
+        });
+      },
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -197,6 +271,7 @@ class _SidebarNavItemState extends State<SidebarNavItem> {
             duration: const Duration(milliseconds: 190),
             curve: Curves.easeOutCubic,
             height: 52,
+            width: double.infinity,
             padding: EdgeInsets.symmetric(
               horizontal: widget.expanded ? 14 : 0,
               vertical: 8,
@@ -204,154 +279,283 @@ class _SidebarNavItemState extends State<SidebarNavItem> {
             decoration: BoxDecoration(
               color: widget.active
                   ? activeColor
-                  : (_hovered ? hoverColor : Colors.transparent),
+                  : (_hovered
+                      ? hoverColor
+                      : Colors.transparent),
               borderRadius: BorderRadius.circular(18),
               border: widget.active
-                  ? Border.all(color: Colors.white.withValues(alpha: 0.26))
+                  ? Border.all(
+                      color: Colors.white.withValues(
+                        alpha: 0.26,
+                      ),
+                    )
                   : null,
             ),
-            child: Row(
-              mainAxisAlignment: widget.expanded
-                  ? MainAxisAlignment.start
-                  : MainAxisAlignment.center,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 190),
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: widget.active
-                        ? Colors.white.withValues(alpha: 0.16)
-                        : Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(widget.icon, color: foreground, size: 21),
-                ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  child: widget.expanded
-                      ? Padding(
-                          key: const ValueKey('label'),
-                          padding: const EdgeInsets.only(left: 12),
-                          child: Text(
-                            widget.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: foreground,
-                              fontSize: 13.5,
-                              fontWeight: widget.active
-                                  ? FontWeight.w900
-                                  : FontWeight.w800,
-                            ),
+            child: widget.expanded
+                ? Row(
+                    children: [
+                      _SidebarNavIcon(
+                        icon: widget.icon,
+                        foreground: foreground,
+                        active: widget.active,
+                      ),
+
+                      const SizedBox(width: 12),
+
+                      Expanded(
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: foreground,
+                            fontSize: 13.5,
+                            fontWeight: widget.active
+                                ? FontWeight.w900
+                                : FontWeight.w800,
                           ),
-                        )
-                      : const SizedBox.shrink(key: ValueKey('collapsed')),
-                ),
-              ],
-            ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Center(
+                    child: _SidebarNavIcon(
+                      icon: widget.icon,
+                      foreground: foreground,
+                      active: widget.active,
+                    ),
+                  ),
           ),
         ),
       ),
     );
 
-    if (widget.expanded) return item;
-    return Tooltip(message: widget.label, child: item);
+    if (widget.expanded) {
+      return item;
+    }
+
+    return Tooltip(
+      message: widget.label,
+      child: item,
+    );
   }
 }
+
+// ============================================================
+// SIDEBAR NAVIGATION ICON
+// ============================================================
+
+class _SidebarNavIcon extends StatelessWidget {
+  const _SidebarNavIcon({
+    required this.icon,
+    required this.foreground,
+    required this.active,
+  });
+
+  final IconData icon;
+  final Color foreground;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 190),
+      curve: Curves.easeOutCubic,
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: active
+            ? Colors.white.withValues(alpha: 0.16)
+            : Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(
+        icon,
+        color: foreground,
+        size: 21,
+      ),
+    );
+  }
+}
+
+// ============================================================
+// SIDEBAR BRAND
+// ============================================================
 
 class _SidebarBrand extends StatelessWidget {
   const _SidebarBrand({
     required this.expanded,
     required this.showToggle,
-    required this.isPinnedOpen,
     required this.onToggle,
   });
 
   final bool expanded;
   final bool showToggle;
-  final bool isPinnedOpen;
   final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 50,
-          height: 50,
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
-          ),
-          child: Image.network(
-            'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo1.png',
-            fit: BoxFit.contain,
-            errorBuilder: (_, _, _) => const Icon(
-              Icons.admin_panel_settings_rounded,
-              color: Colors.white,
-            ),
-          ),
-        ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          child: expanded
-              ? const Padding(
-                  key: ValueKey('brand-copy'),
-                  padding: EdgeInsets.only(left: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'TourisTrike',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+    if (!expanded) {
+      return SizedBox(
+        width: double.infinity,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _SidebarLogo(),
+
+            if (showToggle) ...[
+              const SizedBox(height: 8),
+
+              Tooltip(
+                message: 'Expand sidebar',
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onToggle,
+                    borderRadius: BorderRadius.circular(10),
+                    child: const SizedBox(
+                      width: 38,
+                      height: 28,
+                      child: Center(
+                        child: Icon(
+                          Icons.keyboard_double_arrow_right_rounded,
                           color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
+                          size: 23,
                         ),
                       ),
-                      SizedBox(height: 2),
-                      Text(
-                        'City Admin',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Color(0xDDEAF4FF),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                )
-              : const SizedBox.shrink(key: ValueKey('brand-collapsed')),
+                ),
+              ),
+            ],
+          ],
         ),
-        if (expanded && showToggle) ...[
-          const Spacer(),
-          Tooltip(
-            message: isPinnedOpen ? 'Collapse sidebar' : 'Pin sidebar open',
-            child: IconButton(
-              onPressed: onToggle,
-              icon: Icon(
-                isPinnedOpen
-                    ? Icons.keyboard_double_arrow_left_rounded
-                    : Icons.keyboard_double_arrow_right_rounded,
-                color: Colors.white,
-                size: 20,
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: Row(
+        children: [
+          const _SidebarLogo(),
+
+          const SizedBox(width: 10),
+
+          const Expanded(
+            child: _SidebarBrandCopy(),
+          ),
+
+          if (showToggle) ...[
+            const SizedBox(width: 2),
+
+            Tooltip(
+              message: 'Collapse sidebar',
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onToggle,
+                  borderRadius: BorderRadius.circular(10),
+                  child: const SizedBox(
+                    width: 28,
+                    height: 38,
+                    child: Center(
+                      child: Icon(
+                        Icons.keyboard_double_arrow_left_rounded,
+                        color: Colors.white,
+                        size: 21,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// SIDEBAR LOGO
+// ============================================================
+
+class _SidebarLogo extends StatelessWidget {
+  const _SidebarLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 50,
+      height: 50,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.20),
+        ),
+      ),
+      child: Image.network(
+        'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo1.png',
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) {
+          return const Icon(
+            Icons.admin_panel_settings_rounded,
+            color: Colors.white,
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ============================================================
+// SIDEBAR BRAND COPY
+// ============================================================
+
+class _SidebarBrandCopy extends StatelessWidget {
+  const _SidebarBrandCopy();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'TourisTrike',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+
+        SizedBox(height: 2),
+
+        Text(
+          'City/Municipal Administrator',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Color(0xDDEAF4FF),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ],
     );
   }
 }
+
+// ============================================================
+// DESTINATION MODEL
+// ============================================================
 
 class _SidebarDestination {
   const _SidebarDestination({

@@ -984,7 +984,7 @@ class _AdminBadge extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'City Admin',
+                'City/Municipal Administrator',
                 style: TextStyle(
                   color: SubTenantColors.text,
                   fontSize: 12.5,

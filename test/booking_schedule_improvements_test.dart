@@ -90,9 +90,14 @@ void main() {
     expect(tracking, contains('_markerMotion.animateTo'));
     expect(tracking, contains('_convoyPositions[driverId] = position'));
     expect(tracking, contains("table: 'driver_live_locations'"));
+    expect(tracking, contains('ConvoyRouteState()'));
+    expect(tracking, contains('_convoyRoutes.refresh('));
+    expect(tracking, contains('_convoyRoutes.routes'));
+
+    final routeState = source('lib/core/services/convoy_route_polylines.dart');
     expect(
-      tracking,
-      contains("PolylineId('driver_route_\${result.driverId}')"),
+      routeState,
+      contains("PolylineId('driver_route_\${id}_\${part++}')"),
     );
   });
 

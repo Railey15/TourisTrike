@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 
@@ -7,6 +8,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
     await Supabase.initialize(
       url: 'http://localhost:54321',
       anonKey: 'test-anon-key',
@@ -58,6 +60,10 @@ void main() {
     expect(find.text('Probe tab 0'), findsOneWidget);
     expect(initializationCounts, List<int>.filled(8, 1));
     expect(find.byType(SubTenantPortalScreen), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await Supabase.instance.dispose();
+    await tester.pump(const Duration(milliseconds: 20));
   });
 }
 

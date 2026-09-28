@@ -1,7 +1,10 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/core/auth/app_role_destination.dart';
+import 'package:touristrike/screens/administrator/administrator_portal_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_profile_completion_screen.dart';
 import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
 import 'web_portal_login_screen.dart';
@@ -9,11 +12,9 @@ import 'signup_screen.dart';
 import 'complete_profile_screen.dart';
 import '../tourist/tourist_home_screen.dart';
 import '../driver/driver_home_screen.dart';
-import '../admin/layouts/provincial_admin_shell.dart';
+import '../main_tenant/layouts/main_tenant_shell.dart';
 import '../subtenant/layouts/subtenant_admin_shell.dart';
 import '../../theme/app_theme.dart';
-
-enum UserRole { tourist, driver, admin, subtenant }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -60,21 +61,6 @@ class _LoginScreenState extends State<LoginScreen> {
           margin: const EdgeInsets.all(16),
         ),
       );
-  }
-
-  UserRole? _parseRole(String? role) {
-    switch ((role ?? '').toLowerCase().trim()) {
-      case 'tourist':
-        return UserRole.tourist;
-      case 'driver':
-        return UserRole.driver;
-      case 'admin':
-        return UserRole.admin;
-      case 'subtenant':
-        return UserRole.subtenant;
-      default:
-        return null;
-    }
   }
 
   Future<void> _login() async {
@@ -127,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final role = _parseRole(profile['role'] as String?);
+      final role = AppRole.tryParse(profile['role'] as String?);
 
       if (role == null) {
         _showSnack('Invalid role found in your profile. Contact support.');
@@ -136,14 +122,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      switch (role) {
-        case UserRole.tourist:
+      switch (destinationForRole(role)) {
+        case AppRoleDestination.touristApp:
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TouristHomeScreen()),
           );
           break;
-        case UserRole.driver:
+        case AppRoleDestination.driverApp:
           final bundle = await DriverProfileService().fetchProfileBundle(
             user.id,
           );
@@ -157,15 +143,21 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
           break;
-        case UserRole.admin:
+        case AppRoleDestination.administratorPortal:
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => const ProvincialAdminPortalScreen(),
+              builder: (_) => const AdministratorPortalScreen(),
             ),
           );
           break;
-        case UserRole.subtenant:
+        case AppRoleDestination.mainTenantPortal:
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const MainTenantPortalScreen()),
+          );
+          break;
+        case AppRoleDestination.subtenantPortal:
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const SubTenantPortalScreen()),
@@ -247,7 +239,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 480),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                ),
                                 child: Column(
                                   children: [
                                     _LoginCard(
@@ -260,12 +254,15 @@ class _LoginScreenState extends State<LoginScreen> {
                                         setState(() => _obscure = !_obscure);
                                       },
                                       onLogin: _loading ? null : _login,
-                                      onResetPassword: _loading ? null : _resetPassword,
+                                      onResetPassword: _loading
+                                          ? null
+                                          : _resetPassword,
                                       onSignUp: () {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (_) => const SignupScreen(),
+                                            builder: (_) =>
+                                                const SignupScreen(),
                                           ),
                                         );
                                       },
@@ -496,7 +493,7 @@ class _LoginCard extends StatelessWidget {
                   ),
                 ),
               ),
-            ],    
+            ],
           ],
         ),
       ),

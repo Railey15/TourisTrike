@@ -1,0 +1,1417 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:touristrike/core/responsive/responsive.dart';
+import 'package:touristrike/screens/main_tenant/main_tenant_models.dart';
+import 'package:touristrike/screens/main_tenant/layouts/main_tenant_shell.dart';
+import 'package:touristrike/screens/main_tenant/province_reports_screen.dart';
+import 'package:touristrike/screens/main_tenant/main_tenant_nav.dart';
+import 'package:touristrike/screens/main_tenant/main_tenant_service.dart';
+import 'package:touristrike/screens/main_tenant/widgets/main_tenant_common.dart';
+import 'package:touristrike/screens/main_tenant/widgets/main_tenant_metric_card.dart';
+import 'package:touristrike/screens/main_tenant/widgets/main_tenant_page_header.dart';
+import 'package:touristrike/screens/main_tenant/widgets/main_tenant_status_pill.dart';
+import 'package:touristrike/screens/main_tenant/widgets/main_tenant_style.dart';
+
+class CityTenantDetailsScreen extends StatefulWidget {
+  const CityTenantDetailsScreen({super.key, required this.tenantId});
+
+  final String tenantId;
+
+  @override
+  State<CityTenantDetailsScreen> createState() =>
+      _CityTenantDetailsScreenState();
+}
+
+class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
+  final MainTenantService _service = MainTenantService();
+  late Future<CityTenantDetailsData> _future;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _service.fetchTenantDetails(widget.tenantId);
+  }
+
+  void _reload() {
+    setState(() => _future = _service.fetchTenantDetails(widget.tenantId));
+  }
+
+  Future<void> _setStatus(CityTenantDetailsData data, String status) async {
+    setState(() => _saving = true);
+    try {
+      await _service.updateTenantStatus(data.tenant, status);
+      if (!mounted) return;
+      showAdminSnack(context, 'Tenant status updated.', error: false);
+      _reload();
+    } catch (e) {
+      if (!mounted) return;
+      showAdminSnack(context, 'Unable to update tenant status: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _verify(CityTenantDetailsData data) async {
+    setState(() => _saving = true);
+    try {
+      await _service.verifyTenant(data.tenant);
+      if (!mounted) return;
+      showAdminSnack(context, 'Tenant verified.', error: false);
+      _reload();
+    } catch (e) {
+      if (!mounted) return;
+      showAdminSnack(context, 'Unable to verify tenant: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _reviewClassification(CityTenantDetailsData data) async {
+    var selected = data.tenant.localGovernmentType == 'city'
+        ? 'city'
+        : 'municipality';
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Review LGU classification'),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${data.tenant.city}\n${data.tenant.raw['office_name'] ?? data.tenant.adminName}',
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: selected,
+                  decoration: const InputDecoration(
+                    labelText: 'Classification',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'city', child: Text('City')),
+                    DropdownMenuItem(
+                      value: 'municipality',
+                      child: Text('Municipality'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => selected = value);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: const Text('Save classification'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (value == null) return;
+    setState(() => _saving = true);
+    try {
+      await _service.updateTenantClassification(data.tenant, value);
+      if (!mounted) return;
+      showAdminSnack(context, 'LGU classification saved.', error: false);
+      _reload();
+    } catch (error) {
+      if (!mounted) return;
+      showAdminSnack(context, 'Unable to save classification: $error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
+
+    return MainTenantShell(
+      current: MainTenantDestination.cityTenants,
+      title: 'City Tenant Details',
+      subtitle: 'Tenant profile, account status, and tourism performance.',
+      child: FutureBuilder<CityTenantDetailsData>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const MainTenantLoadingView();
+          }
+          if (snapshot.hasError) {
+            return MainTenantErrorView(
+              message: snapshot.error.toString(),
+              onRetry: _reload,
+            );
+          }
+
+          final data = snapshot.data!;
+          final tenant = data.tenant;
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 900;
+              final profileWidth = (constraints.maxWidth * 0.32).clamp(
+                280.0,
+                380.0,
+              );
+
+              final pageHeader = MainTenantPageHeader(
+                eyebrow: 'City Tenant Profile',
+                title: tenant.city,
+                subtitle:
+                    '${tenant.adminName}  ·  ${tenant.email.isEmpty ? 'No email saved' : tenant.email}',
+                icon: Icons.location_city_rounded,
+                trailing: _HeroTrailing(tenant: tenant),
+              );
+
+              final metricsRow = MainTenantResponsiveGrid(
+                minItemWidth: 190,
+                maxColumns: 5,
+                desktopAspectRatio: 1.42,
+                children: [
+                  MainTenantMetricCard(
+                    icon: Icons.place_rounded,
+                    label: 'Tourist Spots',
+                    value: '${tenant.spotsCount}',
+                  ),
+                  MainTenantMetricCard(
+                    icon: Icons.inventory_2_rounded,
+                    label: 'Packages',
+                    value: '${tenant.packagesCount}',
+                    color: MainTenantColors.cyan,
+                  ),
+                  MainTenantMetricCard(
+                    icon: Icons.badge_rounded,
+                    label: 'Drivers',
+                    value: '${data.driversCount}',
+                    color: MainTenantColors.green,
+                  ),
+                  MainTenantMetricCard(
+                    icon: Icons.receipt_long_rounded,
+                    label: 'Bookings',
+                    value: '${tenant.bookingsCount}',
+                    color: MainTenantColors.purple,
+                  ),
+                  MainTenantMetricCard(
+                    icon: Icons.payments_rounded,
+                    label: 'Revenue',
+                    value: money.format(data.revenue),
+                    color: MainTenantColors.green,
+                  ),
+                ],
+              );
+
+              void openReports() => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ProvinceReportsScreen(),
+                ),
+              );
+
+              final profileCard = _ProfileCard(
+                data: data,
+                saving: _saving,
+                onActivate: () => _setStatus(data, 'active'),
+                onDeactivate: () => _setStatus(data, 'inactive'),
+                onVerify: () => _verify(data),
+                onReports: openReports,
+                onReviewClassification: () => _reviewClassification(data),
+                fullHeight: isWide,
+              );
+
+              if (!isWide) {
+                return RefreshIndicator(
+                  onRefresh: () async => _reload(),
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
+                    children: [
+                      pageHeader,
+                      const SizedBox(height: 16),
+                      metricsRow,
+                      const SizedBox(height: 16),
+                      profileCard,
+                      const SizedBox(height: 16),
+                      _RecentPanel(data: data, money: money, narrow: true),
+                    ],
+                  ),
+                );
+              }
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    pageHeader,
+                    const SizedBox(height: 16),
+                    metricsRow,
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(width: profileWidth, child: profileCard),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _RecentPanel(
+                              data: data,
+                              money: money,
+                              narrow: false,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─── Hero trailing ────────────────────────────────────────────────────────────
+
+class _HeroTrailing extends StatelessWidget {
+  const _HeroTrailing({required this.tenant});
+
+  final CityTenant tenant;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        MainTenantStatusPill(status: tenant.status),
+        if (tenant.verified) ...[
+          const SizedBox(height: 7),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.verified_rounded, color: Colors.white, size: 12),
+                SizedBox(width: 5),
+                Text(
+                  'Verified',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Profile card ─────────────────────────────────────────────────────────────
+
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.data,
+    required this.saving,
+    required this.onActivate,
+    required this.onDeactivate,
+    required this.onVerify,
+    required this.onReports,
+    required this.onReviewClassification,
+    required this.fullHeight,
+  });
+
+  final CityTenantDetailsData data;
+  final bool saving;
+  final VoidCallback onActivate;
+  final VoidCallback onDeactivate;
+  final VoidCallback onVerify;
+  final VoidCallback onReports;
+  final VoidCallback onReviewClassification;
+  final bool fullHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final tenant = data.tenant;
+    final initial = tenant.city.isNotEmpty ? tenant.city[0].toUpperCase() : 'C';
+    final joined = tenant.createdAt != null
+        ? DateFormat('MMMM yyyy').format(tenant.createdAt!)
+        : null;
+
+    final contact = [
+      if (tenant.mobile.isNotEmpty) tenant.mobile,
+      if (tenant.email.isNotEmpty) tenant.email,
+    ].join('  ·  ');
+
+    final isVerified = tenant.verified;
+    final isActive = tenant.status.toLowerCase().trim() == 'active';
+
+    final infoContent = _InfoContent(
+      data: data,
+      joined: joined,
+      contact: contact,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: MainTenantColors.line),
+        boxShadow: [mainTenantShadow()],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _GradientHeader(tenant: tenant, initial: initial),
+          if (fullHeight)
+            Expanded(child: SingleChildScrollView(child: infoContent))
+          else
+            infoContent,
+          const Divider(
+            height: 1,
+            thickness: 0.5,
+            color: MainTenantColors.line,
+          ),
+          _ActionSection(
+            saving: saving,
+            isVerified: isVerified,
+            isActive: isActive,
+            classificationReviewed: tenant.localGovernmentTypeReviewed,
+            classification: tenant.localGovernmentType,
+            onVerify: onVerify,
+            onActivate: onActivate,
+            onDeactivate: onDeactivate,
+            onReports: onReports,
+            onReviewClassification: onReviewClassification,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GradientHeader extends StatelessWidget {
+  const _GradientHeader({required this.tenant, required this.initial});
+
+  final CityTenant tenant;
+  final String initial;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 118,
+      decoration: const BoxDecoration(
+        gradient: MainTenantColors.gradient,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.44),
+                      width: 2,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      initial,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _StatusChip(status: tenant.status),
+              ],
+            ),
+          ),
+          if (tenant.verified)
+            Positioned(
+              top: 10,
+              right: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.32),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.verified_rounded, color: Colors.white, size: 11),
+                    SizedBox(width: 4),
+                    Text(
+                      'Verified',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = status.toLowerCase() == 'active';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: isActive ? const Color(0xFF4ADE80) : Colors.white60,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            status.toUpperCase(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoContent extends StatelessWidget {
+  const _InfoContent({
+    required this.data,
+    required this.joined,
+    required this.contact,
+  });
+
+  final CityTenantDetailsData data;
+  final String? joined;
+  final String contact;
+
+  @override
+  Widget build(BuildContext context) {
+    final tenant = data.tenant;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Tenant Account',
+            style: TextStyle(
+              color: MainTenantColors.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 3),
+          const Text(
+            'City/Municipal Administrator profile and contact information.',
+            style: TextStyle(
+              color: MainTenantColors.muted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _InfoRow(label: 'ADMIN', value: tenant.adminName),
+          _InfoRow(
+            label: 'CONTACT',
+            value: contact.isEmpty ? 'No contact saved' : contact,
+          ),
+          _InfoRow(
+            label: 'ADDRESS',
+            value: tenant.address.isEmpty ? 'No address saved' : tenant.address,
+          ),
+          if (joined != null) _InfoRow(label: 'MEMBER SINCE', value: joined!),
+          _InfoRow(
+            label: 'FEEDBACK',
+            value:
+                '${data.feedback.length} review${data.feedback.length == 1 ? '' : 's'}  ·  Avg. ${data.averageRating.toStringAsFixed(1)} ★',
+            isLast: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    this.isLast = false,
+  });
+
+  final String label;
+  final String value;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: Responsive.responsiveValue<double>(
+                  context,
+                  mobile: 88,
+                  tablet: 92,
+                  desktop: 96,
+                ),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: MainTenantColors.lightMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MainTenantColors.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!isLast)
+          const Divider(
+            height: 1,
+            thickness: 0.5,
+            color: MainTenantColors.line,
+          ),
+      ],
+    );
+  }
+}
+
+class _ActionSection extends StatelessWidget {
+  const _ActionSection({
+    required this.saving,
+    required this.isVerified,
+    required this.isActive,
+    required this.classificationReviewed,
+    required this.classification,
+    required this.onVerify,
+    required this.onActivate,
+    required this.onDeactivate,
+    required this.onReports,
+    required this.onReviewClassification,
+  });
+
+  final bool saving;
+  final bool isVerified;
+  final bool isActive;
+  final bool classificationReviewed;
+  final String classification;
+  final VoidCallback onVerify;
+  final VoidCallback onActivate;
+  final VoidCallback onDeactivate;
+  final VoidCallback onReports;
+  final VoidCallback onReviewClassification;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: classificationReviewed
+                  ? MainTenantColors.backgroundAlt
+                  : const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: MainTenantColors.line),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  classificationReviewed
+                      ? Icons.location_city_rounded
+                      : Icons.rule_rounded,
+                  color: MainTenantColors.blue,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    classificationReviewed
+                        ? 'Classification: ${classification == 'city' ? 'City' : 'Municipality'}'
+                        : 'City / Municipality classification needs review',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                TextButton(
+                  onPressed: saving ? null : onReviewClassification,
+                  child: const Text('Review'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (!isVerified) ...[
+            FilledButton.icon(
+              onPressed: saving ? null : onVerify,
+              icon: const Icon(Icons.verified_rounded, size: 17),
+              label: const Text('Verify Tenant'),
+              style: FilledButton.styleFrom(
+                backgroundColor: MainTenantColors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          Row(
+            children: [
+              if (!isActive) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : onActivate,
+                    icon: const Icon(Icons.check_circle_rounded, size: 16),
+                    label: const Text('Activate'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: MainTenantColors.green,
+                      side: BorderSide(
+                        color: MainTenantColors.green.withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: saving ? null : onDeactivate,
+                  icon: const Icon(Icons.block_rounded, size: 16),
+                  label: const Text('Deactivate'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: MainTenantColors.red,
+                    side: BorderSide(
+                      color: MainTenantColors.red.withValues(alpha: 0.50),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          OutlinedButton.icon(
+            onPressed: saving ? null : onReports,
+            icon: const Icon(Icons.query_stats_rounded, size: 16),
+            label: const Text('Open Reports'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: MainTenantColors.muted,
+              side: const BorderSide(color: MainTenantColors.line),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ),
+
+          if (saving) ...[
+            const SizedBox(height: 12),
+            const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Recent panel ─────────────────────────────────────────────────────────────
+
+class _RecentPanel extends StatelessWidget {
+  const _RecentPanel({
+    required this.data,
+    required this.money,
+    required this.narrow,
+  });
+
+  final CityTenantDetailsData data;
+  final NumberFormat money;
+  final bool narrow;
+
+  @override
+  Widget build(BuildContext context) {
+    final packagesCard = _ListCard(
+      title: 'Recent Packages',
+      subtitle: 'Latest package records for this city.',
+      icon: Icons.inventory_2_rounded,
+      count: data.packages.length,
+      narrow: narrow,
+      emptyWidget: const _EmptySection(
+        icon: Icons.inventory_2_rounded,
+        title: 'No packages yet',
+        message: 'This city tenant has not created any packages.',
+      ),
+      children: data.packages
+          .take(narrow ? 5 : 12)
+          .map((pkg) => _PackageListItem(package: pkg))
+          .toList(),
+    );
+
+    final bookingsCard = _ListCard(
+      title: 'Recent Bookings',
+      subtitle: 'Latest booking records from this tenant.',
+      icon: Icons.receipt_long_rounded,
+      count: data.bookings.length,
+      narrow: narrow,
+      emptyWidget: const _EmptySection(
+        icon: Icons.receipt_long_rounded,
+        title: 'No bookings yet',
+        message: 'No booking records found for this city tenant.',
+      ),
+      children: data.bookings
+          .take(narrow ? 5 : 12)
+          .map((b) => _BookingListItem(booking: b, money: money))
+          .toList(),
+    );
+
+    if (narrow) {
+      return Column(
+        children: [packagesCard, const SizedBox(height: 16), bookingsCard],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: packagesCard),
+        const SizedBox(width: 16),
+        Expanded(child: bookingsCard),
+      ],
+    );
+  }
+}
+
+// ─── List card ────────────────────────────────────────────────────────────────
+
+class _ListCard extends StatelessWidget {
+  const _ListCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.count,
+    required this.narrow,
+    required this.emptyWidget,
+    required this.children,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final int count;
+  final bool narrow;
+  final Widget emptyWidget;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final decoration = BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.97),
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: MainTenantColors.line),
+      boxShadow: [mainTenantShadow()],
+    );
+
+    if (narrow) {
+      return Container(
+        decoration: decoration,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ListCardHeader(
+              title: title,
+              subtitle: subtitle,
+              icon: icon,
+              count: count,
+            ),
+            const Divider(
+              height: 1,
+              thickness: 0.5,
+              color: MainTenantColors.line,
+            ),
+            if (children.isEmpty)
+              Padding(padding: const EdgeInsets.all(16), child: emptyWidget)
+            else ...[
+              ...children,
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: decoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ListCardHeader(
+            title: title,
+            subtitle: subtitle,
+            icon: icon,
+            count: count,
+          ),
+          const Divider(
+            height: 1,
+            thickness: 0.5,
+            color: MainTenantColors.line,
+          ),
+          Expanded(
+            child: children.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: emptyWidget,
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    itemCount: children.length,
+                    separatorBuilder: (_, _) => const Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      color: MainTenantColors.line,
+                      indent: 14,
+                      endIndent: 14,
+                    ),
+                    itemBuilder: (_, i) => children[i],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ListCardHeader extends StatelessWidget {
+  const _ListCardHeader({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.count,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: MainTenantColors.blue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: MainTenantColors.blue, size: 19),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MainTenantColors.text,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MainTenantColors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (count > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                color: MainTenantColors.blue.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: MainTenantColors.blue.withValues(alpha: 0.14),
+                ),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: MainTenantColors.blue,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Package list item ────────────────────────────────────────────────────────
+
+class _PackageListItem extends StatefulWidget {
+  const _PackageListItem({required this.package});
+
+  final ProvincePackage package;
+
+  @override
+  State<_PackageListItem> createState() => _PackageListItemState();
+}
+
+class _PackageListItemState extends State<_PackageListItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final pkg = widget.package;
+    final color = _statusToColor(pkg.status);
+    final priceLabel = [
+      if (pkg.priceText.isNotEmpty) pkg.priceText,
+      if (pkg.durationText.isNotEmpty) pkg.durationText,
+    ].join('  ·  ');
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: _hovered
+              ? MainTenantColors.blue.withValues(alpha: 0.04)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [color.withValues(alpha: 0.75), color],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.20),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.inventory_2_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pkg.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MainTenantColors.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    priceLabel.isEmpty ? 'No price set' : priceLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MainTenantColors.muted,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (pkg.bookingsCount > 0) ...[
+                    const SizedBox(height: 4),
+                    _StatBadge(
+                      '${pkg.bookingsCount} booking${pkg.bookingsCount == 1 ? '' : 's'}',
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            MainTenantStatusPill(status: pkg.status),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Booking list item ────────────────────────────────────────────────────────
+
+class _BookingListItem extends StatefulWidget {
+  const _BookingListItem({required this.booking, required this.money});
+
+  final ProvinceBooking booking;
+  final NumberFormat money;
+
+  @override
+  State<_BookingListItem> createState() => _BookingListItemState();
+}
+
+class _BookingListItemState extends State<_BookingListItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final booking = widget.booking;
+    final color = _statusToColor(booking.status);
+    final dateLabel = booking.travelDate != null
+        ? DateFormat('MMM d, y').format(booking.travelDate!)
+        : null;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: _hovered
+              ? MainTenantColors.blue.withValues(alpha: 0.04)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [color.withValues(alpha: 0.75), color],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.20),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.receipt_long_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    booking.packageTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MainTenantColors.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${booking.touristName}  ·  ${widget.money.format(booking.totalAmount)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MainTenantColors.muted,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (dateLabel != null) ...[
+                    const SizedBox(height: 4),
+                    _StatBadge(dateLabel),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            MainTenantStatusPill(status: booking.status),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Stat badge ───────────────────────────────────────────────────────────────
+
+class _StatBadge extends StatelessWidget {
+  const _StatBadge(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: MainTenantColors.blue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: MainTenantColors.blue.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: MainTenantColors.blue,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Empty section ────────────────────────────────────────────────────────────
+
+class _EmptySection extends StatelessWidget {
+  const _EmptySection({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: MainTenantColors.line),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: MainTenantColors.blue.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(icon, color: MainTenantColors.blue, size: 24),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: MainTenantColors.text,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: MainTenantColors.muted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+Color _statusToColor(String status) {
+  return switch (status.toLowerCase().trim()) {
+    'active' ||
+    'published' ||
+    'completed' ||
+    'verified' => MainTenantColors.green,
+    'inactive' ||
+    'deactivated' ||
+    'cancelled' ||
+    'rejected' ||
+    'hidden' => MainTenantColors.red,
+    'pending' || 'under_review' || 'review' => MainTenantColors.amber,
+    'draft' => MainTenantColors.lightMuted,
+    _ => MainTenantColors.blue,
+  };
+}
