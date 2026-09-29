@@ -1,3 +1,4 @@
+import 'package:touristrike/widgets/tourist_reputation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -151,56 +152,18 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
 
       final bookingIds = jobs.map((job) => job.bookingId).toSet().toList();
 
-      var itineraryCounts = await _repo.fetchBookingItineraryCounts(bookingIds);
-
-      final missingItineraryIds = itineraryCounts.entries
-          .where((entry) => entry.value == 0)
-          .map((entry) => entry.key)
-          .toList(growable: false);
-
-      if (missingItineraryIds.isNotEmpty) {
-        await Future.wait(
-          missingItineraryIds.map((bookingId) async {
-            try {
-              await _repo.ensureBookingItinerary(bookingId);
-            } catch (_) {}
-          }),
-        );
-
-        itineraryCounts = await _repo.fetchBookingItineraryCounts(bookingIds);
-      }
-
-      Map<String, List<BookingItineraryItem>> itineraryItemsMap = {};
-
-      if (bookingIds.isNotEmpty) {
-        try {
-          final rows = await _supabase
-              .from('booking_itinerary_items')
-              .select(
-                'id, booking_id, destination_name, '
-                'destination_address, arrival_time, departure_time, '
-                'actual_arrival_time, actual_departure_time, '
-                'source_type, spot_status, order_number, destination_order',
+      final itineraryItemsMap = <String, List<BookingItineraryItem>>{
+        for (final job in jobs)
+          job.bookingId: (job.row['itinerary_items'] as List? ?? const [])
+              .whereType<Map>()
+              .map(
+                (row) => BookingItineraryItem(Map<String, dynamic>.from(row)),
               )
-              .inFilter('booking_id', bookingIds)
-              .order('order_number', ascending: true)
-              .order('destination_order', ascending: true);
-
-          for (final row in rows as List<dynamic>) {
-            final map = Map<String, dynamic>.from(row as Map);
-
-            final bookingId = map['booking_id']?.toString() ?? '';
-
-            if (bookingId.isEmpty) {
-              continue;
-            }
-
-            itineraryItemsMap.putIfAbsent(bookingId, () => []);
-
-            itineraryItemsMap[bookingId]!.add(BookingItineraryItem(map));
-          }
-        } catch (_) {}
-      }
+              .toList(),
+      };
+      final itineraryCounts = {
+        for (final id in bookingIds) id: itineraryItemsMap[id]?.length ?? 0,
+      };
 
       if (!mounted) return;
 
@@ -718,7 +681,7 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
             (job) => Padding(
               padding: const EdgeInsets.only(bottom: 14),
 
-              child: _JobCard(
+              child: DriverAssignmentCard(
                 job: job,
 
                 itineraryCount: _itineraryCounts[job.bookingId] ?? 0,
@@ -1371,8 +1334,10 @@ class _JobsErrorState extends StatelessWidget {
 // JOB CARD
 // =============================================================================
 
-class _JobCard extends StatelessWidget {
-  const _JobCard({
+class DriverAssignmentCard extends StatelessWidget {
+  const DriverAssignmentCard({
+    super.key,
+    this.reputationLoader,
     required this.job,
     required this.itineraryCount,
     required this.itineraryItems,
@@ -1382,6 +1347,7 @@ class _JobCard extends StatelessWidget {
     required this.onTap,
   });
 
+  final TouristReputationLoader? reputationLoader;
   final PackageActivity job;
 
   final int itineraryCount;
@@ -1610,58 +1576,23 @@ class _JobCard extends StatelessWidget {
               ),
 
               // -------------------------------------------------------------
-              // QUICK SUMMARY
-              // -------------------------------------------------------------
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 13, 14, 0),
-
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _JobQuickMetric(
-                        icon: Icons.calendar_today_outlined,
-                        value: travelDate != null
-                            ? DateFormat('MMM d').format(travelDate)
-                            : 'Pending',
-                        label: scheduledStart == null
-                            ? 'Date'
-                            : DateFormat('h:mm a').format(scheduledStart),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        '₱${totalAmount.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                    ),
-
-                    const SizedBox(width: 8),
-
-                    Expanded(
-                      child: _JobQuickMetric(
-                        icon: Icons.groups_outlined,
-                        value: passengerText ?? '${adults + children}',
-                        label: 'Tourists',
-                      ),
-                    ),
-
-                    const SizedBox(width: 8),
-
-                    Expanded(
-                      child: _JobQuickMetric(
-                        icon: Icons.route_outlined,
-                        value: '$itineraryStopCount',
-                        label: 'Stops',
-                      ),
-                    ),
-
-                    const SizedBox(width: 8),
-
-                    Expanded(
-                      child: _JobQuickMetric(
-                        icon: Icons.payments_outlined,
-                        value: '₱${totalAmount.toStringAsFixed(0)}',
-                        label: 'Amount',
-                      ),
-                    ),
-                  ],
+                      Text('$itineraryStopCount stops'),
+                    ],
+                  ),
                 ),
               ),
-
               // -------------------------------------------------------------
               // DETAILS
               // -------------------------------------------------------------
@@ -1670,6 +1601,11 @@ class _JobCard extends StatelessWidget {
 
                 child: Column(
                   children: [
+                    TouristReputation(
+                      bookingId: job.bookingId,
+                      load: reputationLoader,
+                    ),
+                    const _JobDivider(),
                     _InfoRow(
                       icon: Icons.calendar_month_outlined,
                       label: 'Tour date',
@@ -1697,7 +1633,7 @@ class _JobCard extends StatelessWidget {
 
                     _InfoRow(
                       icon: Icons.trip_origin_rounded,
-                      label: 'Pickup point',
+                      label: 'Pickup',
                       value: pickupAddress,
                     ),
 
@@ -1705,7 +1641,7 @@ class _JobCard extends StatelessWidget {
 
                     _InfoRow(
                       icon: Icons.flag_outlined,
-                      label: 'Destination',
+                      label: 'Drop-off',
                       value: dropoffAddress,
                     ),
 
@@ -1876,71 +1812,6 @@ class _JobCard extends StatelessWidget {
 
 // =============================================================================
 // QUICK METRIC
-// =============================================================================
-
-class _JobQuickMetric extends StatelessWidget {
-  const _JobQuickMetric({
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
-
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F9FC),
-
-        borderRadius: BorderRadius.circular(14),
-
-        border: Border.all(color: const Color(0xFFE9EEF5)),
-      ),
-
-      child: Column(
-        children: [
-          Icon(icon, size: 16, color: const Color(0xFF2F7EFF)),
-
-          const SizedBox(height: 5),
-
-          Text(
-            value,
-
-            maxLines: 1,
-
-            overflow: TextOverflow.ellipsis,
-
-            style: const TextStyle(
-              color: Color(0xFF111827),
-              fontWeight: FontWeight.w900,
-              fontSize: 11.5,
-            ),
-          ),
-
-          const SizedBox(height: 1),
-
-          Text(
-            label,
-
-            style: const TextStyle(
-              color: Color(0xFF8A98AB),
-              fontWeight: FontWeight.w600,
-              fontSize: 8.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// JOB DIVIDER
 // =============================================================================
 
 class _JobDivider extends StatelessWidget {
@@ -2246,38 +2117,24 @@ class _InfoRow extends StatelessWidget {
 
         const SizedBox(width: 10),
 
-        SizedBox(
-          width: 76,
-
-          child: Text(
-            label,
-
-            style: const TextStyle(
-              color: Color(0xFF8A98AB),
-              fontWeight: FontWeight.w600,
-              fontSize: 10,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 5),
-
         Expanded(
-          child: Text(
-            value,
-
-            maxLines: 2,
-
-            overflow: TextOverflow.ellipsis,
-
-            textAlign: TextAlign.right,
-
-            style: const TextStyle(
-              color: Color(0xFF253047),
-              fontWeight: FontWeight.w800,
-              fontSize: 11.5,
-              height: 1.3,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Color(0xFF253047),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
           ),
         ),
       ],

@@ -260,7 +260,11 @@ void main() {
     expect(connection, contains("'awaiting_cash'"));
     expect(connection, contains("'cash_confirmed'"));
     expect(connection, contains('status <> \'cash_confirmed\''));
-    expect(driverTracking, contains('Confirm Cash Received'));
+    expect(driverTracking, contains('CashConfirmationDialog('));
+    expect(
+      read('lib/widgets/cash_confirmation_dialog.dart'),
+      contains('Confirm Cash Received'),
+    );
     expect(driverTracking, contains('confirmGroupCashShare'));
   });
 

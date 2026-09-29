@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'tour_stay_details.dart';
 
 /// Read-only presentation of the server's booked-stay and waiting ledger.
 class TourStayStatusCard extends StatefulWidget {
@@ -11,11 +11,19 @@ class TourStayStatusCard extends StatefulWidget {
     required this.bookingId,
     this.currentItemId,
     this.currentDestination,
+    this.includedMinutes,
+    this.showPaymentSummary = false,
+    this.showDestinationDetails = true,
+    this.inlineTimingOnly = false,
   });
 
   final String bookingId;
   final String? currentItemId;
   final String? currentDestination;
+  final int? includedMinutes;
+  final bool showPaymentSummary;
+  final bool showDestinationDetails;
+  final bool inlineTimingOnly;
 
   @override
   State<TourStayStatusCard> createState() => _TourStayStatusCardState();
@@ -46,6 +54,9 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
       _summary = null;
       _load();
       _subscribe();
+    } else if (oldWidget.currentItemId != widget.currentItemId ||
+        oldWidget.showPaymentSummary != widget.showPaymentSummary) {
+      _load();
     }
   }
 
@@ -58,12 +69,13 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
   }
 
   Future<void> _load() async {
+    final bookingId = widget.bookingId;
     try {
       final result = await Supabase.instance.client.rpc(
         'get_booking_waiting_summary',
-        params: {'p_booking_id': widget.bookingId},
+        params: {'p_booking_id': bookingId},
       );
-      if (!mounted || result is! Map) return;
+      if (!mounted || bookingId != widget.bookingId || result is! Map) return;
       final summary = Map<String, dynamic>.from(result);
       _serverTime = DateTime.tryParse('${summary['server_time']}')?.toUtc();
       _serverClock
@@ -93,6 +105,28 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
           ),
           callback: (_) => unawaited(_load()),
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_payment_requirements',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: widget.bookingId,
+          ),
+          callback: (_) => unawaited(_load()),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'package_bookings',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: widget.bookingId,
+          ),
+          callback: (_) => unawaited(_load()),
+        )
         .subscribe();
   }
 
@@ -102,18 +136,8 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
   static double _number(Object? value) =>
       value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
-  static String _money(Object? value) =>
-      '₱${NumberFormat('#,##0.00').format(_number(value))}';
-
   static DateTime? _date(Object? value) =>
       value == null ? null : DateTime.tryParse('$value')?.toLocal();
-
-  static String _clock(Duration duration) {
-    final seconds = duration.inSeconds.abs();
-    final hours = seconds ~/ 3600;
-    final minutes = (seconds % 3600) ~/ 60;
-    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,25 +168,40 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
             )
             .firstOrNull;
     final deadline = _date(current?['paid_until']);
-    final arrival = _date(current?['arrived_at']);
     final seconds = deadline == null
         ? 0
         : deadline.difference(_now.toLocal()).inSeconds;
-    final overtime =
-        current != null && current['status'] == 'active' && seconds < 0;
     final rate = current == null
         ? summary['current_rate_per_15_minutes']
         : current['rate_per_interval'];
-    final rateConfigured = rate != null;
-    final fmt = DateFormat('MMM d, h:mm a');
-    final finalized = charges
-        .where(
-          (row) =>
-              row['status'] == 'finalized' &&
-              _number(row['additional_amount']) > 0,
-        )
-        .toList();
-
+    final hasStop =
+        current?['status'] == 'active' ||
+        (widget.currentDestination?.trim().isNotEmpty ?? false);
+    final hasFinancialSummary =
+        ['package_remaining', 'finalized_waiting', 'total_remaining'].every(
+          (key) =>
+              summary[key] is num || double.tryParse('${summary[key]}') != null,
+        );
+    final paymentRequired =
+        widget.showPaymentSummary &&
+        (!hasFinancialSummary || _number(summary['total_remaining']) > 0);
+    if (widget.inlineTimingOnly) {
+      if (current?['status'] != 'active' || deadline == null) {
+        return const SizedBox.shrink();
+      }
+      return TourStayDetails(
+        destination: '',
+        includedMinutes: null,
+        secondsRemaining: seconds,
+        rate: rate == null ? null : _number(rate),
+        accruedWaiting: _number(current?['additional_amount']),
+        showDestination: false,
+        showIncluded: false,
+      );
+    }
+    if (!(widget.showDestinationDetails && hasStop) && !paymentRequired) {
+      return const SizedBox.shrink();
+    }
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -170,73 +209,44 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              overtime
-                  ? (rateConfigured ? 'ADDITIONAL WAITING' : 'STAY OVERTIME')
-                  : 'INCLUDED TIME OF STAY',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              current?['destination_name']?.toString() ??
-                  widget.currentDestination ??
-                  'Next destination',
-            ),
-            Text('Municipality: ${summary['municipality'] ?? '—'}'),
-            Text(
-              rateConfigured
-                  ? 'Additional waiting: ${_money(rate)} per started 15 minutes'
-                  : current == null
-                  ? 'Municipality waiting rate is not configured'
-                  : 'No additional waiting fee for this stop: the municipality rate was not configured at arrival',
-            ),
-            if (arrival != null) ...[
-              const SizedBox(height: 8),
-              Text('Arrived: ${fmt.format(arrival)}'),
-              Text('Included stay: ${current!['included_minutes']} minutes'),
-              Text('Paid until: ${fmt.format(deadline!)}'),
-              if (current['status'] == 'active')
-                Text(
-                  overtime
-                      ? 'Overtime: ${_clock(Duration(seconds: -seconds))}'
-                      : 'Remaining included time: ${_clock(Duration(seconds: seconds))}',
-                ),
-              if (!overtime && current['status'] == 'active' && seconds <= 900)
-                const Text('Paid stay ending soon'),
-              if (overtime) ...[
-                if (rateConfigured) ...[
-                  Text(
-                    'Chargeable intervals: ${current['chargeable_intervals']}',
-                  ),
-                  Text(
-                    'Accrued additional waiting: ${_money(current['additional_amount'])}',
-                  ),
-                ],
-              ],
-            ],
-            if (finalized.isNotEmpty) ...[
-              const Divider(height: 22),
-              for (final row in finalized)
-                Text(
-                  '${row['destination_name']}: '
-                  '${(row['overtime_seconds'] as num? ?? 0).toInt() ~/ 60} min, '
-                  '${row['chargeable_intervals']} intervals, '
-                  '${_money(row['additional_amount'])}',
-                ),
-            ],
-            const Divider(height: 22),
-            Text('Package remaining: ${_money(summary['package_remaining'])}'),
-            Text(
-              'Finalized additional waiting: ${_money(summary['finalized_waiting'])}',
-            ),
-            if (_number(summary['accrued_waiting']) > 0)
-              Text(
-                'Accrued additional waiting: ${_money(summary['accrued_waiting'])}',
+            if (widget.showDestinationDetails && hasStop)
+              TourStayDetails(
+                destination:
+                    current?['destination_name']?.toString() ??
+                    widget.currentDestination!,
+                includedMinutes:
+                    (current?['included_minutes'] as num?)?.toInt() ??
+                    widget.includedMinutes,
+                secondsRemaining:
+                    current?['status'] == 'active' && deadline != null
+                    ? seconds
+                    : null,
+                rate: rate == null ? null : _number(rate),
+                accruedWaiting: current == null
+                    ? null
+                    : _number(current['additional_amount']),
               ),
-            Text(
-              'Total remaining: ${_money(summary['total_remaining'])}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            if (paymentRequired) ...[
+              if (widget.showDestinationDetails && hasStop)
+                const Divider(height: 24),
+              Text(
+                'Payment required',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                hasFinancialSummary
+                    ? 'Settle the remaining balance to unlock drop-off. Payment must be confirmed.'
+                    : 'Payment details unavailable. Pull to refresh.',
+              ),
+              const SizedBox(height: 8),
+              if (hasFinancialSummary)
+                TourPaymentSummary(
+                  packageBalance: _number(summary['package_remaining']),
+                  additionalWaiting: _number(summary['finalized_waiting']),
+                  totalRemaining: _number(summary['total_remaining']),
+                ),
+            ],
           ],
         ),
       ),

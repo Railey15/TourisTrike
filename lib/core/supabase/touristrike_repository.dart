@@ -1,3 +1,4 @@
+import '../models/booking_capacity.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -123,27 +124,6 @@ class TourisTrikeRepository {
       throw StateError('No active Supabase session.');
     }
     return id;
-  }
-
-  String _normalizeLocationText(String value) {
-    final lowered = value.trim().toLowerCase();
-    return lowered.replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  String _firstNonEmptyLocation(Iterable<dynamic> values) {
-    for (final value in values) {
-      final text = value?.toString().trim() ?? '';
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-
-  bool _matchesNormalizedLocation(String actual, String expected) {
-    final normalizedActual = _normalizeLocationText(actual);
-    final normalizedExpected = _normalizeLocationText(expected);
-    return normalizedActual.isNotEmpty &&
-        normalizedExpected.isNotEmpty &&
-        normalizedActual == normalizedExpected;
   }
 
   Future<List<Json>> fetchRows(
@@ -580,6 +560,7 @@ class TourisTrikeRepository {
     String province = '',
     int totalPassengers = 0,
   }) async {
+    BookingCapacity.validate(adults + children, requiredDrivers);
     final hasActive = await hasActiveTour();
     if (hasActive) {
       throw StateError(activeTourErrorMessage);
@@ -981,6 +962,8 @@ class TourisTrikeRepository {
   Future<PayMongoCheckout> createPayMongoCheckout({
     required String bookingId,
     required String paymentStage,
+    String? customerName,
+    String? customerEmail,
   }) async {
     final idempotencyKey = _paymentAttemptKey(bookingId, paymentStage);
     try {
@@ -994,6 +977,8 @@ class TourisTrikeRepository {
           'booking_id': bookingId,
           'payment_stage': paymentStage,
           'idempotency_key': idempotencyKey,
+          'customer_name': ?customerName,
+          'customer_email': ?customerEmail,
         },
       );
       final data = response.data;
@@ -1704,80 +1689,11 @@ class TourisTrikeRepository {
   Future<List<PackageActivity>> fetchPendingPackageActivities({
     int limit = 30,
   }) async {
-    // Fetch driver's municipality for filtering.
-    // Some deployments may not have profiles.municipality in older schema versions.
-    final profileRow = await _client
-        .from('profiles')
-        .select('city, province')
-        .eq('id', requireUserId())
-        .maybeSingle();
-    final driverMunicipality = _normalizeLocationText(
-      _firstNonEmptyLocation([profileRow?['city']]),
+    final result = await _client.rpc(
+      'get_available_tour_assignments',
+      params: {'p_limit': limit},
     );
-    final driverProvince = _normalizeLocationText(
-      _firstNonEmptyLocation([profileRow?['province'], 'Bulacan']),
-    );
-    if (driverMunicipality.isEmpty || driverProvince.isEmpty) {
-      return const [];
-    }
-
-    final rows = await _client
-        .from(TourisTrikeTables.packageActivities)
-        .select(
-          '*, '
-          'tour_packages(title, city, cover_image_url, image_url), '
-          'package_bookings('
-          '  id, travel_date, scheduled_start_at, estimated_end_at, adults, '
-          '  children, booking_type, status, booking_status, '
-          '  pickup_address, pickup_latitude, pickup_longitude, '
-          '  dropoff_address, dropoff_latitude, dropoff_longitude, '
-          '  required_drivers, accepted_drivers_count, municipality, province, '
-          '  total_amount, total_passengers, notes'
-          ')',
-        )
-        .eq('status', 'pending')
-        .isFilter('driver_id', null)
-        .order('created_at', ascending: true)
-        .limit(limit * 3); // over-fetch so client filter doesn't under-return
-
-    return (await _withActivityParticipantIdentities(_rows(rows)))
-        .map(PackageActivity.new)
-        .where((activity) {
-          final booking = activity.bookingRow;
-          final required = (booking?['required_drivers'] as num?)?.toInt() ?? 1;
-          final accepted =
-              (booking?['accepted_drivers_count'] as num?)?.toInt() ?? 0;
-          // Exclude fully-staffed bookings
-          if (accepted >= required) return false;
-
-          // Municipality filter — strict: legacy (no municipality) passes through;
-          // area-specific bookings only shown to drivers in that municipality.
-          final bookingStatus = dbString(
-            booking?['booking_status'],
-            fallback: dbString(booking?['status'], fallback: activity.status),
-          );
-          if (bookingStatus != 'pending' &&
-              bookingStatus != 'waiting_for_drivers') {
-            return false;
-          }
-
-          final bookingMunicipality = _normalizeLocationText(
-            _firstNonEmptyLocation([
-              booking?['municipality'],
-              activity.packageRow?['city'],
-            ]),
-          );
-          final bookingProvince = _normalizeLocationText(
-            _firstNonEmptyLocation([booking?['province'], 'Bulacan']),
-          );
-          return _matchesNormalizedLocation(
-                bookingMunicipality,
-                driverMunicipality,
-              ) &&
-              _matchesNormalizedLocation(bookingProvince, driverProvince);
-        })
-        .take(limit)
-        .toList(growable: false);
+    return _rows(result).map(PackageActivity.new).toList(growable: false);
   }
 
   Future<bool> driverHasActivePackageTour() async {
@@ -2734,6 +2650,14 @@ class TourisTrikeRepository {
   }
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────
+
+  Future<Json> fetchTouristReputation(String bookingId) async => Json.from(
+    await _client.rpc(
+          'get_booking_tourist_reputation',
+          params: {'p_booking_id': bookingId},
+        )
+        as Map,
+  );
 
   Future<Json> fetchBookingFeedback(String bookingId) async => Json.from(
     await _client.rpc(

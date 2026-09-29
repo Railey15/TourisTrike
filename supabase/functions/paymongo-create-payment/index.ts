@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, enabled, jsonResponse } from "../_shared/http.ts";
 import { basicAuth } from "../_shared/paymongo.ts";
+import { resolveCheckoutBilling } from "./customer_billing.ts";
 
 type Allocation = {
   id: string;
@@ -134,6 +135,26 @@ serve(async (request) => {
     console.warn("[PayMongo] tourist profile lookup failed", profileError.code);
   }
 
+  const billing = resolveCheckoutBilling({
+    requestedName: typeof body.customer_name === "string"
+      ? body.customer_name
+      : undefined,
+    requestedEmail: typeof body.customer_email === "string"
+      ? body.customer_email
+      : undefined,
+    profile: touristProfile,
+    authEmail: userData.user.email,
+    authPhone: userData.user.phone,
+  });
+  const customerName = billing.name ?? "";
+  const customerEmail = billing.email ?? "";
+  if (
+    customerName.length > 200 || customerEmail.length > 254 ||
+    (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))
+  ) {
+    return jsonResponse({ error: "INVALID_PAYMENT_CONTACT" }, 400);
+  }
+
   const { data: prepared, error: prepareError } = await userClient.rpc(
     "prepare_paymongo_payment",
     {
@@ -217,20 +238,6 @@ serve(async (request) => {
     },
   };
 
-  const customerName = String(
-    touristProfile?.full_name ??
-      [touristProfile?.first_name, touristProfile?.last_name]
-        .filter(Boolean)
-        .join(" "),
-  ).trim();
-  const customerEmail = String(userData.user.email ?? "").trim();
-  const customerPhone = String(
-    touristProfile?.mobile ?? userData.user.phone ?? "",
-  ).trim();
-  const billing: Record<string, string> = {};
-  if (customerName) billing.name = customerName;
-  if (customerEmail) billing.email = customerEmail;
-  if (customerPhone) billing.phone = customerPhone;
   if (Object.keys(billing).length > 0) {
     attributes.billing = billing;
   }

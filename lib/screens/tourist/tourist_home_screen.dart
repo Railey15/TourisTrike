@@ -1,3 +1,4 @@
+import 'package:touristrike/widgets/tourist/home_spot_link.dart';
 import '../../widgets/notification_bell.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -710,7 +711,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     final heroH = (size.height * 0.45).clamp(370.0, 440.0);
 
-    final sheetTop = heroH - 20;
+    final sheetTop = heroH;
 
     return TouristAiChatbotWrapper(
       child: Scaffold(
@@ -988,7 +989,7 @@ class _MunicipalityHero extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 11, 18, 42),
+            padding: const EdgeInsets.fromLTRB(18, 11, 18, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1214,17 +1215,6 @@ class _HomeSheet extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const SizedBox(height: 10),
-
-          Container(
-            width: 42,
-            height: 4,
-            decoration: BoxDecoration(
-              color: const Color(0xFFD8E1EC),
-              borderRadius: BorderRadius.circular(100),
-            ),
-          ),
-
           Expanded(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -1247,7 +1237,7 @@ class _HomeSheet extends StatelessWidget {
                     _PreferenceEmptyState(onSetPreferences: onSetPreferences),
 
                   if (hasPreferences) ...[
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                     _RecommendedSection(
                       title: 'Recommended For You',
                       subtitle: prefCategories.isEmpty
@@ -1806,130 +1796,137 @@ class _NearbySpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 176,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE8EDF4)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF24334B).withValues(alpha: 0.09),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.network(
-              spot.imageForCard,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(
-                color: const Color(0xFFE8EEF5),
-                child: const Center(
-                  child: Icon(
-                    Icons.image_outlined,
-                    size: 30,
-                    color: Color(0xFF93A2B6),
-                  ),
-                ),
-              ),
-            ),
-
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.04),
-                      Colors.black.withValues(alpha: 0.05),
-                      Colors.black.withValues(alpha: 0.78),
-                    ],
-                    stops: const [0.0, 0.42, 1.0],
-                  ),
-                ),
-              ),
-            ),
-
-            Positioned(top: 10, left: 10, child: _CategoryBadge(tag: spot.tag)),
-
-            Positioned(
-              top: 10,
-              right: 10,
-              child: _RatingBadge(rating: spot.rating),
-            ),
-
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    spot.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      height: 1.12,
-                      letterSpacing: -0.15,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.near_me_rounded,
-                        color: Color(0xFF9CCAFF),
-                        size: 13,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        spot.distanceText,
-                        style: const TextStyle(
-                          color: Color(0xFFB9DAFF),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.place_outlined,
-                        color: Colors.white70,
-                        size: 12,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          spot.barangay.isEmpty ? spot.city : spot.barangay,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 10.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+    return HomeSpotLink(
+      spot: spot.toRecommendationSpot(),
+      child: Container(
+        width: 176,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE8EDF4)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF24334B).withValues(alpha: 0.09),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                spot.imageForCard,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  color: const Color(0xFFE8EEF5),
+                  child: const Center(
+                    child: Icon(
+                      Icons.image_outlined,
+                      size: 30,
+                      color: Color(0xFF93A2B6),
+                    ),
+                  ),
+                ),
+              ),
+
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.04),
+                        Colors.black.withValues(alpha: 0.05),
+                        Colors.black.withValues(alpha: 0.78),
+                      ],
+                      stops: const [0.0, 0.42, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+
+              Positioned(
+                top: 10,
+                left: 10,
+                child: _CategoryBadge(tag: spot.tag),
+              ),
+
+              Positioned(
+                top: 10,
+                right: 10,
+                child: _RatingBadge(rating: spot.rating),
+              ),
+
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      spot.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        height: 1.12,
+                        letterSpacing: -0.15,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.near_me_rounded,
+                          color: Color(0xFF9CCAFF),
+                          size: 13,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          spot.distanceText,
+                          style: const TextStyle(
+                            color: Color(0xFFB9DAFF),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.place_outlined,
+                          color: Colors.white70,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            spot.barangay.isEmpty ? spot.city : spot.barangay,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2604,161 +2601,166 @@ class _AiSpotMiniCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 245,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE5ECF4)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF24334B).withValues(alpha: 0.055),
-            blurRadius: 15,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 94,
-              height: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.network(
-                    spot.imageForCard,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      color: const Color(0xFFEAF4FF),
-                      child: const Icon(
-                        Icons.image_outlined,
-                        color: Color(0xFF2185F5),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.04),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+    return HomeSpotLink(
+      spot: spot.toRecommendationSpot(),
+      child: Container(
+        width: 245,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE5ECF4)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF24334B).withValues(alpha: 0.055),
+              blurRadius: 15,
+              offset: const Offset(0, 7),
             ),
-
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 94,
+                height: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2185F5).withValues(alpha: 0.09),
-                        borderRadius: BorderRadius.circular(100),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.auto_awesome_rounded,
-                            color: Color(0xFF2185F5),
-                            size: 11,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            matchLabel,
-                            style: const TextStyle(
-                              color: Color(0xFF2185F5),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 9,
-                            ),
-                          ),
-                        ],
+                    Image.network(
+                      spot.imageForCard,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: const Color(0xFFEAF4FF),
+                        child: const Icon(
+                          Icons.image_outlined,
+                          color: Color(0xFF2185F5),
+                        ),
                       ),
                     ),
-
-                    const SizedBox(height: 7),
-
-                    Text(
-                      spot.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF172033),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13.5,
-                        height: 1.15,
-                        letterSpacing: -0.1,
-                      ),
-                    ),
-
-                    const SizedBox(height: 5),
-
-                    Text(
-                      spot.tag.isEmpty ? spot.city : spot.tag,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF7F8EA1),
-                        fontWeight: FontWeight.w500,
-                        fontSize: 10.5,
-                      ),
-                    ),
-
-                    const Spacer(),
-
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star_rounded,
-                          color: Color(0xFFFFC857),
-                          size: 14,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          spot.rating.toStringAsFixed(1),
-                          style: const TextStyle(
-                            color: Color(0xFF26364B),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 10.5,
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.04),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 7),
-                        Expanded(
-                          child: Text(
-                            spot.distanceText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF95A2B3),
-                              fontWeight: FontWeight.w500,
-                              fontSize: 9.5,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFF2185F5,
+                          ).withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.auto_awesome_rounded,
+                              color: Color(0xFF2185F5),
+                              size: 11,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              matchLabel,
+                              style: const TextStyle(
+                                color: Color(0xFF2185F5),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 7),
+
+                      Text(
+                        spot.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF172033),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13.5,
+                          height: 1.15,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+
+                      const SizedBox(height: 5),
+
+                      Text(
+                        spot.tag.isEmpty ? spot.city : spot.tag,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF7F8EA1),
+                          fontWeight: FontWeight.w500,
+                          fontSize: 10.5,
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.star_rounded,
+                            color: Color(0xFFFFC857),
+                            size: 14,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            spot.rating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              color: Color(0xFF26364B),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              spot.distanceText,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF95A2B3),
+                                fontWeight: FontWeight.w500,
+                                fontSize: 9.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -3152,6 +3154,9 @@ const _bulacanMunicipalities = [
 ];
 
 class _NearbySpot {
+  final int userRatingsTotal;
+  final bool? openNow;
+  final String googlePlaceId;
   final String id;
   final String title;
   final String city;
@@ -3165,6 +3170,9 @@ class _NearbySpot {
   final double distanceKm;
 
   const _NearbySpot({
+    this.userRatingsTotal = 0,
+    this.openNow,
+    this.googlePlaceId = '',
     required this.id,
     required this.title,
     required this.city,
@@ -3180,6 +3188,9 @@ class _NearbySpot {
 
   factory _NearbySpot.fromRecommendationSpot(TouristAiRecommendationSpot spot) {
     return _NearbySpot(
+      userRatingsTotal: spot.userRatingsTotal,
+      openNow: spot.openNow,
+      googlePlaceId: spot.googlePlaceId,
       id: spot.id,
       title: spot.title,
       city: spot.municipality,
@@ -3207,7 +3218,9 @@ class _NearbySpot {
       latitude: latitude,
       longitude: longitude,
       municipality: city,
-      googlePlaceId: id,
+      googlePlaceId: googlePlaceId,
+      userRatingsTotal: userRatingsTotal,
+      openNow: openNow,
       description: description,
     );
   }

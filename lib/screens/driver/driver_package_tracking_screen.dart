@@ -1,3 +1,5 @@
+import 'package:touristrike/widgets/cash_confirmation_dialog.dart';
+import 'package:touristrike/widgets/tourist_reputation.dart';
 import '../../core/services/booking_driver_markers.dart';
 import '../../core/models/tour_tracking_status.dart';
 import '../../core/models/driver_tour_action.dart';
@@ -248,6 +250,10 @@ class _DriverPackageTrackingScreenState
   List<PaymentAllocation> _paymentAllocations = [];
   DriverTourPaymentGate? _dropoffPaymentGate;
   int _trackingRefreshGeneration = 0;
+  final DriverTouristReviewPromptGate _reviewPromptGate =
+      DriverTouristReviewPromptGate();
+  bool _reviewCheckBusy = false;
+  bool _touristReviewed = false;
 
   bool _loading = true;
   bool _actionBusy = false;
@@ -594,6 +600,7 @@ class _DriverPackageTrackingScreenState
         await _loadConvoy();
         _subscribeConvoyRealtime();
       }
+      _scheduleTouristReviewPrompt();
     } catch (e, stackTrace) {
       debugPrint('[DriverTracking:load] Error: $e');
 
@@ -1726,6 +1733,74 @@ class _DriverPackageTrackingScreenState
         await _loadConvoy();
       }
     }
+    _scheduleTouristReviewPrompt();
+  }
+
+  void _scheduleTouristReviewPrompt() {
+    if (!mounted ||
+        _booking?.bookingStatus.toLowerCase() != 'completed' ||
+        _activity?.tourStatus.toLowerCase() != 'completed') {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_maybeShowTouristReview());
+    });
+  }
+
+  String get _touristReviewName {
+    final tourist = _activity?.touristRow;
+    final full = (tourist?['full_name'] ?? '').toString().trim();
+    if (full.isNotEmpty) return full;
+    final first = (tourist?['first_name'] ?? '').toString().trim();
+    final last = (tourist?['last_name'] ?? '').toString().trim();
+    final combined = '$first $last'.trim();
+    return combined.isNotEmpty ? combined : 'Tourist';
+  }
+
+  Future<void> _maybeShowTouristReview({bool manual = false}) async {
+    final bookingId = _bookingId;
+    final driverId = _repo.currentUserId;
+    if (!mounted ||
+        _reviewCheckBusy ||
+        _touristReviewed ||
+        bookingId.isEmpty ||
+        driverId == null ||
+        _booking?.bookingStatus.toLowerCase() != 'completed' ||
+        _activity?.tourStatus.toLowerCase() != 'completed' ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        (!manual && _reviewPromptGate.hasPrompted(bookingId))) {
+      return;
+    }
+    _reviewCheckBusy = true;
+    try {
+      final saved = await _supabase
+          .from('tourist_reviews')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .eq('driver_id', driverId)
+          .maybeSingle();
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      if (saved != null) {
+        setState(() => _touristReviewed = true);
+        return;
+      }
+      _reviewPromptGate.reserve(bookingId);
+      final submitted = await DriverTouristReviewModal.show(
+        context,
+        bookingId: bookingId,
+        touristName: _touristReviewName,
+      );
+      if (submitted && mounted) setState(() => _touristReviewed = true);
+    } catch (_) {
+      if (manual && mounted) {
+        _showSnack(
+          'Unable to load your review. Please try again.',
+          error: true,
+        );
+      }
+    } finally {
+      _reviewCheckBusy = false;
+    }
   }
 
   void _debugTourState(String tag, {Map<String, dynamic>? rpcResult}) {
@@ -2266,20 +2341,53 @@ class _DriverPackageTrackingScreenState
     }
   }
 
+  final _cashPromptGate = CashConfirmationPromptGate();
+  bool _cashModalOpen = false;
+
   Future<void> _confirmCashShare(_PendingCashShare item) async {
+    // The server emits payment notifications. A driver cannot insert them under RLS.
+    await _repo.confirmGroupCashShare(item.record.id as String);
     try {
-      await _repo.confirmGroupCashShare(item.record.id as String);
-      await _repo.notifyUser(
-        userId: item.record.payerId,
-        title: 'Cash received',
-        body:
-            'A driver confirmed receiving ₱${item.allocation.driverAmount.toStringAsFixed(2)} of the remaining balance.',
-        type: 'cash_payment_confirmed',
-      );
-      _showSnack('Cash receipt confirmed.');
       await _refreshTrackingState(logTag: 'cash-share-confirmed');
-    } catch (e) {
-      _showSnack('Unable to confirm cash receipt: $e', error: true);
+    } catch (_) {
+      if (mounted) {
+        _showSnack(
+          'Cash recorded. Refresh the tour to verify the remaining balance.',
+        );
+      }
+    }
+  }
+
+  void _maybePresentCash(List<_PendingCashShare> shares) {
+    if (_cashModalOpen || shares.isEmpty || _isBookingClosed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _cashModalOpen ||
+          _isBookingClosed ||
+          ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
+      final item = shares.first;
+      if (!_cashPromptGate.shouldPresent(item.record.id.toString())) return;
+      unawaited(_showCashModal(item));
+    });
+  }
+
+  Future<void> _showCashModal(_PendingCashShare item) async {
+    if (_cashModalOpen) return;
+    _cashModalOpen = true;
+    try {
+      await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => CashConfirmationDialog(
+          amount: item.allocation.driverAmount,
+          onConfirm: () => _confirmCashShare(item),
+        ),
+      );
+    } finally {
+      _cashModalOpen = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -2781,10 +2889,6 @@ class _DriverPackageTrackingScreenState
     final awaitingFinalPayment =
         (_booking?.bookingStatus ?? '').toLowerCase() ==
         'awaiting_final_payment';
-    final awaitingRemainingPayment =
-        (_booking?.bookingStatus ?? '').toLowerCase() ==
-            'awaiting_remaining_payment' ||
-        status == 'awaiting_remaining_payment';
     final completedDriverCount = _convoy
         .where((driver) => driver.journeyState == ConvoyJourneyState.completed)
         .length;
@@ -2830,12 +2934,15 @@ class _DriverPackageTrackingScreenState
     final confirmedCashCount = remainingAllocations
         .where((allocation) => allocation.isCashConfirmed)
         .length;
-    final paymentGateMessage =
+    final cashStatus =
         remainingPayment?.isGroupCash == true && remainingAllocations.isNotEmpty
-        ? 'Cash confirmation: $confirmedCashCount of ${remainingAllocations.length} drivers confirmed. Drop-off stays locked until everyone confirms.'
-        : remainingPayment?.isPayMongo == true
-        ? 'Waiting for secure GCash payment confirmation. Drop-off unlocks automatically after the webhook confirms payment.'
-        : 'Itinerary completed. Waiting for remaining payment; drop-off unlocks after payment confirmation.';
+        ? 'Cash: $confirmedCashCount of ${remainingAllocations.length} drivers confirmed'
+        : null;
+    final paymentBlocked =
+        !assignmentCompleted &&
+        _allItineraryItemsCompleted &&
+        _dropoffPaymentGate?.canDropOff != true;
+    _maybePresentCash(pendingCashShares);
 
     final primaryAction = _currentPrimaryAction();
     final enRouteStatus = _currentEnRouteStatus();
@@ -2876,41 +2983,54 @@ class _DriverPackageTrackingScreenState
                     stops: _spots,
                     onlyDriverId: _repo.currentUserId,
                   ),
-                if (_booking != null && !_isBookingClosed) ...[
-                  TourStayStatusCard(
-                    bookingId: _bookingId,
-                    currentItemId: _currentItineraryItem?.id.toString(),
-                    currentDestination: _currentItineraryItem?.destinationName,
+                if (!paymentBlocked)
+                  _ModernStatusCard(
+                    status: status,
+                    completedCount: _completedItineraryItemsCount,
+                    totalCount: _spots.length,
                   ),
+                if (bookingCompleted && !_touristReviewed) ...[
                   const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _reviewCheckBusy
+                        ? null
+                        : () => _maybeShowTouristReview(manual: true),
+                    icon: const Icon(Icons.star_outline_rounded),
+                    label: const Text('Rate Tourist'),
+                  ),
                 ],
-                _ModernStatusCard(
-                  status: status,
-                  completedCount: _completedItineraryItemsCount,
-                  totalCount: _spots.length,
-                ),
-                if (bookingCompleted) ...[
-                  const SizedBox(height: 12),
-                  DriverTouristReviewCard(bookingId: _bookingId),
-                ],
-
                 const SizedBox(height: 12),
 
-                if (_allItineraryItemsCompleted &&
-                    _myConvoyStatus?.journeyState ==
-                        ConvoyJourneyState.stopDone &&
-                    _dropoffPaymentGate?.canDropOff != true) ...[
+                if (paymentBlocked) ...[
+                  Text(
+                    '$_completedItineraryItemsCount of ${_spots.length} destinations completed',
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
                   DriverTourPaymentRequiredCard(gate: _dropoffPaymentGate),
                   const SizedBox(height: 12),
                 ],
-                if (awaitingRemainingPayment &&
-                    _dropoffPaymentGate?.canDropOff != true) ...[
-                  _ServerGateNotice(message: paymentGateMessage),
+                if (cashStatus != null && paymentBlocked) ...[
+                  Text(
+                    cashStatus,
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (pendingCashShares.isNotEmpty) ...[
+                  OutlinedButton.icon(
+                    onPressed: _cashModalOpen
+                        ? null
+                        : () => _showCashModal(pendingCashShares.first),
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('Review cash payment'),
+                  ),
                   const SizedBox(height: 12),
-                ] else if (awaitingFinalPayment) ...[
+                ],
+                if (awaitingFinalPayment && !paymentBlocked) ...[
                   _ServerGateNotice(
                     message:
-                        'Tour finished. Your assignment is complete; the booking is awaiting confirmed final payment.',
+                        'Tour finished. Your assignment is complete; awaiting confirmed final payment.',
                   ),
                   const SizedBox(height: 12),
                 ] else if (assignmentCompleted && !bookingCompleted) ...[
@@ -2921,7 +3041,7 @@ class _DriverPackageTrackingScreenState
                   const SizedBox(height: 12),
                 ],
 
-                if (serverGateNotice != null) ...[
+                if (serverGateNotice != null && !paymentBlocked) ...[
                   _ServerGateNotice(message: serverGateNotice),
                   const SizedBox(height: 12),
                 ],
@@ -3003,7 +3123,8 @@ class _DriverPackageTrackingScreenState
                 ),
                 const SizedBox(height: 14),
                 if (!assignmentCompleted && _spots.isNotEmpty)
-                  _CurrentDestinationCard(
+                  DriverTourDestinationCard(
+                    bookingId: _bookingId,
                     currentItem: _currentItineraryItem,
                     completedCount: _completedItineraryItemsCount,
                     totalCount: _spots.length,
@@ -3019,6 +3140,7 @@ class _DriverPackageTrackingScreenState
                     status: status,
                   ),
                 if (_spots.isNotEmpty) const SizedBox(height: 14),
+                TouristReputation(bookingId: _bookingId),
                 _ModernTouristCard(
                   activity: activity,
                   onMessage: _openTouristChat,
@@ -3035,6 +3157,7 @@ class _DriverPackageTrackingScreenState
                   booking: _booking,
                   activity: activity,
                   remainingBalanceSettled: _hasConfirmedRemainingBalance,
+                  showRemainingBalance: !paymentBlocked,
                 ),
                 if (pendingPayments.isNotEmpty) ...[
                   const SizedBox(height: 14),
@@ -3042,13 +3165,6 @@ class _DriverPackageTrackingScreenState
                     records: pendingPayments,
                     onConfirm: _confirmPayment,
                     onDispute: _disputePayment,
-                  ),
-                ],
-                if (pendingCashShares.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  _CashReceiptConfirmationCard(
-                    shares: pendingCashShares,
-                    onConfirm: _confirmCashShare,
                   ),
                 ],
                 const SizedBox(height: 4),
@@ -3736,15 +3852,19 @@ class _LegendItem extends StatelessWidget {
 // CURRENT DESTINATION CARD
 // ============================================================================
 
-class _CurrentDestinationCard extends StatelessWidget {
-  const _CurrentDestinationCard({
+class DriverTourDestinationCard extends StatelessWidget {
+  const DriverTourDestinationCard({
+    super.key,
+    required this.bookingId,
     required this.currentItem,
     required this.completedCount,
     required this.totalCount,
     required this.eta,
     required this.status,
+    this.stayTiming,
   });
 
+  final String bookingId;
   final BookingItineraryItem? currentItem;
 
   final int completedCount;
@@ -3752,6 +3872,7 @@ class _CurrentDestinationCard extends StatelessWidget {
 
   final String? eta;
   final String status;
+  final Widget? stayTiming;
 
   @override
   Widget build(BuildContext context) {
@@ -3826,6 +3947,25 @@ class _CurrentDestinationCard extends StatelessWidget {
                       height: 1.3,
                     ),
                   ),
+                ],
+                if (currentItem!.estimatedStayDurationMinutes > 0) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    'Included stay: ${currentItem!.estimatedStayDurationMinutes} min',
+                    style: const TextStyle(
+                      color: _ink,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+                if (atSpot) ...[
+                  stayTiming ??
+                      TourStayStatusCard(
+                        bookingId: bookingId,
+                        currentItemId: currentItem!.id.toString(),
+                        inlineTimingOnly: true,
+                      ),
                 ],
                 const SizedBox(height: 8),
                 Wrap(
@@ -4649,11 +4789,13 @@ class _LocationTimelineItem extends StatelessWidget {
 
 class _ModernBookingCard extends StatelessWidget {
   const _ModernBookingCard({
+    this.showRemainingBalance = true,
     required this.booking,
     required this.activity,
     required this.remainingBalanceSettled,
   });
 
+  final bool showRemainingBalance;
   final PackageBooking? booking;
   final PackageActivity activity;
   final bool remainingBalanceSettled;
@@ -4748,17 +4890,19 @@ class _ModernBookingCard extends StatelessWidget {
               label: 'Down Payment',
               value: '₱${downpayment.toStringAsFixed(2)}',
             ),
-            const SizedBox(height: 9),
-            _BookingInfoLine(
-              icon: Icons.account_balance_wallet_outlined,
-              label: 'Remaining Balance',
-              value: remaining > 0 && !remainingBalanceSettled
-                  ? '₱${remaining.toStringAsFixed(2)}'
-                  : 'Settled',
-              valueColor: remaining > 0 && !remainingBalanceSettled
-                  ? _warning
-                  : _success,
-            ),
+            if (showRemainingBalance) ...[
+              const SizedBox(height: 9),
+              _BookingInfoLine(
+                icon: Icons.account_balance_wallet_outlined,
+                label: 'Remaining Balance',
+                value: remaining > 0 && !remainingBalanceSettled
+                    ? '₱${remaining.toStringAsFixed(2)}'
+                    : 'Settled',
+                valueColor: remaining > 0 && !remainingBalanceSettled
+                    ? _warning
+                    : _success,
+              ),
+            ],
           ],
         ],
       ),
@@ -4882,103 +5026,6 @@ class _PendingCashShare {
 
   final PaymentRecord record;
   final PaymentAllocation allocation;
-}
-
-class _CashReceiptConfirmationCard extends StatelessWidget {
-  const _CashReceiptConfirmationCard({
-    required this.shares,
-    required this.onConfirm,
-  });
-
-  final List<_PendingCashShare> shares;
-  final ValueChanged<_PendingCashShare> onConfirm;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFFDE3A7)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Cash Receipt Confirmation',
-            style: TextStyle(
-              color: _ink,
-              fontWeight: FontWeight.w900,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 3),
-          const Text(
-            'Confirm only after you physically receive your allocated share.',
-            style: TextStyle(
-              color: _subtle,
-              fontWeight: FontWeight.w600,
-              fontSize: 9.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ...shares.map(
-            (item) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _warningSoft,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '₱${item.allocation.driverAmount.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: _ink,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 17,
-                          ),
-                        ),
-                        const Text(
-                          'Your remaining-balance cash share',
-                          style: TextStyle(
-                            color: _muted,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 9.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => onConfirm(item),
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor: _success,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text(
-                      'Confirm Cash Received',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _ModernPaymentsCard extends StatelessWidget {

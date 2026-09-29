@@ -1,3 +1,4 @@
+import 'package:touristrike/widgets/payment_contact_sheet.dart';
 import '../../core/services/booking_driver_markers.dart';
 import '../../core/services/convoy_route_polylines.dart';
 import 'dart:async';
@@ -337,9 +338,30 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
     setState(() => _busyPaymentStages.add(stage));
     try {
+      Profile? profile;
+      try {
+        profile = await _repo.currentProfile();
+      } catch (_) {
+        /* Editable fallback. */
+      }
+      final defaults = PaymentContact.fromAccount(
+        profile: profile?.row,
+        authEmail: _supabase.auth.currentUser?.email,
+      );
+      if (!mounted) return;
+      final contact = await showModalBottomSheet<PaymentContact>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) =>
+            PaymentContactSheet(name: defaults.name, email: defaults.email),
+      );
+      if (contact == null || !mounted) return;
       final checkout = await _repo.createPayMongoCheckout(
         bookingId: widget.bookingId,
         paymentStage: stage,
+        customerName: contact.name,
+        customerEmail: contact.email,
       );
       final uri = Uri.tryParse(checkout.checkoutUrl);
       if (uri == null || uri.scheme.toLowerCase() != 'https') {
@@ -1812,7 +1834,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final statusData = awaitingRemainingPayment
         ? (
             'TOUR ITINERARY COMPLETED',
-            'Remaining payment is required before the convoy can proceed to drop-off.',
+            'All tourist stops have been visited.',
             const Color(0xFFD97706),
             Icons.payments_outlined,
           )
@@ -2068,21 +2090,30 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     drivers: _convoy,
                     stops: _spots,
                   ),
-                if (booking != null && !completed) ...[
+                if (booking != null &&
+                    !completed &&
+                    (awaitingRemainingPayment || awaitingFinalPayment)) ...[
                   TourStayStatusCard(
                     bookingId: widget.bookingId,
-                    currentItemId: _spots
-                        .where((spot) => spot.spotStatus == 'at_spot')
-                        .firstOrNull
-                        ?.id
-                        .toString(),
-                    currentDestination: _spots
-                        .where((spot) => spot.spotStatus != 'completed')
-                        .firstOrNull
-                        ?.destinationName,
+                    showPaymentSummary:
+                        awaitingRemainingPayment || awaitingFinalPayment,
+                    showDestinationDetails: false,
+                  ),
+                ],
+                // ===========================================================
+                // CURRENT DESTINATION
+                // ===========================================================
+                if (!completed && _currentItineraryItem != null) ...[
+                  TouristTourDestinationCard(
+                    bookingId: widget.bookingId,
+                    spot: _currentItineraryItem!,
+                    completedCount: _completedSpotCount,
+                    totalCount: _spots.length,
+                    eta: _eta,
                   ),
                   const SizedBox(height: 14),
                 ],
+
                 if (_convoy.isNotEmpty) ...[
                   ConvoyTouristDriverList(
                     convoy: _convoy,
@@ -2093,19 +2124,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     },
                     onCall: (driver) => _launchPhone(driver.phoneNumber),
                     onMessage: (_) => _openDriverChat(),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-
-                // ===========================================================
-                // CURRENT DESTINATION
-                // ===========================================================
-                if (!completed && _currentItineraryItem != null) ...[
-                  _CurrentTourStopCard(
-                    spot: _currentItineraryItem!,
-                    completedCount: _completedSpotCount,
-                    totalCount: _spots.length,
-                    eta: _eta,
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -2199,6 +2217,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     (booking?.remainingBalance ?? 0) > 0) ...[
                   _PaymentStageCard(
                     title: 'Remaining Balance',
+                    showAmount:
+                        !(awaitingRemainingPayment || awaitingFinalPayment),
                     amount: booking!.remainingBalance,
                     record: remainingPaymentRecord,
                     cashAllocations: _paymentAllocations,
@@ -3057,20 +3077,25 @@ class _FindingDriversCard extends StatelessWidget {
 // CURRENT STOP
 // ============================================================================
 
-class _CurrentTourStopCard extends StatelessWidget {
-  const _CurrentTourStopCard({
+class TouristTourDestinationCard extends StatelessWidget {
+  const TouristTourDestinationCard({
+    super.key,
+    required this.bookingId,
     required this.spot,
     required this.completedCount,
     required this.totalCount,
     required this.eta,
+    this.stayTiming,
   });
 
+  final String bookingId;
   final BookingItineraryItem spot;
 
   final int completedCount;
   final int totalCount;
 
   final String? eta;
+  final Widget? stayTiming;
 
   @override
   Widget build(BuildContext context) {
@@ -3120,6 +3145,8 @@ class _CurrentTourStopCard extends StatelessWidget {
 
                 Text(
                   spot.destinationName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: _ink,
                     fontWeight: FontWeight.w900,
@@ -3142,6 +3169,25 @@ class _CurrentTourStopCard extends StatelessWidget {
                     ),
                   ),
                 ],
+
+                if (spot.estimatedStayDurationMinutes > 0) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    'Included stay: ${spot.estimatedStayDurationMinutes} min',
+                    style: const TextStyle(
+                      color: _ink,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+                if (atSpot)
+                  stayTiming ??
+                      TourStayStatusCard(
+                        bookingId: bookingId,
+                        currentItemId: spot.id.toString(),
+                        inlineTimingOnly: true,
+                      ),
 
                 const SizedBox(height: 7),
 
@@ -3964,6 +4010,7 @@ class _LocationTimelineRow extends StatelessWidget {
 class _PaymentStageCard extends StatelessWidget {
   const _PaymentStageCard({
     required this.title,
+    this.showAmount = true,
     required this.amount,
     required this.record,
     required this.actionLabel,
@@ -3974,6 +4021,7 @@ class _PaymentStageCard extends StatelessWidget {
     this.convoy = const [],
   });
 
+  final bool showAmount;
   final String title;
   final double amount;
 
@@ -4062,14 +4110,15 @@ class _PaymentStageCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      money.format(amount),
-                      style: const TextStyle(
-                        color: _primary,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 17,
+                    if (showAmount)
+                      Text(
+                        money.format(amount),
+                        style: const TextStyle(
+                          color: _primary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 17,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

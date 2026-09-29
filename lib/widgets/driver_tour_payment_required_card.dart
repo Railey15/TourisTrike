@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'tour_stay_details.dart';
 import 'package:touristrike/core/models/driver_tour_action.dart';
 
 class DriverTourPaymentRequiredCard extends StatelessWidget {
@@ -8,24 +8,6 @@ class DriverTourPaymentRequiredCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String money(double value) => '₱${NumberFormat('#,##0.00').format(value)}';
-    Widget amount(String label, double value, {bool total = false}) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        spacing: 12,
-        runSpacing: 4,
-        children: [
-          Text(label),
-          Text(
-            money(value),
-            style: TextStyle(
-              fontWeight: total ? FontWeight.w900 : FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -51,10 +33,11 @@ class DriverTourPaymentRequiredCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           if (gate case final summary?) ...[
-            amount('Package Remaining', summary.packageRemaining),
-            amount('Finalized Additional Waiting', summary.finalizedWaiting),
-            const Divider(),
-            amount('Total Remaining', summary.totalRemaining, total: true),
+            TourPaymentSummary(
+              packageBalance: summary.packageRemaining,
+              additionalWaiting: summary.finalizedWaiting,
+              totalRemaining: summary.totalRemaining,
+            ),
           ],
           const SizedBox(height: 8),
           Text(

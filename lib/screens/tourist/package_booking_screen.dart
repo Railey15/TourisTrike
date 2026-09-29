@@ -1,6 +1,6 @@
+import 'package:touristrike/core/models/booking_capacity.dart';
 import 'package:touristrike/widgets/booking_route_preview_map.dart';
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
@@ -64,8 +64,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   static const int _minimumSpots = 3;
   static const int _maximumSpots = 6;
-
-  static const int _tricycleCapacity = 3;
 
   static const String _tourHoursErrorMessage =
       'Your itinerary exceeds the allowed tour hours. Tours are only available from 7:00 AM to 5:00 PM.';
@@ -304,16 +302,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   int get _totalParticipants => _adults + _children;
 
   int get _minimumRequiredTricycles =>
-      (_totalParticipants / _tricycleCapacity).ceil().clamp(1, 99);
-
+      BookingCapacity.minimumTricycles(_totalParticipants);
   int get _requiredTricycles =>
-      math.max(_selectedTricycles, _minimumRequiredTricycles);
-
+      BookingCapacity.normalize(_totalParticipants, _selectedTricycles);
   void _keepSelectedTricyclesAboveMinimum() {
-    _selectedTricycles = math.max(
-      _selectedTricycles,
-      _minimumRequiredTricycles,
-    );
+    _selectedTricycles = _requiredTricycles;
   }
 
   // =============================================================================
@@ -1739,7 +1732,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 _requiredTricycles <= _minimumRequiredTricycles
                                 ? null
                                 : () => setState(() => _selectedTricycles--),
-                            onPlus: () => setState(() => _selectedTricycles++),
+                            onPlus:
+                                BookingCapacity.canAdd(
+                                  _totalParticipants,
+                                  _requiredTricycles,
+                                )
+                                ? () => setState(() => _selectedTricycles++)
+                                : null,
                           ),
                         ],
                       ),
@@ -3339,7 +3338,7 @@ class _TransportRequirementCard extends StatelessWidget {
   final int minimumTricycles;
   final int selectedTricycles;
   final VoidCallback? onMinus;
-  final VoidCallback onPlus;
+  final VoidCallback? onPlus;
 
   @override
   Widget build(BuildContext context) {
@@ -3358,7 +3357,8 @@ class _TransportRequirementCard extends StatelessWidget {
           Expanded(
             child: Text(
               '$participants passenger${participants == 1 ? '' : 's'} • '
-              'minimum $minimumTricycles tricycle${minimumTricycles == 1 ? '' : 's'} | selected $selectedTricycles',
+              'minimum $minimumTricycles tricycle${minimumTricycles == 1 ? '' : 's'} | selected $selectedTricycles'
+              '${participants == 1 ? '\nAdd another tricycle when booking for 2 or more tourists.' : ''}',
               style: const TextStyle(
                 color: Color(0xFF4D6686),
                 fontWeight: FontWeight.w700,

@@ -14,6 +14,7 @@ void main() {
   late String touristChat;
   late String driverChat;
   late String payMongo;
+  late String billingHelper;
 
   setUpAll(() {
     migration = source(
@@ -29,6 +30,9 @@ void main() {
     touristChat = source('lib/screens/tourist/tourist_messages_screen.dart');
     driverChat = source('lib/screens/driver/driver_messages_screen.dart');
     payMongo = source('supabase/functions/paymongo-create-payment/index.ts');
+    billingHelper = source(
+      'supabase/functions/paymongo-create-payment/customer_billing.ts',
+    );
   });
 
   test('live arrival validation is server enforced and test scoped', () {
@@ -82,6 +86,7 @@ void main() {
       contains("onConflict: 'booking_id,driver_id,tourist_id'"),
     );
     expect(payMongo, contains('attributes.billing = billing'));
-    expect(payMongo, contains('touristProfile?.mobile'));
+    expect(payMongo, contains('resolveCheckoutBilling'));
+    expect(billingHelper, contains('profile?.mobile'));
   });
 }

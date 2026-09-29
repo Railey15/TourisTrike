@@ -60,7 +60,11 @@ void main() {
     expect(cashMigration, contains("status <> 'cash_confirmed'"));
     expect(cashMigration, contains("set status = 'satisfied'"));
     expect(touristTracking, contains('drivers confirmed'));
-    expect(driverTracking, contains('Drop-off stays locked until everyone'));
+    expect(
+      driverTracking,
+      contains('DriverTourPaymentRequiredCard(gate: _dropoffPaymentGate)'),
+    );
+    expect(driverTracking, contains('Review cash payment'));
   });
 
   test('last stop enters a backend-enforced pre-dropoff payment gate', () {
@@ -106,7 +110,10 @@ void main() {
     }
     // Geometry behavior is covered in convoy_route_polylines_test.dart.
     expect(touristTracking, contains('buildConvoyRoutePolylines(routes)'));
-    expect(driverTracking, contains("PolylineId('driver_route_\${result.driverId}')"));
+    expect(
+      driverTracking,
+      contains("PolylineId('driver_route_\${result.driverId}')"),
+    );
     expect(driverTracking, isNot(contains("MarkerId('convoy_")));
   });
 

@@ -3,6 +3,7 @@ import { PGlite } from '../../build/sql-validation/node_modules/@electric-sql/pg
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { runPaymentCases } from './tour_payment_consistency_cases.mjs';
+import { runTourUxCases } from './tour_assignment_cash_ux_cases.mjs';
 
 const db = new PGlite();
 const migration = readFileSync(new URL('../migrations/20260928000000_tour_stay_waiting_and_tourist_reviews.sql', import.meta.url), 'utf8').replaceAll('\r\n','\n');
@@ -372,6 +373,9 @@ try {
   const requirement=Number(await scalar("select amount from booking_payment_requirements where booking_id=$1 and payment_stage='remaining_balance'",[settledBooking]));
   check(requirement,debt,'new waiting obligation after confirmed payment must match the collectible remaining requirement');
   await runPaymentCases({db,check,failure,scalar,login,uuid,migration,section});
+  const priorChecks = checks;
+  await runTourUxCases({db,check,failure,scalar,login,uuid});
+  console.log(`PASS: ${checks - priorChecks} assignment / cash UX SQL checks`);
   console.log(`PASS: ${checks} tour waiting and tourist-review SQL checks`);
 } finally {
   await db.close();
