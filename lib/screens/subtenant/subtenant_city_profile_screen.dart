@@ -1,10 +1,15 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:touristrike/core/branding/municipality_cover_service.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SubTenantCityProfileScreen extends StatefulWidget {
   const SubTenantCityProfileScreen({super.key});
@@ -17,6 +22,7 @@ class SubTenantCityProfileScreen extends StatefulWidget {
 class _SubTenantCityProfileScreenState
     extends State<SubTenantCityProfileScreen> {
   final SubTenantService _service = SubTenantService();
+  final MunicipalityCoverService _coverService = MunicipalityCoverService();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   late Future<_SettingsLoad> _future;
@@ -40,6 +46,8 @@ class _SubTenantCityProfileScreenState
   SubTenantProfile? _profile;
 
   bool _saving = false;
+  bool _uploadingCover = false;
+  String _selectingCoverUrl = '';
   bool _dirty = false;
   bool _hydrating = false;
   int _selectedIndex = 0;
@@ -47,6 +55,10 @@ class _SubTenantCityProfileScreenState
   bool _officeNameCustomized = false;
   String _generatedOfficeName = '';
   String _localGovernmentType = 'municipality';
+  MunicipalityCoverSelection? _currentCover;
+  Future<MunicipalityCoverSuggestionsResult>? _coverSuggestionsFuture;
+  bool _coverSuggestionsLoading = false;
+  final Set<String> _unavailableCoverUrls = {};
 
   final List<_SettingsSection> _sections = const [
     _SettingsSection('Office Settings', Icons.business_rounded),
@@ -67,7 +79,6 @@ class _SubTenantCityProfileScreenState
       _contactCtrl,
       _emailCtrl,
       _addressCtrl,
-      _coverCtrl,
       _logoCtrl,
       _baseFareCtrl,
       _farePerKmCtrl,
@@ -127,6 +138,15 @@ class _SubTenantCityProfileScreenState
 
     _localGovernmentType = details.localGovernmentType;
     _officeNameCustomized = details.officeNameCustomized;
+    _currentCover = details.coverImageUrl.isEmpty
+        ? null
+        : MunicipalityCoverSelection(
+            imageUrl: details.coverImageUrl,
+            source: details.coverImageSource,
+            attribution: details.coverImageAttribution,
+            sourceUrl: details.coverImageSourceUrl,
+            updatedAt: details.coverImageUpdatedAt,
+          );
 
     // A missing row is not an approved fare matrix. Require entered values
     // before first-time upsert rather than persisting model defaults.
@@ -146,8 +166,227 @@ class _SubTenantCityProfileScreenState
   void _reload() {
     setState(() {
       _dirty = false;
+      _coverSuggestionsFuture = null;
       _future = _load();
     });
+  }
+
+  void _refreshCoverSuggestions() {
+    final profile = _profile;
+    if (profile == null || _coverSuggestionsLoading) return;
+    final request = _coverService.loadSuggestions(
+      municipality: profile.assignedCity,
+    );
+    setState(() {
+      _unavailableCoverUrls.clear();
+      _coverSuggestionsLoading = true;
+      _coverSuggestionsFuture = request;
+    });
+    _trackCoverSuggestionRequest(request);
+  }
+
+  Future<void> _trackCoverSuggestionRequest(
+    Future<MunicipalityCoverSuggestionsResult> request,
+  ) async {
+    try {
+      await request;
+    } catch (_) {
+      // FutureBuilder presents the retry state.
+    } finally {
+      if (mounted && identical(_coverSuggestionsFuture, request)) {
+        setState(() => _coverSuggestionsLoading = false);
+      }
+    }
+  }
+
+  Future<MunicipalityCoverSuggestionsResult> _initialCoverSuggestions(
+    String municipality,
+  ) {
+    final request = _coverService.loadSuggestions(municipality: municipality);
+    _coverSuggestionsLoading = true;
+    _trackCoverSuggestionRequest(request);
+    return request;
+  }
+
+  void _markCoverSuggestionUnavailable(String imageUrl) {
+    final key = MunicipalityCoverService.normalizedImageUrl(imageUrl);
+    if (_unavailableCoverUrls.add(key) && mounted) setState(() {});
+  }
+
+  Future<void> _selectCover(MunicipalityCoverSuggestion suggestion) async {
+    final key = MunicipalityCoverService.normalizedImageUrl(
+      suggestion.imageUrl,
+    );
+    if (_unavailableCoverUrls.contains(key) ||
+        !MunicipalityCoverService.canSelectSuggestion(suggestion)) {
+      showSubTenantSnack(
+        context,
+        'This image is unavailable and cannot be selected.',
+      );
+      return;
+    }
+    setState(() => _selectingCoverUrl = suggestion.imageUrl);
+    try {
+      await _coverService.selectCover(suggestion);
+      if (!mounted) return;
+      setState(() {
+        _coverCtrl.text = suggestion.imageUrl;
+        _currentCover = MunicipalityCoverSelection(
+          imageUrl: suggestion.imageUrl,
+          source: suggestion.source,
+          attribution: suggestion.attribution,
+          sourceUrl: suggestion.sourceUrl,
+          updatedAt: DateTime.now(),
+        );
+      });
+      showSubTenantSnack(context, 'Municipality cover updated.', error: false);
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Could not update the cover: $error');
+    } finally {
+      if (mounted) setState(() => _selectingCoverUrl = '');
+    }
+  }
+
+  Future<void> _removeCover() async {
+    setState(() => _selectingCoverUrl = '__remove__');
+    try {
+      await _coverService.removeCover();
+      if (!mounted) return;
+      setState(() {
+        _coverCtrl.clear();
+        _currentCover = null;
+      });
+      showSubTenantSnack(
+        context,
+        'Municipality cover removed. TourisTrike will use a safe fallback.',
+        error: false,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Could not remove the cover: $error');
+    } finally {
+      if (mounted) setState(() => _selectingCoverUrl = '');
+    }
+  }
+
+  bool _isSupportedCover(XFile file) {
+    final mimeType = file.mimeType?.trim().toLowerCase() ?? '';
+    if (mimeType.isNotEmpty &&
+        !const {'image/jpeg', 'image/png', 'image/webp'}.contains(mimeType)) {
+      return false;
+    }
+    final name = file.name.toLowerCase();
+    return name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp');
+  }
+
+  String _coverContentType(XFile file) {
+    final name = file.name.toLowerCase();
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  Future<void> _uploadCover(SubTenantProfile profile) async {
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 2400,
+      imageQuality: 90,
+    );
+    if (file == null) return;
+    if (!_isSupportedCover(file)) {
+      if (mounted) {
+        showSubTenantSnack(context, 'Use JPG, PNG, or WebP images only.');
+      }
+      return;
+    }
+
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 8 * 1024 * 1024) {
+      if (mounted) {
+        showSubTenantSnack(context, 'Cover image must be 8 MB or smaller.');
+      }
+      return;
+    }
+    late final int imageWidth;
+    late final int imageHeight;
+    ui.Codec? codec;
+    try {
+      codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      imageWidth = frame.image.width;
+      imageHeight = frame.image.height;
+      frame.image.dispose();
+    } catch (_) {
+      if (mounted) {
+        showSubTenantSnack(context, 'The selected file is not a valid image.');
+      }
+      return;
+    } finally {
+      codec?.dispose();
+    }
+    final isLandscape = imageWidth > imageHeight;
+    if (!isLandscape) {
+      if (mounted) {
+        showSubTenantSnack(
+          context,
+          'Choose a landscape image so the municipality hero crops correctly.',
+        );
+      }
+      return;
+    }
+    if (imageWidth < 900 || imageHeight < 500) {
+      if (mounted) {
+        showSubTenantSnack(
+          context,
+          'Choose a landscape image at least 900 × 500 pixels.',
+        );
+      }
+      return;
+    }
+
+    setState(() => _uploadingCover = true);
+    try {
+      final url = await _service.uploadPublicAsset(
+        profile: profile,
+        bucket: 'public-assets',
+        folder: 'municipality-covers/${profile.id}',
+        fileName: file.name,
+        bytes: bytes,
+        contentType: _coverContentType(file),
+      );
+      final suggestion = MunicipalityCoverSuggestion(
+        imageUrl: url,
+        source: MunicipalityCoverSource.uploaded,
+        title: '${profile.assignedCity} uploaded cover',
+        municipality: profile.assignedCity,
+        width: imageWidth,
+        height: imageHeight,
+      );
+      await _coverService.selectCover(suggestion);
+      if (!mounted) return;
+      setState(() {
+        _coverCtrl.text = url;
+        _currentCover = MunicipalityCoverSelection(
+          imageUrl: url,
+          source: MunicipalityCoverSource.uploaded,
+          updatedAt: DateTime.now(),
+        );
+      });
+      showSubTenantSnack(
+        context,
+        'Custom municipality cover uploaded.',
+        error: false,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Cover upload failed: $error');
+    } finally {
+      if (mounted) setState(() => _uploadingCover = false);
+    }
   }
 
   @override
@@ -406,7 +645,7 @@ class _SubTenantCityProfileScreenState
       case 0:
         return _officeSettings();
       case 1:
-        return _brandingSettings();
+        return _brandingSettings(data);
       case 2:
         return _fareMatrixSettings(data.profile);
       case 3:
@@ -476,25 +715,164 @@ class _SubTenantCityProfileScreenState
     );
   }
 
-  Widget _brandingSettings() {
+  Widget _brandingSettings(_SettingsLoad data) {
+    _coverSuggestionsFuture ??= _initialCoverSuggestions(
+      data.profile.assignedCity,
+    );
     return _SettingsContent(
       title: 'Branding',
-      subtitle: 'Customize how this city appears to tourists.',
+      subtitle: 'Customize how this municipality appears to tourists.',
       children: [
-        _TwoColumn(
-          left: SubTenantTextField(
-            controller: _coverCtrl,
-            label: 'Cover Image URL',
-            keyboardType: TextInputType.url,
-          ),
-          right: SubTenantTextField(
-            controller: _logoCtrl,
-            label: 'City Logo / Image URL',
-            keyboardType: TextInputType.url,
-          ),
+        _ReadOnlyMunicipality(
+          city: data.profile.assignedCity,
+          province: data.profile.province.isEmpty
+              ? 'Bulacan'
+              : data.profile.province,
         ),
         const SizedBox(height: 16),
-        _ImagePreviewRow(coverCtrl: _coverCtrl, logoCtrl: _logoCtrl),
+        SubTenantTextField(
+          controller: _logoCtrl,
+          label: 'Municipality Logo / Image URL',
+          keyboardType: TextInputType.url,
+        ),
+        const SizedBox(height: 10),
+        ListenableBuilder(
+          listenable: _logoCtrl,
+          builder: (context, _) => SizedBox(
+            width: 220,
+            child: _ImageBox(label: 'Logo Preview', url: _logoCtrl.text.trim()),
+          ),
+        ),
+        const SizedBox(height: 22),
+        _CurrentCoverCard(
+          cover: _currentCover,
+          removing: _selectingCoverUrl == '__remove__',
+          uploading: _uploadingCover,
+          onRemove: _currentCover == null ? null : _removeCover,
+          onUpload: () => _uploadCover(data.profile),
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Expanded(
+              child: SubTenantSectionHeader(
+                title: 'Smart Cover Suggestions',
+                subtitle:
+                    'Suggested for ${data.profile.assignedCity}, '
+                    '${data.profile.province.isEmpty ? 'Bulacan' : data.profile.province}. '
+                    'Verified local destinations are ranked before Pexels photos.',
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _coverSuggestionsLoading
+                  ? null
+                  : _refreshCoverSuggestions,
+              icon: _coverSuggestionsLoading
+                  ? const SizedBox.square(
+                      dimension: 15,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Refresh Suggestions'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<MunicipalityCoverSuggestionsResult>(
+          future: _coverSuggestionsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const _CoverSuggestionsLoading();
+            }
+            if (snapshot.hasError) {
+              return _CoverSuggestionsMessage(
+                icon: Icons.cloud_off_outlined,
+                message:
+                    'Suggestions could not be loaded. You can still upload a cover.',
+                actionLabel: 'Retry',
+                onAction: _refreshCoverSuggestions,
+              );
+            }
+            final result = snapshot.data!;
+            final suggestions = result.suggestions
+                .where(
+                  (suggestion) => !_unavailableCoverUrls.contains(
+                    MunicipalityCoverService.normalizedImageUrl(
+                      suggestion.imageUrl,
+                    ),
+                  ),
+                )
+                .toList(growable: false);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (result.warning.isNotEmpty) ...[
+                  _CoverWarning(message: result.warning),
+                  const SizedBox(height: 12),
+                ],
+                if (suggestions.isEmpty)
+                  _CoverSuggestionsMessage(
+                    icon: Icons.photo_library_outlined,
+                    message:
+                        'No verified cover suggestions are available for '
+                        '${data.profile.assignedCity} yet. You can upload an '
+                        'official municipality cover photo.',
+                    actionLabel: 'Upload Cover',
+                    onAction: () => _uploadCover(data.profile),
+                  )
+                else
+                  LayoutBuilder(
+                    builder: (context, constraints) => Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final suggestion in suggestions)
+                          _CoverSuggestionCard(
+                            width: constraints.maxWidth >= 900
+                                ? (constraints.maxWidth - 24) / 3
+                                : constraints.maxWidth >= 600
+                                ? (constraints.maxWidth - 12) / 2
+                                : constraints.maxWidth,
+                            suggestion: suggestion,
+                            currentUrl: _currentCover?.imageUrl ?? '',
+                            selecting:
+                                _selectingCoverUrl == suggestion.imageUrl,
+                            onUse: () => _selectCover(suggestion),
+                            onImageFailed: () =>
+                                _markCoverSuggestionUnavailable(
+                                  suggestion.imageUrl,
+                                ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 22),
+        const _OrDivider(),
+        const SizedBox(height: 18),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _uploadingCover
+                ? null
+                : () => _uploadCover(data.profile),
+            icon: _uploadingCover
+                ? const SizedBox.square(
+                    dimension: 17,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.upload_rounded),
+            label: Text(
+              _uploadingCover ? 'Uploading cover...' : 'Upload Your Own Cover',
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1143,22 +1521,596 @@ class _TwoColumn extends StatelessWidget {
   }
 }
 
-class _ImagePreviewRow extends StatelessWidget {
-  const _ImagePreviewRow({required this.coverCtrl, required this.logoCtrl});
+class _ReadOnlyMunicipality extends StatelessWidget {
+  const _ReadOnlyMunicipality({required this.city, required this.province});
 
-  final TextEditingController coverCtrl;
-  final TextEditingController logoCtrl;
+  final String city;
+  final String province;
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([coverCtrl, logoCtrl]),
-      builder: (_, _) {
-        return _TwoColumn(
-          left: _ImageBox(label: 'Cover Preview', url: coverCtrl.text.trim()),
-          right: _ImageBox(label: 'Logo Preview', url: logoCtrl.text.trim()),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: SubTenantColors.backgroundAlt,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_city_rounded, color: SubTenantColors.blue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Municipality',
+                  style: TextStyle(
+                    color: SubTenantColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '$city, $province',
+                  style: const TextStyle(
+                    color: SubTenantColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(
+            Icons.lock_outline_rounded,
+            color: SubTenantColors.lightMuted,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CurrentCoverCard extends StatelessWidget {
+  const _CurrentCoverCard({
+    required this.cover,
+    required this.removing,
+    required this.uploading,
+    required this.onRemove,
+    required this.onUpload,
+  });
+
+  final MunicipalityCoverSelection? cover;
+  final bool removing;
+  final bool uploading;
+  final VoidCallback? onRemove;
+  final VoidCallback onUpload;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Municipality Cover',
+          style: TextStyle(
+            color: SubTenantColors.text,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'CURRENT COVER',
+          style: TextStyle(
+            color: SubTenantColors.lightMuted,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .8,
+          ),
+        ),
+        const SizedBox(height: 9),
+        if (cover == null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 18),
+            decoration: BoxDecoration(
+              color: SubTenantColors.backgroundAlt,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: SubTenantColors.line),
+            ),
+            child: const Column(
+              children: [
+                Icon(
+                  Icons.photo_size_select_actual_outlined,
+                  color: SubTenantColors.lightMuted,
+                  size: 34,
+                ),
+                SizedBox(height: 9),
+                Text(
+                  'No municipality cover selected yet.',
+                  style: TextStyle(
+                    color: SubTenantColors.text,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Tourist Home will use its verified fallback chain.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: SubTenantColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          Container(
+            width: double.infinity,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: SubTenantColors.backgroundAlt,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: SubTenantColors.line),
+            ),
+            child: AspectRatio(
+              aspectRatio: 16 / 6,
+              child: Image.network(
+                cover!.imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const _CurrentCoverUnavailable(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              _SourceBadge(source: cover!.source),
+              if (cover!.attribution.isNotEmpty) ...[
+                const SizedBox(width: 9),
+                Expanded(
+                  child: _AttributionLink(
+                    label: cover!.attribution,
+                    url: cover!.sourceUrl,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: uploading ? null : onUpload,
+              icon: uploading
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.upload_rounded, size: 18),
+              label: Text(
+                cover == null ? 'Upload Cover' : 'Change / Upload Cover',
+              ),
+            ),
+            if (onRemove != null)
+              OutlinedButton.icon(
+                onPressed: removing ? null : onRemove,
+                icon: removing
+                    ? const SizedBox.square(
+                        dimension: 15,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.delete_outline_rounded, size: 18),
+                label: const Text('Remove Cover'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CurrentCoverUnavailable extends StatelessWidget {
+  const _CurrentCoverUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: SubTenantColors.backgroundAlt,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.broken_image_outlined,
+              color: SubTenantColors.lightMuted,
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Current cover is unavailable',
+              style: TextStyle(
+                color: SubTenantColors.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceBadge extends StatelessWidget {
+  const _SourceBadge({required this.source});
+
+  final MunicipalityCoverSource source;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: SubTenantColors.blue.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        source.label,
+        style: const TextStyle(
+          color: SubTenantColors.blue,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverSuggestionCard extends StatefulWidget {
+  const _CoverSuggestionCard({
+    required this.width,
+    required this.suggestion,
+    required this.currentUrl,
+    required this.selecting,
+    required this.onUse,
+    required this.onImageFailed,
+  });
+
+  final double width;
+  final MunicipalityCoverSuggestion suggestion;
+  final String currentUrl;
+  final bool selecting;
+  final VoidCallback onUse;
+  final VoidCallback onImageFailed;
+
+  @override
+  State<_CoverSuggestionCard> createState() => _CoverSuggestionCardState();
+}
+
+class _CoverSuggestionCardState extends State<_CoverSuggestionCard> {
+  bool _imageAvailable = true;
+  bool _failureReported = false;
+
+  void _handleImageFailure() {
+    if (_failureReported) return;
+    _failureReported = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _imageAvailable = false);
+      widget.onImageFailed();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current =
+        MunicipalityCoverService.normalizedImageUrl(widget.currentUrl) ==
+        MunicipalityCoverService.normalizedImageUrl(widget.suggestion.imageUrl);
+    return SizedBox(
+      width: widget.width,
+      height: 350,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(
+            color: current ? SubTenantColors.blue : SubTenantColors.line,
+            width: current ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: _imageAvailable
+                    ? Image.network(
+                        widget.suggestion.imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) {
+                          _handleImageFailure();
+                          return const _SuggestionImageUnavailable();
+                        },
+                      )
+                    : const _SuggestionImageUnavailable(),
+              ),
+            ),
+            const SizedBox(height: 9),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.suggestion.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: SubTenantColors.text,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                _SourceBadge(source: widget.suggestion.source),
+              ],
+            ),
+            if (widget.suggestion.isGenericFallback) ...[
+              const SizedBox(height: 5),
+              const Text(
+                'General Bulacan image — confirm it fits your municipality.',
+                style: TextStyle(color: SubTenantColors.muted, fontSize: 11),
+              ),
+            ],
+            if (widget.suggestion.attribution.isNotEmpty) ...[
+              const SizedBox(height: 5),
+              _AttributionLink(
+                label: widget.suggestion.attribution,
+                url: widget.suggestion.sourceUrl,
+              ),
+            ],
+            const Spacer(),
+            FilledButton(
+              onPressed: current || widget.selecting || !_imageAvailable
+                  ? null
+                  : widget.onUse,
+              child: widget.selecting
+                  ? const SizedBox.square(
+                      dimension: 17,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      !_imageAvailable
+                          ? 'Image unavailable'
+                          : current
+                          ? 'Current cover'
+                          : 'Use this cover',
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionImageUnavailable extends StatelessWidget {
+  const _SuggestionImageUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: SubTenantColors.backgroundAlt,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.broken_image_outlined,
+              color: SubTenantColors.lightMuted,
+            ),
+            SizedBox(height: 5),
+            Text(
+              'Image unavailable',
+              style: TextStyle(color: SubTenantColors.muted, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttributionLink extends StatelessWidget {
+  const _AttributionLink({required this.label, required this.url});
+
+  final String label;
+  final String url;
+
+  Future<void> _open() async {
+    final uri = Uri.tryParse(url);
+    if (uri != null) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: url.isEmpty ? null : _open,
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: SubTenantColors.muted,
+          fontSize: 11,
+          decoration: url.isEmpty ? null : TextDecoration.underline,
+          decorationColor: SubTenantColors.muted,
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverWarning extends StatelessWidget {
+  const _CoverWarning({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            color: Color(0xFFB45309),
+            size: 19,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Color(0xFF92400E), fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CoverSuggestionsLoading extends StatelessWidget {
+  const _CoverSuggestionsLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 900
+            ? 3
+            : constraints.maxWidth >= 600
+            ? 2
+            : 1;
+        final width = (constraints.maxWidth - ((columns - 1) * 12)) / columns;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (var index = 0; index < columns; index++)
+              Container(
+                width: width,
+                height: 235,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(color: SubTenantColors.line),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: SubTenantColors.backgroundAlt,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(height: 13, color: SubTenantColors.backgroundAlt),
+                    const SizedBox(height: 7),
+                    Container(
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: SubTenantColors.backgroundAlt,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         );
       },
+    );
+  }
+}
+
+class _CoverSuggestionsMessage extends StatelessWidget {
+  const _CoverSuggestionsMessage({
+    required this.icon,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: SubTenantColors.backgroundAlt,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: SubTenantColors.lightMuted, size: 34),
+          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 9),
+          TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrDivider extends StatelessWidget {
+  const _OrDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        Expanded(child: Divider(color: SubTenantColors.line)),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'OR',
+            style: TextStyle(
+              color: SubTenantColors.lightMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: SubTenantColors.line)),
+      ],
     );
   }
 }

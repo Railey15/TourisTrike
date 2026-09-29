@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/branding/municipality_cover_service.dart';
 import 'package:touristrike/core/recommendations/tourist_ai_recommendation_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:touristrike/screens/tourist/profile/tourist_profile_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
@@ -29,6 +31,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   final TouristAiRecommendationService _recommendationService =
       const TouristAiRecommendationService();
+  final MunicipalityCoverService _coverService = MunicipalityCoverService();
 
   static const LatLng _defaultCenter = LatLng(14.9597, 120.9206);
 
@@ -36,8 +39,6 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     southwest: const LatLng(14.35, 120.35),
     northeast: const LatLng(15.55, 121.55),
   );
-
-  final Completer<GoogleMapController> _mapController = Completer();
 
   int _navIndex = 0;
   late Future<_HomeData> _homeFuture;
@@ -49,6 +50,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   _MunicipalityArea? _selectedArea;
   bool _usingManualLocation = false;
+  bool _usingPhoneLocation = false;
 
   Set<String> _activeMunicipalities = {};
 
@@ -61,12 +63,9 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
   void initState() {
     super.initState();
 
-    if (!touristLocationStore.usePhoneLocationForFirstHomeOpen()) {
-      _syncManualLocationFromStore();
-    }
+    _syncManualLocationFromStore();
 
     _homeFuture = _loadHome();
-    _startLocationWatch();
     _loadPreferences();
     _loadActiveMunicipalities();
   }
@@ -89,11 +88,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     final currentCenter = _usingManualLocation && _selectedArea != null
         ? _selectedArea!.center
-        : await _resolveCurrentCenter();
+        : _usingPhoneLocation
+        ? await _resolveCurrentCenter()
+        : _defaultCenter;
 
     final municipality = _usingManualLocation && _selectedArea != null
         ? _selectedArea!.name
-        : _detectBulacanMunicipality(currentCenter);
+        : _usingPhoneLocation
+        ? _detectBulacanMunicipality(currentCenter)
+        : null;
 
     final insideBulacan = municipality != null;
 
@@ -117,6 +120,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     final avatarUrl = (profile?['profile_image_url'] as String?) ?? '';
 
+    final coverFuture = municipality == null
+        ? Future.value(
+            const MunicipalityCoverSelection(
+              imageUrl: defaultBulacanCoverUrl,
+              source: MunicipalityCoverSource.defaultCover,
+            ),
+          )
+        : _coverService.loadTouristHomeCover(municipality);
+
     final savedSpots = municipality == null
         ? <TouristAiRecommendationSpot>[]
         : await _recommendationService.loadSavedTouristSpots(
@@ -130,6 +142,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     final famousSpots = _buildFamousSpots(allSpots);
 
     final packages = await _loadAdminPackages(municipality);
+    final cover = await coverFuture;
 
     return _HomeData(
       fullName: fullName,
@@ -142,6 +155,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       famousSpots: famousSpots,
       suggestionPackages: packages,
       recommendationSpots: savedSpots,
+      cover: cover,
     );
   }
 
@@ -154,6 +168,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       if (municipality.name == area.name) {
         _selectedArea = municipality;
         _usingManualLocation = true;
+        _usingPhoneLocation = false;
         _lastKnownCenter = municipality.center;
         _lastMunicipality = municipality.name;
         return;
@@ -428,6 +443,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     setState(() {
       _selectedArea = selected;
       _usingManualLocation = true;
+      _usingPhoneLocation = false;
       _lastKnownCenter = selected.center;
       _lastMunicipality = selected.name;
       _homeFuture = _loadHome();
@@ -436,14 +452,6 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     touristLocationStore.useManualLocation(
       TouristMunicipalityArea(name: selected.name, center: selected.center),
     );
-
-    if (_mapController.isCompleted) {
-      final controller = await _mapController.future;
-
-      controller.animateCamera(
-        CameraUpdate.newLatLngZoom(selected.center, 14.5),
-      );
-    }
   }
 
   Future<void> _usePhoneLocation() async {
@@ -451,9 +459,11 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     setState(() {
       _usingManualLocation = false;
+      _usingPhoneLocation = true;
       _selectedArea = null;
       _homeFuture = _loadHome();
     });
+    await _startLocationWatch();
   }
 
   Future<void> _startLocationWatch() async {
@@ -482,7 +492,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
       _positionSub = Geolocator.getPositionStream(locationSettings: settings)
           .listen((position) async {
-            if (_usingManualLocation) return;
+            if (_usingManualLocation || !_usingPhoneLocation) return;
 
             final center = LatLng(position.latitude, position.longitude);
 
@@ -500,14 +510,6 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             if (municipality != _lastMunicipality || movedKm >= 1.0) {
               _lastKnownCenter = center;
               _lastMunicipality = municipality;
-
-              if (_mapController.isCompleted) {
-                final controller = await _mapController.future;
-
-                controller.animateCamera(
-                  CameraUpdate.newLatLngZoom(center, 14.5),
-                );
-              }
 
               if (mounted) {
                 setState(() {
@@ -706,12 +708,9 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     const navBarBodyHeight = 92.0;
     final navTotalH = navBarBodyHeight + bottomInset;
 
-    // UI improvement:
-    // Keeps the map useful without allowing it to dominate the
-    // screen on tall mobile devices.
-    final mapH = (size.height * 0.43).clamp(345.0, 420.0);
+    final heroH = (size.height * 0.45).clamp(370.0, 440.0);
 
-    final sheetTop = mapH - 35;
+    final sheetTop = heroH - 20;
 
     return TouristAiChatbotWrapper(
       child: Scaffold(
@@ -765,6 +764,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                   famousSpots: _buildFamousSpots(allSpots),
                   suggestionPackages: coreData.suggestionPackages,
                   recommendationSpots: spots,
+                  cover: coreData.cover,
                 );
                 final packages = data.suggestionPackages.take(3).toList();
                 return Stack(
@@ -774,11 +774,9 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                       left: 0,
                       right: 0,
                       top: 0,
-                      height: mapH,
-                      child: _MapHero(
+                      height: heroH,
+                      child: _MunicipalityHero(
                         data: data,
-                        mapController: _mapController,
-                        bounds: _bulacanBounds,
                         usingManualLocation: _usingManualLocation,
                         onUsePhoneLocation: _usePhoneLocation,
                         onPickLocation: _selectMunicipality,
@@ -839,14 +837,12 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 }
 
 // ============================================================================
-// MAP HERO
+// MUNICIPALITY COVER HERO
 // ============================================================================
 
-class _MapHero extends StatelessWidget {
-  const _MapHero({
+class _MunicipalityHero extends StatelessWidget {
+  const _MunicipalityHero({
     required this.data,
-    required this.mapController,
-    required this.bounds,
     required this.usingManualLocation,
     required this.onUsePhoneLocation,
     required this.onPickLocation,
@@ -854,152 +850,157 @@ class _MapHero extends StatelessWidget {
   });
 
   final _HomeData data;
-  final Completer<GoogleMapController> mapController;
-  final LatLngBounds bounds;
   final bool usingManualLocation;
   final VoidCallback onUsePhoneLocation;
   final VoidCallback onPickLocation;
   final VoidCallback onProfileTap;
 
+  Future<void> _openAttribution() async {
+    final uri = Uri.tryParse(data.cover.sourceUrl);
+    if (uri != null) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GoogleMap(
-            key: ValueKey(
-              '${data.center.latitude}-'
-              '${data.center.longitude}-'
-              '${data.cityText}',
-            ),
-            initialCameraPosition: CameraPosition(
-              target: data.center,
-              zoom: 14.5,
-            ),
-            onMapCreated: (controller) {
-              if (!mapController.isCompleted) {
-                mapController.complete(controller);
-              }
-            },
-            cameraTargetBounds: CameraTargetBounds(bounds),
-            minMaxZoomPreference: const MinMaxZoomPreference(10.5, 19.0),
-            zoomControlsEnabled: false,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            compassEnabled: false,
-            mapToolbarEnabled: false,
-            buildingsEnabled: true,
-            markers: {
-              Marker(
-                markerId: const MarkerId('selected-location'),
-                position: data.center,
-                infoWindow: InfoWindow(
-                  title: data.cityText,
-                  snippet: usingManualLocation
-                      ? 'Selected location'
-                      : 'Phone location',
-                ),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-              ),
-              ...data.famousSpots.map(
-                (s) => Marker(
-                  markerId: MarkerId('spot-${s.id}'),
-                  position: LatLng(s.latitude, s.longitude),
-                  infoWindow: InfoWindow(
-                    title: s.title,
-                    snippet: s.distanceText,
-                  ),
-                ),
-              ),
-            },
-          ),
-        ),
-
-        // Softer map overlay for improved readability.
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.33),
-                    Colors.black.withValues(alpha: 0.06),
-                    Colors.black.withValues(alpha: 0.02),
-                    const Color(0xFFF7F9FC).withValues(alpha: 0.62),
-                  ],
-                  stops: const [0.0, 0.35, 0.72, 1.0],
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
-            child: Column(
-              children: [
-                Row(
+    return ColoredBox(
+      color: const Color(0xFFF7F9FC),
+      child: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    _AvatarWithDot(imageUrl: data.avatarUrl),
-                    const SizedBox(width: 11),
-                    Expanded(child: _GreetingBlock(fullName: data.fullName)),
-                    const SizedBox(width: 8),
-                    const NotificationBell(color: Color(0xFF2563EB)),
-                    _WhiteCircleButton(
-                      icon: Icons.person_outline_rounded,
-                      onTap: onProfileTap,
+                    _ResilientCoverImage(
+                      selection: data.cover,
+                      key: ValueKey(
+                        '${data.municipality}-${data.cover.imageUrl}',
+                      ),
                     ),
-                  ],
-                ),
-
-                const Spacer(),
-
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 2, bottom: 9),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Where do you want to go?',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 19,
-                            letterSpacing: -0.35,
-                            shadows: [
-                              Shadow(
-                                blurRadius: 9,
-                                color: Colors.black26,
-                                offset: Offset(0, 2),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0xA600173D),
+                            Color(0x1900173D),
+                            Color(0xC700173D),
+                          ],
+                          stops: [0, .48, 1],
+                        ),
+                      ),
+                    ),
+                    SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                _AvatarWithDot(imageUrl: data.avatarUrl),
+                                const SizedBox(width: 11),
+                                Expanded(
+                                  child: Text(
+                                    'WELCOME BACK\n${data.fullName}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1.2,
+                                      shadows: [
+                                        Shadow(
+                                          blurRadius: 8,
+                                          color: Colors.black38,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const NotificationBell(color: Colors.white),
+                                _WhiteCircleButton(
+                                  icon: Icons.person_outline_rounded,
+                                  onTap: onProfileTap,
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            Text(
+                              'Exploring',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: .82),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              data.cityText.toUpperCase(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 25,
+                                letterSpacing: -.4,
+                                shadows: [
+                                  Shadow(blurRadius: 10, color: Colors.black38),
+                                ],
+                              ),
+                            ),
+                            if (data.cover.attribution.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              InkWell(
+                                onTap: data.cover.sourceUrl.isEmpty
+                                    ? null
+                                    : _openAttribution,
+                                child: Text(
+                                  data.cover.attribution,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: .82),
+                                    fontSize: 10.5,
+                                    decoration: data.cover.sourceUrl.isEmpty
+                                        ? null
+                                        : TextDecoration.underline,
+                                    decorationColor: Colors.white70,
+                                  ),
+                                ),
                               ),
                             ],
-                          ),
+                          ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          'Discover places, packages and experiences nearby',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.88),
-                            fontWeight: FontWeight.w500,
-                            fontSize: 11.5,
-                            shadows: const [
-                              Shadow(blurRadius: 8, color: Colors.black26),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 11, 18, 42),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Where do you want to go?',
+                  style: TextStyle(
+                    color: Color(0xFF111827),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
                   ),
                 ),
-
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -1013,27 +1014,76 @@ class _MapHero extends StatelessWidget {
                       icon: usingManualLocation
                           ? Icons.gps_fixed_rounded
                           : Icons.my_location_rounded,
-                      onTap: () async {
-                        onUsePhoneLocation();
-
-                        if (mapController.isCompleted) {
-                          final controller = await mapController.future;
-
-                          controller.animateCamera(
-                            CameraUpdate.newLatLngZoom(data.center, 14.5),
-                          );
-                        }
-                      },
+                      onTap: onUsePhoneLocation,
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 58),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeCoverFallback extends StatelessWidget {
+  const _HomeCoverFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0B4F93), Color(0xFF26A6D1)],
         ),
-      ],
+      ),
+      child: Center(
+        child: Icon(Icons.landscape_rounded, color: Colors.white38, size: 82),
+      ),
+    );
+  }
+}
+
+class _ResilientCoverImage extends StatefulWidget {
+  const _ResilientCoverImage({super.key, required this.selection});
+
+  final MunicipalityCoverSelection selection;
+
+  @override
+  State<_ResilientCoverImage> createState() => _ResilientCoverImageState();
+}
+
+class _ResilientCoverImageState extends State<_ResilientCoverImage> {
+  int _index = 0;
+  bool _advanceScheduled = false;
+
+  void _advance() {
+    if (_advanceScheduled) return;
+    _advanceScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _advanceScheduled = false;
+      if (!mounted) return;
+      final urls = widget.selection.candidateImageUrls;
+      if (_index + 1 < urls.length) setState(() => _index += 1);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final urls = widget.selection.candidateImageUrls;
+    if (urls.isEmpty || _index >= urls.length) {
+      return const _HomeCoverFallback();
+    }
+    return Image.network(
+      urls[_index],
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) {
+        _advance();
+        return const _HomeCoverFallback();
+      },
     );
   }
 }
@@ -1455,53 +1505,8 @@ class _ErrorState extends StatelessWidget {
 }
 
 // ============================================================================
-// MAP HEADER WIDGETS
+// HOME HERO WIDGETS
 // ============================================================================
-
-class _GreetingBlock extends StatelessWidget {
-  const _GreetingBlock({required this.fullName});
-
-  final String fullName;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'WELCOME BACK',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.82),
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.05,
-            fontSize: 10.5,
-            shadows: const [Shadow(color: Colors.black26, blurRadius: 6)],
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          fullName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
-            height: 1.08,
-            letterSpacing: -0.35,
-            shadows: [
-              Shadow(
-                color: Colors.black26,
-                blurRadius: 7,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _AvatarWithDot extends StatelessWidget {
   const _AvatarWithDot({required this.imageUrl});
@@ -3089,6 +3094,7 @@ class _HomeData {
   final List<_NearbySpot> famousSpots;
   final List<_SuggestionPackage> suggestionPackages;
   final List<TouristAiRecommendationSpot> recommendationSpots;
+  final MunicipalityCoverSelection cover;
 
   _HomeData({
     required this.fullName,
@@ -3101,6 +3107,7 @@ class _HomeData {
     required this.famousSpots,
     required this.suggestionPackages,
     required this.recommendationSpots,
+    required this.cover,
   });
 }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:touristrike/core/branding/municipality_cover_service.dart';
 
 String stString(
   Map<String, dynamic> map,
@@ -211,6 +212,10 @@ class SubTenantCityProfileData {
     required this.localGovernmentType,
     required this.officeNameCustomized,
     required this.detailsTableAvailable,
+    this.coverImageSource = MunicipalityCoverSource.defaultCover,
+    this.coverImageAttribution = '',
+    this.coverImageSourceUrl = '',
+    this.coverImageUpdatedAt,
   });
 
   final String city;
@@ -226,6 +231,10 @@ class SubTenantCityProfileData {
   final String localGovernmentType;
   final bool officeNameCustomized;
   final bool detailsTableAvailable;
+  final MunicipalityCoverSource coverImageSource;
+  final String coverImageAttribution;
+  final String coverImageSourceUrl;
+  final DateTime? coverImageUpdatedAt;
 
   factory SubTenantCityProfileData.fromProfile(SubTenantProfile profile) {
     return SubTenantCityProfileData(
@@ -290,6 +299,12 @@ class SubTenantCityProfileData {
       localGovernmentType: localGovernmentType,
       officeNameCustomized: officeNameCustomized,
       detailsTableAvailable: true,
+      coverImageSource: MunicipalityCoverSource.fromDatabaseValue(
+        stString(map, const ['cover_image_source']),
+      ),
+      coverImageAttribution: stString(map, const ['cover_image_attribution']),
+      coverImageSourceUrl: stString(map, const ['cover_image_source_url']),
+      coverImageUpdatedAt: stDate(map['cover_image_updated_at']),
     );
   }
 
@@ -307,6 +322,10 @@ class SubTenantCityProfileData {
     String? localGovernmentType,
     bool? officeNameCustomized,
     bool? detailsTableAvailable,
+    MunicipalityCoverSource? coverImageSource,
+    String? coverImageAttribution,
+    String? coverImageSourceUrl,
+    DateTime? coverImageUpdatedAt,
   }) {
     return SubTenantCityProfileData(
       city: city ?? this.city,
@@ -323,6 +342,11 @@ class SubTenantCityProfileData {
       officeNameCustomized: officeNameCustomized ?? this.officeNameCustomized,
       detailsTableAvailable:
           detailsTableAvailable ?? this.detailsTableAvailable,
+      coverImageSource: coverImageSource ?? this.coverImageSource,
+      coverImageAttribution:
+          coverImageAttribution ?? this.coverImageAttribution,
+      coverImageSourceUrl: coverImageSourceUrl ?? this.coverImageSourceUrl,
+      coverImageUpdatedAt: coverImageUpdatedAt ?? this.coverImageUpdatedAt,
     );
   }
 
@@ -334,7 +358,6 @@ class SubTenantCityProfileData {
       'contact_number': contactNumber,
       'email': email,
       'office_address': officeAddress,
-      'cover_image_url': coverImageUrl,
       'logo_url': logoImageUrl,
       'office_name_customized': officeNameCustomized,
     };

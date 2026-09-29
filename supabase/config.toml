@@ -23,3 +23,8 @@ verify_jwt = false
 # database role check before using the server-only Auth admin API.
 [functions.administrator-account-access]
 verify_jwt = true
+
+# Authenticated active municipality offices only; the function derives the
+# municipality from subtenant_details and keeps PEXELS_API_KEY server-side.
+[functions.municipality-cover-suggestions]
+verify_jwt = true
