@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/core/maintenance/maintenance_service.dart';
+import 'package:touristrike/core/maintenance/maintenance_settings.dart';
 
 import 'administrator_models.dart';
 
@@ -75,6 +77,15 @@ class AdministratorService {
       ),
     );
 
+    final maintenanceResult = await _measure(_loadMaintenance);
+    healthChecks.add(
+      _healthFrom(
+        name: 'Maintenance controls',
+        description: 'Platform-wide maintenance status and access guard',
+        result: maintenanceResult,
+      ),
+    );
+
     final provincialResult = await _measure(_loadProvincialOffices);
     final localResult = await _measure(_loadLocalOffices);
     healthChecks.add(
@@ -98,10 +109,16 @@ class AdministratorService {
       tenants: [...?provincialResult.value, ...?localResult.value],
       auditEntries: auditResult.value ?? const [],
       healthChecks: healthChecks,
+      maintenance:
+          maintenanceResult.value ?? const MaintenanceSettings.operational(),
     );
   }
 
   Future<void> signOut() => _supabase.auth.signOut();
+
+  Future<MaintenanceSettings> updateMaintenance(MaintenanceUpdate update) {
+    return MaintenanceService(client: _supabase).update(update);
+  }
 
   Future<void> suspendAccount(
     PlatformAccountSummary account,
@@ -169,6 +186,10 @@ class AdministratorService {
         .order('created_at', ascending: false)
         .limit(250);
     return _rows(rows).map(_auditFromMap).toList(growable: false);
+  }
+
+  Future<MaintenanceSettings> _loadMaintenance() {
+    return MaintenanceService(client: _supabase).fetchStatus();
   }
 
   Future<List<TenantOfficeSummary>> _loadProvincialOffices() async {

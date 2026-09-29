@@ -43,10 +43,7 @@ class SystemAdminSidebar extends StatelessWidget {
                     ),
                     Text(
                       'System Administrator',
-                      style: TextStyle(
-                        color: Color(0xFFBBD0F5),
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: Color(0xFFBBD0F5), fontSize: 12),
                     ),
                   ],
                 ),
@@ -60,6 +57,7 @@ class SystemAdminSidebar extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: _SidebarItem(
+                key: ValueKey('administrator-nav-${item.name}'),
                 item: item,
                 isSelected: item == section,
                 onTap: () => onSelected(item),
@@ -81,10 +79,7 @@ class SystemAdminSidebar extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_itemRadius),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
           ),
         ],
@@ -95,6 +90,7 @@ class SystemAdminSidebar extends StatelessWidget {
 
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
+    super.key,
     required this.item,
     required this.isSelected,
     required this.onTap,
@@ -123,16 +119,9 @@ class _SidebarItem extends StatelessWidget {
         highlightColor: Colors.white.withValues(alpha: 0.05),
         splashColor: Colors.white.withValues(alpha: 0.08),
         child: Container(
-          constraints: const BoxConstraints(
-            minHeight: 52,
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 12,
-          ),
-          decoration: BoxDecoration(
-            borderRadius: borderRadius,
-          ),
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(borderRadius: borderRadius),
           child: Row(
             children: [
               Icon(
@@ -174,10 +163,7 @@ class _BrandMark extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: const Icon(
-        Icons.hub_rounded,
-        color: Colors.white,
-      ),
+      child: const Icon(Icons.hub_rounded, color: Colors.white),
     );
   }
 }
@@ -196,19 +182,12 @@ class _ReadOnlyNotice extends StatelessWidget {
       child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.shield_outlined,
-            color: Color(0xFFBBD0F5),
-            size: 18,
-          ),
+          Icon(Icons.shield_outlined, color: Color(0xFFBBD0F5), size: 18),
           SizedBox(width: 8),
           Expanded(
             child: Text(
               'Platform oversight & account controls',
-              style: TextStyle(
-                color: Color(0xFFDBE8FF),
-                fontSize: 12,
-              ),
+              style: TextStyle(color: Color(0xFFDBE8FF), fontSize: 12),
             ),
           ),
         ],

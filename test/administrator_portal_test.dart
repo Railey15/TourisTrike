@@ -226,7 +226,7 @@ void main() {
   });
 
   testWidgets(
-    'administrator portal renders, filters, and navigates read-only data',
+    'administrator portal renders, filters, and navigates platform controls',
     (tester) async {
       tester.view.physicalSize = const Size(1800, 1100);
       tester.view.devicePixelRatio = 1;

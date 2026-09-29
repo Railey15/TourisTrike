@@ -517,7 +517,7 @@ String administratorSectionSubtitle(AdministratorSection section) =>
       AdministratorSection.tenants =>
         'Inspect provincial and city/municipal office identity and status',
       AdministratorSection.configuration =>
-        'Review the deployed role model and tenant configuration',
+        'Manage maintenance mode and review platform configuration',
       AdministratorSection.integrations =>
         'Review live availability checks for administrator data services',
       AdministratorSection.security =>

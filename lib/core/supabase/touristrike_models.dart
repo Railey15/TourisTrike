@@ -618,9 +618,15 @@ class PaymentDispute extends TourisTrikeRow {
   String get reason => dbString(row['reason']);
   String get description => dbString(row['description']);
   String get evidenceUrl => dbString(row['evidence_url']);
-  String get status => dbString(row['status'], fallback: 'open');
+  String get category => dbString(row['category'], fallback: 'payment');
+  String get subject => dbString(row['subject'], fallback: 'Payment dispute');
+  String get priority => dbString(row['priority'], fallback: 'normal');
+  String get municipality => dbString(row['municipality']);
+  String get status => dbString(row['status'], fallback: 'needs_review');
   String get resolvedBy => dbString(row['resolved_by']);
   String get resolutionNote => dbString(row['resolution_note']);
+  String get resolutionType => dbString(row['resolution_type']);
+  DateTime? get reviewedAt => dbDate(row['reviewed_at']);
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get resolvedAt => dbDate(row['resolved_at']);
 }

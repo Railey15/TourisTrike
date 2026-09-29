@@ -7,12 +7,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/config/app_config.dart';
+import 'package:touristrike/core/maintenance/maintenance_gate.dart';
+import 'package:touristrike/core/maintenance/maintenance_service.dart';
 import 'package:touristrike/core/services/developer_settings.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/guest/guest_trip_access_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_spots_screen.dart';
 import 'package:touristrike/screens/driver/driver_home_screen.dart';
 import 'screens/auth/loading_screen.dart';
+import 'screens/auth/web_portal_login_screen.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -43,7 +46,14 @@ Future<void> main() async {
 }
 
 class TourisTrikeApp extends StatelessWidget {
-  const TourisTrikeApp({super.key});
+  const TourisTrikeApp({
+    super.key,
+    @visibleForTesting this.maintenanceService,
+    @visibleForTesting this.maintenanceAuthStateChanges,
+  });
+
+  final MaintenanceStatusService? maintenanceService;
+  final Stream<AuthState>? maintenanceAuthStateChanges;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +64,7 @@ class TourisTrikeApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
+          builder: _buildMaintenanceOnly,
           home: GuestTripAccessScreen(publicToken: segments[1]),
         );
       }
@@ -82,7 +93,7 @@ class TourisTrikeApp extends StatelessWidget {
         navigatorKey: notificationNavigatorKey,
         navigatorObservers: [notificationRouteObserver],
         scaffoldMessengerKey: notificationMessengerKey,
-        builder: (context, child) => NotificationHost(child: child!),
+        builder: _buildApp,
         home: const TouristSpotsScreen(),
       );
     }
@@ -94,7 +105,7 @@ class TourisTrikeApp extends StatelessWidget {
         navigatorKey: notificationNavigatorKey,
         navigatorObservers: [notificationRouteObserver],
         scaffoldMessengerKey: notificationMessengerKey,
-        builder: (context, child) => NotificationHost(child: child!),
+        builder: _buildApp,
         home: const DriverHomeScreen(),
       );
     }
@@ -104,9 +115,30 @@ class TourisTrikeApp extends StatelessWidget {
       navigatorKey: notificationNavigatorKey,
       navigatorObservers: [notificationRouteObserver],
       scaffoldMessengerKey: notificationMessengerKey,
-      builder: (context, child) => NotificationHost(child: child!),
+      builder: _buildApp,
       home: const TourisTrikeLoadingScreen(),
       theme: AppTheme.light(),
+    );
+  }
+
+  Widget _buildApp(BuildContext context, Widget? child) {
+    return MaintenanceGate(
+      service: maintenanceService,
+      authStateChanges: maintenanceAuthStateChanges,
+      child: NotificationHost(child: child ?? const SizedBox.shrink()),
+      onAdministratorAccess: () async {
+        await notificationNavigatorKey.currentState?.push(
+          MaterialPageRoute<void>(builder: (_) => const WebPortalLoginScreen()),
+        );
+      },
+    );
+  }
+
+  Widget _buildMaintenanceOnly(BuildContext context, Widget? child) {
+    return MaintenanceGate(
+      service: maintenanceService,
+      authStateChanges: maintenanceAuthStateChanges,
+      child: child ?? const SizedBox.shrink(),
     );
   }
 }

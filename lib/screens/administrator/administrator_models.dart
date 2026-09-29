@@ -1,4 +1,5 @@
 import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/core/maintenance/maintenance_settings.dart';
 
 class AdministratorProfile {
   const AdministratorProfile({
@@ -313,6 +314,7 @@ class AdministratorPortalData {
     required this.tenants,
     required this.auditEntries,
     required this.healthChecks,
+    this.maintenance = const MaintenanceSettings.operational(),
   });
 
   final AdministratorProfile profile;
@@ -320,6 +322,7 @@ class AdministratorPortalData {
   final List<TenantOfficeSummary> tenants;
   final List<PlatformAuditEntry> auditEntries;
   final List<PlatformHealthCheck> healthChecks;
+  final MaintenanceSettings maintenance;
 
   int countFor(AppRole role) =>
       accounts.where((account) => account.role == role).length;

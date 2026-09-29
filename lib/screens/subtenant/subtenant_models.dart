@@ -1006,6 +1006,218 @@ class SubTenantFeedback {
   final DateTime? createdAt;
 }
 
+class SubTenantCaseParty {
+  const SubTenantCaseParty({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.mobile,
+  });
+
+  final String id;
+  final String name;
+  final String role;
+  final String mobile;
+
+  factory SubTenantCaseParty.fromMap(Map<String, dynamic>? map) {
+    final value = map ?? const <String, dynamic>{};
+    return SubTenantCaseParty(
+      id: stId(value['id']),
+      name: stString(value, const ['name'], fallback: 'Unknown user'),
+      role: stString(value, const ['role']),
+      mobile: stString(value, const ['mobile']),
+    );
+  }
+}
+
+class SubTenantCaseEvidence {
+  const SubTenantCaseEvidence({
+    required this.id,
+    required this.url,
+    required this.name,
+    required this.contentType,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String url;
+  final String name;
+  final String contentType;
+  final DateTime? createdAt;
+
+  factory SubTenantCaseEvidence.fromMap(Map<String, dynamic> map) {
+    return SubTenantCaseEvidence(
+      id: stId(map['id']),
+      url: stString(map, const ['url']),
+      name: stString(map, const ['name'], fallback: 'Evidence'),
+      contentType: stString(map, const ['content_type']),
+      createdAt: stDate(map['created_at']),
+    );
+  }
+
+  bool get isImage =>
+      contentType.toLowerCase().startsWith('image/') ||
+      RegExp(
+        r'\.(png|jpe?g|gif|webp)(\?|$)',
+        caseSensitive: false,
+      ).hasMatch(url);
+}
+
+class SubTenantCaseTimelineEvent {
+  const SubTenantCaseTimelineEvent({required this.label, required this.at});
+
+  final String label;
+  final DateTime? at;
+
+  factory SubTenantCaseTimelineEvent.fromMap(Map<String, dynamic> map) {
+    return SubTenantCaseTimelineEvent(
+      label: stString(map, const ['label']),
+      at: stDate(map['at']),
+    );
+  }
+}
+
+class SubTenantCase {
+  const SubTenantCase({
+    required this.id,
+    required this.municipality,
+    required this.bookingId,
+    required this.packageId,
+    required this.paymentRecordId,
+    required this.category,
+    required this.subject,
+    required this.description,
+    required this.priority,
+    required this.status,
+    required this.resolutionType,
+    required this.customResolution,
+    required this.resolutionNotes,
+    required this.reporter,
+    required this.reportedUser,
+    required this.assignee,
+    required this.booking,
+    required this.tourPackage,
+    required this.payment,
+    required this.evidence,
+    required this.timeline,
+    required this.createdAt,
+    required this.reviewedAt,
+    required this.resolvedAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String municipality;
+  final String bookingId;
+  final String packageId;
+  final String paymentRecordId;
+  final String category;
+  final String subject;
+  final String description;
+  final String priority;
+  final String status;
+  final String resolutionType;
+  final String customResolution;
+  final String resolutionNotes;
+  final SubTenantCaseParty reporter;
+  final SubTenantCaseParty? reportedUser;
+  final SubTenantCaseParty? assignee;
+  final Map<String, dynamic>? booking;
+  final Map<String, dynamic>? tourPackage;
+  final Map<String, dynamic>? payment;
+  final List<SubTenantCaseEvidence> evidence;
+  final List<SubTenantCaseTimelineEvent> timeline;
+  final DateTime? createdAt;
+  final DateTime? reviewedAt;
+  final DateTime? resolvedAt;
+  final DateTime? updatedAt;
+
+  factory SubTenantCase.fromMap(Map<String, dynamic> map) {
+    Map<String, dynamic>? nested(String key) {
+      final value = map[key];
+      return value is Map ? Map<String, dynamic>.from(value) : null;
+    }
+
+    List<Map<String, dynamic>> maps(String key) {
+      final value = map[key];
+      if (value is! List) return const [];
+      return value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+
+    return SubTenantCase(
+      id: stId(map['id']),
+      municipality: stString(map, const ['municipality']),
+      bookingId: stId(map['booking_id']),
+      packageId: stId(map['package_id']),
+      paymentRecordId: stId(map['payment_record_id']),
+      category: stString(map, const ['category'], fallback: 'other'),
+      subject: stString(map, const ['subject'], fallback: 'Reported issue'),
+      description: stString(map, const ['description']),
+      priority: stString(map, const ['priority'], fallback: 'normal'),
+      status: stString(map, const ['status'], fallback: 'needs_review'),
+      resolutionType: stString(map, const ['resolution_type']),
+      customResolution: stString(map, const ['custom_resolution']),
+      resolutionNotes: stString(map, const ['resolution_notes']),
+      reporter: SubTenantCaseParty.fromMap(nested('reporter')),
+      reportedUser: nested('reported_user') == null
+          ? null
+          : SubTenantCaseParty.fromMap(nested('reported_user')),
+      assignee: nested('assignee') == null
+          ? null
+          : SubTenantCaseParty.fromMap(nested('assignee')),
+      booking: nested('booking'),
+      tourPackage: nested('tour_package'),
+      payment: nested('payment'),
+      evidence: maps(
+        'evidence',
+      ).map(SubTenantCaseEvidence.fromMap).toList(growable: false),
+      timeline: maps('timeline')
+          .where((event) => event['label'] != null && event['at'] != null)
+          .map(SubTenantCaseTimelineEvent.fromMap)
+          .toList(growable: false),
+      createdAt: stDate(map['created_at']),
+      reviewedAt: stDate(map['reviewed_at']),
+      resolvedAt: stDate(map['resolved_at']),
+      updatedAt: stDate(map['updated_at']),
+    );
+  }
+
+  String get reference =>
+      'CASE-${id.length >= 8 ? id.substring(0, 8).toUpperCase() : id.toUpperCase()}';
+
+  String get searchableText => [
+    id,
+    reference,
+    subject,
+    description,
+    bookingId,
+    reporter.name,
+    reportedUser?.name ?? '',
+    stString(booking ?? const {}, const ['id']),
+    stString(tourPackage ?? const {}, const ['title']),
+  ].join(' ').toLowerCase();
+
+  bool matchesFilters({
+    required String categoryFilter,
+    required String statusFilter,
+    required String searchQuery,
+  }) {
+    final categoryMatches =
+        categoryFilter == 'all' || category == categoryFilter;
+    final statusMatches =
+        statusFilter == 'all' ||
+        (statusFilter == 'attention' && status != 'closed') ||
+        status == statusFilter;
+    final normalizedQuery = searchQuery.trim().toLowerCase();
+    return categoryMatches &&
+        statusMatches &&
+        (normalizedQuery.isEmpty || searchableText.contains(normalizedQuery));
+  }
+}
+
 class SubTenantAnnouncement {
   const SubTenantAnnouncement({
     required this.id,

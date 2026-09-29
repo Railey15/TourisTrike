@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:touristrike/core/maintenance/maintenance_settings.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
 
 import 'administrator_models.dart';
@@ -24,6 +25,7 @@ class AdministratorPortalScreen extends StatefulWidget {
     @visibleForTesting this.signedOutDestinationBuilder,
     @visibleForTesting this.suspendAccount,
     @visibleForTesting this.reactivateAccount,
+    @visibleForTesting this.updateMaintenance,
   });
 
   final AdministratorSection initialSection;
@@ -32,6 +34,7 @@ class AdministratorPortalScreen extends StatefulWidget {
   final WidgetBuilder? signedOutDestinationBuilder;
   final AdministratorSuspendAccountCallback? suspendAccount;
   final AdministratorReactivateAccountCallback? reactivateAccount;
+  final AdministratorMaintenanceUpdateCallback? updateMaintenance;
 
   @override
   State<AdministratorPortalScreen> createState() =>
@@ -75,6 +78,16 @@ class _AdministratorPortalScreenState extends State<AdministratorPortalScreen> {
     await (widget.reactivateAccount?.call(account) ??
         _activeService.reactivateAccount(account));
     _reloadAfterMutation();
+  }
+
+  Future<MaintenanceSettings> _updateMaintenance(
+    MaintenanceUpdate update,
+  ) async {
+    final result =
+        await (widget.updateMaintenance?.call(update) ??
+            _activeService.updateMaintenance(update));
+    _reloadAfterMutation();
+    return result;
   }
 
   Future<void> _signOut() async {
@@ -121,7 +134,10 @@ class _AdministratorPortalScreenState extends State<AdministratorPortalScreen> {
               tenants: data!.tenants,
             ),
             AdministratorSection.configuration =>
-              AdministratorConfigurationScreen(data: data!),
+              AdministratorConfigurationScreen(
+                data: data!,
+                onUpdateMaintenance: _updateMaintenance,
+              ),
             AdministratorSection.integrations =>
               AdministratorIntegrationsScreen(checks: data!.healthChecks),
             AdministratorSection.security => AdministratorSecurityScreen(

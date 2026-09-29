@@ -174,8 +174,9 @@ class _SubTenantTabChrome {
       ),
       7 => const _SubTenantTabChrome(
         index: 7,
-        title: 'Payment Disputes',
-        subtitle: 'Review and resolve reported GCash and cash payment issues.',
+        title: 'Disputes & Cases',
+        subtitle:
+            'Review and resolve reported issues involving bookings, payments, drivers, tourists, tours, and service incidents.',
       ),
       _ => const _SubTenantTabChrome(
         index: 0,

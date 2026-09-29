@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:touristrike/core/auth/app_role.dart';
+import 'package:touristrike/core/maintenance/maintenance_settings.dart';
 
 import 'administrator_models.dart';
 import 'administrator_audit_logs_screen.dart';
 import 'widgets/system_admin_shared.dart';
 
 class AdministratorDashboardScreen extends StatelessWidget {
-  const AdministratorDashboardScreen({
-    super.key,
-    required this.data,
-  });
+  const AdministratorDashboardScreen({super.key, required this.data});
 
   final AdministratorPortalData data;
 
@@ -28,8 +26,8 @@ class AdministratorDashboardScreen extends StatelessWidget {
           final horizontalPadding = constraints.maxWidth >= 1200
               ? 32.0
               : constraints.maxWidth >= 700
-                  ? 24.0
-                  : 16.0;
+              ? 24.0
+              : 16.0;
 
           return ListView(
             padding: EdgeInsets.fromLTRB(
@@ -90,24 +88,16 @@ class AdministratorDashboardScreen extends StatelessWidget {
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                flex: 5,
-                                child: rolePanel,
-                              ),
+                              Expanded(flex: 5, child: rolePanel),
                               const SizedBox(width: 18),
-                              Expanded(
-                                flex: 5,
-                                child: healthPanel,
-                              ),
+                              Expanded(flex: 5, child: healthPanel),
                             ],
                           );
                         },
                       ),
                       const SizedBox(height: 24),
 
-                      _RecentActivitySection(
-                        data: data,
-                      ),
+                      _RecentActivitySection(data: data),
                     ],
                   ),
                 ),
@@ -145,10 +135,7 @@ class _WelcomeCard extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF102E61),
-                Color(0xFF155EEF),
-              ],
+              colors: [Color(0xFF102E61), Color(0xFF155EEF)],
             ),
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
@@ -164,23 +151,15 @@ class _WelcomeCard extends StatelessWidget {
               const Positioned(
                 right: -48,
                 top: -58,
-                child: _DecorativeCircle(
-                  size: 190,
-                  opacity: 0.06,
-                ),
+                child: _DecorativeCircle(size: 190, opacity: 0.06),
               ),
               const Positioned(
                 right: 80,
                 bottom: -75,
-                child: _DecorativeCircle(
-                  size: 150,
-                  opacity: 0.05,
-                ),
+                child: _DecorativeCircle(size: 150, opacity: 0.05),
               ),
               Padding(
-                padding: EdgeInsets.all(
-                  compact ? 20 : 26,
-                ),
+                padding: EdgeInsets.all(compact ? 20 : 26),
                 child: compact
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,9 +176,7 @@ class _WelcomeCard extends StatelessWidget {
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Expanded(
-                            child: _WelcomeContent(profile: profile),
-                          ),
+                          Expanded(child: _WelcomeContent(profile: profile)),
                           const SizedBox(width: 24),
                           _WelcomeStatusCard(
                             healthy: healthy,
@@ -218,9 +195,7 @@ class _WelcomeCard extends StatelessWidget {
 }
 
 class _WelcomeContent extends StatelessWidget {
-  const _WelcomeContent({
-    required this.profile,
-  });
+  const _WelcomeContent({required this.profile});
 
   final AdministratorProfile profile;
 
@@ -234,16 +209,11 @@ class _WelcomeContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 6,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
@@ -340,25 +310,18 @@ class _WelcomeStatusCard extends StatelessWidget {
         : const Color(0xFFFEC84B);
 
     return Container(
-      constraints: const BoxConstraints(
-        minWidth: 220,
-        maxWidth: 270,
-      ),
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 270),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.14),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AdministratorStatusPill(
-            label: healthy
-                ? 'All systems operational'
-                : 'Attention required',
+            label: healthy ? 'All systems operational' : 'Attention required',
             color: healthy
                 ? AdministratorColors.green
                 : AdministratorColors.amber,
@@ -381,10 +344,7 @@ class _WelcomeStatusCard extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: 2,
-                ),
+                padding: const EdgeInsets.only(left: 4, bottom: 2),
                 child: Text(
                   '/ $totalHealthChecks',
                   style: const TextStyle(
@@ -414,9 +374,7 @@ class _WelcomeStatusCard extends StatelessWidget {
                   ? 1
                   : operationalChecks / totalHealthChecks,
               backgroundColor: Colors.white.withValues(alpha: 0.14),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                statusColor,
-              ),
+              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
             ),
           ),
         ],
@@ -426,10 +384,7 @@ class _WelcomeStatusCard extends StatelessWidget {
 }
 
 class _DecorativeCircle extends StatelessWidget {
-  const _DecorativeCircle({
-    required this.size,
-    required this.opacity,
-  });
+  const _DecorativeCircle({required this.size, required this.opacity});
 
   final double size;
   final double opacity;
@@ -518,13 +473,37 @@ class _MetricsGrid extends StatelessWidget {
         final columns = constraints.maxWidth >= 1180
             ? 4
             : constraints.maxWidth >= 720
-                ? 2
-                : 1;
+            ? 2
+            : 1;
 
         final width =
             (constraints.maxWidth - (spacing * (columns - 1))) / columns;
 
         final metrics = <Widget>[
+          _DashboardMetricCard(
+            label: 'Platform status',
+            value: switch (data.maintenance.status) {
+              MaintenanceSystemStatus.operational => 'Operational',
+              MaintenanceSystemStatus.scheduled => 'Scheduled',
+              MaintenanceSystemStatus.active => 'Maintenance',
+            },
+            helper: switch (data.maintenance.status) {
+              MaintenanceSystemStatus.operational =>
+                'Normal access is available',
+              MaintenanceSystemStatus.scheduled => 'Maintenance is scheduled',
+              MaintenanceSystemStatus.active => 'Maintenance Mode is active',
+            },
+            icon: switch (data.maintenance.status) {
+              MaintenanceSystemStatus.operational => Icons.check_circle_outline,
+              MaintenanceSystemStatus.scheduled => Icons.schedule_rounded,
+              MaintenanceSystemStatus.active => Icons.construction_rounded,
+            },
+            color: switch (data.maintenance.status) {
+              MaintenanceSystemStatus.operational => AdministratorColors.green,
+              MaintenanceSystemStatus.scheduled => AdministratorColors.amber,
+              MaintenanceSystemStatus.active => AdministratorColors.red,
+            },
+          ),
           _DashboardMetricCard(
             label: 'Total accounts',
             value: '${data.accounts.length}',
@@ -565,11 +544,7 @@ class _MetricsGrid extends StatelessWidget {
           spacing: spacing,
           runSpacing: spacing,
           children: [
-            for (final metric in metrics)
-              SizedBox(
-                width: width,
-                child: metric,
-              ),
+            for (final metric in metrics) SizedBox(width: width, child: metric),
           ],
         );
       },
@@ -600,9 +575,7 @@ class _DashboardMetricCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AdministratorColors.line,
-        ),
+        border: Border.all(color: AdministratorColors.line),
         boxShadow: const [
           BoxShadow(
             color: Color(0x08000000),
@@ -624,21 +597,14 @@ class _DashboardMetricCard extends StatelessWidget {
                   color: color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(13),
                 ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 22,
-                ),
+                child: Icon(icon, color: color, size: 22),
               ),
               const Spacer(),
               Container(
                 width: 8,
                 height: 8,
                 margin: const EdgeInsets.only(top: 4),
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               ),
             ],
           ),
@@ -682,9 +648,7 @@ class _DashboardMetricCard extends StatelessWidget {
 }
 
 class _RoleDistribution extends StatelessWidget {
-  const _RoleDistribution({
-    required this.data,
-  });
+  const _RoleDistribution({required this.data});
 
   final AdministratorPortalData data;
 
@@ -703,8 +667,7 @@ class _RoleDistribution extends StatelessWidget {
               count: data.countFor(AppRole.values[index]),
               total: totalAccounts,
             ),
-            if (index < AppRole.values.length - 1)
-              const SizedBox(height: 15),
+            if (index < AppRole.values.length - 1) const SizedBox(height: 15),
           ],
         ],
       ),
@@ -740,11 +703,7 @@ class _RoleDistributionItem extends StatelessWidget {
                 color: color.withValues(alpha: 0.09),
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: Icon(
-                administratorRoleIcon(role),
-                size: 18,
-                color: color,
-              ),
+              child: Icon(administratorRoleIcon(role), size: 18, color: color),
             ),
             const SizedBox(width: 11),
             Expanded(
@@ -774,10 +733,7 @@ class _RoleDistributionItem extends StatelessWidget {
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 5,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(999),
@@ -800,9 +756,7 @@ class _RoleDistributionItem extends StatelessWidget {
             minHeight: 5,
             value: ratio.clamp(0.0, 1.0),
             backgroundColor: const Color(0xFFF0F3F8),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              color,
-            ),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
           ),
         ),
       ],
@@ -811,9 +765,7 @@ class _RoleDistributionItem extends StatelessWidget {
 }
 
 class _HealthSummary extends StatelessWidget {
-  const _HealthSummary({
-    required this.checks,
-  });
+  const _HealthSummary({required this.checks});
 
   final List<PlatformHealthCheck> checks;
 
@@ -904,10 +856,7 @@ class _HealthSummary extends StatelessWidget {
             for (var index = 0; index < checks.length; index++) ...[
               _HealthItem(check: checks[index]),
               if (index < checks.length - 1)
-                const Divider(
-                  height: 18,
-                  color: AdministratorColors.line,
-                ),
+                const Divider(height: 18, color: AdministratorColors.line),
             ],
         ],
       ),
@@ -916,9 +865,7 @@ class _HealthSummary extends StatelessWidget {
 }
 
 class _HealthItem extends StatelessWidget {
-  const _HealthItem({
-    required this.check,
-  });
+  const _HealthItem({required this.check});
 
   final PlatformHealthCheck check;
 
@@ -965,9 +912,7 @@ class _HealthItem extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  _HealthStatusBadge(
-                    operational: check.isOperational,
-                  ),
+                  _HealthStatusBadge(operational: check.isOperational),
                 ],
               ),
               const SizedBox(height: 3),
@@ -1002,9 +947,7 @@ class _HealthItem extends StatelessWidget {
 }
 
 class _HealthStatusBadge extends StatelessWidget {
-  const _HealthStatusBadge({
-    required this.operational,
-  });
+  const _HealthStatusBadge({required this.operational});
 
   final bool operational;
 
@@ -1015,10 +958,7 @@ class _HealthStatusBadge extends StatelessWidget {
         : AdministratorColors.amber;
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 4,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -1036,17 +976,13 @@ class _HealthStatusBadge extends StatelessWidget {
 }
 
 class _RecentActivitySection extends StatelessWidget {
-  const _RecentActivitySection({
-    required this.data,
-  });
+  const _RecentActivitySection({required this.data});
 
   final AdministratorPortalData data;
 
   @override
   Widget build(BuildContext context) {
-    final recentEntries = data.auditEntries
-        .take(8)
-        .toList(growable: false);
+    final recentEntries = data.auditEntries.take(8).toList(growable: false);
 
     return AdministratorPanel(
       child: Column(
@@ -1145,16 +1081,11 @@ class _DashboardEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 28,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 28),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AdministratorColors.line,
-        ),
+        border: Border.all(color: AdministratorColors.line),
       ),
       child: Column(
         children: [
@@ -1165,11 +1096,7 @@ class _DashboardEmptyState extends StatelessWidget {
               color: AdministratorColors.blue.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              color: AdministratorColors.blue,
-              size: 23,
-            ),
+            child: Icon(icon, color: AdministratorColors.blue, size: 23),
           ),
           const SizedBox(height: 11),
           Text(

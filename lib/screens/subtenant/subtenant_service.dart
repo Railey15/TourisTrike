@@ -2139,6 +2139,61 @@ class SubTenantService {
     ]);
   }
 
+  Future<List<SubTenantCase>> fetchCases({String? caseId}) async {
+    final result = await _supabase.rpc(
+      'get_dispute_cases',
+      params: {'p_case_id': caseId},
+    );
+    if (result is! List) return const [];
+    return result
+        .whereType<Map>()
+        .map((row) => SubTenantCase.fromMap(Map<String, dynamic>.from(row)))
+        .toList(growable: false);
+  }
+
+  Future<SubTenantCase> fetchCaseDetails(String caseId) async {
+    final cases = await fetchCases(caseId: caseId);
+    if (cases.isEmpty) throw StateError('Case not found or access denied.');
+    return cases.single;
+  }
+
+  Future<void> startCaseReview(String caseId) async {
+    await _supabase.rpc('start_dispute_case', params: {'p_case_id': caseId});
+  }
+
+  Future<void> resolveCase({
+    required String caseId,
+    required String resolutionType,
+    required String resolutionNotes,
+    String? customResolution,
+  }) async {
+    final notes = resolutionNotes.trim();
+    if (notes.isEmpty) {
+      throw ArgumentError.value(
+        resolutionNotes,
+        'resolutionNotes',
+        'Resolution notes are required.',
+      );
+    }
+    final custom = customResolution?.trim() ?? '';
+    if (resolutionType == 'other_resolution' && custom.isEmpty) {
+      throw ArgumentError.value(
+        customResolution,
+        'customResolution',
+        'A custom resolution is required.',
+      );
+    }
+    await _supabase.rpc(
+      'resolve_dispute_case',
+      params: {
+        'p_case_id': caseId,
+        'p_resolution_type': resolutionType,
+        'p_resolution_notes': notes,
+        'p_custom_resolution': custom.isEmpty ? null : custom,
+      },
+    );
+  }
+
   Future<void> _notifyUser({
     required String userId,
     required String title,
