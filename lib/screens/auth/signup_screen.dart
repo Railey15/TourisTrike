@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../theme/app_theme.dart';
 import 'verify_email_otp_screen.dart';
+import 'package:touristrike/core/policies/touristrike_notices.dart';
+import 'package:touristrike/screens/tourist/profile/privacy_policy_screen.dart';
 
 enum SignupUserRole { tourist, driver }
 
@@ -30,6 +32,7 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _loading = false;
+  bool _privacyAcknowledged = false;
 
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
@@ -83,8 +86,9 @@ class _SignupScreenState extends State<SignupScreen> {
         SnackBar(
           content: Text(msg),
           behavior: SnackBarBehavior.floating,
-          backgroundColor:
-              isError ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -176,6 +180,11 @@ class _SignupScreenState extends State<SignupScreen> {
     final password = _passwordCtrl.text;
     final confirm = _confirmCtrl.text;
 
+    if (_role == SignupUserRole.tourist && !_privacyAcknowledged) {
+      _showSnack('Please read and acknowledge the TourisTrike Privacy Notice.');
+      return;
+    }
+
     if (email.isEmpty || password.isEmpty || confirm.isEmpty) {
       _showSnack('Please fill in all fields.');
       return;
@@ -209,8 +218,7 @@ class _SignupScreenState extends State<SignupScreen> {
     try {
       await supabase.auth.signInWithOtp(email: email, shouldCreateUser: true);
 
-      final roleString =
-          _role == SignupUserRole.tourist ? 'tourist' : 'driver';
+      final roleString = _role == SignupUserRole.tourist ? 'tourist' : 'driver';
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -220,6 +228,9 @@ class _SignupScreenState extends State<SignupScreen> {
             email: email,
             roleString: roleString,
             password: password,
+            privacyNoticeVersion: _role == SignupUserRole.tourist
+                ? privacyNoticeVersion
+                : null,
           ),
         ),
       );
@@ -278,7 +289,9 @@ class _SignupScreenState extends State<SignupScreen> {
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 480),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                ),
                                 child: Column(
                                   children: [
                                     _SignupCard(
@@ -305,11 +318,17 @@ class _SignupScreenState extends State<SignupScreen> {
                                       passwordErrors: _passwordErrors,
                                       onRoleChanged: (role) =>
                                           setState(() => _role = role),
+                                      privacyAcknowledged: _privacyAcknowledged,
+                                      onPrivacyChanged: (value) => setState(
+                                        () => _privacyAcknowledged = value,
+                                      ),
                                       onTogglePassword: () => setState(
-                                        () => _obscurePassword = !_obscurePassword,
+                                        () => _obscurePassword =
+                                            !_obscurePassword,
                                       ),
                                       onToggleConfirm: () => setState(
-                                        () => _obscureConfirm = !_obscureConfirm,
+                                        () =>
+                                            _obscureConfirm = !_obscureConfirm,
                                       ),
                                       onLogin: () => Navigator.pop(context),
                                       onSignup: _loading ? null : _signup,
@@ -413,6 +432,8 @@ class _SignupCard extends StatelessWidget {
     required this.onToggleConfirm,
     required this.onLogin,
     required this.onSignup,
+    required this.privacyAcknowledged,
+    required this.onPrivacyChanged,
   });
 
   final SignupUserRole role;
@@ -437,6 +458,8 @@ class _SignupCard extends StatelessWidget {
   final VoidCallback onToggleConfirm;
   final VoidCallback onLogin;
   final VoidCallback? onSignup;
+  final bool privacyAcknowledged;
+  final ValueChanged<bool> onPrivacyChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -541,6 +564,34 @@ class _SignupCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
+          if (role == SignupUserRole.tourist) ...[
+            const Text(
+              'PRIVACY AND PERSONAL DATA',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'TourisTrike processes the personal information necessary to create and manage your account and provide its services. Please review the Privacy Notice to understand what information is collected, why it is processed, how it is protected, and your privacy rights.',
+              style: TextStyle(height: 1.4),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PrivacyPolicyScreen(),
+                ),
+              ),
+              child: const Text('TourisTrike Privacy Notice'),
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: privacyAcknowledged,
+              onChanged: (value) => onPrivacyChanged(value == true),
+              title: const Text(
+                'I have read and understood the TourisTrike Privacy Notice.',
+              ),
+            ),
+          ],
           SizedBox(
             width: double.infinity,
             height: 58,
@@ -591,8 +642,9 @@ class _PasswordRequirements extends StatelessWidget {
                       ? Icons.check_circle_rounded
                       : Icons.radio_button_unchecked_rounded,
                   size: 16,
-                  color:
-                      met ? const Color(0xFF22C55E) : const Color(0xFF94A3B8),
+                  color: met
+                      ? const Color(0xFF22C55E)
+                      : const Color(0xFF94A3B8),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -698,8 +750,9 @@ class _RoleSegment extends StatelessWidget {
               AnimatedAlign(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
-                alignment:
-                    isTourist ? Alignment.centerLeft : Alignment.centerRight,
+                alignment: isTourist
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
                 child: Container(
                   width: pillWidth,
                   height: double.infinity,
@@ -761,8 +814,7 @@ class _RoleChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        selected ? const Color(0xFF0F172A) : const Color(0xFF64748B);
+    final color = selected ? const Color(0xFF0F172A) : const Color(0xFF64748B);
     return Center(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -897,10 +949,9 @@ class _Label extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: Text(
         text,
-        style: AppTextStyles.fieldLabel(context).copyWith(
-          fontWeight: FontWeight.w900,
-          color: const Color(0xFF0F172A),
-        ),
+        style: AppTextStyles.fieldLabel(
+          context,
+        ).copyWith(fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
       ),
     );
   }
@@ -1000,9 +1051,7 @@ class _FancyInputFieldState extends State<_FancyInputField> {
             borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(color: Color(0xFF2A86FF), width: 1.5),
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
         ),
       ),
     );
@@ -1032,16 +1081,16 @@ class _TermsText extends StatelessWidget {
           ),
           TextSpan(
             text: 'Terms of Service',
-            style: AppTextStyles.link(context).copyWith(
-              fontWeight: FontWeight.w900,
-            ),
+            style: AppTextStyles.link(
+              context,
+            ).copyWith(fontWeight: FontWeight.w900),
           ),
           const TextSpan(text: ' and '),
           TextSpan(
             text: 'Privacy Policy',
-            style: AppTextStyles.link(context).copyWith(
-              fontWeight: FontWeight.w900,
-            ),
+            style: AppTextStyles.link(
+              context,
+            ).copyWith(fontWeight: FontWeight.w900),
           ),
           const TextSpan(text: '.'),
         ],
@@ -1062,11 +1111,7 @@ class _SignupBackdrop extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFF7FBFF),
-                Color(0xFFEAF5FF),
-                Color(0xFFF8FAFC),
-              ],
+              colors: [Color(0xFFF7FBFF), Color(0xFFEAF5FF), Color(0xFFF8FAFC)],
             ),
           ),
           child: SizedBox.expand(),

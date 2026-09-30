@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
+import 'package:touristrike/widgets/package_booking_cancellation_flow.dart';
 
 class BookingCancellationResultScreen extends StatelessWidget {
   const BookingCancellationResultScreen({
@@ -17,14 +18,19 @@ class BookingCancellationResultScreen extends StatelessWidget {
   String get _refundText {
     final eligibility = result.eligibility;
     if (eligibility.amountPaid <= 0) return 'No payment was made';
+    if (result.refundStatus == 'review_required') {
+      return 'Exceptional review requested; no refund confirmed';
+    }
     if (eligibility.refundableAmount <= 0) {
-      return 'Non-refundable due to late cancellation';
+      return eligibility.cancellationType == 'late'
+          ? 'Normally non-refundable under the late-cancellation policy'
+          : 'No amount available for new refund processing';
     }
     final amount = NumberFormat.currency(
       locale: 'en_PH',
       symbol: '₱',
     ).format(eligibility.refundableAmount);
-    return '$amount refund pending';
+    return '$amount eligible for refund processing';
   }
 
   @override
@@ -93,7 +99,12 @@ class BookingCancellationResultScreen extends StatelessWidget {
                               result.eligibility.scheduledAt ?? travelDate!,
                             ),
                     ),
-                    _ResultRow(label: 'Reason', value: result.reason),
+                    _ResultRow(
+                      label: 'Reason',
+                      value:
+                          packageCancellationReasons[result.reason] ??
+                          result.reason,
+                    ),
                     _ResultRow(
                       label: 'Cancelled',
                       value: DateFormat(

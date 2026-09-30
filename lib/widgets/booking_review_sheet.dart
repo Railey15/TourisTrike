@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:touristrike/core/policies/touristrike_notices.dart';
 
 /// A snapshot of the validated booking. No scheduling or payment work happens
 /// inside this sheet; the caller submits this same snapshot after agreement.
@@ -8,11 +9,13 @@ class BookingReviewSheet extends StatefulWidget {
     required this.summary,
     required this.itinerary,
     required this.onViewPolicies,
+    this.isSameDay = false,
   });
 
   final List<({String label, String value})> summary;
   final List<Widget> itinerary;
   final VoidCallback onViewPolicies;
+  final bool isSameDay;
 
   @override
   State<BookingReviewSheet> createState() => _BookingReviewSheetState();
@@ -39,9 +42,11 @@ class _BookingReviewSheetState extends State<BookingReviewSheet> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Submit your request, then wait for all required drivers to accept. Your downpayment is due after your drivers are confirmed.',
-              style: TextStyle(color: Color(0xFF64748B), height: 1.4),
+            Text(
+              widget.isSameDay
+                  ? 'Submit your request, then wait for all required drivers to accept. Same-day bookings do not require a downpayment.'
+                  : 'Submit your request, then wait for all required drivers to accept. Your downpayment is due after your drivers are confirmed.',
+              style: const TextStyle(color: Color(0xFF64748B), height: 1.4),
             ),
             const SizedBox(height: 16),
             Flexible(
@@ -105,7 +110,18 @@ class _BookingReviewSheetState extends State<BookingReviewSheet> {
                     ...widget.itinerary,
                     TextButton(
                       onPressed: widget.onViewPolicies,
-                      child: const Text('View TourisTrike booking policies'),
+                      child: const Text(
+                        'TourisTrike Booking Terms and Conditions',
+                      ),
+                    ),
+                    const Text(
+                      'Cancellation Policy',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      cancellationPolicySummary,
+                      style: TextStyle(fontSize: 13, height: 1.4),
                     ),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
@@ -115,7 +131,7 @@ class _BookingReviewSheetState extends State<BookingReviewSheet> {
                       onChanged: (value) =>
                           setState(() => _agreed = value == true),
                       title: const Text(
-                        'I understand and agree to the TourisTrike booking, payment, cancellation, and trip policies.',
+                        'I have read and agree to the TourisTrike Booking Terms and Conditions and acknowledge the applicable cancellation and payment policies.',
                         style: TextStyle(fontSize: 13, height: 1.4),
                       ),
                     ),

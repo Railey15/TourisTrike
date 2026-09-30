@@ -559,6 +559,7 @@ class TourisTrikeRepository {
     String municipality = '',
     String province = '',
     int totalPassengers = 0,
+    required String termsVersion,
   }) async {
     BookingCapacity.validate(adults + children, requiredDrivers);
     final hasActive = await hasActiveTour();
@@ -615,6 +616,7 @@ class TourisTrikeRepository {
           : (adults + children),
       'booking_status': 'waiting_for_drivers',
       'status': 'pending',
+      'terms_version': termsVersion,
     };
     final result = await _client.rpc(
       'create_package_booking',
@@ -2647,6 +2649,18 @@ class TourisTrikeRepository {
     }
 
     return const {'success': true};
+  }
+
+  Future<Map<String, dynamic>> requestDriverWithdrawal({
+    required String bookingId,
+    required String reason,
+    String? note,
+  }) async {
+    final result = await _client.rpc(
+      'request_driver_withdrawal',
+      params: {'p_booking_id': bookingId, 'p_reason': reason, 'p_note': note},
+    );
+    return Map<String, dynamic>.from(result as Map);
   }
 
   // ── DRIVER REVIEWS ───────────────────────────────────────────

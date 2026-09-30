@@ -12,11 +12,13 @@ class VerifyEmailOtpScreen extends StatefulWidget {
     required this.email,
     required this.roleString,
     required this.password,
+    this.privacyNoticeVersion,
   });
 
   final String email;
   final String roleString;
   final String password;
+  final String? privacyNoticeVersion;
 
   @override
   State<VerifyEmailOtpScreen> createState() => _VerifyEmailOtpScreenState();
@@ -45,8 +47,9 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         SnackBar(
           content: Text(msg),
           behavior: SnackBarBehavior.floating,
-          backgroundColor:
-              isError ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          backgroundColor: isError
+              ? const Color(0xFFDC2626)
+              : const Color(0xFF16A34A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -78,14 +81,19 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         return;
       }
 
-      await supabase.auth.updateUser(
-        UserAttributes(password: widget.password),
-      );
+      await supabase.auth.updateUser(UserAttributes(password: widget.password));
 
-      await supabase.from('profiles').upsert({
-        'id': user.id,
-        'role': widget.roleString,
-      });
+      if (widget.roleString == 'tourist') {
+        await supabase.rpc(
+          'register_tourist_with_privacy_notice',
+          params: {'p_version': widget.privacyNoticeVersion},
+        );
+      } else {
+        await supabase.from('profiles').upsert({
+          'id': user.id,
+          'role': widget.roleString,
+        });
+      }
 
       if (!mounted) return;
 
@@ -98,7 +106,9 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
       if (widget.roleString == 'driver') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const CompleteProfileDriverScreen()),
+          MaterialPageRoute(
+            builder: (_) => const CompleteProfileDriverScreen(),
+          ),
         );
       } else {
         Navigator.pushReplacement(
@@ -159,50 +169,50 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                    _TopBar(onBack: () => Navigator.maybePop(context)),
-                    const SizedBox(height: 28),
-                    const _HeroIcon(),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Verify your email',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontSize: 32,
-                        height: 1.08,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.8,
-                      ),
+                        _TopBar(onBack: () => Navigator.maybePop(context)),
+                        const SizedBox(height: 28),
+                        const _HeroIcon(),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Verify your email',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontSize: 32,
+                            height: 1.08,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Enter the $_otpLen-digit verification code sent to your email address.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
+                            fontSize: 15,
+                            height: 1.45,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        _EmailPill(email: widget.email),
+                        const SizedBox(height: 24),
+                        _VerifyCard(
+                          otpCtrl: _otpCtrl,
+                          otpLength: _otpLen,
+                          loading: _loading,
+                          onVerify: _verify,
+                          onResend: _resend,
+                        ),
+                        const SizedBox(height: 18),
+                        const _SecurityNote(),
+                      ],
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Enter the $_otpLen-digit verification code sent to your email address.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 15,
-                        height: 1.45,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    _EmailPill(email: widget.email),
-                    const SizedBox(height: 24),
-                    _VerifyCard(
-                      otpCtrl: _otpCtrl,
-                      otpLength: _otpLen,
-                      loading: _loading,
-                      onVerify: _verify,
-                      onResend: _resend,
-                    ),
-                    const SizedBox(height: 18),
-                    const _SecurityNote(),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
           ],
         ),
       ),
@@ -281,10 +291,7 @@ class _HeroIcon extends StatelessWidget {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFEAF5FF),
-              Color(0xFFFFFFFF),
-            ],
+            colors: [Color(0xFFEAF5FF), Color(0xFFFFFFFF)],
           ),
           borderRadius: BorderRadius.circular(34),
           border: Border.all(color: Colors.white, width: 1.4),
@@ -439,9 +446,7 @@ class _VerifyCard extends StatelessWidget {
                 ),
                 child: const Text(
                   'Resend',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ],
@@ -453,10 +458,7 @@ class _VerifyCard extends StatelessWidget {
 }
 
 class _OtpField extends StatelessWidget {
-  const _OtpField({
-    required this.controller,
-    required this.otpLength,
-  });
+  const _OtpField({required this.controller, required this.otpLength});
 
   final TextEditingController controller;
   final int otpLength;
@@ -523,11 +525,7 @@ class _SecurityNote extends StatelessWidget {
       ),
       child: const Row(
         children: [
-          Icon(
-            Icons.verified_user_rounded,
-            color: Color(0xFF2A86FF),
-            size: 22,
-          ),
+          Icon(Icons.verified_user_rounded, color: Color(0xFF2A86FF), size: 22),
           SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -632,11 +630,7 @@ class _VerifyBackdrop extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFF7FBFF),
-                Color(0xFFEAF5FF),
-                Color(0xFFF8FAFC),
-              ],
+              colors: [Color(0xFFF7FBFF), Color(0xFFEAF5FF), Color(0xFFF8FAFC)],
             ),
           ),
           child: SizedBox.expand(),
@@ -671,10 +665,7 @@ class _VerifyBackdrop extends StatelessWidget {
 }
 
 class _BlurCircle extends StatelessWidget {
-  const _BlurCircle({
-    required this.size,
-    required this.color,
-  });
+  const _BlurCircle({required this.size, required this.color});
 
   final double size;
   final Color color;

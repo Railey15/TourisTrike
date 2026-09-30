@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/widgets/booking_review_sheet.dart';
 import 'package:touristrike/screens/tourist/profile/terms_screen.dart';
+import 'package:touristrike/core/policies/touristrike_notices.dart';
 
 import 'package:touristrike/core/places/booking_location_service.dart';
 import 'package:touristrike/core/places/booking_service_area.dart';
@@ -358,6 +359,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   double _downpaymentAmount(TourPackage package) {
+    if (_isSameDay) return 0;
     return (_totalPrice(package) * 50).roundToDouble() / 100;
   }
 
@@ -1392,6 +1394,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         builder: (sheetContext) => BookingReviewSheet(
+          isSameDay: _isSameDay,
           summary: [
             (label: 'Tour Package', value: package.title),
             (label: 'Pickup', value: _selectedPickup!.address),
@@ -1522,6 +1525,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
         municipality: package.city,
         province: _packageProvince(package),
+        termsVersion: bookingTermsVersion,
 
         totalPassengers: _totalParticipants,
       );

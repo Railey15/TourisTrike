@@ -920,10 +920,13 @@ class _ActivityCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          dbString(
-                            booking?['cancelled_reason'],
-                            fallback: 'Booking cancelled',
-                          ),
+                          packageCancellationReasons[dbString(
+                                booking?['cancelled_reason'],
+                              )] ??
+                              dbString(
+                                booking?['cancelled_reason'],
+                                fallback: 'Booking cancelled',
+                              ),
                           style: const TextStyle(
                             color: Color(0xFF991B1B),
                             fontWeight: FontWeight.w800,
@@ -937,9 +940,13 @@ class _ActivityCard extends StatelessWidget {
                               DateFormat(
                                 'MMM d, yyyy • h:mm a',
                               ).format(dbDate(booking?['cancelled_at'])!),
-                            if (dbDouble(booking?['refundable_amount']) > 0)
-                              '${money.format(dbDouble(booking?['refundable_amount']))} refund ${dbString(booking?['refund_status'], fallback: 'pending')}',
-                            if (dbDouble(booking?['refundable_amount']) <= 0)
+                            if (dbString(booking?['refund_status']) ==
+                                'review_required')
+                              'Exceptional review requested; no refund confirmed'
+                            else if (dbDouble(booking?['refundable_amount']) >
+                                0)
+                              '${money.format(dbDouble(booking?['refundable_amount']))} eligible for refund processing'
+                            else
                               'No refundable amount',
                           ].join('  •  '),
                           style: const TextStyle(

@@ -9,19 +9,15 @@ const _cancelMuted = Color(0xFF64748B);
 const _cancelBorder = Color(0xFFE5EBF3);
 const _cancelDanger = Color(0xFFDC2626);
 
-const packageCancellationReasons = <String>[
-  'Change of plans',
-  'Booked by mistake',
-  'Wrong date or time',
-  'Wrong pickup location',
-  'Found another transportation option',
-  'Driver is taking too long',
-  'Driver asked me to cancel',
-  'Safety concern',
-  'Payment issue',
-  'Weather / emergency',
-  'Other',
-];
+const packageCancellationReasons = <String, String>{
+  'change_of_plans': 'Change of plans',
+  'schedule_conflict': 'Schedule conflict',
+  'health_emergency': 'Health/emergency',
+  'weather_concern': 'Weather concern',
+  'incorrect_booking': 'Incorrect booking',
+  'transportation_issue': 'Transportation issue',
+  'other': 'Other',
+};
 
 String humanizeCancellationError(Object error) {
   final value = error.toString().toUpperCase();
@@ -31,12 +27,13 @@ String humanizeCancellationError(Object error) {
     'BOOKING_ALREADY_CANCELLED': 'This booking has already been cancelled.',
     'TOUR_ALREADY_COMPLETED': 'Completed tours can no longer be cancelled.',
     'TOUR_ALREADY_STARTED':
-        'This tour can no longer be cancelled because it has started.',
+        'This tour has already started. Standard cancellation is unavailable. Use support or emergency assistance if needed.',
     'DRIVER_ALREADY_ARRIVED':
         'This tour can no longer be cancelled because the driver has arrived.',
     'PAYMENT_DISPUTE_ACTIVE':
         'Cancellation is unavailable while a payment dispute is under review.',
     'CANCELLATION_REASON_REQUIRED': 'Please select a cancellation reason.',
+    'CANCELLATION_EXPLANATION_REQUIRED': 'Please explain the other reason.',
     'CANCELLATION_NOT_ALLOWED': 'This booking is not in a cancellable state.',
   };
   for (final entry in messages.entries) {
@@ -103,10 +100,9 @@ Future<BookingCancellationResult?> showPackageBookingCancellationFlow(
 }
 
 String _categoryFor(String reason) {
-  if (reason == 'Safety concern') return 'safety';
-  if (reason == 'Driver asked me to cancel') return 'driver_requested';
-  if (reason == 'Payment issue') return 'payment';
-  if (reason == 'Weather / emergency') return 'emergency';
+  if (reason == 'health_emergency' || reason == 'weather_concern') {
+    return 'emergency';
+  }
   return 'general';
 }
 
@@ -167,29 +163,30 @@ Future<(String, String?)?> _showReasonSheet(
                 ),
                 const SizedBox(height: 6),
                 Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: packageCancellationReasons.length,
-                    itemBuilder: (context, index) {
-                      final reason = packageCancellationReasons[index];
-                      return RadioListTile<String>(
-                        value: reason,
-                        groupValue: selected,
-                        activeColor: _cancelBlue,
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          reason,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        onChanged: (value) => setSheetState(() {
-                          selected = value;
-                        }),
-                      );
-                    },
+                  child: RadioGroup<String>(
+                    groupValue: selected,
+                    onChanged: (value) => setSheetState(() => selected = value),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: packageCancellationReasons.length,
+                      itemBuilder: (context, index) {
+                        final reason = packageCancellationReasons.keys
+                            .elementAt(index);
+                        return RadioListTile<String>(
+                          value: reason,
+                          activeColor: _cancelBlue,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            packageCancellationReasons[reason]!,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
-                if (selected == 'Other') ...[
+                if (selected == 'other') ...[
                   const SizedBox(height: 8),
                   TextField(
                     controller: noteController,
@@ -214,7 +211,7 @@ Future<(String, String?)?> _showReasonSheet(
                   child: FilledButton(
                     onPressed:
                         selected == null ||
-                            (selected == 'Other' &&
+                            (selected == 'other' &&
                                 noteController.text.trim().isEmpty)
                         ? null
                         : () => Navigator.pop(sheetContext, (
@@ -250,7 +247,7 @@ Future<bool> _showConfirmationSheet(
   required DateTime? travelDate,
   required String reason,
 }) async {
-  final scheduledAt = eligibility.scheduledAt ?? travelDate;
+  final scheduledAt = eligibility.scheduledAt;
   final dateText = scheduledAt == null
       ? 'Schedule unavailable'
       : DateFormat('MMM d, yyyy • h:mm a').format(scheduledAt);
@@ -270,27 +267,39 @@ Future<bool> _showConfirmationSheet(
               children: [
                 const _SheetHandle(),
                 const SizedBox(height: 12),
-                const Text(
-                  'Confirm cancellation',
-                  style: TextStyle(
+                Text(
+                  eligibility.cancellationType == 'late'
+                      ? 'Late cancellation'
+                      : 'Cancel this booking?',
+                  style: const TextStyle(
                     color: _cancelInk,
                     fontSize: 21,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 14),
-                _SummaryRow(label: 'Booking', value: packageTitle),
+                _SummaryRow(label: 'Booking', value: eligibility.packageTitle),
                 _SummaryRow(label: 'Tour date', value: dateText),
-                _SummaryRow(label: 'Reason', value: reason),
+                _SummaryRow(
+                  label: 'Reason',
+                  value: packageCancellationReasons[reason] ?? reason,
+                ),
                 const Divider(height: 25, color: _cancelBorder),
                 Text(
                   eligibility.displayMessage,
                   style: const TextStyle(color: _cancelMuted, height: 1.35),
                 ),
+                if (eligibility.cancellationType == 'late')
+                  Text(
+                    'Approximately ${eligibility.hoursBeforeTour.toStringAsFixed(1)} hours until the scheduled tour.',
+                    style: const TextStyle(color: _cancelMuted),
+                  ),
                 const SizedBox(height: 14),
                 _MoneyRow(label: 'Amount paid', value: eligibility.amountPaid),
                 _MoneyRow(
-                  label: 'Estimated refundable amount',
+                  label: eligibility.cancellationType == 'late'
+                      ? 'Standard refundable amount'
+                      : 'Estimated refundable amount',
                   value: eligibility.refundableAmount,
                   color: const Color(0xFF15803D),
                 ),
@@ -305,6 +314,16 @@ Future<bool> _showConfirmationSheet(
                         'Your assigned driver will be notified and released from this booking.',
                   ),
                 ],
+                if (eligibility.cancellationType == 'late' &&
+                    {
+                      'health_emergency',
+                      'weather_concern',
+                      'other',
+                    }.contains(reason))
+                  const _Notice(
+                    text:
+                        'This exceptional reason may be reviewed. No refund is promised or processed automatically.',
+                  ),
                 const SizedBox(height: 18),
                 Row(
                   children: [
@@ -326,7 +345,11 @@ Future<bool> _showConfirmationSheet(
                           minimumSize: const Size.fromHeight(50),
                           backgroundColor: _cancelDanger,
                         ),
-                        child: const Text('Confirm Cancellation'),
+                        child: Text(
+                          eligibility.cancellationType == 'late'
+                              ? 'Request Cancellation'
+                              : 'Confirm Cancellation',
+                        ),
                       ),
                     ),
                   ],

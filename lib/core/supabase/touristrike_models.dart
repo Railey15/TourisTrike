@@ -432,6 +432,9 @@ class CancellationEligibility {
     required this.refundType,
     required this.hasAssignedDrivers,
     this.scheduledAt,
+    this.packageTitle = 'Tour package',
+    this.hoursBeforeTour = 0,
+    this.requiresReview = false,
   });
 
   factory CancellationEligibility.fromJson(Map<String, dynamic> json) {
@@ -454,6 +457,9 @@ class CancellationEligibility {
       refundType: dbString(json['refund_type'], fallback: 'no_payment'),
       hasAssignedDrivers: dbBool(json['has_assigned_drivers']),
       scheduledAt: dbDate(json['scheduled_at']),
+      packageTitle: dbString(json['package_title'], fallback: 'Tour package'),
+      hoursBeforeTour: dbDouble(json['hours_before_tour']),
+      requiresReview: dbBool(json['requires_review']),
     );
   }
 
@@ -469,6 +475,9 @@ class CancellationEligibility {
   final String refundType;
   final bool hasAssignedDrivers;
   final DateTime? scheduledAt;
+  final String packageTitle;
+  final double hoursBeforeTour;
+  final bool requiresReview;
 }
 
 class BookingCancellationResult {

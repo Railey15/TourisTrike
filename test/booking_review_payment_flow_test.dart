@@ -324,9 +324,9 @@ void main() {
         isNull,
       );
       await tester.ensureVisible(
-        find.text('View TourisTrike booking policies'),
+        find.text('TourisTrike Booking Terms and Conditions'),
       );
-      await tester.tap(find.text('View TourisTrike booking policies'));
+      await tester.tap(find.text('TourisTrike Booking Terms and Conditions'));
       expect(policyOpened, isTrue);
       await tester.ensureVisible(find.byType(CheckboxListTile));
       await tester.tap(find.byType(Checkbox));

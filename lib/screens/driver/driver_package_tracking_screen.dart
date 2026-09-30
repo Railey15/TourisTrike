@@ -359,6 +359,7 @@ class _DriverPackageTrackingScreenState
         return 'Upcoming booking • Navigation unlocks ${DateFormat('MMM d, yyyy • h:mm a').format(scheduled.toLocal())}.';
       }
       if (!_bypassTransactionValidation &&
+          booking.downpaymentAmount > 0 &&
           !_hasConfirmedPayment('down_payment', booking.downpaymentAmount)) {
         return 'Down payment has not been confirmed yet. Required: ₱${booking.downpaymentAmount.toStringAsFixed(2)}.';
       }
@@ -2872,6 +2873,107 @@ class _DriverPackageTrackingScreenState
     );
   }
 
+  Future<void> _requestWithdrawal() async {
+    const reasons = <String, String>{
+      'vehicle_problem': 'Vehicle problem',
+      'medical_emergency': 'Medical emergency',
+      'personal_emergency': 'Personal emergency',
+      'unable_to_reach_pickup': 'Unable to reach pickup area',
+      'safety_concern': 'Safety concern',
+      'other': 'Other',
+    };
+    String? reason;
+    final note = TextEditingController();
+    final choice = await showModalBottomSheet<(String, String?)>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              16 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .8,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Request to withdraw',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const Text(
+                    'The Tourist booking stays open for Driver reassignment.',
+                  ),
+                  Flexible(
+                    child: RadioGroup<String>(
+                      groupValue: reason,
+                      onChanged: (value) => setSheetState(() => reason = value),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final entry in reasons.entries)
+                            RadioListTile<String>(
+                              value: entry.key,
+                              title: Text(entry.value),
+                            ),
+                          if (reason == 'other')
+                            TextField(
+                              controller: note,
+                              maxLength: 240,
+                              onChanged: (_) => setSheetState(() {}),
+                              decoration: const InputDecoration(
+                                labelText: 'Brief explanation',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed:
+                        reason == null ||
+                            (reason == 'other' && note.text.trim().length < 3)
+                        ? null
+                        : () => Navigator.pop(sheetContext, (
+                            reason!,
+                            note.text.trim().isEmpty ? null : note.text.trim(),
+                          )),
+                    child: const Text('Confirm Withdrawal'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    note.dispose();
+    if (choice == null || !mounted) return;
+    setState(() => _actionBusy = true);
+    try {
+      await _repo.requestDriverWithdrawal(
+        bookingId: _bookingId,
+        reason: choice.$1,
+        note: choice.$2,
+      );
+      if (!mounted) return;
+      _showSnack(
+        'Withdrawal recorded. The Tourist booking remains open for reassignment.',
+      );
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) _showSnack('Unable to withdraw: $error', error: true);
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
+    }
+  }
+
   Widget _buildContent() {
     if (_isBookingCancelled) {
       return _buildCancelledContent();
@@ -2989,6 +3091,22 @@ class _DriverPackageTrackingScreenState
                     completedCount: _completedItineraryItemsCount,
                     totalCount: _spots.length,
                   ),
+                if (!_actionBusy &&
+                    {
+                      'waiting_driver',
+                      'accepted',
+                      'driver_accepted',
+                      'driver_en_route',
+                      'driver_on_the_way',
+                      'ready_to_start',
+                    }.contains(status.toLowerCase())) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _requestWithdrawal,
+                    icon: const Icon(Icons.person_remove_outlined),
+                    label: const Text('Request to withdraw from this tour'),
+                  ),
+                ],
                 if (bookingCompleted && !_touristReviewed) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
