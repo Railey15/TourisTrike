@@ -425,6 +425,17 @@ class MainTenantNotification {
       createdAt: mainTenantDate(map['created_at']),
     );
   }
+
+  MainTenantNotification copyWith({bool? isRead}) {
+    return MainTenantNotification(
+      id: id,
+      title: title,
+      body: body,
+      type: type,
+      isRead: isRead ?? this.isRead,
+      createdAt: createdAt,
+    );
+  }
 }
 
 class ProvincePackage {

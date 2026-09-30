@@ -513,14 +513,38 @@ class MainTenantService {
         .single();
   }
 
-  Future<void> markAllMainTenantNotificationsRead() async {
+  Future<Set<String>> markAllMainTenantNotificationsRead() async {
     final profile = await loadCurrentMainTenantProfile();
-    await _supabase
-        .from('notifications')
-        .update({'is_read': true})
-        .eq('user_id', profile.id)
-        .eq('is_read', false)
-        .select('id');
+    final unreadRows = _asRows(
+      await _supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', profile.id)
+          .eq('is_read', false),
+    );
+    if (unreadRows.isEmpty) return const <String>{};
+
+    final unreadIds = unreadRows.map((row) => mainTenantId(row['id'])).toSet();
+    final updatedRows = _asRows(
+      await _supabase
+          .from('notifications')
+          .update({
+            'is_read': true,
+            'read_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('user_id', profile.id)
+          .eq('is_read', false)
+          .select('id'),
+    );
+    final updatedIds = updatedRows
+        .map((row) => mainTenantId(row['id']))
+        .toSet();
+    if (!updatedIds.containsAll(unreadIds)) {
+      throw StateError(
+        'The notification update was not accepted. Please try again.',
+      );
+    }
+    return updatedIds;
   }
 
   Future<List<CityTenant>> fetchCityTenants() async {

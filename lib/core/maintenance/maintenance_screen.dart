@@ -12,7 +12,7 @@ class MaintenanceScreen extends StatelessWidget {
   });
 
   static const _logoUrl =
-      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/Logo.png';
+      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/maintenance_logo.png';
 
   final MaintenanceSettings settings;
 

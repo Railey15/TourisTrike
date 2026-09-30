@@ -315,8 +315,10 @@ class MainTenantNotificationButton extends StatefulWidget {
       _MainTenantNotificationButtonState();
 }
 
-class _MainTenantNotificationButtonState extends State<MainTenantNotificationButton> {
+class _MainTenantNotificationButtonState
+    extends State<MainTenantNotificationButton> {
   final _service = MainTenantService();
+  final Set<String> _locallyReadNotificationIds = <String>{};
 
   Stream<List<Map<String, dynamic>>> get _stream => Supabase.instance.client
       .from('notifications')
@@ -330,8 +332,22 @@ class _MainTenantNotificationButtonState extends State<MainTenantNotificationBut
       builder: (_) => _MainTenantNotificationsDialog(
         service: _service,
         onNavigate: widget.onNavigate,
+        onNotificationsRead: _handleNotificationsRead,
       ),
     );
+  }
+
+  void _handleNotificationsRead(Set<String> notificationIds) {
+    if (!mounted || notificationIds.isEmpty) return;
+    setState(() => _locallyReadNotificationIds.addAll(notificationIds));
+  }
+
+  @override
+  void didUpdateWidget(covariant MainTenantNotificationButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) {
+      _locallyReadNotificationIds.clear();
+    }
   }
 
   @override
@@ -340,7 +356,11 @@ class _MainTenantNotificationButtonState extends State<MainTenantNotificationBut
       stream: _stream,
       builder: (context, snapshot) {
         final unread = (snapshot.data ?? const [])
-            .where((row) => row['is_read'] != true)
+            .where(
+              (row) =>
+                  row['is_read'] != true &&
+                  !_locallyReadNotificationIds.contains('${row['id']}'),
+            )
             .length;
         return IconButton.filledTonal(
           tooltip: snapshot.hasError
@@ -370,17 +390,20 @@ class _MainTenantNotificationsDialog extends StatefulWidget {
   const _MainTenantNotificationsDialog({
     required this.service,
     required this.onNavigate,
+    required this.onNotificationsRead,
   });
 
   final MainTenantService service;
   final ValueChanged<MainTenantDestination> onNavigate;
+  final ValueChanged<Set<String>> onNotificationsRead;
 
   @override
   State<_MainTenantNotificationsDialog> createState() =>
       _MainTenantNotificationsDialogState();
 }
 
-class _MainTenantNotificationsDialogState extends State<_MainTenantNotificationsDialog> {
+class _MainTenantNotificationsDialogState
+    extends State<_MainTenantNotificationsDialog> {
   late Future<List<MainTenantNotification>> _future;
   bool _markingAll = false;
 
@@ -395,14 +418,30 @@ class _MainTenantNotificationsDialogState extends State<_MainTenantNotifications
   }
 
   Future<void> _markAll() async {
+    if (_markingAll) return;
     setState(() => _markingAll = true);
     try {
-      await widget.service.markAllMainTenantNotificationsRead();
-      _reload();
-    } catch (error) {
+      final updatedIds = await widget.service
+          .markAllMainTenantNotificationsRead();
+      if (!mounted) return;
+      widget.onNotificationsRead(updatedIds);
+      setState(() {
+        _future = _future.then(
+          (items) => items
+              .map(
+                (item) => updatedIds.contains('${item.id}')
+                    ? item.copyWith(isRead: true)
+                    : item,
+              )
+              .toList(growable: false),
+        );
+      });
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update notifications: $error')),
+          const SnackBar(
+            content: Text('Unable to mark notifications as read. Try again.'),
+          ),
         );
       }
     } finally {

@@ -28,7 +28,6 @@ try {
     alter table notifications enable row level security;
     grant usage on schema public,auth to authenticated,anon,service_role;
     grant select,update on notifications to authenticated;
-    create policy notifications_update_own on notifications for update to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
     create table emergency_alerts(id uuid primary key,tourist_id uuid,booking_id uuid,driver_id uuid,alert_status text default 'active');
     create function required_booking_driver_roster(uuid) returns setof booking_drivers language sql stable as $$
       select * from booking_drivers where booking_id=$1 and status in ('accepted','completed') order by accepted_at,id $$;
@@ -38,6 +37,7 @@ try {
   await db.exec(availableSource.slice(availableStart,availableSource.indexOf('$$;',availableStart)+3));
   await db.exec('create trigger trg_notify_available_package_job after insert on package_bookings for each row execute function notify_drivers_of_available_booking()');
   await db.exec(read('../migrations/20260924000000_notification_delivery.sql'));
+  await db.exec(read('../migrations/20260930030000_fix_main_tenant_notification_mark_all_read.sql'));
   await db.exec('create policy "Authenticated users can create notifications" on notifications for insert to authenticated with check(true)');
   await db.exec(read('../migrations/20260925000000_notification_runtime_diagnostics.sql'));
   check(await scalar("select count(*)::int from pg_policies where tablename='notifications' and policyname='Authenticated users can create notifications'"),0,'remote legacy permissive insertion policy removed');
@@ -140,6 +140,15 @@ try {
   await db.query('update notifications set is_read=true,read_at=now() where id::text=$1',[ownId]);
   check(await scalar('select is_read from notifications where id::text=$1',[ownId]),true,'own read mutation allowed');
   await db.exec('reset role');
+  const otherUnreadId=await scalar("insert into notifications(user_id,title,type,is_read) values($1,'Private outsider notice','system',false) returning id::text",[outsider]);
+  await db.query("select set_config('test.uid',$1,false)",[tourist]);
+  await db.exec('set role authenticated');
+  await db.query('update notifications set is_read=true,read_at=now() where user_id=$1 and is_read=false',[tourist]);
+  check(await scalar('select count(*)::int from notifications where user_id=$1 and is_read=false',[tourist]),0,'bulk read clears every own unread notification');
+  await db.query('update notifications set is_read=true,read_at=now() where user_id=$1 and is_read=false',[tourist]);
+  check(await scalar('select count(*)::int from notifications where user_id=$1 and is_read=false',[tourist]),0,'bulk read is a no-op when already read');
+  await db.exec('reset role');
+  check(await scalar('select is_read from notifications where id::text=$1',[otherUnreadId]),false,'bulk read leaves another user notification unchanged');
   const jobs=(await db.query('select * from claim_notification_deliveries(100)')).rows;
   assert(jobs.length>0); checks++;
   check((await db.query('select * from claim_notification_deliveries(100)')).rows.length,0,'lease prevents double claim');
