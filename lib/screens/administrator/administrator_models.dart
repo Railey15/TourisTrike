@@ -357,9 +357,7 @@
   enum AdministratorDeveloperBookingFilter {
     all('all', 'All bookings'),
     upcoming('upcoming', 'Upcoming'),
-    active('active', 'In progress'),
-    completed('completed', 'Completed'),
-    cancelled('cancelled', 'Cancelled');
+    active('active', 'In progress');
 
     const AdministratorDeveloperBookingFilter(this.databaseValue, this.label);
 

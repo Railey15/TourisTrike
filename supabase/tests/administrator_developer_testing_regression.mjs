@@ -5,7 +5,15 @@ import assert from 'node:assert/strict';
 
 const db = new PGlite();
 const migration = readFileSync(
-  new URL('../migrations/20260930050000_system_administrator_developer_testing.sql', import.meta.url),
+  new URL('../migrations/20261001050000_system_administrator_developer_testing.sql', import.meta.url),
+  'utf8',
+).replaceAll('\r\n', '\n');
+const completedFilterMigration = readFileSync(
+  new URL('../migrations/20261001070000_exclude_completed_developer_test_bookings.sql', import.meta.url),
+  'utf8',
+).replaceAll('\r\n', '\n');
+const ongoingFilterMigration = readFileSync(
+  new URL('../migrations/20261001080000_limit_developer_tools_to_ongoing_bookings.sql', import.meta.url),
   'utf8',
 ).replaceAll('\r\n', '\n');
 const id = value => `00000000-0000-0000-0000-${String(value).padStart(12, '0')}`;
@@ -13,6 +21,8 @@ const admin = id(1), tourist = id(2), driver = id(3), stranger = id(4);
 const mainTenant = id(5), subtenant = id(6), unrelatedTourist = id(7);
 const booking = id(10), activity = id(11), assignment = id(12);
 const normalBooking = id(20), normalAssignment = id(21);
+const completedBooking = id(30), completedActivity = id(31), completedAssignment = id(32);
+const cancelledBooking = id(40), cancelledActivity = id(41), cancelledAssignment = id(42);
 let checks = 0;
 const check = (actual, expected, message) => {
   assert.deepEqual(actual, expected, message);
@@ -120,7 +130,7 @@ try {
       ($7,'tourist','Other Tourist')`,
     [admin, tourist, driver, stranger, mainTenant, subtenant, unrelatedTourist],
   );
-  await db.exec("insert into tour_packages values(1,'Regression tour','Malolos')");
+  await db.exec("insert into tour_packages values(1,'Regression tour','Malolos'),(2,'Completed hidden tour','Malolos')");
   await db.query(
     `insert into package_bookings(id,package_id,tourist_id,municipality,status,booking_status,
       scheduled_start_at,estimated_end_at,required_drivers)
@@ -136,8 +146,38 @@ try {
     [normalBooking, tourist],
   );
   await db.query('insert into booking_drivers(id,booking_id,driver_id) values($1,$2,$3)', [normalAssignment, normalBooking, driver]);
+  await db.query(
+    `insert into package_bookings(id,package_id,tourist_id,municipality,status,booking_status,
+      scheduled_start_at,estimated_end_at,required_drivers,downpayment_ready)
+      values($1,2,$2,'Malolos','completed','completed',now()+interval '3 hours',now()+interval '7 hours',1,true)`,
+    [completedBooking, tourist],
+  );
+  await db.query(
+    "insert into package_activities(id,booking_id,status,tour_status) values($1,$2,'completed','completed')",
+    [completedActivity, completedBooking],
+  );
+  await db.query(
+    "insert into booking_drivers(id,booking_id,driver_id,status,journey_state,completed_at) values($1,$2,$3,'completed','completed',now())",
+    [completedAssignment, completedBooking, driver],
+  );
+  await db.query(
+    `insert into package_bookings(id,package_id,tourist_id,municipality,status,booking_status,
+      scheduled_start_at,estimated_end_at,required_drivers,downpayment_ready)
+      values($1,1,$2,'Malolos','cancelled','cancelled',now()+interval '5 hours',now()+interval '9 hours',1,true)`,
+    [cancelledBooking, tourist],
+  );
+  await db.query(
+    "insert into package_activities(id,booking_id,status,tour_status) values($1,$2,'cancelled','cancelled')",
+    [cancelledActivity, cancelledBooking],
+  );
+  await db.query(
+    "insert into booking_drivers(id,booking_id,driver_id) values($1,$2,$3)",
+    [cancelledAssignment, cancelledBooking, driver],
+  );
 
   await db.exec(migration);
+  await db.exec(completedFilterMigration);
+  await db.exec(ongoingFilterMigration);
 
   check(
     await scalar("select has_table_privilege('authenticated','developer_test_sessions','select,insert,update,delete')"),
@@ -176,11 +216,48 @@ try {
   const overview = await scalar('select administrator_get_developer_testing_overview()');
   check(overview.enabled, true, 'overview returns authoritative global state');
   check(overview.active_sessions, 1, 'overview counts active sessions');
+  check(overview.eligible_bookings, 2, 'completed booking is excluded from eligible count');
+  check(overview.upcoming_bookings, 2, 'completed booking is excluded from upcoming count');
   const listed = (await db.query(
     "select * from administrator_list_testable_bookings('', 'all', 'all', 25, 0)",
   )).rows;
-  check(listed.length, 2, 'administrator booking RPC returns only its narrow projection');
+  check(listed.length, 2, 'administrator booking RPC returns only ongoing bookings');
+  check(listed.some(row => row.booking_id === completedBooking), false, 'completed booking is excluded from all bookings');
+  check(listed.some(row => row.booking_id === cancelledBooking), false, 'cancelled booking is excluded from all bookings');
+  check(Number(listed[0].total_count), 2, 'total_count includes only ongoing bookings');
   check(listed.find(row => row.booking_id === booking).eligible, true, 'booking RPC derives testing eligibility');
+  const completedSearch = (await db.query(
+    "select * from administrator_list_testable_bookings('Completed hidden tour', 'all', 'all', 25, 0)",
+  )).rows;
+  check(completedSearch.length, 0, 'search cannot return a completed booking');
+  const completedFilter = (await db.query(
+    "select * from administrator_list_testable_bookings('', 'completed', 'all', 25, 0)",
+  )).rows;
+  check(completedFilter.length, 0, 'completed filter cannot reintroduce completed bookings');
+  const cancelledFilter = (await db.query(
+    "select * from administrator_list_testable_bookings('', 'cancelled', 'all', 25, 0)",
+  )).rows;
+  check(cancelledFilter.length, 0, 'cancelled filter cannot reintroduce cancelled bookings');
+  const inactiveRows = (await db.query(
+    "select * from administrator_list_testable_bookings('', 'all', 'inactive', 25, 0)",
+  )).rows;
+  check(inactiveRows.some(row => row.booking_id === completedBooking), false, 'inactive test-state filter excludes completed bookings');
+  check(inactiveRows.some(row => row.booking_id === cancelledBooking), false, 'inactive test-state filter excludes cancelled bookings');
+  const firstPage = (await db.query(
+    "select * from administrator_list_testable_bookings('', 'all', 'all', 1, 0)",
+  )).rows;
+  const secondPage = (await db.query(
+    "select * from administrator_list_testable_bookings('', 'all', 'all', 1, 1)",
+  )).rows;
+  const beyondLastPage = (await db.query(
+    "select * from administrator_list_testable_bookings('', 'all', 'all', 1, 2)",
+  )).rows;
+  check(firstPage.length, 1, 'first page contains one non-completed booking');
+  check(secondPage.length, 1, 'second page contains one non-completed booking');
+  check(firstPage[0].booking_id === secondPage[0].booking_id, false, 'pagination returns distinct non-completed bookings');
+  check(Number(firstPage[0].total_count), 2, 'first page total_count uses ongoing population');
+  check(Number(secondPage[0].total_count), 2, 'second page total_count uses ongoing population');
+  check(beyondLastPage.length, 0, 'pagination ends after the non-completed population');
   await fail(
     "select administrator_activate_developer_test_session($1,'Duplicate authorization',now()+interval '3 hours')",
     [booking],

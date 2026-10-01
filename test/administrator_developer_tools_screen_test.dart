@@ -232,6 +232,8 @@ void main() {
     await tester.ensureVisible(bookingFilter);
     await tester.tap(bookingFilter);
     await tester.pumpAndSettle();
+    expect(find.text('Completed'), findsNothing);
+    expect(find.text('Cancelled'), findsNothing);
     await tester.tap(find.text('Upcoming').last);
     await tester.pumpAndSettle();
     expect(
