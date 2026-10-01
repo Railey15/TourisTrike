@@ -174,6 +174,10 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
     final rate = current == null
         ? summary['current_rate_per_15_minutes']
         : current['rate_per_interval'];
+    final intervalMinutes =
+        (current?['interval_minutes'] as num?)?.toInt() ??
+        (summary['current_interval_minutes'] as num?)?.toInt() ??
+        15;
     final hasStop =
         current?['status'] == 'active' ||
         (widget.currentDestination?.trim().isNotEmpty ?? false);
@@ -194,6 +198,7 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
         includedMinutes: null,
         secondsRemaining: seconds,
         rate: rate == null ? null : _number(rate),
+        intervalMinutes: intervalMinutes,
         accruedWaiting: _number(current?['additional_amount']),
         showDestination: false,
         showIncluded: false,
@@ -222,6 +227,7 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
                     ? seconds
                     : null,
                 rate: rate == null ? null : _number(rate),
+                intervalMinutes: intervalMinutes,
                 accruedWaiting: current == null
                     ? null
                     : _number(current['additional_amount']),

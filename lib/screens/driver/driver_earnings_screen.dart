@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/core/reports/personal_report_service.dart';
 import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
 import 'package:touristrike/widgets/driver_page_header.dart';
@@ -29,6 +30,25 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   List<PaymentAllocation> _allocations = const [];
   List<PackageActivity> _activities = const [];
   RealtimeChannel? _earningsChannel;
+  bool _exporting = false;
+
+  Future<void> _exportReport() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      await PersonalReportService().shareDriverReport();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to export your activity report.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
 
   @override
   void initState() {
@@ -232,6 +252,20 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
               padding: const EdgeInsets.only(bottom: 30),
               children: [
                 _buildEarningsHeader(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: OutlinedButton.icon(
+                    onPressed: _exporting ? null : _exportReport,
+                    icon: _exporting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('Export my activity and earnings PDF'),
+                  ),
+                ),
 
                 const SizedBox(height: 18),
 

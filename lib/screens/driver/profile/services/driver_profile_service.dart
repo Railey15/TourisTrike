@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
+import 'package:touristrike/screens/driver/profile/driver_identity_status.dart';
 
 class DriverProfileService {
   DriverProfileService({SupabaseClient? client, ImagePicker? imagePicker})
@@ -21,6 +22,38 @@ class DriverProfileService {
   User? get currentUser => _supabase.auth.currentUser;
 
   String? get currentUserId => currentUser?.id;
+
+  Future<DriverIdentityStatus> fetchIdentityVerificationStatus() async {
+    final rows = await _supabase.rpc('get_my_driver_identity_proof');
+    if (rows is List && rows.isNotEmpty && rows.first is Map) {
+      final row = rows.first as Map;
+      return DriverIdentityStatus(
+        row['status']?.toString() ?? 'not_verified',
+        verifiedAt: row['verified_at'] is String
+            ? DateTime.tryParse(row['verified_at'] as String)
+            : null,
+        verifiedDocumentType: row['verified_document_type'] is String
+            ? row['verified_document_type'] as String
+            : null,
+      );
+    }
+    return const DriverIdentityStatus('not_verified');
+  }
+
+  Future<({DriverIdentityStatus status, Uri? url})>
+  startIdentityVerification() async {
+    final response = await _supabase.functions.invoke('didit-create-verification');
+    if (response.status != 200 || response.data is! Map) {
+      throw StateError('Could not create identity verification session.');
+    }
+    final body = response.data as Map;
+    final status = DriverIdentityStatus(
+      body['status']?.toString() ?? 'not_verified',
+    );
+    final rawUrl = body['url'];
+    final url = rawUrl is String ? Uri.tryParse(rawUrl) : null;
+    return (status: status, url: url);
+  }
 
   Future<DriverProfileBundle> fetchProfileBundle(String userId) async {
     final profileRow = await _supabase
@@ -573,5 +606,4 @@ class _UploadedAsset {
   final String storagePath;
   final String publicUrl;
 }
-
 

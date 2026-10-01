@@ -363,7 +363,10 @@ void main() {
     expect(find.text('Overtime: 18 min'), findsOneWidget);
     expect(find.text('Included stay: 60 min'), findsOneWidget);
     expect(find.text('₱50.00 / started 15 min'), findsNothing);
-    expect(find.textContaining('₱50.00 / started 15 min'), findsOneWidget);
+    expect(
+      find.textContaining('₱50.00 / 15 min after one free interval'),
+      findsOneWidget,
+    );
     expect(find.text('₱150.00'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

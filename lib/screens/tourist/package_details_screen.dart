@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -7,10 +6,7 @@ import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/package_booking_screen.dart';
 
 class PackageDetailsScreen extends StatefulWidget {
-  const PackageDetailsScreen({
-    super.key,
-    this.packageId,
-  });
+  const PackageDetailsScreen({super.key, this.packageId});
 
   final dynamic packageId;
 
@@ -19,11 +15,7 @@ class PackageDetailsScreen extends StatefulWidget {
 }
 
 class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
-  static const Color _primary = Color(0xFF2A86FF);
   static const Color _ink = Color(0xFF0F172A);
-  static const Color _muted = Color(0xFF64748B);
-  static const Color _border = Color(0xFFE7EEF7);
-  static const Color _surface = Color(0xFFF8FAFF);
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
 
@@ -52,44 +44,13 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
     final spots = await _repo.fetchPackageSpots(widget.packageId);
 
-    return _PackageDetailsData(
-      package: package,
-      originalSpots: spots,
-    );
+    return _PackageDetailsData(package: package, originalSpots: spots);
   }
 
   void _reload() {
     setState(() {
       _future = _load();
     });
-  }
-
-  Future<void> _sharePackage(TourPackage package) async {
-    final province = dbString(
-      package.row['province'],
-      fallback: 'Bulacan',
-    );
-
-    final text = [
-      package.title,
-      '${package.city}, $province',
-      package.priceText,
-    ].join('\n');
-
-    await Clipboard.setData(
-      ClipboardData(text: text),
-    );
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Package details copied for sharing'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
   }
 
   Future<void> _book(_PackageDetailsData data) async {
@@ -101,9 +62,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       if (hasActiveTour) {
         messenger.showSnackBar(
           const SnackBar(
-            content: Text(
-              TourisTrikeRepository.activeTourErrorMessage,
-            ),
+            content: Text(TourisTrikeRepository.activeTourErrorMessage),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Color(0xFFDC2626),
           ),
@@ -166,9 +125,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        _PackageHeroImage(
-                          imageUrl: package.displayImageUrl,
-                        ),
+                        _PackageHeroImage(imageUrl: package.displayImageUrl),
                         Positioned(
                           left: 0,
                           right: 0,
@@ -184,15 +141,8 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
 
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        22,
-                        32,
-                        22,
-                        150,
-                      ),
-                      child: _PackageDetailsBody(
-                        data: data,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(22, 32, 22, 150),
+                      child: _PackageDetailsBody(data: data),
                     ),
                   ),
                 ],
@@ -201,12 +151,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               SafeArea(
                 bottom: false,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    18,
-                    14,
-                    18,
-                    0,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
                   child: Row(
                     children: [
                       _FloatingActionButton(
@@ -220,21 +165,12 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                         icon: _isSaved
                             ? Icons.favorite_rounded
                             : Icons.favorite_border_rounded,
-                        iconColor: _isSaved
-                            ? const Color(0xFFEF4444)
-                            : _ink,
+                        iconColor: _isSaved ? const Color(0xFFEF4444) : _ink,
                         onTap: () {
                           setState(() {
                             _isSaved = !_isSaved;
                           });
                         },
-                      ),
-
-                      const SizedBox(width: 10),
-
-                      _FloatingActionButton(
-                        icon: Icons.ios_share_rounded,
-                        onTap: () => _sharePackage(package),
                       ),
                     ],
                   ),
@@ -276,9 +212,7 @@ class _PackageDetailsData {
 // =============================================================================
 
 class _PackageHeroImage extends StatelessWidget {
-  const _PackageHeroImage({
-    required this.imageUrl,
-  });
+  const _PackageHeroImage({required this.imageUrl});
 
   final String imageUrl;
 
@@ -311,11 +245,7 @@ class _PackageHeroImage extends StatelessWidget {
                     Colors.black.withValues(alpha: 0.02),
                     Colors.black.withValues(alpha: 0.05),
                   ],
-                  stops: const [
-                    0,
-                    0.46,
-                    1,
-                  ],
+                  stops: const [0, 0.46, 1],
                 ),
               ),
             ),
@@ -331,20 +261,14 @@ class _PackageHeroImage extends StatelessWidget {
 // =============================================================================
 
 class _PackageHeaderCard extends StatelessWidget {
-  const _PackageHeaderCard({
-    required this.package,
-    required this.spotCount,
-  });
+  const _PackageHeaderCard({required this.package, required this.spotCount});
 
   final TourPackage package;
   final int spotCount;
 
   @override
   Widget build(BuildContext context) {
-    final province = dbString(
-      package.row['province'],
-      fallback: 'Bulacan',
-    );
+    final province = dbString(package.row['province'], fallback: 'Bulacan');
 
     final duration = package.durationText.trim().isEmpty
         ? 'Flexible'
@@ -356,22 +280,15 @@ class _PackageHeaderCard extends StatelessWidget {
             decimalDigits: 0,
           ).format(package.numericPrice)
         : package.priceText.isNotEmpty
-            ? package.priceText.replaceAll('PHP ', '₱')
-            : 'Ask office';
+        ? package.priceText.replaceAll('PHP ', '₱')
+        : 'Ask office';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(
-        26,
-        26,
-        26,
-        24,
-      ),
+      padding: const EdgeInsets.fromLTRB(26, 26, 26, 24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(32),
-        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,9 +313,7 @@ class _PackageHeaderCard extends StatelessWidget {
 
               const SizedBox(width: 12),
 
-              _HeaderStatusBadge(
-                text: package.status,
-              ),
+              _HeaderStatusBadge(text: package.status),
             ],
           ),
 
@@ -443,23 +358,16 @@ class _PackageHeaderCard extends StatelessWidget {
 }
 
 class _HeaderStatusBadge extends StatelessWidget {
-  const _HeaderStatusBadge({
-    required this.text,
-  });
+  const _HeaderStatusBadge({required this.text});
 
   final String text;
 
   @override
   Widget build(BuildContext context) {
-    final display = text.trim().isEmpty
-        ? 'AVAILABLE'
-        : text.toUpperCase();
+    final display = text.trim().isEmpty ? 'AVAILABLE' : text.toUpperCase();
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 11,
-        vertical: 7,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
         color: const Color(0xFFDCFCE7),
         borderRadius: BorderRadius.circular(999),
@@ -491,9 +399,7 @@ class _PackageStatsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: 14,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFFF7F9FC),
         borderRadius: BorderRadius.circular(18),
@@ -548,11 +454,7 @@ class _DetailStat extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Icon(
-          icon,
-          color: const Color(0xFF2A86FF),
-          size: 18,
-        ),
+        Icon(icon, color: const Color(0xFF2A86FF), size: 18),
 
         const SizedBox(height: 7),
 
@@ -591,11 +493,7 @@ class _StatDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 48,
-      color: const Color(0xFFE3E9F1),
-    );
+    return Container(width: 1, height: 48, color: const Color(0xFFE3E9F1));
   }
 }
 
@@ -604,9 +502,7 @@ class _StatDivider extends StatelessWidget {
 // =============================================================================
 
 class _PackageDetailsBody extends StatelessWidget {
-  const _PackageDetailsBody({
-    required this.data,
-  });
+  const _PackageDetailsBody({required this.data});
 
   final _PackageDetailsData data;
 
@@ -617,8 +513,8 @@ class _PackageDetailsBody extends StatelessWidget {
     final description = package.description.trim().isNotEmpty
         ? package.description
         : package.subtitle.trim().isNotEmpty
-            ? package.subtitle
-            : 'No description has been added for this package yet.';
+        ? package.subtitle
+        : 'No description has been added for this package yet.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -662,9 +558,7 @@ class _PackageDetailsBody extends StatelessWidget {
                 'The tour operator has not linked tourist destinations to this package yet.',
           )
         else
-          _IncludedSpotsCard(
-            spots: data.originalSpots,
-          ),
+          _IncludedSpotsCard(spots: data.originalSpots),
 
         const SizedBox(height: 20),
 
@@ -709,11 +603,7 @@ class _DetailsSectionTitle extends StatelessWidget {
             color: const Color(0xFFEAF3FF),
             borderRadius: BorderRadius.circular(13),
           ),
-          child: Icon(
-            icon,
-            color: const Color(0xFF2A86FF),
-            size: 19,
-          ),
+          child: Icon(icon, color: const Color(0xFF2A86FF), size: 19),
         ),
 
         const SizedBox(width: 11),
@@ -752,9 +642,7 @@ class _DetailsSectionTitle extends StatelessWidget {
 }
 
 class _ContentCard extends StatelessWidget {
-  const _ContentCard({
-    required this.child,
-  });
+  const _ContentCard({required this.child});
 
   final Widget child;
 
@@ -766,9 +654,7 @@ class _ContentCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFE7EEF7),
-        ),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.035),
@@ -787,9 +673,7 @@ class _ContentCard extends StatelessWidget {
 // =============================================================================
 
 class _IncludedSpotsCard extends StatelessWidget {
-  const _IncludedSpotsCard({
-    required this.spots,
-  });
+  const _IncludedSpotsCard({required this.spots});
 
   final List<TouristSpot> spots;
 
@@ -800,9 +684,7 @@ class _IncludedSpotsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: const Color(0xFFE7EEF7),
-        ),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
       ),
       child: Column(
         children: spots.asMap().entries.map((entry) {
@@ -810,13 +692,8 @@ class _IncludedSpotsCard extends StatelessWidget {
           final spot = entry.value;
 
           return Padding(
-            padding: EdgeInsets.only(
-              bottom: index == spots.length - 1 ? 0 : 8,
-            ),
-            child: _IncludedSpotTile(
-              index: index + 1,
-              spot: spot,
-            ),
+            padding: EdgeInsets.only(bottom: index == spots.length - 1 ? 0 : 8),
+            child: _IncludedSpotTile(index: index + 1, spot: spot),
           );
         }).toList(),
       ),
@@ -825,10 +702,7 @@ class _IncludedSpotsCard extends StatelessWidget {
 }
 
 class _IncludedSpotTile extends StatelessWidget {
-  const _IncludedSpotTile({
-    required this.index,
-    required this.spot,
-  });
+  const _IncludedSpotTile({required this.index, required this.spot});
 
   final int index;
   final TouristSpot spot;
@@ -862,8 +736,7 @@ class _IncludedSpotTile extends StatelessWidget {
                       : Image.network(
                           spot.imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) =>
-                              const _ImageFallback(),
+                          errorBuilder: (_, _, _) => const _ImageFallback(),
                         ),
                 ),
               ),
@@ -969,15 +842,10 @@ class _BookingCustomizationNotice extends StatelessWidget {
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFFF0F7FF),
-            Color(0xFFF7FBFF),
-          ],
+          colors: [Color(0xFFF0F7FF), Color(0xFFF7FBFF)],
         ),
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: const Color(0xFFCFE3FF),
-        ),
+        border: Border.all(color: const Color(0xFFCFE3FF)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1064,11 +932,7 @@ class _BookingProcessCard extends StatelessWidget {
       'Payment',
       'Choose the available payment method.',
     ),
-    (
-      Icons.task_alt_rounded,
-      'Review',
-      'Confirm your final booking request.',
-    ),
+    (Icons.task_alt_rounded, 'Review', 'Confirm your final booking request.'),
   ];
 
   @override
@@ -1078,72 +942,67 @@ class _BookingProcessCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: const Color(0xFFE7EEF7),
-        ),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
       ),
       child: Column(
-        children: List.generate(
-          _steps.length,
-          (index) {
-            final step = _steps[index];
+        children: List.generate(_steps.length, (index) {
+          final step = _steps[index];
 
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: index == _steps.length - 1 ? 0 : 14,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF3FF),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      step.$1,
-                      color: const Color(0xFF2A86FF),
-                      size: 17,
-                    ),
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: index == _steps.length - 1 ? 0 : 14,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF3FF),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-
-                  const SizedBox(width: 10),
-
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${index + 1}. ${step.$2}',
-                          style: const TextStyle(
-                            color: Color(0xFF0F172A),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12.5,
-                          ),
-                        ),
-
-                        const SizedBox(height: 3),
-
-                        Text(
-                          step.$3,
-                          style: const TextStyle(
-                            color: Color(0xFF7D8A9D),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 10.5,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: Icon(
+                    step.$1,
+                    color: const Color(0xFF2A86FF),
+                    size: 17,
                   ),
-                ],
-              ),
-            );
-          },
-        ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${index + 1}. ${step.$2}',
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                        ),
+                      ),
+
+                      const SizedBox(height: 3),
+
+                      Text(
+                        step.$3,
+                        style: const TextStyle(
+                          color: Color(0xFF7D8A9D),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10.5,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }
@@ -1174,19 +1033,15 @@ class _BottomBookBar extends StatelessWidget {
             decimalDigits: 0,
           ).format(package.numericPrice)
         : package.priceText.isNotEmpty
-            ? package.priceText
-            : 'Ask office';
+        ? package.priceText
+        : 'Ask office';
 
     final canBook = package.status == 'published';
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(
-          top: BorderSide(
-            color: Color(0xFFE8EDF4),
-          ),
-        ),
+        border: const Border(top: BorderSide(color: Color(0xFFE8EDF4))),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -1195,12 +1050,7 @@ class _BottomBookBar extends StatelessWidget {
           ),
         ],
       ),
-      padding: EdgeInsets.fromLTRB(
-        18,
-        12,
-        18,
-        bottom + 12,
-      ),
+      padding: EdgeInsets.fromLTRB(18, 12, 18, bottom + 12),
       child: Row(
         children: [
           Expanded(
@@ -1271,10 +1121,7 @@ class _BottomBookBar extends StatelessWidget {
                     ),
                   ),
                   SizedBox(width: 6),
-                  Icon(
-                    Icons.arrow_forward_rounded,
-                    size: 18,
-                  ),
+                  Icon(Icons.arrow_forward_rounded, size: 18),
                 ],
               ),
             ),
@@ -1308,9 +1155,7 @@ class _EmptyBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFF),
         borderRadius: BorderRadius.circular(19),
-        border: Border.all(
-          color: const Color(0xFFE7EEF7),
-        ),
+        border: Border.all(color: const Color(0xFFE7EEF7)),
       ),
       child: Row(
         children: [
@@ -1321,11 +1166,7 @@ class _EmptyBlock extends StatelessWidget {
               color: const Color(0xFFEAF3FF),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF2A86FF),
-              size: 19,
-            ),
+            child: Icon(icon, color: const Color(0xFF2A86FF), size: 19),
           ),
 
           const SizedBox(width: 11),
@@ -1386,11 +1227,7 @@ class _FloatingActionButton extends StatelessWidget {
         child: SizedBox(
           width: 48,
           height: 48,
-          child: Icon(
-            icon,
-            color: iconColor,
-            size: 23,
-          ),
+          child: Icon(icon, color: iconColor, size: 23),
         ),
       ),
     );
@@ -1405,11 +1242,7 @@ class _ImageFallback extends StatelessWidget {
     return Container(
       color: const Color(0xFFEAF2FF),
       alignment: Alignment.center,
-      child: const Icon(
-        Icons.map_rounded,
-        color: Color(0xFF2A86FF),
-        size: 36,
-      ),
+      child: const Icon(Icons.map_rounded, color: Color(0xFF2A86FF), size: 36),
     );
   }
 }
@@ -1420,18 +1253,13 @@ class _LoadingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(
-      child: CircularProgressIndicator(
-        color: Color(0xFF2A86FF),
-      ),
+      child: CircularProgressIndicator(color: Color(0xFF2A86FF)),
     );
   }
 }
 
 class _ErrorView extends StatelessWidget {
-  const _ErrorView({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorView({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -1448,9 +1276,7 @@ class _ErrorView extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: const Color(0xFFE7EEF7),
-              ),
+              border: Border.all(color: const Color(0xFFE7EEF7)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

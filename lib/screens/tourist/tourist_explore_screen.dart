@@ -210,31 +210,33 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
       limit: 20,
     );
 
-    return suggestions.map((suggestion) {
-      final category = _normalizeSpotCategory(
-        suggestion.category,
-        placeTypes: suggestion.placeTypes,
-      );
+    return suggestions
+        .map((suggestion) {
+          final category = _normalizeSpotCategory(
+            suggestion.category,
+            placeTypes: suggestion.placeTypes,
+          );
 
-      return _SpotModel(
-        id: suggestion.id,
-        title: suggestion.title,
-        address: suggestion.address,
-        distance: _distanceText(suggestion.distanceKm),
-        distanceKm: suggestion.distanceKm,
-        tag: category,
-        category: category,
-        rating: suggestion.rating,
-        userRatingsTotal: 0,
-        imageUrl: suggestion.imageForCard,
-        latitude: suggestion.latitude,
-        longitude: suggestion.longitude,
-        openNow: null,
-        types: suggestion.placeTypes,
-        municipality: municipality,
-        googlePlaceId: suggestion.id,
-      );
-    }).toList(growable: false);
+          return _SpotModel(
+            id: suggestion.id,
+            title: suggestion.title,
+            address: suggestion.address,
+            distance: _distanceText(suggestion.distanceKm),
+            distanceKm: suggestion.distanceKm,
+            tag: category,
+            category: category,
+            rating: suggestion.rating,
+            userRatingsTotal: 0,
+            imageUrl: suggestion.imageForCard,
+            latitude: suggestion.latitude,
+            longitude: suggestion.longitude,
+            openNow: null,
+            types: suggestion.placeTypes,
+            municipality: municipality,
+            googlePlaceId: suggestion.id,
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<List<_SpotModel>> _loadSavedTouristSpots({
@@ -301,8 +303,8 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
             final resolvedMunicipality =
                 ((row['municipality'] as String?)?.trim().isNotEmpty ?? false)
-                    ? (row['municipality'] as String).trim()
-                    : ((row['city'] as String?) ?? municipality).trim();
+                ? (row['municipality'] as String).trim()
+                : ((row['city'] as String?) ?? municipality).trim();
 
             final category = _normalizeSpotCategory(
               categoryName,
@@ -317,6 +319,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
             return _SpotModel(
               id: '${row['id']}',
+              description: ((row['description'] as String?) ?? '').trim(),
               title: ((row['title'] as String?) ?? 'Untitled Spot').trim(),
               address: ((row['address'] as String?) ?? '').trim(),
               distance: _distanceText(distanceKm),
@@ -361,12 +364,13 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
       return (rows as List)
           .map((e) => _PackageModel.fromMap(e as Map<String, dynamic>))
           .where((p) {
-        final packageCity = _normalText(p.city);
+            final packageCity = _normalText(p.city);
 
-        return packageCity == selectedCity ||
-            packageCity == _normalText('$municipality Bulacan') ||
-            packageCity.contains(selectedCity);
-      }).toList();
+            return packageCity == selectedCity ||
+                packageCity == _normalText('$municipality Bulacan') ||
+                packageCity.contains(selectedCity);
+          })
+          .toList();
     } catch (e) {
       debugPrint('EXPLORE packages unavailable: $e');
       return [];
@@ -423,7 +427,8 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     final dLat = _deg2rad(lat2 - lat1);
     final dLon = _deg2rad(lon2 - lon1);
 
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_deg2rad(lat1)) *
             math.cos(_deg2rad(lat2)) *
             math.sin(dLon / 2) *
@@ -514,7 +519,8 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
     return packages.where((p) {
       final category = _selectedPackageCategory;
-      final matchesCategory = category == null ||
+      final matchesCategory =
+          category == null ||
           !availableCategories.contains(category) ||
           p.filterCategories.contains(category);
 
@@ -607,30 +613,32 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
       setState(() {
         _googleSearchSpots
           ..clear()
-          ..addAll(suggestions.map((suggestion) {
-            final category = _normalizeSpotCategory(
-              suggestion.category,
-              placeTypes: suggestion.placeTypes,
-            );
-            return _SpotModel(
-              id: suggestion.id,
-              title: suggestion.title,
-              address: suggestion.address,
-              distance: suggestion.distanceText,
-              distanceKm: suggestion.distanceKm,
-              tag: category,
-              category: category,
-              rating: suggestion.rating,
-              userRatingsTotal: 0,
-              imageUrl: suggestion.imageUrl,
-              latitude: suggestion.latitude,
-              longitude: suggestion.longitude,
-              openNow: null,
-              types: suggestion.placeTypes,
-              municipality: data.municipality!,
-              googlePlaceId: suggestion.id,
-            );
-          }));
+          ..addAll(
+            suggestions.map((suggestion) {
+              final category = _normalizeSpotCategory(
+                suggestion.category,
+                placeTypes: suggestion.placeTypes,
+              );
+              return _SpotModel(
+                id: suggestion.id,
+                title: suggestion.title,
+                address: suggestion.address,
+                distance: suggestion.distanceText,
+                distanceKm: suggestion.distanceKm,
+                tag: category,
+                category: category,
+                rating: suggestion.rating,
+                userRatingsTotal: 0,
+                imageUrl: suggestion.imageUrl,
+                latitude: suggestion.latitude,
+                longitude: suggestion.longitude,
+                openNow: null,
+                types: suggestion.placeTypes,
+                municipality: data.municipality!,
+                googlePlaceId: suggestion.id,
+              );
+            }),
+          );
         _isSearchingGoogle = false;
       });
     } catch (_) {
@@ -715,19 +723,19 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                             backgroundColor: selectedNow
                                 ? const Color(0xFF2A86FF)
                                 : isActive
-                                    ? const Color(0xFFDCFCE7)
-                                    : const Color(0xFFE2E8F0),
+                                ? const Color(0xFFDCFCE7)
+                                : const Color(0xFFE2E8F0),
                             child: Icon(
                               selectedNow
                                   ? Icons.check_rounded
                                   : isActive
-                                      ? Icons.store_rounded
-                                      : Icons.place_rounded,
+                                  ? Icons.store_rounded
+                                  : Icons.place_rounded,
                               color: selectedNow
                                   ? Colors.white
                                   : isActive
-                                      ? const Color(0xFF16A34A)
-                                      : const Color(0xFF64748B),
+                                  ? const Color(0xFF16A34A)
+                                  : const Color(0xFF64748B),
                             ),
                           ),
                           title: Text(
@@ -794,6 +802,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
             longitude: spot.longitude,
             openNow: spot.openNow,
             municipality: spot.municipality,
+            description: spot.description,
           ),
           googleMapsApiKey: CitySpotSuggestionService.resolveApiKey(),
         ),
@@ -913,27 +922,32 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                     Wrap(
                       spacing: 10,
                       runSpacing: 10,
-                      children: categories.map((chip) {
-                        final selected = selectedCategory == chip.label;
+                      children: categories
+                          .map((chip) {
+                            final selected = selectedCategory == chip.label;
 
-                        return _CategoryChip(
-                          label: chip.label,
-                          icon: chip.icon,
-                          selected: selected,
-                          onTap: () {
-                            setState(() {
-                              if (_selectedType == ExploreContentType.spots) {
-                                _selectedSpotCategory =
-                                    selected ? null : chip.label;
-                              } else {
-                                _selectedPackageCategory =
-                                    selected ? null : chip.label;
-                              }
-                            });
-                            modalSetState(() {});
-                          },
-                        );
-                      }).toList(growable: false),
+                            return _CategoryChip(
+                              label: chip.label,
+                              icon: chip.icon,
+                              selected: selected,
+                              onTap: () {
+                                setState(() {
+                                  if (_selectedType ==
+                                      ExploreContentType.spots) {
+                                    _selectedSpotCategory = selected
+                                        ? null
+                                        : chip.label;
+                                  } else {
+                                    _selectedPackageCategory = selected
+                                        ? null
+                                        : chip.label;
+                                  }
+                                });
+                                modalSetState(() {});
+                              },
+                            );
+                          })
+                          .toList(growable: false),
                     ),
                   const SizedBox(height: 22),
                   SizedBox(
@@ -997,14 +1011,14 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
                     final data = snap.data!;
                     final query = _searchCtrl.text.trim();
-                    final isGoogleSearch = query.length >= 3 && data.municipality != null;
+                    final isGoogleSearch =
+                        query.length >= 3 && data.municipality != null;
                     final spots = isGoogleSearch
                         ? List<_SpotModel>.unmodifiable(_googleSearchSpots)
                         : _filteredSpots(data.spots);
                     final packages = _filteredPackages(data.packages);
 
-                    final showSpots =
-                        _selectedType == ExploreContentType.spots;
+                    final showSpots = _selectedType == ExploreContentType.spots;
                     final showPackages =
                         _selectedType == ExploreContentType.packages;
 
@@ -1034,17 +1048,20 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                             const SizedBox(height: 16),
                             _SearchFilterRow(
                               controller: _searchCtrl,
-                              onChanged: (query) => _onSearchTextChanged(query, data),
+                              onChanged: (query) =>
+                                  _onSearchTextChanged(query, data),
                               hasActiveFilter: _hasActiveFilter,
-                              onFilterTap: () => _openFilterSheet(data.packages),
+                              onFilterTap: () =>
+                                  _openFilterSheet(data.packages),
                             ),
                             const SizedBox(height: 12),
                             _ExploreTabBar(
                               selectedType: _selectedType,
                               onSelected: _selectContentType,
                               spotsCount: spots.length,
-                              packagesCount:
-                                  _filteredPackages(data.packages).length,
+                              packagesCount: _filteredPackages(
+                                data.packages,
+                              ).length,
                             ),
                             if (_activeFilterLabel != null) ...[
                               const SizedBox(height: 12),
@@ -1076,7 +1093,9 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                                 if (isGoogleSearch && _isSearchingGoogle)
                                   const Center(
                                     child: Padding(
-                                      padding: EdgeInsets.symmetric(vertical: 24),
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 24,
+                                      ),
                                       child: CircularProgressIndicator(
                                         color: Color(0xFF2A86FF),
                                       ),
@@ -1128,8 +1147,8 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                                           MaterialPageRoute(
                                             builder: (_) =>
                                                 PackageDetailsScreen(
-                                              packageId: p.id,
-                                            ),
+                                                  packageId: p.id,
+                                                ),
                                           ),
                                         );
                                       },
@@ -1139,8 +1158,8 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                                           MaterialPageRoute(
                                             builder: (_) =>
                                                 PackageDetailsScreen(
-                                              packageId: p.id,
-                                            ),
+                                                  packageId: p.id,
+                                                ),
                                           ),
                                         );
                                       },
@@ -1230,6 +1249,7 @@ class _CategoryChipModel {
 
 class _SpotModel {
   final String id;
+  final String description;
   final String title;
   final String address;
   final String distance;
@@ -1248,6 +1268,7 @@ class _SpotModel {
 
   const _SpotModel({
     required this.id,
+    this.description = '',
     required this.title,
     required this.address,
     required this.distance,
@@ -1312,7 +1333,8 @@ class _PackageModel {
       id: m['id'],
       title: (m['title'] as String?) ?? 'Untitled Package',
       rating: 4.8,
-      description: (m['description'] as String?) ??
+      description:
+          (m['description'] as String?) ??
           (m['subtitle'] as String?) ??
           'Admin-created tour package.',
       city: (m['city'] as String?) ?? 'Bulacan',
@@ -1403,8 +1425,8 @@ class _LocationBanner extends StatelessWidget {
     final subtitle = municipality == null
         ? 'Tap to select a Bulacan city or use GPS inside Bulacan.'
         : usingManualLocation
-            ? 'Manual selection is synced with Home. Tap GPS to use your phone location.'
-            : 'Using phone GPS. Famous spots and packages are filtered for this city.';
+        ? 'Manual selection is synced with Home. Tap GPS to use your phone location.'
+        : 'Using phone GPS. Famous spots and packages are filtered for this city.';
 
     return Material(
       color: Colors.transparent,
@@ -1495,10 +1517,7 @@ class _LocationBanner extends StatelessWidget {
 }
 
 class _LocationActionButton extends StatelessWidget {
-  const _LocationActionButton({
-    required this.icon,
-    required this.onTap,
-  });
+  const _LocationActionButton({required this.icon, required this.onTap});
 
   final IconData icon;
   final VoidCallback onTap;
@@ -1556,10 +1575,7 @@ class _SearchFilterRow extends StatelessWidget {
             child: Row(
               children: [
                 const SizedBox(width: 15),
-                const Icon(
-                  Icons.search_rounded,
-                  color: Color(0xFF94A3B8),
-                ),
+                const Icon(Icons.search_rounded, color: Color(0xFF94A3B8)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
@@ -1604,9 +1620,7 @@ class _SearchFilterRow extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: hasActiveFilter
-                  ? const Color(0xFF2A86FF)
-                  : Colors.white,
+              color: hasActiveFilter ? const Color(0xFF2A86FF) : Colors.white,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: hasActiveFilter
@@ -1779,10 +1793,7 @@ class _ExploreTabButton extends StatelessWidget {
 }
 
 class _ActiveFilterPill extends StatelessWidget {
-  const _ActiveFilterPill({
-    required this.label,
-    required this.onClear,
-  });
+  const _ActiveFilterPill({required this.label, required this.onClear});
 
   final String label;
   final VoidCallback onClear;
@@ -1799,7 +1810,11 @@ class _ActiveFilterPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.filter_alt_rounded, size: 16, color: Color(0xFF2A86FF)),
+          const Icon(
+            Icons.filter_alt_rounded,
+            size: 16,
+            color: Color(0xFF2A86FF),
+          ),
           const SizedBox(width: 7),
           Text(
             label,
@@ -1882,10 +1897,7 @@ class _CategoryChip extends StatelessWidget {
 }
 
 class _SectionRow extends StatelessWidget {
-  const _SectionRow({
-    required this.title,
-    required this.subtitle,
-  });
+  const _SectionRow({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -1990,10 +2002,7 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _PopularSpotCard extends StatelessWidget {
-  const _PopularSpotCard({
-    required this.model,
-    required this.onTap,
-  });
+  const _PopularSpotCard({required this.model, required this.onTap});
 
   final _SpotModel model;
   final VoidCallback onTap;
@@ -2356,10 +2365,7 @@ class _PackageCard extends StatelessWidget {
 }
 
 class _MiniInfoPill extends StatelessWidget {
-  const _MiniInfoPill({
-    required this.icon,
-    required this.text,
-  });
+  const _MiniInfoPill({required this.icon, required this.text});
 
   final IconData icon;
   final String text;
@@ -2397,10 +2403,7 @@ class _MiniInfoPill extends StatelessWidget {
 }
 
 class _ImageChip extends StatelessWidget {
-  const _ImageChip({
-    required this.icon,
-    required this.text,
-  });
+  const _ImageChip({required this.icon, required this.text});
 
   final IconData icon;
   final String text;
@@ -2437,11 +2440,7 @@ class _PackageImageFallback extends StatelessWidget {
     return Container(
       color: const Color(0xFFEAF2FF),
       child: const Center(
-        child: Icon(
-          Icons.map_rounded,
-          color: Color(0xFF2A86FF),
-          size: 34,
-        ),
+        child: Icon(Icons.map_rounded, color: Color(0xFF2A86FF), size: 34),
       ),
     );
   }
@@ -2489,10 +2488,7 @@ class _LoadingState extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.error,
-    required this.onRetry,
-  });
+  const _ErrorState({required this.error, required this.onRetry});
 
   final String error;
   final VoidCallback onRetry;
@@ -2547,10 +2543,7 @@ class _ErrorState extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 height: 50,
-                child: _GradientButton(
-                  text: 'Retry',
-                  onPressed: onRetry,
-                ),
+                child: _GradientButton(text: 'Retry', onPressed: onRetry),
               ),
             ],
           ),
@@ -2561,10 +2554,7 @@ class _ErrorState extends StatelessWidget {
 }
 
 class _GradientButton extends StatelessWidget {
-  const _GradientButton({
-    required this.text,
-    required this.onPressed,
-  });
+  const _GradientButton({required this.text, required this.onPressed});
 
   final String text;
   final VoidCallback onPressed;

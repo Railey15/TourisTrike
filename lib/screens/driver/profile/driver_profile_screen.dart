@@ -18,6 +18,7 @@ import 'package:touristrike/screens/driver/profile/services/driver_profile_servi
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_developer_tools_section.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_identity_verification_card.dart';
 import 'package:touristrike/screens/auth/login_screen.dart';
 
 class DriverProfileScreen extends StatefulWidget {
@@ -227,6 +228,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       ),
                     ],
                     const SizedBox(height: 14),
+                    DriverIdentityVerificationCard(mtoApprovalStatus: details.status),
+                    const SizedBox(height: 14),
                     DriverSectionCard(
                       title: 'Account',
                       children: [
@@ -292,9 +295,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                           subtitle: details.isGcashPaymentComplete
                               ? 'QR and details on file'
                               : 'Add your GCash QR so tourists can pay you',
-                          onTap: () => _navigateTo(
-                            DriverGcashScreen(bundle: bundle),
-                          ),
+                          onTap: () =>
+                              _navigateTo(DriverGcashScreen(bundle: bundle)),
                         ),
                         DriverSettingsTile(
                           icon: Icons.circle_outlined,
@@ -413,5 +415,3 @@ class _SummaryItem extends StatelessWidget {
     );
   }
 }
-
-

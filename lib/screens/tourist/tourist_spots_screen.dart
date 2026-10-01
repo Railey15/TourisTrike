@@ -155,6 +155,7 @@ class _TouristSpotsScreenState extends State<TouristSpotsScreen> {
             longitude: spot.longitude,
             openNow: null,
             municipality: spot.city,
+            description: spot.description,
           ),
           googleMapsApiKey: '',
         ),

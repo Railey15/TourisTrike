@@ -27,6 +27,7 @@ class HomeSpotLink extends StatelessWidget {
             longitude: spot.longitude,
             openNow: spot.openNow,
             municipality: spot.municipality,
+            description: spot.description,
             googlePlaceId: spot.googlePlaceId,
           ),
           googleMapsApiKey: CitySpotSuggestionService.resolveApiKey(),

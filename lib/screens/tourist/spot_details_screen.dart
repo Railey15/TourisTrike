@@ -22,6 +22,7 @@ class TouristSpotDetailsData {
     required this.longitude,
     required this.openNow,
     required this.municipality,
+    this.description = '',
     this.imageUrls = const [],
     this.googlePlaceId = '',
   });
@@ -39,6 +40,7 @@ class TouristSpotDetailsData {
   final double longitude;
   final bool? openNow;
   final String municipality;
+  final String description;
   final List<String> imageUrls;
   final String googlePlaceId;
 }
@@ -103,9 +105,10 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
       );
 
   String get _aboutText {
-    final category = spot.tag.toLowerCase();
-    return '${spot.title} is a recommended $category destination in ${spot.municipality}, Bulacan. '
-        'View its rating, reviews, location, and distance before planning your visit.';
+    final description = spot.description.trim();
+    return description.isEmpty
+        ? 'No description has been added for this destination yet.'
+        : description;
   }
 
   TouristSavedPlace get _savedPlace {
@@ -648,13 +651,22 @@ class _SpotDetailsBody extends StatelessWidget {
         const SizedBox(height: 24),
         const _DetailsSectionTitle('About Destination'),
         const SizedBox(height: 12),
-        Text(
-          aboutText,
-          style: const TextStyle(
-            color: Color(0xFF64748B),
-            fontSize: 15.8,
-            height: 1.58,
-            fontWeight: FontWeight.w700,
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFD),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE7EEF7)),
+          ),
+          child: SelectableText(
+            aboutText,
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontSize: 15,
+              height: 1.6,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
         const SizedBox(height: 28),

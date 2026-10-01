@@ -1785,7 +1785,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                         _TrackingTopBar(
                           eta: null,
                           onBack: () => Navigator.pop(context),
-                          onShare: () {},
                           onRefresh: _load,
                           onManage: null,
                         ),
@@ -1897,13 +1896,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _TrackingTopBar(
           eta: _eta,
           onBack: () => Navigator.pop(context),
-          onShare: () {
-            ShareTripBottomSheet.show(
-              context,
-              bookingId: widget.bookingId,
-              travelDate: _booking?.travelDate,
-            );
-          },
           onRefresh: _load,
           onManage: _canOfferCancellation ? _manageCancellation : null,
         ),
@@ -2174,6 +2166,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     spots: _spots,
                     currentItemId: _currentItineraryItem?.id?.toString(),
                     tourStatus: tourStatus,
+                    onShare: !completed
+                        ? () {
+                            ShareTripBottomSheet.show(
+                              context,
+                              bookingId: widget.bookingId,
+                              travelDate: _booking?.travelDate,
+                            );
+                          }
+                        : null,
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -2277,7 +2278,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _TrackingTopBar(
           eta: null,
           onBack: () => Navigator.pop(context),
-          onShare: () {},
           onRefresh: _load,
           onManage: null,
         ),
@@ -2404,7 +2404,6 @@ class _TrackingTopBar extends StatelessWidget {
   const _TrackingTopBar({
     required this.eta,
     required this.onBack,
-    required this.onShare,
     required this.onRefresh,
     this.onManage,
   });
@@ -2412,7 +2411,6 @@ class _TrackingTopBar extends StatelessWidget {
   final String? eta;
 
   final VoidCallback onBack;
-  final VoidCallback onShare;
   final VoidCallback onRefresh;
   final VoidCallback? onManage;
 
@@ -2481,10 +2479,6 @@ class _TrackingTopBar extends StatelessWidget {
 
             const SizedBox(width: 6),
           ],
-
-          _TopIconButton(icon: Icons.share_location_outlined, onTap: onShare),
-
-          const SizedBox(width: 6),
 
           _TopIconButton(icon: Icons.refresh_rounded, onTap: onRefresh),
 
@@ -3442,6 +3436,7 @@ class _ItineraryProgressCard extends StatelessWidget {
     required this.spots,
     required this.currentItemId,
     required this.tourStatus,
+    this.onShare,
   });
 
   final List<BookingItineraryItem> spots;
@@ -3449,6 +3444,7 @@ class _ItineraryProgressCard extends StatelessWidget {
   final String? currentItemId;
 
   final String tourStatus;
+  final VoidCallback? onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -3556,6 +3552,17 @@ class _ItineraryProgressCard extends StatelessWidget {
               last: index == spots.length - 1,
             );
           }),
+          if (onShare != null && _tourIsActive(tourStatus)) ...[
+            const Divider(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onShare,
+                icon: const Icon(Icons.share_location_outlined),
+                label: const Text('Share Trip'),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -3565,7 +3572,10 @@ class _ItineraryProgressCard extends StatelessWidget {
     return status == 'picked_up' ||
         status == 'on_tour' ||
         status == 'en_route_to_spot' ||
-        status == 'at_spot';
+        status == 'at_spot' ||
+        status == 'en_route_to_dropoff' ||
+        status == 'ready_to_complete' ||
+        status == 'awaiting_remaining_payment';
   }
 }
 

@@ -24,6 +24,68 @@ class BookingReviewSheet extends StatefulWidget {
 class _BookingReviewSheetState extends State<BookingReviewSheet> {
   bool _agreed = false;
 
+  Widget _summarySection(
+    String title,
+    Iterable<({String label, String value})> rows,
+  ) {
+    final items = rows.toList();
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FD),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE4EBF4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const Divider(height: 18),
+          for (final row in items)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      row.label,
+                      style: const TextStyle(color: Color(0xFF64748B)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      row.value,
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        fontWeight: row.label == 'Total'
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                        color: row.label == 'Total'
+                            ? const Color(0xFF2A86FF)
+                            : const Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const primary = Color(0xFF2A86FF);
@@ -54,48 +116,41 @@ class _BookingReviewSheetState extends State<BookingReviewSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F7FB),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0xFFE4EBF4)),
+                    _summarySection(
+                      'Tour and locations',
+                      widget.summary.where(
+                        (row) => !const {
+                          'Total',
+                          'Downpayment Required',
+                          'Remaining Balance',
+                          'Payment Method',
+                          'Included Driver Waiting',
+                          'Additional Waiting',
+                          'Waiting Rate Set By',
+                          'If Time of Stay Is Exceeded',
+                        }.contains(row.label),
                       ),
-                      child: Column(
-                        children: widget.summary
-                            .map(
-                              (row) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 5,
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        row.label,
-                                        style: const TextStyle(
-                                          color: Color(0xFF64748B),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text(
-                                        row.value,
-                                        textAlign: TextAlign.end,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF0F172A),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
+                    ),
+                    _summarySection(
+                      'Fare and payment',
+                      widget.summary.where(
+                        (row) => const {
+                          'Total',
+                          'Downpayment Required',
+                          'Remaining Balance',
+                          'Payment Method',
+                        }.contains(row.label),
+                      ),
+                    ),
+                    _summarySection(
+                      'Time of Stay and waiting',
+                      widget.summary.where(
+                        (row) => const {
+                          'Included Driver Waiting',
+                          'Additional Waiting',
+                          'Waiting Rate Set By',
+                          'If Time of Stay Is Exceeded',
+                        }.contains(row.label),
                       ),
                     ),
                     const SizedBox(height: 16),

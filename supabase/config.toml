@@ -10,6 +10,14 @@ verify_jwt = false
 [functions.paymongo-payment-return]
 verify_jwt = false
 
+# Didit authenticates callbacks with its destination signing secret, not a Supabase JWT.
+[functions.didit-webhook]
+verify_jwt = false
+
+# Driver JWT is checked by the gateway and again inside the handler.
+[functions.didit-create-verification]
+verify_jwt = true
+
 # POST requests authenticate users inside the function. GET is reserved for
 # HMAC-signed photo/static-map URLs that browsers can load without auth headers.
 [functions.google-places]
@@ -27,4 +35,8 @@ verify_jwt = true
 # Authenticated active municipality offices only; the function derives the
 # municipality from subtenant_details and keeps PEXELS_API_KEY server-side.
 [functions.municipality-cover-suggestions]
+verify_jwt = true
+
+# Fare quotes use the authenticated tourist JWT and server-side Maps key.
+[functions.tour-fare-quote]
 verify_jwt = true

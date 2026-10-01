@@ -560,6 +560,7 @@ class TourisTrikeRepository {
     String province = '',
     int totalPassengers = 0,
     required String termsVersion,
+    String? fareQuoteId,
   }) async {
     BookingCapacity.validate(adults + children, requiredDrivers);
     final hasActive = await hasActiveTour();
@@ -617,6 +618,7 @@ class TourisTrikeRepository {
       'booking_status': 'waiting_for_drivers',
       'status': 'pending',
       'terms_version': termsVersion,
+      'fare_quote_id': fareQuoteId,
     };
     final result = await _client.rpc(
       'create_package_booking',

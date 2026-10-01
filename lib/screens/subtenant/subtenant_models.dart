@@ -374,6 +374,7 @@ class SubTenantFareSettings {
     this.minimumFare = 0,
     this.waitingFee = 0,
     this.tourWaitingFeePer15Minutes,
+    this.tourWaitingIntervalMinutes = 15,
     this.isActive = true,
   });
 
@@ -385,6 +386,7 @@ class SubTenantFareSettings {
   final double minimumFare;
   final double waitingFee;
   final double? tourWaitingFeePer15Minutes;
+  final int tourWaitingIntervalMinutes;
   final bool isActive;
 
   /// Money entered in Fare Matrix: finite PHP amounts, at most two decimals.
@@ -404,6 +406,9 @@ class SubTenantFareSettings {
   }
 
   void validateMonetaryAmounts() {
+    if (tourWaitingIntervalMinutes < 1 || tourWaitingIntervalMinutes > 120) {
+      throw const FormatException('Waiting interval must be 1 to 120 minutes.');
+    }
     for (final amount in [
       baseFare,
       farePerKm,
@@ -448,6 +453,8 @@ class SubTenantFareSettings {
       ),
       waitingFee: stDouble(map['waiting_fee'], fallback: defaults.waitingFee),
       tourWaitingFeePer15Minutes: _tourRateFromMap(map),
+      tourWaitingIntervalMinutes:
+          (map['tour_waiting_interval_minutes'] as num?)?.toInt() ?? 15,
       isActive: _stBool(map['is_active'], fallback: defaults.isActive),
     );
   }
@@ -471,6 +478,7 @@ class SubTenantFareSettings {
       'minimum_fare': minimumFare,
       'waiting_fee': waitingFee,
       'tour_waiting_fee_per_15_minutes': tourWaitingFeePer15Minutes,
+      'tour_waiting_interval_minutes': tourWaitingIntervalMinutes,
       'is_active': isActive,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
@@ -692,11 +700,13 @@ class SubTenantDriver {
     required this.profile,
     required this.details,
     required this.documents,
+    this.identityStatus = 'not_verified',
   });
 
   final Map<String, dynamic> profile;
   final Map<String, dynamic>? details;
   final Map<String, dynamic>? documents;
+  final String identityStatus;
 
   String get id => stId(profile['id']);
   String get fullName =>

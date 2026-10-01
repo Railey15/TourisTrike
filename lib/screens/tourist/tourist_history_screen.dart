@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/core/reports/personal_report_service.dart';
 import 'package:touristrike/screens/tourist/package_details_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 
@@ -16,6 +17,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   late Future<List<PackageBooking>> _future;
   TimeFilter _time = TimeFilter.all;
+  bool _exporting = false;
+
+  Future<void> _exportReport() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      await PersonalReportService().shareTouristReport();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to export your booking report.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
 
   @override
   void initState() {
@@ -89,69 +109,85 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
                     children: [
-                  Row(
-                    children: [
-                      const SizedBox(width: 44),
-                      const Expanded(
-                        child: Center(
-                          child: Text(
-                            'History',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0F172A),
+                      Row(
+                        children: [
+                          const SizedBox(width: 44),
+                          const Expanded(
+                            child: Center(
+                              child: Text(
+                                'History',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          IconButton(
+                            tooltip: 'Export personal PDF report',
+                            onPressed: _exporting ? null : _exportReport,
+                            icon: _exporting
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.picture_as_pdf_outlined,
+                                    color: Color(0xFF2A86FF),
+                                  ),
+                          ),
+                          IconButton(
+                            onPressed: _reload,
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                              color: Color(0xFF2A86FF),
+                            ),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        onPressed: _reload,
-                        icon: const Icon(
-                          Icons.refresh_rounded,
-                          color: Color(0xFF2A86FF),
-                        ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              title: 'Bookings',
+                              value: '${bookings.length}',
+                              icon: Icons.card_travel_rounded,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              title: 'Spent',
+                              value: NumberFormat.currency(
+                                symbol: 'PHP ',
+                                decimalDigits: 0,
+                              ).format(totalSpent),
+                              icon: Icons.payments_outlined,
+                            ),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 12),
+                      _FilterRow(
+                        value: _time,
+                        onChanged: (value) => setState(() => _time = value),
+                      ),
+                      const SizedBox(height: 14),
+                      if (filtered.isEmpty)
+                        const _EmptyState()
+                      else
+                        ...filtered.map(
+                          (booking) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _BookingCard(booking: booking),
+                          ),
+                        ),
                     ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Bookings',
-                          value: '${bookings.length}',
-                          icon: Icons.card_travel_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Spent',
-                          value: NumberFormat.currency(
-                            symbol: 'PHP ',
-                            decimalDigits: 0,
-                          ).format(totalSpent),
-                          icon: Icons.payments_outlined,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _FilterRow(
-                    value: _time,
-                    onChanged: (value) => setState(() => _time = value),
-                  ),
-                  const SizedBox(height: 14),
-                  if (filtered.isEmpty)
-                    const _EmptyState()
-                  else
-                    ...filtered.map(
-                      (booking) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _BookingCard(booking: booking),
-                      ),
-                    ),
-                ],
                   ),
                 ),
               ),

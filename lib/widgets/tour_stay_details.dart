@@ -10,6 +10,7 @@ class TourStayDetails extends StatelessWidget {
     this.secondsRemaining,
     this.rate,
     this.accruedWaiting,
+    this.intervalMinutes = 15,
     this.showDestination = true,
     this.showIncluded = true,
   });
@@ -18,12 +19,14 @@ class TourStayDetails extends StatelessWidget {
   final int? secondsRemaining;
   final double? rate;
   final double? accruedWaiting;
+  final int intervalMinutes;
   final bool showDestination;
   final bool showIncluded;
   @override
   Widget build(BuildContext context) {
     final seconds = secondsRemaining;
     final overtime = seconds != null && seconds < 0;
+    final inGrace = overtime && -seconds < intervalMinutes * 60;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -41,7 +44,9 @@ class TourStayDetails extends StatelessWidget {
           SizedBox(height: showDestination || showIncluded ? 8 : 0),
           Text(
             overtime
-                ? 'Overtime: ${(-seconds / 60).ceil()} min'
+                ? inGrace
+                      ? 'Free grace: ${((intervalMinutes * 60 + seconds) / 60).ceil()} min remaining'
+                      : 'Overtime: ${(-seconds / 60).ceil()} min'
                 : 'Included time remaining: ${(seconds / 60).ceil()} min',
             style: TextStyle(
               fontWeight: FontWeight.bold,
@@ -54,7 +59,7 @@ class TourStayDetails extends StatelessWidget {
           Text(
             rate == null
                 ? 'No additional waiting fee for this stop'
-                : 'Additional waiting: ₱${NumberFormat('#,##0.00').format(rate)} / started 15 min',
+                : 'Additional waiting: ₱${NumberFormat('#,##0.00').format(rate)} / $intervalMinutes min after one free interval',
           ),
           if (rate != null && accruedWaiting != null)
             Text(

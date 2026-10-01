@@ -1324,6 +1324,7 @@ class SubTenantService {
         .eq('id', driverId)
         .eq('role', 'driver')
         .eq('city', profile.assignedCity)
+        .eq('province', profile.province)
         .maybeSingle();
 
     if (profileRow == null) return null;
@@ -1340,12 +1341,24 @@ class SubTenantService {
         .eq('driver_id', driverId)
         .maybeSingle();
 
+    final identityRows = await _supabase.rpc(
+      'get_driver_identity_verification_status',
+      params: {'p_driver_id': driverId},
+    );
+    final identityStatus =
+        identityRows is List &&
+            identityRows.isNotEmpty &&
+            identityRows.first is Map
+        ? (identityRows.first as Map)['status']?.toString() ?? 'not_verified'
+        : 'not_verified';
+
     return SubTenantDriver(
       profile: Map<String, dynamic>.from(profileRow),
       details: detailsRow == null
           ? null
           : Map<String, dynamic>.from(detailsRow),
       documents: docsRow == null ? null : Map<String, dynamic>.from(docsRow),
+      identityStatus: identityStatus,
     );
   }
 

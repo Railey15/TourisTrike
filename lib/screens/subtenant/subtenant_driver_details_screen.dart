@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
+import 'package:touristrike/screens/driver/profile/driver_identity_status.dart';
 
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
@@ -462,6 +463,25 @@ class _SubTenantDriverDetailsScreenState
 
                   },
 
+                ),
+
+                const SizedBox(height: 14),
+
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Identity Verification',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Text(DriverIdentityStatus(driver.identityStatus).label),
+                        const SizedBox(height: 4),
+                        const Text('MTO Driver approval is a separate decision.'),
+                      ],
+                    ),
+                  ),
                 ),
 
                 const SizedBox(height: 14),

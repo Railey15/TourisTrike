@@ -1,74 +1,74 @@
 /// Bump the version and effective date together whenever the displayed text changes.
-const bookingTermsVersion = '1.0';
-const bookingTermsEffectiveDate = 'September 30, 2026';
-const privacyNoticeVersion = '1.0';
+const bookingTermsVersion = '1.1';
+const bookingTermsEffectiveDate = 'October 1, 2026';
+const privacyNoticeVersion = '1.1';
 const privacyNoticeEffectiveDate = 'September 30, 2026';
 
 const bookingTermsSections = <({String heading, String body})>[
   (
     heading: '1. Booking Information',
     body:
-        'You are responsible for reviewing the details of your booking before confirmation, including the selected tour package, date and time, number of tourists, number of tricycles, pickup location, drop-off location, destinations, and total booking amount.\n\nOnce the booking is confirmed, changes may be subject to availability and the applicable booking and cancellation policies.',
+        'The tourist must review the selected tour, date and time, passenger and tricycle counts, pickup and drop-off locations, itinerary, and total amount before confirming a booking. The confirmed record is the basis for tour coordination and payment. Any later change is subject to availability and the applicable booking and cancellation rules.',
   ),
   (
     heading: '2. Pickup and Drop-off Locations',
     body:
-        'The Driver-Tour Guide will use the pickup and drop-off locations provided or selected during booking. You are responsible for providing accurate and accessible locations within the supported TourisTrike service area.\n\nYou should be ready at the selected pickup location at the scheduled time.',
+        'The driver uses the pickup and drop-off locations confirmed in the booking. The tourist must select accurate, accessible locations within the supported service area and be ready at the pickup location at the scheduled time. These booked locations cannot be changed by the tourist after confirmation.',
   ),
   (
     heading: '3. Tour Schedule and Time of Stay',
     body:
-        'Each destination may have an included Time of Stay indicated in the booking itinerary. The included duration represents the allotted stay at that destination.\n\nIf you remain at a destination beyond the included Time of Stay, an additional waiting fee may apply according to the rate established for the applicable municipality and displayed by TourisTrike.',
+        'The itinerary states the included Time of Stay for each destination. Tour pickup is available from 5:00 AM through 4:59 PM in the local municipality time zone. Travel, arrival, and departure times may vary with actual conditions.',
   ),
   (
     heading: '4. Additional Waiting Fees',
     body:
-        'Additional waiting charges may apply when the included Time of Stay at a destination is exceeded.\n\nBefore confirming the booking, you should review the applicable waiting-fee information shown by TourisTrike. Any finalized waiting charges incurred during the tour will be added to the outstanding booking balance.',
+        'One municipality-configured waiting interval after the included Time of Stay is free. The first additional charge applies at the end of that grace interval; later charges follow the configured interval and rate. The applicable rate is displayed before confirmation. Finalized waiting charges are added to the outstanding balance.',
   ),
   (
     heading: '5. Payment',
     body:
-        'You agree to pay the amounts required for the booking using the payment methods available through TourisTrike.\n\nA booking may require payment according to the payment rules displayed during checkout. Any remaining balance and finalized additional charges must be settled when required by the system.\n\nA payment is considered settled only after TourisTrike receives or records the required payment confirmation.',
+        'The tourist agrees to pay the amounts required for the booking through an available payment method. The applicable downpayment, remaining balance, and finalized additional charges are due according to the checkout and tour payment flow. Payment is settled only when the service records the required confirmation.',
   ),
   (
     heading: '6. Cash Payments',
     body:
-        'When Cash is selected as an available payment method, the corresponding Driver-Tour Guide may be required to confirm receipt of the payment through TourisTrike.\n\nSelecting Cash alone does not mean that the payment has already been confirmed.',
+        'Where cash payment is available, the assigned driver may need to confirm receipt in the service. Selecting cash does not itself confirm payment.',
   ),
   (
     heading: '7. Cancellation',
     body:
-        'Booking cancellations are subject to the TourisTrike Cancellation Policy displayed during booking.\n\nAny applicable refund will depend on the time of cancellation, payment already made, tour status, and reason for cancellation.\n\nTourisTrike may restrict ordinary cancellation once the tour has already started.',
+        'Cancellation follows the policy shown during booking. Refund eligibility depends on the cancellation time, confirmed payments, tour status, and applicable reason. Ordinary cancellation may be unavailable after the tour starts.',
   ),
   (
     heading: '8. Driver Assignment',
     body:
-        "Driver-Tour Guide assignment is subject to availability and TourisTrike's assignment process. A booking does not guarantee a particular Driver unless that Driver has been officially assigned to the booking.",
+        'Driver assignment depends on availability and the service assignment process. A booking does not reserve a particular driver until that driver is officially assigned.',
   ),
   (
     heading: '9. Tourist Responsibilities',
     body:
-        'During the tour, you are expected to provide accurate booking information, be present at the agreed pickup location, follow reasonable safety instructions, respect the Driver-Tour Guide and tourism destinations, and avoid conduct that may endanger other persons or interfere with the tour.',
+        'The tourist must provide accurate booking information, attend the agreed pickup, follow reasonable safety instructions, respect the driver and destinations, and avoid conduct that endangers others or disrupts the tour.',
   ),
   (
     heading: '10. Service Interruptions and Emergencies',
     body:
-        'Tour schedules may be affected by circumstances such as severe weather, road closures, emergencies, destination closures, government restrictions, or other conditions affecting safe transportation.\n\nWhen necessary, TourisTrike and the responsible tourism office may assist in determining the appropriate action for the affected booking.',
+        'Severe weather, road or destination closures, emergencies, government restrictions, and similar conditions may affect the schedule or safe operation. The service and responsible tourism office may assist with the affected booking when needed.',
   ),
   (
     heading: '11. Location Information',
     body:
-        'When location-dependent TourisTrike features are used, location information may be processed to support functions such as navigation, pickup and drop-off coordination, tour progress, safety, and other features described in the TourisTrike Privacy Notice.',
+        'When location features are used, location information may support navigation, pickup and drop-off coordination, tour progress, and safety as described in the Privacy Notice.',
   ),
   (
     heading: '12. Reviews and Ratings',
     body:
-        'After an eligible completed tour, Tourists and Driver-Tour Guides may be allowed to submit ratings and feedback.\n\nReviews should relate to the actual tour experience and must not contain abusive, discriminatory, threatening, fraudulent, or knowingly false content.',
+        'After an eligible completed tour, the tourist and driver may submit ratings and feedback. Reviews should concern the actual tour and must not contain abusive, discriminatory, threatening, fraudulent, or knowingly false content.',
   ),
   (
     heading: '13. Acceptance',
     body:
-        'By checking the agreement box and confirming the booking, you confirm that you have reviewed the booking information and agree to these Booking Terms and Conditions and the applicable cancellation and payment policies.',
+        'By checking the agreement box and confirming the booking, the tourist acknowledges review of the booking details and accepts these terms and the applicable cancellation and payment policies.',
   ),
 ];
 
@@ -99,7 +99,7 @@ const privacyNoticeSections = <({String heading, String body})>[
   (
     heading: '5. Third-Party Services',
     body:
-        'TourisTrike uses Supabase for account and application data, PayMongo for supported online payments, and Google Maps and Places for location and route features. These providers process information as needed to provide the relevant service.',
+        'TourisTrike uses Supabase for account and application data, PayMongo for supported online payments, and Google Maps and Places for location and route features. Driver identity verification uses Didit, which may process a government-issued ID, selfie/liveness information, and facial comparison information. The Didit integration stores a session reference and verification result; Driver documents uploaded separately in TourisTrike remain separate. These providers process information as needed to provide the relevant service.',
   ),
   (
     heading: '6. Retention and Security',

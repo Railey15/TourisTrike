@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/branding/municipality_cover_service.dart';
 import 'package:touristrike/core/recommendations/tourist_ai_recommendation_service.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/places/booking_service_area.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:touristrike/screens/tourist/profile/tourist_profile_screen.dart';
@@ -28,6 +29,7 @@ class TouristHomeScreen extends StatefulWidget {
 }
 
 class _TouristHomeScreenState extends State<TouristHomeScreen> {
+  static bool _requestedLocationPermissionThisSession = false;
   final supabase = Supabase.instance.client;
 
   final TouristAiRecommendationService _recommendationService =
@@ -52,6 +54,10 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
   _MunicipalityArea? _selectedArea;
   bool _usingManualLocation = false;
   bool _usingPhoneLocation = false;
+  bool _hasResolvedPhoneLocation = false;
+  Future<LocationPermission>? _locationPermissionFuture;
+  late final Future<void> _serviceAreasReady;
+  List<BookingServiceArea> _serviceAreas = const [];
 
   Set<String> _activeMunicipalities = {};
 
@@ -65,8 +71,19 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     super.initState();
 
     _syncManualLocationFromStore();
+    if (!_usingManualLocation) _usingPhoneLocation = true;
+    _serviceAreasReady = _loadServiceAreas();
 
     _homeFuture = _loadHome();
+    if (_usingPhoneLocation) {
+      unawaited(
+        _homeFuture
+            .then((_) {
+              if (mounted && _hasResolvedPhoneLocation) _startLocationWatch();
+            })
+            .catchError((_) {}),
+      );
+    }
     _loadPreferences();
     _loadActiveMunicipalities();
   }
@@ -95,7 +112,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     final municipality = _usingManualLocation && _selectedArea != null
         ? _selectedArea!.name
-        : _usingPhoneLocation
+        : _usingPhoneLocation && _hasResolvedPhoneLocation
         ? _detectBulacanMunicipality(currentCenter)
         : null;
 
@@ -235,11 +252,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
         return _lastKnownCenter ?? _defaultCenter;
       }
 
-      var permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+      final permission = await _locationPermission();
 
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
@@ -251,6 +264,8 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       ).timeout(const Duration(seconds: 12));
 
       final center = LatLng(position.latitude, position.longitude);
+      await _serviceAreasReady;
+      _hasResolvedPhoneLocation = true;
 
       _lastKnownCenter = center;
       _lastMunicipality = _detectBulacanMunicipality(center);
@@ -263,7 +278,45 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     }
   }
 
+  Future<LocationPermission> _locationPermission() =>
+      _locationPermissionFuture ??= _checkLocationPermission();
+
+  Future<void> _loadServiceAreas() async {
+    try {
+      final rows = await supabase
+          .from('booking_service_areas')
+          .select('id,municipality,province,version,geometry')
+          .eq('active', true)
+          .eq('province', 'Bulacan');
+      _serviceAreas = rows
+          .map(
+            (row) =>
+                BookingServiceArea.fromJson(Map<String, dynamic>.from(row)),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      _serviceAreas = const [];
+    }
+  }
+
+  Future<LocationPermission> _checkLocationPermission() async {
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.denied ||
+        _requestedLocationPermissionThisSession) {
+      return permission;
+    }
+    _requestedLocationPermissionThisSession = true;
+    return Geolocator.requestPermission();
+  }
+
   Future<void> _selectMunicipality() async {
+    await _loadActiveMunicipalities();
+    if (!mounted) return;
+    final available = _bulacanMunicipalities
+        .where(
+          (area) => _activeMunicipalities.contains(_municipalityKey(area.name)),
+        )
+        .toList();
     final selected = await showModalBottomSheet<_MunicipalityArea>(
       context: context,
       isScrollControlled: true,
@@ -337,99 +390,96 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                   ),
                   const Divider(height: 1, color: Color(0xFFF0F4F8)),
                   Expanded(
-                    child: ListView.separated(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
-                      itemCount: _bulacanMunicipalities.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 7),
-                      itemBuilder: (_, i) {
-                        final m = _bulacanMunicipalities[i];
+                    child: available.isEmpty
+                        ? const Center(
+                            child: Text('No destinations are available yet.'),
+                          )
+                        : ListView.separated(
+                            controller: scrollController,
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+                            itemCount: available.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 7),
+                            itemBuilder: (_, i) {
+                              final m = available[i];
 
-                        final selectedNow = _selectedArea?.name == m.name;
+                              final selectedNow = _selectedArea?.name == m.name;
 
-                        final isActive = _activeMunicipalities.contains(m.name);
-
-                        return Material(
-                          color: selectedNow
-                              ? const Color(0xFFEDF6FF)
-                              : const Color(0xFFF8FAFD),
-                          borderRadius: BorderRadius.circular(17),
-                          child: InkWell(
-                            onTap: () => Navigator.pop(context, m),
-                            borderRadius: BorderRadius.circular(17),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 42,
-                                    height: 42,
-                                    decoration: BoxDecoration(
-                                      color: selectedNow
-                                          ? const Color(0xFF2185F5)
-                                          : isActive
-                                          ? const Color(0xFFE5F9EC)
-                                          : const Color(0xFFEDF1F5),
-                                      borderRadius: BorderRadius.circular(13),
+                              return Material(
+                                color: selectedNow
+                                    ? const Color(0xFFEDF6FF)
+                                    : const Color(0xFFF8FAFD),
+                                borderRadius: BorderRadius.circular(17),
+                                child: InkWell(
+                                  onTap: () => Navigator.pop(context, m),
+                                  borderRadius: BorderRadius.circular(17),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
                                     ),
-                                    child: Icon(
-                                      selectedNow
-                                          ? Icons.check_rounded
-                                          : isActive
-                                          ? Icons.local_activity_rounded
-                                          : Icons.place_outlined,
-                                      color: selectedNow
-                                          ? Colors.white
-                                          : isActive
-                                          ? const Color(0xFF16A34A)
-                                          : const Color(0xFF8A98AB),
-                                      size: 21,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                    child: Row(
                                       children: [
-                                        Text(
-                                          m.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF182235),
-                                            fontSize: 14.5,
+                                        Container(
+                                          width: 42,
+                                          height: 42,
+                                          decoration: BoxDecoration(
+                                            color: selectedNow
+                                                ? const Color(0xFF2185F5)
+                                                : const Color(0xFFE5F9EC),
+                                            borderRadius: BorderRadius.circular(
+                                              13,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            selectedNow
+                                                ? Icons.check_rounded
+                                                : Icons.local_activity_rounded,
+                                            color: selectedNow
+                                                ? Colors.white
+                                                : const Color(0xFF16A34A),
+                                            size: 21,
                                           ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          isActive
-                                              ? 'Packages & destinations available'
-                                              : 'No listings yet',
-                                          style: TextStyle(
-                                            color: isActive
-                                                ? const Color(0xFF16A34A)
-                                                : const Color(0xFF9AA7B8),
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w500,
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                m.name,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Color(0xFF182235),
+                                                  fontSize: 14.5,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Packages & destinations available',
+                                                style: TextStyle(
+                                                  color: const Color(
+                                                    0xFF16A34A,
+                                                  ),
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
                                           ),
+                                        ),
+                                        const Icon(
+                                          Icons.chevron_right_rounded,
+                                          color: Color(0xFFB7C2CF),
                                         ),
                                       ],
                                     ),
                                   ),
-                                  const Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: Color(0xFFB7C2CF),
-                                  ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -457,6 +507,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   Future<void> _usePhoneLocation() async {
     touristLocationStore.usePhoneLocation();
+    _locationPermissionFuture = null;
 
     setState(() {
       _usingManualLocation = false;
@@ -473,11 +524,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
       if (!enabled) return;
 
-      var permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+      final permission = await _locationPermission();
 
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
@@ -526,20 +573,28 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   Future<void> _loadActiveMunicipalities() async {
     try {
-      final rows = await supabase
-          .from('tour_packages')
-          .select('city')
-          .eq('status', 'published')
-          .eq('visibility_status', 'visible');
+      final results = await Future.wait([
+        supabase
+            .from('tour_packages')
+            .select('city')
+            .eq('status', 'published')
+            .eq('visibility_status', 'visible'),
+        supabase
+            .from('tourist_spots')
+            .select('city, municipality')
+            .eq('status', 'active')
+            .eq('province', 'Bulacan'),
+      ]);
 
       if (!mounted) return;
 
       setState(() {
         _activeMunicipalities = {
-          for (final row in rows as List)
-            if (row['city'] is String &&
-                (row['city'] as String).trim().isNotEmpty)
-              (row['city'] as String).trim(),
+          for (final rows in results)
+            for (final row in rows)
+              for (final value in [row['municipality'], row['city']])
+                if (value is String && value.trim().isNotEmpty)
+                  _municipalityKey(value),
         };
       });
     } catch (_) {}
@@ -649,25 +704,12 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   String? _detectBulacanMunicipality(LatLng point) {
     if (!_isInsideBulacan(point)) return null;
-
-    _MunicipalityArea? nearest;
-    var nearestKm = double.infinity;
-
-    for (final area in _bulacanMunicipalities) {
-      final km = _haversineKm(
-        point.latitude,
-        point.longitude,
-        area.center.latitude,
-        area.center.longitude,
-      );
-
-      if (km < nearestKm) {
-        nearestKm = km;
-        nearest = area;
+    for (final area in _serviceAreas) {
+      if (area.contains(point.latitude, point.longitude)) {
+        return area.municipality;
       }
     }
-
-    return nearest?.name;
+    return null;
   }
 
   String _normalText(String value) {
@@ -678,6 +720,13 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
         .replaceAll(' ', '')
         .replaceAll(',', '')
         .replaceAll('.', '');
+  }
+
+  String _municipalityKey(String value) {
+    final normalized = _normalText(value);
+    return normalized.endsWith('bulacan')
+        ? normalized.substring(0, normalized.length - 'bulacan'.length)
+        : normalized;
   }
 
   double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
@@ -712,6 +761,12 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     final heroH = (size.height * 0.45).clamp(370.0, 440.0);
 
     final sheetTop = heroH;
+    final sheetHeight = size.height - media.padding.top - navTotalH;
+    final initialSheetFraction =
+        ((sheetHeight - sheetTop + media.padding.top) / sheetHeight).clamp(
+          0.25,
+          0.8,
+        );
 
     return TouristAiChatbotWrapper(
       child: Scaffold(
@@ -795,21 +850,29 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
                     Positioned(
                       left: 0,
                       right: 0,
-                      top: sheetTop,
+                      top: media.padding.top,
                       bottom: navTotalH,
-                      child: _HomeSheet(
-                        data: data,
-                        packages: packages,
-                        prefLocation: _prefLocation,
-                        prefCategories: _prefCategories,
-                        prefLoaded: _prefLoaded,
-                        onSetPreferences: _showPreferencesSheet,
-                        placesNotice: loading || unavailable
-                            ? OptionalPlacesNotice(
-                                loading: loading,
-                                onRetry: retry,
-                              )
-                            : null,
+                      child: DraggableScrollableSheet(
+                        initialChildSize: initialSheetFraction,
+                        minChildSize: initialSheetFraction,
+                        maxChildSize: 1,
+                        snap: true,
+                        snapSizes: [initialSheetFraction, 1],
+                        builder: (context, sheetController) => _HomeSheet(
+                          scrollController: sheetController,
+                          data: data,
+                          packages: packages,
+                          prefLocation: _prefLocation,
+                          prefCategories: _prefCategories,
+                          prefLoaded: _prefLoaded,
+                          onSetPreferences: _showPreferencesSheet,
+                          placesNotice: loading || unavailable
+                              ? OptionalPlacesNotice(
+                                  loading: loading,
+                                  onRetry: retry,
+                                )
+                              : null,
+                        ),
                       ),
                     ),
 
@@ -934,30 +997,6 @@ class _MunicipalityHero extends StatelessWidget {
                               ],
                             ),
                             const Spacer(),
-                            Text(
-                              'Exploring',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: .82),
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
-                                letterSpacing: 1.1,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              data.cityText.toUpperCase(),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 25,
-                                letterSpacing: -.4,
-                                shadows: [
-                                  Shadow(blurRadius: 10, color: Colors.black38),
-                                ],
-                              ),
-                            ),
                             if (data.cover.attribution.isNotEmpty) ...[
                               const SizedBox(height: 6),
                               InkWell(
@@ -1095,6 +1134,7 @@ class _ResilientCoverImageState extends State<_ResilientCoverImage> {
 
 class _HomeSheet extends StatelessWidget {
   const _HomeSheet({
+    required this.scrollController,
     required this.data,
     required this.packages,
     required this.prefLocation,
@@ -1105,6 +1145,7 @@ class _HomeSheet extends StatelessWidget {
   });
 
   final _HomeData data;
+  final ScrollController scrollController;
   final List<_SuggestionPackage> packages;
   final String prefLocation;
   final List<String> prefCategories;
@@ -1217,6 +1258,7 @@ class _HomeSheet extends StatelessWidget {
         children: [
           Expanded(
             child: SingleChildScrollView(
+              controller: scrollController,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 13, 18, 30),
               child: Column(

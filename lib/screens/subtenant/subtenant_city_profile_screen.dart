@@ -42,6 +42,7 @@ class _SubTenantCityProfileScreenState
   final _minimumFareCtrl = TextEditingController();
   final _waitingFeeCtrl = TextEditingController();
   final _tourWaitingFeeCtrl = TextEditingController();
+  final _tourWaitingIntervalCtrl = TextEditingController();
 
   SubTenantProfile? _profile;
 
@@ -85,6 +86,7 @@ class _SubTenantCityProfileScreenState
       _minimumFareCtrl,
       _waitingFeeCtrl,
       _tourWaitingFeeCtrl,
+      _tourWaitingIntervalCtrl,
     ]) {
       controller.addListener(_markDirty);
     }
@@ -157,6 +159,7 @@ class _SubTenantCityProfileScreenState
     _tourWaitingFeeCtrl.text = fare.tourWaitingFeePer15Minutes == null
         ? ''
         : _moneyText(fare.tourWaitingFeePer15Minutes!);
+    _tourWaitingIntervalCtrl.text = fare.tourWaitingIntervalMinutes.toString();
     _hydrating = false;
     _dirty = false;
 
@@ -406,6 +409,7 @@ class _SubTenantCityProfileScreenState
     _minimumFareCtrl.dispose();
     _waitingFeeCtrl.dispose();
     _tourWaitingFeeCtrl.dispose();
+    _tourWaitingIntervalCtrl.dispose();
     super.dispose();
   }
 
@@ -438,6 +442,9 @@ class _SubTenantCityProfileScreenState
       tourWaitingFeePer15Minutes: _tourWaitingFeeCtrl.text.trim().isEmpty
           ? null
           : _moneyValue(_tourWaitingFeeCtrl),
+      tourWaitingIntervalMinutes: int.parse(
+        _tourWaitingIntervalCtrl.text.trim(),
+      ),
     );
   }
 
@@ -925,7 +932,7 @@ class _SubTenantCityProfileScreenState
             children: [
               SubTenantTextField(
                 controller: _tourWaitingFeeCtrl,
-                label: 'Tour Additional Waiting Fee (PHP / 15 min)',
+                label: 'Tour Additional Waiting Fee (PHP / interval)',
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
@@ -933,9 +940,21 @@ class _SubTenantCityProfileScreenState
                     ? null
                     : _nonNegativeMoneyValidator(value),
               ),
+              const SizedBox(height: 12),
+              SubTenantTextField(
+                controller: _tourWaitingIntervalCtrl,
+                label: 'Tour Waiting Interval (minutes)',
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  final minutes = int.tryParse((value ?? '').trim());
+                  return minutes != null && minutes >= 1 && minutes <= 120
+                      ? null
+                      : 'Enter 1 to 120 minutes';
+                },
+              ),
               const SizedBox(height: 8),
               const Text(
-                'Charged per started 15 minutes after the tourist exceeds the included Time of Stay.',
+                'One configured interval after the included Time of Stay is free. The first charge applies at the threshold.',
               ),
             ],
           ),

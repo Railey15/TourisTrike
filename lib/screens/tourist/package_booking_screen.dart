@@ -44,6 +44,7 @@ class PackageBookingScreen extends StatefulWidget {
     // Kept only for backward compatibility with other callers.
     this.customizedSpots = const [],
     this.customizedUnitPrice,
+    this.fareQuoteLoader,
   });
 
   final dynamic packageId;
@@ -52,22 +53,35 @@ class PackageBookingScreen extends StatefulWidget {
   final List<Map<String, dynamic>> customizedSpots;
   final double? customizedUnitPrice;
 
+  /// Test seam; the booking RPC still validates every quote server-side.
+  final Future<Map<String, dynamic>> Function(
+    dynamic packageId,
+    List<LatLng> points,
+  )?
+  fareQuoteLoader;
+
   @override
   State<PackageBookingScreen> createState() => _PackageBookingScreenState();
 }
 
 class _PackageBookingScreenState extends State<PackageBookingScreen> {
   BookingServiceArea? _serviceArea;
-  static const double _additionalSpotFee = 250;
+  String? _fareQuoteId;
+  double? _quotedUnitPrice;
+  double? _quotedSurcharge;
+  double? _quotedDistanceKm;
+  DateTime? _fareQuoteExpiresAt;
+  String? _fareQuoteError;
+  bool _fareQuoteLoading = false;
 
-  static const int _tourStartMinutes = 7 * 60;
+  static const int _tourStartMinutes = 5 * 60;
   static const int _tourEndMinutes = 17 * 60;
 
   static const int _minimumSpots = 3;
   static const int _maximumSpots = 6;
 
   static const String _tourHoursErrorMessage =
-      'Your itinerary exceeds the allowed tour hours. Tours are only available from 7:00 AM to 5:00 PM.';
+      'Your itinerary exceeds the allowed tour hours. Tours must finish by 5:00 PM; pickup is available from 5:00 AM to 4:59 PM.';
 
   final TourisTrikeRepository _repo = TourisTrikeRepository();
   final CitySpotSuggestionService _spotSuggestionService =
@@ -319,12 +333,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return false;
     }
 
-    final now = DateTime.now();
+    final now = _municipalityNow;
 
     return _selectedDate!.year == now.year &&
         _selectedDate!.month == now.month &&
         _selectedDate!.day == now.day;
   }
+
+  DateTime get _municipalityNow =>
+      DateTime.now().toUtc().add(const Duration(hours: 8));
 
   String get _bookingType {
     return _isSameDay ? 'same_day' : 'advanced';
@@ -338,14 +355,15 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     return _selectedSpots.where((spot) => !spot.isOriginal).length;
   }
 
-  double _unitPrice(TourPackage package) {
-    if (widget.customizedUnitPrice != null &&
-        widget.customizedSpots.isNotEmpty &&
-        _initializedSpotPackageId == null) {
-      return widget.customizedUnitPrice!;
-    }
+  bool get _needsFareQuote =>
+      _addedGoogleSpotCount > 0 ||
+      _removedOriginalSpots.isNotEmpty ||
+      _itineraryMode == _ItineraryViewMode.customize;
 
-    return package.numericPrice + (_addedGoogleSpotCount * _additionalSpotFee);
+  double _unitPrice(TourPackage package) {
+    return _needsFareQuote
+        ? (_quotedUnitPrice ?? package.numericPrice)
+        : package.numericPrice;
   }
 
   double _totalPrice(TourPackage package) {
@@ -355,7 +373,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 0;
     }
 
-    return price * _totalParticipants;
+    return (price * _totalParticipants * 100).roundToDouble() / 100;
   }
 
   double _downpaymentAmount(TourPackage package) {
@@ -364,7 +382,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   double _remainingBalance(TourPackage package) {
-    return _totalPrice(package) - _downpaymentAmount(package);
+    return ((_totalPrice(package) - _downpaymentAmount(package)) * 100)
+            .roundToDouble() /
+        100;
   }
 
   double _amountToPayNow(TourPackage package) {
@@ -518,7 +538,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         city: package.city,
         province: _packageProvince(package),
         service: _spotSuggestionService,
-        additionalFee: _additionalSpotFee,
       ),
     );
     if (!mounted || suggestion == null) return;
@@ -639,7 +658,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         'latitude': spot.latitude,
         'longitude': spot.longitude,
         'image_url': spot.imageUrl,
-        'additional_fee': spot.isOriginal ? 0 : _additionalSpotFee,
+        'additional_fee': 0,
         'sort_order': i,
         'opening_time': spot.openingTime.isEmpty ? null : spot.openingTime,
         'closing_time': spot.closingTime.isEmpty ? null : spot.closingTime,
@@ -788,7 +807,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     final date = _selectedDate;
     final time = _selectedPickupTime;
     if (date == null || time == null) return null;
-    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    return DateTime.utc(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    ).subtract(const Duration(hours: 8));
   }
 
   DateTime? get _estimatedBookingEndAt {
@@ -798,11 +823,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     final departure = _storageTimeToMinutes(itinerary.last.departureTime);
     if (departure == null) return null;
     final endMinutes = departure + _finalTravelDurationMinutes;
-    return DateTime(
+    return DateTime.utc(
       date.year,
       date.month,
       date.day,
-    ).add(Duration(minutes: endMinutes));
+    ).add(Duration(minutes: endMinutes)).subtract(const Duration(hours: 8));
   }
 
   Future<void> _recalculateSelectedItinerary({bool retry = false}) async {
@@ -813,6 +838,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     if (!mounted) return;
     setState(() {
       _scheduleReady = false;
+      _fareQuoteId = null;
+      _quotedUnitPrice = null;
+      _quotedSurcharge = null;
+      _quotedDistanceKm = null;
+      _fareQuoteExpiresAt = null;
+      _fareQuoteError = null;
+      _fareQuoteLoading = false;
       _scheduleError = null;
       _scheduleValidationError = null;
       _scheduleLoading = false;
@@ -837,20 +869,61 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       );
       return;
     }
-    final points = <LatLng>[
+    var points = <LatLng>[
       LatLng(pickup.latitude, pickup.longitude),
       ...itinerary.map((item) => LatLng(item.latitude, item.longitude)),
       LatLng(dropoff.latitude, dropoff.longitude),
     ];
-    final key = buildItineraryRouteKey(points);
+    var key = buildItineraryRouteKey(points);
     setState(() => _scheduleLoading = true);
     try {
       // Pickup/stay edits reuse this route's Maps durations. Location/order
       // changes invalidate the key and fetch a new ordered route.
-      final legs = !retry && key == _routeKey && _routeLegs != null
+      var legs = !retry && key == _routeKey && _routeLegs != null
           ? _routeLegs!
           : await _scheduleService.fetchTravelLegs(points);
       if (!mounted || revision != _scheduleRevision) return;
+      if (_itineraryMode == _ItineraryViewMode.suggested &&
+          itinerary.length >= 3 &&
+          key != _routeKey) {
+        final order = twoOptItineraryOrder(
+          points.first,
+          points.sublist(1, points.length - 1),
+          points.last,
+        );
+        if (order.indexed.any((entry) => entry.$1 != entry.$2)) {
+          final candidateStops = [for (final index in order) itinerary[index]];
+          final candidatePoints = <LatLng>[
+            points.first,
+            ...candidateStops.map(
+              (stop) => LatLng(stop.latitude, stop.longitude),
+            ),
+            points.last,
+          ];
+          try {
+            final candidateLegs = await _scheduleService.fetchTravelLegs(
+              candidatePoints,
+            );
+            if (!mounted || revision != _scheduleRevision) return;
+            final originalMeters = legs.fold<int>(
+              0,
+              (sum, leg) => sum + leg.distanceMeters,
+            );
+            final candidateMeters = candidateLegs.fold<int>(
+              0,
+              (sum, leg) => sum + leg.distanceMeters,
+            );
+            if (candidateMeters < originalMeters) {
+              itinerary.setAll(0, candidateStops);
+              points = candidatePoints;
+              key = buildItineraryRouteKey(points);
+              legs = candidateLegs;
+            }
+          } on ItineraryRouteException {
+            // Keep the validated original route when a second Maps request fails.
+          }
+        }
+      }
       final timings = calculateItineraryTimings(
         pickupMinutes: _pickupMinutes,
         stayDurationMinutes: itinerary.map((item) => item.stayMinutes).toList(),
@@ -882,6 +955,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             ? _tourHoursErrorMessage
             : null;
       });
+      if (_needsFareQuote && _scheduleValidationError == null) {
+        await _refreshFareQuote(points, revision);
+      }
     } on ItineraryRouteException catch (error) {
       if (mounted && revision == _scheduleRevision) {
         setState(() => _scheduleError = error.message);
@@ -889,6 +965,51 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     } finally {
       if (mounted && revision == _scheduleRevision) {
         setState(() => _scheduleLoading = false);
+      }
+    }
+  }
+
+  Future<void> _refreshFareQuote(List<LatLng> points, int revision) async {
+    if (!mounted || revision != _scheduleRevision) return;
+    setState(() => _fareQuoteLoading = true);
+    try {
+      final value = widget.fareQuoteLoader == null
+          ? (await Supabase.instance.client.functions.invoke(
+              'tour-fare-quote',
+              body: {
+                'packageId': widget.packageId,
+                'points': [
+                  for (final point in points) [point.latitude, point.longitude],
+                ],
+              },
+            )).data
+          : await widget.fareQuoteLoader!(widget.packageId, points);
+      if (!mounted || revision != _scheduleRevision) return;
+      if (value is! Map ||
+          value['code'] != 'OK' ||
+          value['quoteId'] is! String ||
+          value['unitPrice'] is! num ||
+          value['surcharge'] is! num) {
+        throw StateError('FARE_QUOTE_UNAVAILABLE');
+      }
+      setState(() {
+        _fareQuoteId = value['quoteId'] as String;
+        _quotedUnitPrice = (value['unitPrice'] as num).toDouble();
+        _quotedSurcharge = (value['surcharge'] as num).toDouble();
+        _quotedDistanceKm = (value['distanceKm'] as num?)?.toDouble();
+        _fareQuoteExpiresAt = DateTime.tryParse('${value['expiresAt']}');
+        _fareQuoteError = null;
+      });
+    } catch (_) {
+      if (mounted && revision == _scheduleRevision) {
+        setState(
+          () => _fareQuoteError =
+              'Unable to calculate the municipality route fare. Please retry.',
+        );
+      }
+    } finally {
+      if (mounted && revision == _scheduleRevision) {
+        setState(() => _fareQuoteLoading = false);
       }
     }
   }
@@ -981,7 +1102,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     if (_pickupMinutes < _tourStartMinutes ||
         _pickupMinutes >= _tourEndMinutes) {
-      return 'Pickup time must be between 7:00 AM and 4:59 PM.';
+      return 'Pickup time must be between 5:00 AM and 4:59 PM.';
     }
 
     if (finalDepartureMinutes != null &&
@@ -997,10 +1118,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         return 'For same-day bookings, pickup time must be later than the current time.';
       }
 
-      final currentMinutes = now.hour * 60 + now.minute;
+      final municipalityNow = _municipalityNow;
+      final currentMinutes = municipalityNow.hour * 60 + municipalityNow.minute;
 
       if (currentMinutes > _tourEndMinutes) {
-        return 'Tours are no longer available today. Tours are only available from 7:00 AM to 5:00 PM.';
+        return 'Tours are no longer available today. Pickup is available from 5:00 AM to 4:59 PM.';
       }
 
       if (firstArrivalMinutes != null && firstArrivalMinutes < currentMinutes) {
@@ -1089,7 +1211,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   Future<void> _pickDate() async {
-    final now = DateTime.now();
+    final now = _municipalityNow;
 
     final firstDate = DateTime(now.year, now.month, now.day);
 
@@ -1113,12 +1235,83 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   String get _pickupTimeLabel => _selectedPickupTime == null
       ? 'Choose exact pickup time'
-      : _selectedPickupTime!.format(context);
+      : DateFormat('h:mm a').format(
+          DateTime(
+            2026,
+            1,
+            1,
+            _selectedPickupTime!.hour,
+            _selectedPickupTime!.minute,
+          ),
+        );
 
   Future<void> _pickPickupTime() async {
-    final picked = await showTimePicker(
+    var hour = _selectedPickupTime?.hour ?? 8;
+    var minute = _selectedPickupTime?.minute ?? 0;
+    final picked = await showDialog<TimeOfDay>(
       context: context,
-      initialTime: _selectedPickupTime ?? const TimeOfDay(hour: 8, minute: 0),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Choose pickup time'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Available from 5:00 AM through 4:59 PM.'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: hour,
+                      decoration: const InputDecoration(labelText: 'Hour'),
+                      items: [
+                        for (var h = 5; h < 17; h++)
+                          DropdownMenuItem(
+                            value: h,
+                            child: Text(
+                              DateFormat('h a').format(DateTime(2026, 1, 1, h)),
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) => update(() => hour = value ?? hour),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: minute,
+                      decoration: const InputDecoration(labelText: 'Minute'),
+                      items: [
+                        for (var m = 0; m < 60; m++)
+                          DropdownMenuItem(
+                            value: m,
+                            child: Text(m.toString().padLeft(2, '0')),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          update(() => minute = value ?? minute),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                TimeOfDay(hour: hour, minute: minute),
+              ),
+              child: const Text('Use time'),
+            ),
+          ],
+        ),
+      ),
     );
     if (picked == null) return;
     setState(() => _selectedPickupTime = picked);
@@ -1180,6 +1373,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         _locationBlockingMessage(package) ??
         _spotValidationMessage() ??
         _itineraryValidationMessage();
+  }
+
+  String? _fareQuoteBlockingMessage() {
+    if (!_needsFareQuote) return null;
+    if (_fareQuoteLoading) return 'Calculating the municipality route fare.';
+    if (_fareQuoteError != null) return _fareQuoteError;
+    if (_fareQuoteId == null ||
+        _quotedUnitPrice == null ||
+        _fareQuoteExpiresAt == null ||
+        !_fareQuoteExpiresAt!.isAfter(DateTime.now().toUtc())) {
+      return 'The route fare has expired. Please refresh the itinerary.';
+    }
+    return null;
   }
 
   // =============================================================================
@@ -1362,20 +1568,27 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       await _recalculateSelectedItinerary();
       if (!mounted) return;
 
-      final rateValue = await Supabase.instance.client.rpc(
-        'get_municipal_tour_waiting_rate',
-        params: {'p_municipality': package.city},
+      final policyValue = await Supabase.instance.client.rpc(
+        'get_municipal_tour_waiting_policy',
+        params: {
+          'p_municipality': package.city,
+          'p_province': _packageProvince(package),
+        },
       );
       if (!mounted) return;
+      final policy = policyValue is Map ? policyValue : const {};
+      final rateValue = policy['rate'];
       final waitingRate = rateValue is num
           ? rateValue.toDouble()
           : double.tryParse('$rateValue');
-      if (waitingRate == null) {
+      final waitingInterval = (policy['interval_minutes'] as num?)?.toInt();
+      if (waitingRate == null || waitingInterval == null) {
         _snack('The municipality has not configured its tour waiting rate.');
         return;
       }
 
-      final recalculatedError = _itineraryValidationMessage();
+      final recalculatedError =
+          _itineraryValidationMessage() ?? _fareQuoteBlockingMessage();
       if (recalculatedError != null) {
         _snack(recalculatedError);
         return;
@@ -1419,7 +1632,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               label: 'Estimated Drop-off',
               value: DateFormat(
                 'MMM d, h:mm a',
-              ).format(_estimatedBookingEndAt!),
+              ).format(_estimatedBookingEndAt!.add(const Duration(hours: 8))),
             ),
             (label: 'Total', value: _money(_totalPrice(package))),
             (
@@ -1438,7 +1651,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             (
               label: 'Additional Waiting',
               value:
-                  '${_money(waitingRate)} per started 15 minutes after included stay',
+                  '${_money(waitingRate)} per $waitingInterval minutes after one free $waitingInterval-minute interval',
             ),
             (
               label: 'Waiting Rate Set By',
@@ -1446,7 +1659,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             ),
             (
               label: 'If Time of Stay Is Exceeded',
-              value: 'Additional waiting is added to the outstanding balance',
+              value:
+                  'Charges begin at the end of the free grace interval and are added to the outstanding balance',
             ),
           ],
           itinerary: _selectedItinerary.indexed
@@ -1468,7 +1682,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       if (!mounted || agreed != true) return;
       // Time may have passed while the tourist reviewed policies. Validate
       // again without changing the schedule or amounts they just approved.
-      final submissionError = _confirmationBlockingMessage(package);
+      final submissionError =
+          _confirmationBlockingMessage(package) ?? _fareQuoteBlockingMessage();
       if (submissionError != null) {
         _snack(submissionError);
         return;
@@ -1526,6 +1741,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         municipality: package.city,
         province: _packageProvince(package),
         termsVersion: bookingTermsVersion,
+        fareQuoteId: _fareQuoteId,
 
         totalPassengers: _totalParticipants,
       );
@@ -1964,7 +2180,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             ..._filteredGoogleSuggestions.map(
                               (spot) => _GoogleSuggestionCard(
                                 spot: spot,
-                                additionalFee: _additionalSpotFee,
                                 onAdd: () => _addGoogleSuggestion(spot),
                               ),
                             ),
@@ -2070,7 +2285,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                               _estimatedBookingEndAt != null) ...[
                             const SizedBox(height: 10),
                             Text(
-                              'Estimated Drop-off: ${DateFormat("h:mm a").format(_estimatedBookingEndAt!)}',
+                              'Estimated Drop-off: ${DateFormat("h:mm a").format(_estimatedBookingEndAt!.add(const Duration(hours: 8)))}',
                               style: const TextStyle(
                                 color: _primary,
                                 fontWeight: FontWeight.w700,
@@ -2124,11 +2339,20 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           _PricingBreakdownCard(
                             baseUnitPrice: package.numericPrice,
-                            addedSpotCount: _addedGoogleSpotCount,
-                            addedSpotFee: _additionalSpotFee,
+                            showRouteAdjustment: _needsFareQuote,
+                            routeSurcharge: _quotedSurcharge,
+                            routeDistanceKm: _quotedDistanceKm,
                             finalUnitPrice: _unitPrice(package),
                             passengers: _totalParticipants,
                           ),
+                          if (_needsFareQuote && _fareQuoteLoading)
+                            const LinearProgressIndicator(),
+                          if (_needsFareQuote && _fareQuoteError != null)
+                            TextButton.icon(
+                              onPressed: _recalculateSelectedItinerary,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(_fareQuoteError!),
+                            ),
 
                           const SizedBox(height: 22),
 
@@ -3652,7 +3876,7 @@ class _SelectedBookingSpotCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    spot.isOriginal ? 'Package spot' : '+ ₱250 Google Place',
+                    spot.isOriginal ? 'Package spot' : 'Added destination',
                     style: TextStyle(
                       color: spot.isOriginal
                           ? const Color(0xFF15803D)
@@ -3768,14 +3992,12 @@ class _AddAnotherPlaceSheet extends StatefulWidget {
     required this.city,
     required this.province,
     required this.service,
-    required this.additionalFee,
     required this.serviceArea,
   });
 
   final String city;
   final String province;
   final CitySpotSuggestionService service;
-  final double additionalFee;
   final BookingServiceArea serviceArea;
 
   @override
@@ -3933,7 +4155,7 @@ class _AddAnotherPlaceSheetState extends State<_AddAnotherPlaceSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Search Google Places within ${widget.city}. Added places use the existing + ₱${widget.additionalFee.toStringAsFixed(0)} per person fee.',
+                      'Search Google Places within ${widget.city}. The route fare is recalculated before booking.',
                       style: const TextStyle(
                         color: _secondaryText,
                         fontWeight: FontWeight.w600,
@@ -3998,7 +4220,6 @@ class _AddAnotherPlaceSheetState extends State<_AddAnotherPlaceSheet> {
                           final result = _results[index];
                           return _GoogleSuggestionCard(
                             spot: result,
-                            additionalFee: widget.additionalFee,
                             onAdd: () => Navigator.of(context).pop(result),
                           );
                         },
@@ -4088,14 +4309,9 @@ class _SpotCategoryFilter extends StatelessWidget {
 }
 
 class _GoogleSuggestionCard extends StatelessWidget {
-  const _GoogleSuggestionCard({
-    required this.spot,
-    required this.additionalFee,
-    required this.onAdd,
-  });
+  const _GoogleSuggestionCard({required this.spot, required this.onAdd});
 
   final CitySpotSuggestion spot;
-  final double additionalFee;
   final VoidCallback onAdd;
 
   @override
@@ -4160,7 +4376,7 @@ class _GoogleSuggestionCard extends StatelessWidget {
                 const SizedBox(height: 6),
 
                 Text(
-                  '+ ₱${additionalFee.toStringAsFixed(0)} / person',
+                  'Route fare calculated at checkout',
                   style: const TextStyle(
                     color: _primary,
                     fontWeight: FontWeight.w900,
@@ -4217,7 +4433,7 @@ class _SpotFeeNotice extends StatelessWidget {
 
           Expanded(
             child: Text(
-              'Every additional Google Places destination adds ₱250 per person to the package price. Removing an original destination does not add a fee.',
+              'The municipality Fare Matrix and mapped route distance determine any route adjustment. You can review the final amount before confirming.',
               style: TextStyle(
                 color: Color(0xFF8A5A16),
                 fontWeight: FontWeight.w600,
@@ -5005,17 +5221,18 @@ class _PaymentMetric extends StatelessWidget {
 class _PricingBreakdownCard extends StatelessWidget {
   const _PricingBreakdownCard({
     required this.baseUnitPrice,
-    required this.addedSpotCount,
-    required this.addedSpotFee,
+    required this.showRouteAdjustment,
+    required this.routeSurcharge,
+    required this.routeDistanceKm,
     required this.finalUnitPrice,
     required this.passengers,
   });
 
   final double baseUnitPrice;
 
-  final int addedSpotCount;
-
-  final double addedSpotFee;
+  final bool showRouteAdjustment;
+  final double? routeSurcharge;
+  final double? routeDistanceKm;
   final double finalUnitPrice;
 
   final int passengers;
@@ -5038,13 +5255,16 @@ class _PricingBreakdownCard extends StatelessWidget {
             value: money.format(baseUnitPrice),
           ),
 
-          if (addedSpotCount > 0) ...[
+          if (showRouteAdjustment) ...[
             const SizedBox(height: 8),
 
             _PriceBreakdownRow(
-              label:
-                  '$addedSpotCount added destination${addedSpotCount == 1 ? '' : 's'}',
-              value: '+ ${money.format(addedSpotCount * addedSpotFee)}',
+              label: routeDistanceKm == null
+                  ? 'Customized route adjustment'
+                  : 'Customized route (${routeDistanceKm!.toStringAsFixed(1)} km)',
+              value: routeSurcharge == null
+                  ? 'Calculating'
+                  : '+ ${money.format(routeSurcharge)}',
             ),
           ],
 

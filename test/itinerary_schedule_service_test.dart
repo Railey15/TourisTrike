@@ -162,7 +162,8 @@ void main() {
       expect(RegExp(r'TextFormField\(').allMatches(tile), hasLength(1));
       expect(tile, contains("labelText: 'Time of Stay'"));
       expect(tile, isNot(contains('showTimePicker')));
-      expect(RegExp(r'showTimePicker\(').allMatches(source), hasLength(1));
+      expect(source, isNot(contains('showTimePicker(')));
+      expect(source, contains("DateFormat('h:mm a')"));
     },
   );
 

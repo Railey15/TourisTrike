@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
 import 'package:touristrike/screens/driver/profile/driver_documents_screen.dart';
@@ -12,6 +12,7 @@ import 'package:touristrike/screens/driver/profile/driver_toda_assignment_screen
 import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_scaffold.dart';
+import 'package:touristrike/screens/driver/profile/widgets/driver_identity_verification_card.dart';
 import 'package:touristrike/screens/driver/driver_home_screen.dart';
 
 class DriverProfileCompletionScreen extends StatefulWidget {
@@ -40,9 +41,9 @@ class _DriverProfileCompletionScreenState
 
     final screen = _screenForStep(step, bundle);
 
-    final completed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    final completed = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => screen));
 
     if (!mounted) return;
     setState(() => _navigating = false);
@@ -160,6 +161,10 @@ class _DriverProfileCompletionScreenState
                     : 'Complete all 8 driver profile steps',
               ),
               const SizedBox(height: 14),
+                DriverIdentityVerificationCard(
+                  mtoApprovalStatus: bundle.details.status,
+                ),
+              const SizedBox(height: 14),
               DriverProfileCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,5 +246,3 @@ class _DriverProfileCompletionScreenState
     );
   }
 }
-
-

@@ -51,6 +51,17 @@ void main() {
         'city': 'Bustos',
         'price': 1000,
       }),
+      fareQuoteLoader: (_, _) async => {
+        'code': 'OK',
+        'quoteId': '00000000-0000-4000-8000-000000000001',
+        'expiresAt': DateTime.now()
+            .toUtc()
+            .add(const Duration(minutes: 10))
+            .toIso8601String(),
+        'unitPrice': 1000,
+        'surcharge': 0,
+        'distanceKm': 5,
+      },
     ),
   );
 
@@ -141,7 +152,7 @@ void main() {
         (tester.widget(type('_PickupTimeSelectionCard')) as dynamic).onTap();
         await tester.pumpAndSettle();
         Navigator.of(
-          tester.element(find.byType(TimePickerDialog)),
+          tester.element(find.byType(AlertDialog)),
         ).pop(TimeOfDay(hour: hour, minute: 0));
         await tester.pumpAndSettle();
       }
@@ -363,7 +374,7 @@ void main() {
       (tester.widget(type('_PickupTimeSelectionCard')) as dynamic).onTap();
       await tester.pumpAndSettle();
       Navigator.of(
-        tester.element(find.byType(TimePickerDialog)),
+        tester.element(find.byType(AlertDialog)),
       ).pop(const TimeOfDay(hour: 8, minute: 0));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ElevatedButton, 'Continue'));

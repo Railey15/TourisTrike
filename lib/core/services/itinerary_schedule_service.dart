@@ -72,6 +72,58 @@ String buildItineraryRouteKey(List<LatLng> orderedPoints) => orderedPoints
     .map((point) => '${point.latitude},${point.longitude}')
     .join('|');
 
+/// Improves the pickup-to-drop-off path without removing any requested stop.
+/// Google Directions still decides whether this geometric candidate is used.
+List<int> twoOptItineraryOrder(
+  LatLng pickup,
+  List<LatLng> stops,
+  LatLng dropoff,
+) {
+  final order = List<int>.generate(stops.length, (index) => index);
+  if (stops.length < 3) return order;
+  double segment(LatLng a, LatLng b) {
+    const radius = 6371.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final dLat = lat2 - lat1;
+    final dLng = (b.longitude - a.longitude) * math.pi / 180;
+    final h =
+        math.pow(math.sin(dLat / 2), 2) +
+        math.cos(lat1) * math.cos(lat2) * math.pow(math.sin(dLng / 2), 2);
+    return radius * 2 * math.asin(math.sqrt(h.clamp(0, 1)));
+  }
+
+  double distance(List<int> sequence) {
+    var total = 0.0;
+    var previous = pickup;
+    for (final index in sequence) {
+      total += segment(previous, stops[index]);
+      previous = stops[index];
+    }
+    return total + segment(previous, dropoff);
+  }
+
+  var best = distance(order);
+  var improved = true;
+  while (improved) {
+    improved = false;
+    for (var start = 0; start < order.length - 1; start++) {
+      for (var end = start + 1; end < order.length; end++) {
+        final candidate = [...order];
+        final reversed = candidate.sublist(start, end + 1).reversed.toList();
+        candidate.replaceRange(start, end + 1, reversed);
+        final candidateDistance = distance(candidate);
+        if (candidateDistance + 0.001 < best) {
+          order.setAll(0, candidate);
+          best = candidateDistance;
+          improved = true;
+        }
+      }
+    }
+  }
+  return order;
+}
+
 typedef ItineraryDirectionsLoader =
     Future<Map<String, dynamic>> Function(String apiKey, List<LatLng> points);
 
