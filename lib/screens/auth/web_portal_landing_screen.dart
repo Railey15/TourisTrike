@@ -12,7 +12,6 @@ class WebPortalLandingScreen extends StatelessWidget {
   static const Color primaryBlue = Color(0xFF1557D6);
   static const Color deepBlue = Color(0xFF0B2E75);
   static const Color green = Color(0xFF39A447);
-  static const Color yellow = Color(0xFFFFC107);
   static const Color ink = Color(0xFF10213F);
   static const Color muted = Color(0xFF64748B);
   static const Color pageBackground = Color(0xFFF4F8FD);
@@ -26,7 +25,7 @@ class WebPortalLandingScreen extends StatelessWidget {
     );
   }
 
-  void _openCityAdminSignup(BuildContext context) {
+  void _openTourismOfficeSignup(BuildContext context) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -42,97 +41,33 @@ class WebPortalLandingScreen extends StatelessWidget {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
+          final height = constraints.maxHeight;
 
           final isDesktop = width >= 1050;
           final isTablet = width >= 700 && width < 1050;
           final isMobile = width < 700;
-          final isSmallMobile = width < 390;
+
+          final page = _LandingPageContent(
+            isDesktop: isDesktop,
+            isTablet: isTablet,
+            isMobile: isMobile,
+            viewportHeight: height,
+            onLogin: () => _openLogin(context),
+            onApply: () => _openTourismOfficeSignup(context),
+          );
 
           return Stack(
             children: [
               const Positioned.fill(
-                child: _BackgroundDecoration(),
+                child: _LandingBackground(),
               ),
-
               SafeArea(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 1240,
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isDesktop
-                              ? 42
-                              : isTablet
-                                  ? 28
-                                  : 18,
-                          vertical: isDesktop
-                              ? 24
-                              : isTablet
-                                  ? 20
-                                  : 14,
-                        ),
-                        child: Column(
-                          children: [
-                            _Header(
-                              isMobile: isMobile,
-                              isSmallMobile: isSmallMobile,
-                              onLogin: () => _openLogin(context),
-                              onApply: () =>
-                                  _openCityAdminSignup(context),
-                            ),
-
-                            SizedBox(
-                              height: isDesktop
-                                  ? 48
-                                  : isTablet
-                                      ? 38
-                                      : 28,
-                            ),
-
-                            if (isDesktop)
-                              _DesktopHero(
-                                onLogin: () => _openLogin(context),
-                                onApply: () =>
-                                    _openCityAdminSignup(context),
-                              )
-                            else
-                              _ResponsiveHero(
-                                isSmallMobile: isSmallMobile,
-                                onLogin: () => _openLogin(context),
-                                onApply: () =>
-                                    _openCityAdminSignup(context),
-                              ),
-
-                            SizedBox(
-                              height: isDesktop
-                                  ? 55
-                                  : isTablet
-                                      ? 42
-                                      : 34,
-                            ),
-
-                            _TrustStrip(
-                              isMobile: isMobile,
-                              isSmallMobile: isSmallMobile,
-                            ),
-
-                            const SizedBox(height: 20),
-
-                            _FooterNote(
-                              isMobile: isMobile,
-                            ),
-
-                            const SizedBox(height: 6),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                child: isMobile
+                    ? SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: page,
+                      )
+                    : page,
               ),
             ],
           );
@@ -143,39 +78,169 @@ class WebPortalLandingScreen extends StatelessWidget {
 }
 
 // ============================================================
-// HEADER
+// PAGE
 // ============================================================
 
-class _Header extends StatelessWidget {
-  const _Header({
+class _LandingPageContent extends StatelessWidget {
+  const _LandingPageContent({
+    required this.isDesktop,
+    required this.isTablet,
     required this.isMobile,
-    required this.isSmallMobile,
+    required this.viewportHeight,
     required this.onLogin,
     required this.onApply,
   });
 
+  final bool isDesktop;
+  final bool isTablet;
   final bool isMobile;
-  final bool isSmallMobile;
+  final double viewportHeight;
   final VoidCallback onLogin;
   final VoidCallback onApply;
 
   @override
   Widget build(BuildContext context) {
-    final brand = Row(
+    final horizontalPadding = isDesktop
+        ? 46.0
+        : isTablet
+            ? 30.0
+            : 18.0;
+
+    final verticalPadding = isDesktop ? 20.0 : 16.0;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 1320,
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: verticalPadding,
+          ),
+          child: Column(
+            mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
+            children: [
+              _TopNavigation(
+                isMobile: isMobile,
+                onLogin: onLogin,
+                onApply: onApply,
+              ),
+
+              SizedBox(
+                height: isDesktop ? 24 : 28,
+              ),
+
+              if (isDesktop)
+                Expanded(
+                  child: _DesktopHero(
+                    onApply: onApply,
+                  ),
+                )
+              else
+                _ResponsiveHero(
+                  onApply: onApply,
+                ),
+
+              SizedBox(
+                height: isDesktop ? 18 : 24,
+              ),
+
+              const _BottomTrustBar(),
+
+              if (isMobile) const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// TOP NAVIGATION
+// ============================================================
+
+class _TopNavigation extends StatelessWidget {
+  const _TopNavigation({
+    required this.isMobile,
+    required this.onLogin,
+    required this.onApply,
+  });
+
+  final bool isMobile;
+  final VoidCallback onLogin;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isMobile) {
+      return Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: _Brand(),
+              ),
+              const SizedBox(width: 12),
+              _SignInButton(
+                onPressed: onLogin,
+                compact: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: _ApplyButton(
+              onPressed: onApply,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        const _Brand(),
+
+        const Spacer(),
+
+        _ApplyButton(
+          onPressed: onApply,
+        ),
+
+        const SizedBox(width: 12),
+
+        _SignInButton(
+          onPressed: onLogin,
+        ),
+      ],
+    );
+  }
+}
+
+class _Brand extends StatelessWidget {
+  const _Brand();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: isSmallMobile ? 42 : 48,
-          height: isSmallMobile ? 42 : 48,
+          width: 48,
+          height: 48,
           padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(15),
             border: Border.all(
-              color: const Color(0xFFDDE9F8),
+              color: const Color(0xFFDDE8F5),
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF173B72).withOpacity(0.07),
+                color: const Color(0xFF10213F).withOpacity(0.05),
                 blurRadius: 18,
                 offset: const Offset(0, 7),
               ),
@@ -192,36 +257,102 @@ class _Header extends StatelessWidget {
             },
           ),
         ),
+
         const SizedBox(width: 11),
-        Flexible(
-          child: Text(
-            'TourisTrike Admin Portal',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: WebPortalLandingScreen.ink,
-              fontSize: isSmallMobile ? 15 : 18,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.35,
+
+        const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'TourisTrike',
+              style: TextStyle(
+                color: WebPortalLandingScreen.ink,
+                fontSize: 18,
+                height: 1,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.4,
+              ),
             ),
-          ),
+            SizedBox(height: 5),
+            Text(
+              'Tourism Administration Portal',
+              style: TextStyle(
+                color: WebPortalLandingScreen.muted,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ],
     );
+  }
+}
 
-    final signInButton = ElevatedButton.icon(
-      onPressed: onLogin,
+class _SignInButton extends StatelessWidget {
+  const _SignInButton({
+    required this.onPressed,
+    this.compact = false,
+  });
+
+  final VoidCallback onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
       icon: const Icon(
         Icons.login_rounded,
         size: 17,
       ),
       label: const Text('Sign In'),
       style: ElevatedButton.styleFrom(
+        elevation: 0,
         backgroundColor: WebPortalLandingScreen.primaryBlue,
         foregroundColor: Colors.white,
-        elevation: 0,
         padding: EdgeInsets.symmetric(
-          horizontal: isSmallMobile ? 14 : 19,
+          horizontal: compact ? 15 : 19,
+          vertical: 14,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(13),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _ApplyButton extends StatelessWidget {
+  const _ApplyButton({
+    required this.onPressed,
+  });
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(
+        Icons.account_balance_rounded,
+        size: 17,
+      ),
+      label: const Text(
+        'Apply as Tourism Office',
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF087B67),
+        backgroundColor: Colors.white.withOpacity(0.78),
+        side: const BorderSide(
+          color: Color(0xFFA7E4D3),
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 18,
           vertical: 13,
         ),
         shape: RoundedRectangleBorder(
@@ -233,56 +364,6 @@ class _Header extends StatelessWidget {
         ),
       ),
     );
-
-    final applyButton = SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: onApply,
-        icon: const Icon(
-          Icons.location_city_rounded,
-          size: 17,
-        ),
-        label: const Text('Apply as City Admin'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFF087B67),
-          backgroundColor: Colors.white.withOpacity(0.78),
-          side: const BorderSide(
-            color: Color(0xFFA7E4D3),
-          ),
-          padding: const EdgeInsets.symmetric(
-            vertical: 13,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(13),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ),
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // TOP ROW
-        Row(
-          children: [
-            Expanded(
-              child: brand,
-            ),
-            const SizedBox(width: 14),
-            signInButton,
-          ],
-        ),
-
-        const SizedBox(height: 10),
-
-        // FULL-WIDTH APPLY BUTTON
-        applyButton,
-      ],
-    );
   }
 }
 
@@ -292,11 +373,9 @@ class _Header extends StatelessWidget {
 
 class _DesktopHero extends StatelessWidget {
   const _DesktopHero({
-    required this.onLogin,
     required this.onApply,
   });
 
-  final VoidCallback onLogin;
   final VoidCallback onApply;
 
   @override
@@ -306,17 +385,18 @@ class _DesktopHero extends StatelessWidget {
       children: [
         Expanded(
           flex: 11,
-          child: _HeroCopy(
-            onLogin: onLogin,
+          child: _HeroInformation(
             onApply: onApply,
-            compact: false,
           ),
         ),
-        const SizedBox(width: 54),
+
+        const SizedBox(width: 64),
+
         const Expanded(
           flex: 9,
-          child: _DashboardPreview(
-            compact: false,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: _SystemFlowCard(),
           ),
         ),
       ],
@@ -325,74 +405,59 @@ class _DesktopHero extends StatelessWidget {
 }
 
 // ============================================================
-// TABLET / MOBILE HERO
+// TABLET / MOBILE
 // ============================================================
 
 class _ResponsiveHero extends StatelessWidget {
   const _ResponsiveHero({
-    required this.isSmallMobile,
-    required this.onLogin,
     required this.onApply,
   });
 
-  final bool isSmallMobile;
-  final VoidCallback onLogin;
   final VoidCallback onApply;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _HeroCopy(
-          onLogin: onLogin,
+        _HeroInformation(
+          centered: true,
           onApply: onApply,
-          compact: true,
-          isSmallMobile: isSmallMobile,
         ),
 
-        SizedBox(
-          height: isSmallMobile ? 25 : 32,
-        ),
+        const SizedBox(height: 32),
 
-        const _DashboardPreview(
-          compact: true,
-        ),
+        const _SystemFlowCard(),
       ],
     );
   }
 }
 
 // ============================================================
-// HERO COPY
+// LEFT HERO
 // ============================================================
 
-class _HeroCopy extends StatelessWidget {
-  const _HeroCopy({
-    required this.onLogin,
+class _HeroInformation extends StatelessWidget {
+  const _HeroInformation({
     required this.onApply,
-    this.compact = false,
-    this.isSmallMobile = false,
+    this.centered = false,
   });
 
-  final VoidCallback onLogin;
   final VoidCallback onApply;
-  final bool compact;
-  final bool isSmallMobile;
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
-    final alignment =
-        compact ? CrossAxisAlignment.center : CrossAxisAlignment.start;
+    final crossAxisAlignment = centered
+        ? CrossAxisAlignment.center
+        : CrossAxisAlignment.start;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: alignment,
+      crossAxisAlignment: crossAxisAlignment,
       children: [
-        const _PortalBadge(),
+        const _AdministrationBadge(),
 
-        SizedBox(
-          height: compact ? 17 : 23,
-        ),
+        const SizedBox(height: 20),
 
         Text.rich(
           TextSpan(
@@ -400,71 +465,57 @@ class _HeroCopy extends StatelessWidget {
               const TextSpan(
                 text: 'Manage Bulacan tourism\n',
               ),
-              TextSpan(
-                text: 'operations ',
+              const TextSpan(
+                text: 'operations',
                 style: TextStyle(
                   color: WebPortalLandingScreen.primaryBlue,
                 ),
               ),
               const TextSpan(
-                text: 'from one\nsecure portal.',
+                text: ' from one\nsecure portal.',
               ),
             ],
           ),
-          textAlign: compact ? TextAlign.center : TextAlign.left,
-          style: TextStyle(
+          textAlign: centered ? TextAlign.center : TextAlign.left,
+          style: const TextStyle(
             color: WebPortalLandingScreen.ink,
-            fontSize: isSmallMobile
-                ? 32
-                : compact
-                    ? 39
-                    : 54,
-            height: 1.05,
+            fontSize: 52,
+            height: 1.04,
             fontWeight: FontWeight.w900,
-            letterSpacing: isSmallMobile ? -1.2 : -1.8,
+            letterSpacing: -1.9,
           ),
         ),
 
-        SizedBox(
-          height: compact ? 15 : 19,
-        ),
+        const SizedBox(height: 18),
 
         ConstrainedBox(
           constraints: const BoxConstraints(
-            maxWidth: 620,
+            maxWidth: 610,
           ),
           child: Text(
-            'A centralized workspace for provincial and local tourism teams to manage destinations, packages, bookings, and accredited drivers.',
-            textAlign: compact ? TextAlign.center : TextAlign.left,
-            style: TextStyle(
+            'A unified administration portal that helps Bulacan tourism offices coordinate local tourism services while maintaining clear provincial and municipal responsibilities.',
+            textAlign: centered ? TextAlign.center : TextAlign.left,
+            style: const TextStyle(
               color: WebPortalLandingScreen.muted,
-              fontSize: isSmallMobile ? 13.5 : 15.5,
-              height: 1.6,
+              fontSize: 15.5,
+              height: 1.55,
               fontWeight: FontWeight.w500,
             ),
           ),
         ),
 
-        SizedBox(
-          height: compact ? 23 : 28,
-        ),
+        const SizedBox(height: 27),
 
-        _RoleSummary(
-          compact: compact,
-          isSmallMobile: isSmallMobile,
+        _AccessCard(
+          centered: centered,
         ),
-
       ],
     );
   }
 }
 
-// ============================================================
-// BADGE
-// ============================================================
-
-class _PortalBadge extends StatelessWidget {
-  const _PortalBadge();
+class _AdministrationBadge extends StatelessWidget {
+  const _AdministrationBadge();
 
   @override
   Widget build(BuildContext context) {
@@ -477,25 +528,25 @@ class _PortalBadge extends StatelessWidget {
         color: Colors.white.withOpacity(0.82),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: const Color(0xFFD9E6F5),
+          color: const Color(0xFFDCE7F4),
         ),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.circle,
-            size: 7,
+            Icons.verified_user_rounded,
+            size: 15,
             color: WebPortalLandingScreen.green,
           ),
           SizedBox(width: 7),
           Text(
-            'ADMINISTRATOR ACCESS',
+            'TOURISM ADMINISTRATION',
             style: TextStyle(
               color: Color(0xFF42617F),
-              fontSize: 10.5,
+              fontSize: 11,
               fontWeight: FontWeight.w900,
-              letterSpacing: 0.65,
+              letterSpacing: 0.55,
             ),
           ),
         ],
@@ -505,112 +556,151 @@ class _PortalBadge extends StatelessWidget {
 }
 
 // ============================================================
-// ROLE SUMMARY
+// ACCESS CARD
 // ============================================================
 
-class _RoleSummary extends StatelessWidget {
-  const _RoleSummary({
-    required this.compact,
-    required this.isSmallMobile,
+class _AccessCard extends StatelessWidget {
+  const _AccessCard({
+    required this.centered,
   });
 
-  final bool compact;
-  final bool isSmallMobile;
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
-    final width = isSmallMobile ? 150.0 : 190.0;
-
-    final items = [
-      _RoleItem(
-        icon: Icons.account_balance_rounded,
-        title: 'Provincial Office',
-        subtitle: 'Main tenant',
-        width: width,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        maxWidth: 520,
       ),
-      _RoleItem(
-        icon: Icons.location_city_rounded,
-        title: 'City / Municipal',
-        subtitle: 'Sub-tenant',
-        width: width,
-      ),
-    ];
+      child: Container(
+        padding: const EdgeInsets.all(17),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.78),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: const Color(0xFFDDE8F5),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF173B72).withOpacity(0.045),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Built for Bulacan tourism offices',
+              style: TextStyle(
+                color: WebPortalLandingScreen.ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
 
-    return Wrap(
-      alignment:
-          compact ? WrapAlignment.center : WrapAlignment.start,
-      spacing: 10,
-      runSpacing: 9,
-      children: items,
+            const SizedBox(height: 5),
+
+            const Text(
+              'Role-based workspaces keep provincial oversight and local operations organized.',
+              style: TextStyle(
+                color: WebPortalLandingScreen.muted,
+                fontSize: 11.5,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+
+            const SizedBox(height: 15),
+
+            const Row(
+              children: [
+                Expanded(
+                  child: _AccessType(
+                    icon: Icons.account_balance_rounded,
+                    title: 'Provincial Office',
+                    description: 'Province-wide administration',
+                  ),
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: _AccessType(
+                    icon: Icons.location_city_rounded,
+                    title: 'Local Tourism Office',
+                    description: 'City or municipal operations',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _RoleItem extends StatelessWidget {
-  const _RoleItem({
+class _AccessType extends StatelessWidget {
+  const _AccessType({
     required this.icon,
     required this.title,
-    required this.subtitle,
-    required this.width,
+    required this.description,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
-  final double width;
+  final String description;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: width,
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.76),
-        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFFF7FAFF),
+        borderRadius: BorderRadius.circular(13),
         border: Border.all(
-          color: const Color(0xFFDDE8F5),
+          color: const Color(0xFFE0E9F4),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
+              color: const Color(0xFFE8F1FF),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               icon,
-              size: 18,
+              size: 17,
               color: WebPortalLandingScreen.primaryBlue,
             ),
           ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: WebPortalLandingScreen.ink,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: WebPortalLandingScreen.muted,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+
+          const SizedBox(height: 10),
+
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: WebPortalLandingScreen.ink,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+
+          const SizedBox(height: 3),
+
+          Text(
+            description,
+            style: const TextStyle(
+              color: WebPortalLandingScreen.muted,
+              fontSize: 9.5,
+              height: 1.3,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -620,119 +710,91 @@ class _RoleItem extends StatelessWidget {
 }
 
 // ============================================================
-// DASHBOARD PREVIEW
+// RIGHT SYSTEM FLOW
 // ============================================================
 
-class _DashboardPreview extends StatelessWidget {
-  const _DashboardPreview({
-    required this.compact,
-  });
-
-  final bool compact;
+class _SystemFlowCard extends StatelessWidget {
+  const _SystemFlowCard();
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final narrow = constraints.maxWidth < 430;
-
-        final outerPadding = narrow ? 11.0 : compact ? 14.0 : 18.0;
-        final innerPadding = narrow ? 12.0 : compact ? 14.0 : 18.0;
-
-        return Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(
-            maxWidth: 540,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        maxWidth: 525,
+      ),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: Colors.white,
           ),
-          padding: EdgeInsets.all(outerPadding),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF153C72).withOpacity(0.09),
+              blurRadius: 32,
+              offset: const Offset(0, 16),
+            ),
+          ],
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(19),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.84),
-            borderRadius: BorderRadius.circular(
-              narrow ? 21 : 26,
-            ),
+            color: const Color(0xFFF8FBFF),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: Colors.white.withOpacity(0.96),
+              color: const Color(0xFFE0EAF5),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF153C72).withOpacity(0.09),
-                blurRadius: 32,
-                offset: const Offset(0, 17),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SystemFlowHeader(),
+
+              SizedBox(height: 18),
+
+              _SystemFlowHero(),
+
+              SizedBox(height: 19),
+
+              Text(
+                'How the platform connects',
+                style: TextStyle(
+                  color: WebPortalLandingScreen.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
+
+              SizedBox(height: 12),
+
+              _Workflow(),
+
+              SizedBox(height: 17),
+
+              _PortalSecurityNote(),
             ],
           ),
-          child: Container(
-            padding: EdgeInsets.all(innerPadding),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FBFF),
-              borderRadius: BorderRadius.circular(
-                narrow ? 17 : 21,
-              ),
-              border: Border.all(
-                color: const Color(0xFFE0EAF6),
-              ),
-            ),
-            child: Column(
-              children: [
-                _DashboardHeader(
-                  narrow: narrow,
-                ),
-
-                SizedBox(
-                  height: narrow ? 12 : 15,
-                ),
-
-                _DashboardHeroCard(
-                  narrow: narrow,
-                ),
-
-                SizedBox(
-                  height: narrow ? 9 : 11,
-                ),
-
-                _MetricsGrid(
-                  narrow: narrow,
-                ),
-
-                SizedBox(
-                  height: narrow ? 10 : 13,
-                ),
-
-                const _ProgressSection(),
-
-                SizedBox(
-                  height: narrow ? 10 : 13,
-                ),
-
-                const _SecurityBanner(),
-              ],
-            ),
-          ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
 
-// ============================================================
-// DASHBOARD HEADER
-// ============================================================
-
-class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader({
-    required this.narrow,
-  });
-
-  final bool narrow;
+class _SystemFlowHeader extends StatelessWidget {
+  const _SystemFlowHeader();
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Container(
-          width: narrow ? 38 : 43,
-          height: narrow ? 38 : 43,
-          padding: const EdgeInsets.all(6),
+          width: 44,
+          height: 44,
+          padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
             color: const Color(0xFFEAF2FF),
             borderRadius: BorderRadius.circular(12),
@@ -742,33 +804,33 @@ class _DashboardHeader extends StatelessWidget {
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) {
               return const Icon(
-                Icons.dashboard_rounded,
+                Icons.hub_rounded,
                 color: WebPortalLandingScreen.primaryBlue,
               );
             },
           ),
         ),
 
-        const SizedBox(width: 9),
+        const SizedBox(width: 11),
 
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Operations Overview',
+                'TourisTrike Administration',
                 style: TextStyle(
                   color: WebPortalLandingScreen.ink,
-                  fontSize: 14.5,
+                  fontSize: 15,
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              SizedBox(height: 2),
+              SizedBox(height: 3),
               Text(
-                'TourisTrike Admin Portal',
+                'Connected tourism management',
                 style: TextStyle(
                   color: WebPortalLandingScreen.muted,
-                  fontSize: 9.5,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -776,594 +838,100 @@ class _DashboardHeader extends StatelessWidget {
           ),
         ),
 
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 5,
-          ),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE9F8EF),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.circle,
-                size: 6,
-                color: Color(0xFF21A45A),
-              ),
-              SizedBox(width: 4),
-              Text(
-                'LIVE',
-                style: TextStyle(
-                  color: Color(0xFF18824A),
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-        ),
+        _SecureBadge(),
       ],
     );
   }
 }
 
+class _SecureBadge extends StatelessWidget {
+  const _SecureBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: const Color(0xFFD5E4FA),
+        ),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.lock_outline_rounded,
+            size: 12,
+            color: WebPortalLandingScreen.primaryBlue,
+          ),
+          SizedBox(width: 4),
+          Text(
+            'SECURE',
+            style: TextStyle(
+              color: WebPortalLandingScreen.primaryBlue,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ============================================================
-// DASHBOARD HERO CARD
+// SYSTEM FLOW HERO
 // ============================================================
 
-class _DashboardHeroCard extends StatelessWidget {
-  const _DashboardHeroCard({
-    required this.narrow,
-  });
-
-  final bool narrow;
+class _SystemFlowHero extends StatelessWidget {
+  const _SystemFlowHero();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(
-        narrow ? 13 : 16,
-      ),
+      padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
             Color(0xFF1557D6),
-            Color(0xFF2674DF),
+            Color(0xFF2677E4),
           ],
         ),
         borderRadius: BorderRadius.circular(17),
       ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -28,
-            top: -38,
-            child: Container(
-              width: 115,
-              height: 115,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.08),
-              ),
-            ),
-          ),
-
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Tourism activity',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-
-              const SizedBox(height: 3),
-
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '74%',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: narrow ? 28 : 31,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1,
-                    ),
-                  ),
-
-                  const SizedBox(width: 7),
-
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        '+12.4%',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 8,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 2),
-
-              const Text(
-                'Published tourism packages',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================
-// METRICS GRID
-// ============================================================
-
-class _MetricsGrid extends StatelessWidget {
-  const _MetricsGrid({
-    required this.narrow,
-  });
-
-  final bool narrow;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      const _MiniMetric(
-        value: '128',
-        label: 'Spots',
-        icon: Icons.place_rounded,
-      ),
-      const _MiniMetric(
-        value: '42',
-        label: 'Packages',
-        icon: Icons.inventory_2_rounded,
-      ),
-      const _MiniMetric(
-        value: '316',
-        label: 'Bookings',
-        icon: Icons.receipt_long_rounded,
-      ),
-      const _MiniMetric(
-        value: '89',
-        label: 'Drivers',
-        icon: Icons.badge_rounded,
-      ),
-    ];
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 9,
-        mainAxisSpacing: 9,
-        childAspectRatio: 2.55,
-      ),
-      itemBuilder: (_, index) {
-        return items[index];
-      },
-    );
-  }
-}
-
-// ============================================================
-// MINI METRIC
-// ============================================================
-
-class _MiniMetric extends StatelessWidget {
-  const _MiniMetric({
-    required this.value,
-    required this.label,
-    required this.icon,
-  });
-
-  final String value;
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE0EAF5),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEDF4FF),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(
-              icon,
-              size: 15,
-              color: WebPortalLandingScreen.primaryBlue,
-            ),
-          ),
-
-          const SizedBox(width: 7),
-
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: WebPortalLandingScreen.ink,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: WebPortalLandingScreen.muted,
-                    fontSize: 8.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================
-// PROGRESS
-// ============================================================
-
-class _ProgressSection extends StatelessWidget {
-  const _ProgressSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE0EAF5),
-        ),
-      ),
-      child: const Column(
-        children: [
-          _ProgressRow(
-            title: 'Published packages',
-            value: '74%',
-            progress: 0.74,
-          ),
-          SizedBox(height: 11),
-          _ProgressRow(
-            title: 'Confirmed bookings',
-            value: '61%',
-            progress: 0.61,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProgressRow extends StatelessWidget {
-  const _ProgressRow({
-    required this.title,
-    required this.value,
-    required this.progress,
-  });
-
-  final String title;
-  final String value;
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  color: WebPortalLandingScreen.ink,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            Text(
-              value,
-              style: const TextStyle(
-                color: WebPortalLandingScreen.primaryBlue,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 6),
-
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 5,
-            color: WebPortalLandingScreen.primaryBlue,
-            backgroundColor: const Color(0xFFE7EEF8),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ============================================================
-// SECURITY BANNER
-// ============================================================
-
-class _SecurityBanner extends StatelessWidget {
-  const _SecurityBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 11,
-        vertical: 9,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0FAF4),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFD7F0E0),
-        ),
-      ),
       child: const Row(
         children: [
-          Icon(
-            Icons.verified_user_rounded,
-            color: Color(0xFF239451),
-            size: 17,
-          ),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Role-based access for authorized tourism offices',
-              style: TextStyle(
-                color: Color(0xFF397154),
-                fontSize: 9,
-                height: 1.25,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+          _FlowHeroIcon(),
 
-// ============================================================
-// TRUST STRIP
-// ============================================================
-
-class _TrustStrip extends StatelessWidget {
-  const _TrustStrip({
-    required this.isMobile,
-    required this.isSmallMobile,
-  });
-
-  final bool isMobile;
-  final bool isSmallMobile;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      const _TrustItem(
-        icon: Icons.map_rounded,
-        title: 'Destinations',
-        subtitle: 'Tourism spots',
-      ),
-      const _TrustItem(
-        icon: Icons.inventory_2_rounded,
-        title: 'Packages',
-        subtitle: 'Tour offerings',
-      ),
-      const _TrustItem(
-        icon: Icons.receipt_long_rounded,
-        title: 'Bookings',
-        subtitle: 'Reservations',
-      ),
-      const _TrustItem(
-        icon: Icons.badge_rounded,
-        title: 'Drivers',
-        subtitle: 'Tour partners',
-      ),
-    ];
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(
-        isMobile ? 11 : 17,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.80),
-        borderRadius: BorderRadius.circular(
-          isMobile ? 18 : 20,
-        ),
-        border: Border.all(
-          color: const Color(0xFFDDE8F5),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF153C72).withOpacity(0.045),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth < 700) {
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 9,
-                mainAxisSpacing: 9,
-                childAspectRatio: 2.55,
-              ),
-              itemBuilder: (_, index) {
-                return items[index];
-              },
-            );
-          }
-
-          return Row(
-            children: [
-              Expanded(child: items[0]),
-              _VerticalDivider(),
-              Expanded(child: items[1]),
-              _VerticalDivider(),
-              Expanded(child: items[2]),
-              _VerticalDivider(),
-              Expanded(child: items[3]),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ============================================================
-// TRUST ITEM
-// ============================================================
-
-class _TrustItem extends StatelessWidget {
-  const _TrustItem({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 7,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-          color: const Color(0xFFE4ECF6),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(
-              icon,
-              color: WebPortalLandingScreen.primaryBlue,
-              size: 16,
-            ),
-          ),
-
-          const SizedBox(width: 7),
+          SizedBox(width: 13),
 
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: WebPortalLandingScreen.ink,
-                    fontSize: 10.5,
+                  'One coordinated tourism platform',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 1),
+                SizedBox(height: 5),
                 Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: WebPortalLandingScreen.muted,
-                    fontSize: 8.5,
+                  'Manage tourism operations through connected, role-based workspaces.',
+                  style: TextStyle(
+                    color: Color(0xFFDCE9FF),
+                    fontSize: 10.5,
+                    height: 1.4,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1376,70 +944,214 @@ class _TrustItem extends StatelessWidget {
   }
 }
 
-// ============================================================
-// VERTICAL DIVIDER
-// ============================================================
+class _FlowHeroIcon extends StatelessWidget {
+  const _FlowHeroIcon();
 
-class _VerticalDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 1,
-      height: 38,
-      margin: const EdgeInsets.symmetric(
-        horizontal: 10,
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(13),
       ),
-      color: const Color(0xFFE2EAF4),
+      child: const Icon(
+        Icons.account_tree_rounded,
+        color: Colors.white,
+        size: 23,
+      ),
     );
   }
 }
 
 // ============================================================
-// FOOTER
+// WORKFLOW
 // ============================================================
 
-class _FooterNote extends StatelessWidget {
-  const _FooterNote({
-    required this.isMobile,
+class _Workflow extends StatelessWidget {
+  const _Workflow();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        _WorkflowStep(
+          number: '01',
+          icon: Icons.account_balance_rounded,
+          title: 'Tourism offices manage operations',
+          description:
+              'Authorized offices maintain tourism information and services.',
+        ),
+
+        _WorkflowConnector(),
+
+        _WorkflowStep(
+          number: '02',
+          icon: Icons.route_rounded,
+          title: 'Tour services are coordinated',
+          description:
+              'Packages, bookings, destinations, and tour partners work together.',
+        ),
+
+        _WorkflowConnector(),
+
+        _WorkflowStep(
+          number: '03',
+          icon: Icons.travel_explore_rounded,
+          title: 'Tourists experience Bulacan',
+          description:
+              'Travel services are organized through one connected platform.',
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkflowStep extends StatelessWidget {
+  const _WorkflowStep({
+    required this.number,
+    required this.icon,
+    required this.title,
+    required this.description,
   });
 
-  final bool isMobile;
+  final String number;
+  final IconData icon;
+  final String title;
+  final String description;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 13 : 18,
-        vertical: 10,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 11,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.48),
-        borderRadius: BorderRadius.circular(999),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFE2EAF3),
+          color: const Color(0xFFE0E9F4),
         ),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 6,
-            height: 6,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: WebPortalLandingScreen.green,
+            width: 37,
+            height: 37,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: WebPortalLandingScreen.primaryBlue,
             ),
           ),
-          const SizedBox(width: 7),
-          Flexible(
+
+          const SizedBox(width: 11),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: WebPortalLandingScreen.ink,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+
+                const SizedBox(height: 3),
+
+                Text(
+                  description,
+                  style: const TextStyle(
+                    color: WebPortalLandingScreen.muted,
+                    fontSize: 9.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          Text(
+            number,
+            style: TextStyle(
+              color:
+                  WebPortalLandingScreen.primaryBlue.withOpacity(0.55),
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkflowConnector extends StatelessWidget {
+  const _WorkflowConnector();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 2,
+      height: 10,
+      color: const Color(0xFFD5E2F2),
+    );
+  }
+}
+
+// ============================================================
+// SECURITY NOTE
+// ============================================================
+
+class _PortalSecurityNote extends StatelessWidget {
+  const _PortalSecurityNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FAF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFD5EFDF),
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.verified_user_rounded,
+            size: 17,
+            color: Color(0xFF249450),
+          ),
+
+          SizedBox(width: 8),
+
+          Expanded(
             child: Text(
-              'One system. Many partners. Stronger Bulacan tourism.',
-              textAlign: TextAlign.center,
+              'Role-based access helps keep tourism operations organized and controlled.',
               style: TextStyle(
-                color: const Color(0xFF72839A),
-                fontSize: isMobile ? 9.5 : 10.5,
+                color: Color(0xFF397154),
+                fontSize: 10.5,
+                height: 1.35,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.1,
               ),
             ),
           ),
@@ -1450,47 +1162,160 @@ class _FooterNote extends StatelessWidget {
 }
 
 // ============================================================
-// BACKGROUND
+// BOTTOM TRUST BAR
 // ============================================================
 
-class _BackgroundDecoration extends StatelessWidget {
-  const _BackgroundDecoration();
+class _BottomTrustBar extends StatelessWidget {
+  const _BottomTrustBar();
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 700;
+
+        if (compact) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: _bottomBarDecoration(),
+            child: const Column(
+              children: [
+                _TrustStatement(
+                  icon: Icons.shield_outlined,
+                  title: 'Role-based access',
+                  description: 'Access based on assigned responsibilities',
+                ),
+                SizedBox(height: 10),
+                _TrustStatement(
+                  icon: Icons.location_on_outlined,
+                  title: 'Built for Bulacan',
+                  description: 'Designed around provincial and local tourism',
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 13,
+          ),
+          decoration: _bottomBarDecoration(),
+          child: const Row(
+            children: [
+              Expanded(
+                child: _TrustStatement(
+                  icon: Icons.shield_outlined,
+                  title: 'Role-based administration',
+                  description:
+                      'Access aligned with tourism office responsibilities',
+                ),
+              ),
+
+              _BottomDivider(),
+
+              Expanded(
+                child: _TrustStatement(
+                  icon: Icons.account_tree_outlined,
+                  title: 'Connected operations',
+                  description:
+                      'Provincial and local tourism offices in one platform',
+                ),
+              ),
+
+              _BottomDivider(),
+
+              Expanded(
+                child: _TrustStatement(
+                  icon: Icons.location_on_outlined,
+                  title: 'Built for Bulacan',
+                  description:
+                      'Focused on coordinated local tourism management',
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  BoxDecoration _bottomBarDecoration() {
+    return BoxDecoration(
+      color: Colors.white.withOpacity(0.82),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: const Color(0xFFDDE8F5),
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFF153C72).withOpacity(0.035),
+          blurRadius: 18,
+          offset: const Offset(0, 7),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrustStatement extends StatelessWidget {
+  const _TrustStatement({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
       children: [
-        const Positioned.fill(
-          child: CustomPaint(
-            painter: _BackgroundPainter(),
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEDF4FF),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: WebPortalLandingScreen.primaryBlue,
           ),
         ),
 
-        Positioned(
-          top: -170,
-          right: -130,
-          child: _SoftCircle(
-            size: 420,
-            color: const Color(0xFF5EA2FF),
-          ),
-        ),
+        const SizedBox(width: 10),
 
-        Positioned(
-          bottom: -180,
-          left: -150,
-          child: _SoftCircle(
-            size: 430,
-            color: const Color(0xFF4ED19B),
-          ),
-        ),
-
-        Positioned(
-          top: 180,
-          left: -80,
-          child: _SoftCircle(
-            size: 170,
-            color: const Color(0xFFFFD45C),
-            opacity: 0.045,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: WebPortalLandingScreen.ink,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                description,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: WebPortalLandingScreen.muted,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1498,15 +1323,78 @@ class _BackgroundDecoration extends StatelessWidget {
   }
 }
 
+class _BottomDivider extends StatelessWidget {
+  const _BottomDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 34,
+      margin: const EdgeInsets.symmetric(
+        horizontal: 18,
+      ),
+      color: const Color(0xFFE1E9F3),
+    );
+  }
+}
+
 // ============================================================
-// SOFT CIRCLE
+// BACKGROUND
 // ============================================================
 
-class _SoftCircle extends StatelessWidget {
-  const _SoftCircle({
+class _LandingBackground extends StatelessWidget {
+  const _LandingBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: const [
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _LandingBackgroundPainter(),
+          ),
+        ),
+
+        Positioned(
+          top: -170,
+          right: -135,
+          child: _GlowCircle(
+            size: 420,
+            color: Color(0xFF5EA2FF),
+            opacity: 0.075,
+          ),
+        ),
+
+        Positioned(
+          bottom: -190,
+          left: -155,
+          child: _GlowCircle(
+            size: 440,
+            color: Color(0xFF4ED19B),
+            opacity: 0.065,
+          ),
+        ),
+
+        Positioned(
+          top: 170,
+          left: -90,
+          child: _GlowCircle(
+            size: 180,
+            color: Color(0xFFFFD45C),
+            opacity: 0.03,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GlowCircle extends StatelessWidget {
+  const _GlowCircle({
     required this.size,
     required this.color,
-    this.opacity = 0.10,
+    required this.opacity,
   });
 
   final double size;
@@ -1524,8 +1412,8 @@ class _SoftCircle extends StatelessWidget {
           color: color.withOpacity(opacity),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(opacity * 0.65),
-              blurRadius: 90,
+              color: color.withOpacity(opacity * 0.45),
+              blurRadius: 100,
               spreadRadius: 20,
             ),
           ],
@@ -1539,19 +1427,19 @@ class _SoftCircle extends StatelessWidget {
 // BACKGROUND PAINTER
 // ============================================================
 
-class _BackgroundPainter extends CustomPainter {
-  const _BackgroundPainter();
+class _LandingBackgroundPainter extends CustomPainter {
+  const _LandingBackgroundPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
-    final background = Paint()
+    final backgroundPaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
           Color(0xFFF8FBFF),
-          Color(0xFFF0F7FF),
-          Color(0xFFF7FBF8),
+          Color(0xFFF2F7FF),
+          Color(0xFFF8FBF9),
         ],
       ).createShader(
         Rect.fromLTWH(
@@ -1564,15 +1452,11 @@ class _BackgroundPainter extends CustomPainter {
 
     canvas.drawRect(
       Offset.zero & size,
-      background,
+      backgroundPaint,
     );
 
-    // --------------------------------------------------------
-    // SUBTLE GRID
-    // --------------------------------------------------------
-
     final gridPaint = Paint()
-      ..color = const Color(0xFFBFD4EA).withOpacity(0.13)
+      ..color = const Color(0xFFBFD4EA).withOpacity(0.055)
       ..strokeWidth = 1;
 
     const spacing = 64.0;
@@ -1593,56 +1477,50 @@ class _BackgroundPainter extends CustomPainter {
       );
     }
 
-    // --------------------------------------------------------
-    // DECORATIVE TRAVEL ROUTE
-    // --------------------------------------------------------
-
     final routePaint = Paint()
-      ..color = const Color(0xFF1557D6).withOpacity(0.045)
+      ..color =
+          WebPortalLandingScreen.primaryBlue.withOpacity(0.035)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 2.4;
 
-    final route = Path();
+    final path = Path();
 
-    route.moveTo(
+    path.moveTo(
       size.width * 0.02,
-      size.height * 0.72,
+      size.height * 0.73,
     );
 
-    route.cubicTo(
-      size.width * 0.22,
+    path.cubicTo(
+      size.width * 0.20,
       size.height * 0.56,
-      size.width * 0.33,
+      size.width * 0.34,
       size.height * 0.82,
       size.width * 0.53,
       size.height * 0.64,
     );
 
-    route.cubicTo(
+    path.cubicTo(
       size.width * 0.70,
       size.height * 0.49,
-      size.width * 0.79,
+      size.width * 0.80,
       size.height * 0.58,
       size.width * 1.02,
       size.height * 0.38,
     );
 
     canvas.drawPath(
-      route,
+      path,
       routePaint,
     );
 
-    // --------------------------------------------------------
-    // ROUTE DOTS
-    // --------------------------------------------------------
-
     final dotPaint = Paint()
-      ..color = const Color(0xFF39A447).withOpacity(0.09);
+      ..color =
+          WebPortalLandingScreen.green.withOpacity(0.075);
 
-    final points = [
+    final dots = [
       Offset(
         size.width * 0.22,
-        size.height * 0.67,
+        size.height * 0.68,
       ),
       Offset(
         size.width * 0.53,
@@ -1654,10 +1532,10 @@ class _BackgroundPainter extends CustomPainter {
       ),
     ];
 
-    for (final point in points) {
+    for (final dot in dots) {
       canvas.drawCircle(
-        point,
-        5,
+        dot,
+        4.5,
         dotPaint,
       );
     }

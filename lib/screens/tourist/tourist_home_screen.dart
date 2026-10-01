@@ -758,7 +758,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     const navBarBodyHeight = 92.0;
     final navTotalH = navBarBodyHeight + bottomInset;
 
-    final heroH = (size.height * 0.45).clamp(370.0, 440.0);
+    final heroH = (size.height * 0.43).clamp(350.0, 420.0);
 
     final sheetTop = heroH;
     final sheetHeight = size.height - media.padding.top - navTotalH;
@@ -921,8 +921,12 @@ class _MunicipalityHero extends StatelessWidget {
 
   Future<void> _openAttribution() async {
     final uri = Uri.tryParse(data.cover.sourceUrl);
+
     if (uri != null) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
     }
   }
 
@@ -930,76 +934,110 @@ class _MunicipalityHero extends StatelessWidget {
   Widget build(BuildContext context) {
     return ColoredBox(
       color: const Color(0xFFF7F9FC),
-      child: Column(
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _ResilientCoverImage(
-                      selection: data.cover,
-                      key: ValueKey(
-                        '${data.municipality}-${data.cover.imageUrl}',
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 8,
+            bottom: 42,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _ResilientCoverImage(
+                    selection: data.cover,
+                    key: ValueKey(
+                      '${data.municipality}-${data.cover.imageUrl}',
+                    ),
+                  ),
+
+                  // Dark overlay so the header remains readable
+                  // on bright municipality cover photos.
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0x9900173D),
+                          Color(0x1400173D),
+                          Color(0x8500173D),
+                        ],
+                        stops: [0.0, 0.48, 1.0],
                       ),
                     ),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0xA600173D),
-                            Color(0x1900173D),
-                            Color(0xC700173D),
-                          ],
-                          stops: [0, .48, 1],
-                        ),
+                  ),
+
+                  SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        16,
+                        10,
+                        16,
+                        62,
                       ),
-                    ),
-                    SafeArea(
-                      bottom: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                _AvatarWithDot(imageUrl: data.avatarUrl),
-                                const SizedBox(width: 11),
-                                Expanded(
-                                  child: Text(
-                                    'WELCOME BACK\n${data.fullName}',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.2,
-                                      shadows: [
-                                        Shadow(
-                                          blurRadius: 8,
-                                          color: Colors.black38,
-                                        ),
-                                      ],
-                                    ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // LEFT AVATAR IS NOW THE PROFILE BUTTON.
+                              _AvatarWithDot(
+                                imageUrl: data.avatarUrl,
+                                onTap: onProfileTap,
+                              ),
+
+                              const SizedBox(width: 11),
+
+                              Expanded(
+                                child: Text(
+                                  'WELCOME BACK\n${data.fullName}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.2,
+                                    shadows: [
+                                      Shadow(
+                                        blurRadius: 8,
+                                        color: Colors.black38,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const NotificationBell(color: Colors.white),
-                                _WhiteCircleButton(
-                                  icon: Icons.person_outline_rounded,
-                                  onTap: onProfileTap,
-                                ),
-                              ],
-                            ),
-                            const Spacer(),
-                            if (data.cover.attribution.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              InkWell(
+                              ),
+
+                              const SizedBox(width: 8),
+
+                              // Notification stays on the right.
+                              const NotificationBell(
+                                color: Colors.white,
+                              ),
+
+                              // Removed:
+                              // _WhiteCircleButton(
+                              //   icon: Icons.person_outline_rounded,
+                              //   onTap: onProfileTap,
+                              // ),
+                            ],
+                          ),
+
+                          const Spacer(),
+
+                          if (data.cover.attribution.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                left: 4,
+                                right: 4,
+                                bottom: 5,
+                              ),
+                              child: InkWell(
                                 onTap: data.cover.sourceUrl.isEmpty
                                     ? null
                                     : _openAttribution,
@@ -1008,57 +1046,38 @@ class _MunicipalityHero extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Colors.white.withValues(alpha: .82),
-                                    fontSize: 10.5,
-                                    decoration: data.cover.sourceUrl.isEmpty
+                                    color: Colors.white.withValues(
+                                      alpha: 0.78,
+                                    ),
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w500,
+                                    decoration:
+                                        data.cover.sourceUrl.isEmpty
                                         ? null
                                         : TextDecoration.underline,
                                     decorationColor: Colors.white70,
                                   ),
                                 ),
                               ),
-                            ],
-                          ],
-                        ),
+                            ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 11, 18, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Where do you want to go?',
-                  style: TextStyle(
-                    color: Color(0xFF111827),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _LocationChip(
-                        text: data.cityText,
-                        onTap: onPickLocation,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _MapActionButton(
-                      icon: usingManualLocation
-                          ? Icons.gps_fixed_rounded
-                          : Icons.my_location_rounded,
-                      onTap: onUsePhoneLocation,
-                    ),
-                  ],
-                ),
-              ],
+
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 7,
+            child: _FloatingLocationSelector(
+              text: data.cityText,
+              usingManualLocation: usingManualLocation,
+              onLocationTap: onPickLocation,
+              onGpsTap: onUsePhoneLocation,
             ),
           ),
         ],
@@ -1541,68 +1560,94 @@ class _ErrorState extends StatelessWidget {
 // ============================================================================
 
 class _AvatarWithDot extends StatelessWidget {
-  const _AvatarWithDot({required this.imageUrl});
+  const _AvatarWithDot({
+    required this.imageUrl,
+    required this.onTap,
+  });
 
   final String imageUrl;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 56,
-      height: 56,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.96),
-                  width: 2.5,
+    return Semantics(
+      button: true,
+      label: 'Open profile',
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          splashColor: Colors.white.withValues(alpha: 0.20),
+          highlightColor: Colors.white.withValues(alpha: 0.10),
+          child: SizedBox(
+            width: 56,
+            height: 56,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.96),
+                        width: 2.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.13),
+                          blurRadius: 14,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: ClipOval(
+                      child: imageUrl.isNotEmpty
+                          ? Image.network(
+                              imageUrl,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const _AvatarFallback(),
+                            )
+                          : const _AvatarFallback(),
+                    ),
+                  ),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.13),
-                    blurRadius: 14,
-                    offset: const Offset(0, 5),
+
+                // Online/active indicator.
+                Positioned(
+                  right: 1,
+                  bottom: 2,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 13,
+                      height: 13,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF22C55E),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
-              ),
-              child: ClipOval(
-                child: imageUrl.isNotEmpty
-                    ? Image.network(
-                        imageUrl,
-                        width: 56,
-                        height: 56,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const _AvatarFallback(),
-                      )
-                    : const _AvatarFallback(),
-              ),
+                ),
+              ],
             ),
           ),
-          Positioned(
-            right: 1,
-            bottom: 2,
-            child: Container(
-              width: 13,
-              height: 13,
-              decoration: BoxDecoration(
-                color: const Color(0xFF22C55E),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1624,126 +1669,151 @@ class _AvatarFallback extends StatelessWidget {
   }
 }
 
-class _WhiteCircleButton extends StatelessWidget {
-  const _WhiteCircleButton({
-    required this.icon,
-    required this.onTap,
-    this.size = 44,
+
+class _FloatingLocationSelector extends StatelessWidget {
+  const _FloatingLocationSelector({
+    required this.text,
+    required this.usingManualLocation,
+    required this.onLocationTap,
+    required this.onGpsTap,
   });
 
-  final IconData icon;
-  final VoidCallback onTap;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.96),
-      shape: const CircleBorder(),
-      elevation: 0,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
-                blurRadius: 15,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Icon(icon, color: const Color(0xFF2185F5), size: 21),
-        ),
-      ),
-    );
-  }
-}
-
-class _MapActionButton extends StatelessWidget {
-  const _MapActionButton({required this.icon, required this.onTap});
-
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _WhiteCircleButton(icon: icon, onTap: onTap, size: 48);
-  }
-}
-
-class _LocationChip extends StatelessWidget {
-  const _LocationChip({required this.text, required this.onTap});
-
   final String text;
-  final VoidCallback onTap;
+  final bool usingManualLocation;
+  final VoidCallback onLocationTap;
+  final VoidCallback onGpsTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.97),
-      borderRadius: BorderRadius.circular(16),
-      elevation: 0,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF24334B).withValues(alpha: 0.10),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
+    return Container(
+      height: 66,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.98),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white, width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1B2A41).withValues(alpha: 0.13),
+            blurRadius: 26,
+            offset: const Offset(0, 10),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 29,
-                height: 29,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF4FF),
-                  borderRadius: BorderRadius.circular(9),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.80),
+            blurRadius: 4,
+            offset: const Offset(0, -1),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onLocationTap,
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(22),
                 ),
-                child: const Icon(
-                  Icons.location_on_rounded,
-                  color: Color(0xFF2185F5),
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF172033),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13.5,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF6FF),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.location_on_rounded,
+                          color: Color(0xFF2185F5),
+                          size: 23,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Where do you want to go?',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Color(0xFF8B98A9),
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.1,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              text,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF172033),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.15,
+                                height: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: Color(0xFF53657A),
+                        size: 23,
+                      ),
+                      const SizedBox(width: 2),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
-              const Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: Color(0xFF7B899C),
-                size: 22,
-              ),
-            ],
+            ),
           ),
-        ),
+          Container(
+            width: 1,
+            height: 34,
+            color: const Color(0xFFE8EEF5),
+          ),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onGpsTap,
+              borderRadius: const BorderRadius.horizontal(
+                right: Radius.circular(22),
+              ),
+              child: SizedBox(
+                width: 65,
+                height: 66,
+                child: Center(
+                  child: Container(
+                    width: 43,
+                    height: 43,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F7FF),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFFDCEBFB)),
+                    ),
+                    child: Icon(
+                      usingManualLocation
+                          ? Icons.gps_fixed_rounded
+                          : Icons.my_location_rounded,
+                      color: const Color(0xFF2185F5),
+                      size: 23,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
