@@ -33,7 +33,7 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
   // ===========================================================================
 
   static const String logoUrl =
-      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/Logo.png';
+      'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo_wobg.png';
 
   static const Color _blue = Color(0xFF1557D6);
   static const Color _brightBlue = Color(0xFF2A82F2);
