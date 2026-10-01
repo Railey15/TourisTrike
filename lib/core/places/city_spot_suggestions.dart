@@ -403,11 +403,7 @@ class CitySpotSuggestionService {
           city: city,
           province: province,
           address: address,
-          description: _buildDescription(
-            city: city,
-            province: province,
-            category: category,
-          ),
+          description: '',
           reason: _buildReason(city: city, category: category, rating: rating),
           latitude: lat,
           longitude: lng,
@@ -729,14 +725,6 @@ class CitySpotSuggestionService {
     }
 
     return false;
-  }
-
-  String _buildDescription({
-    required String city,
-    required String province,
-    required String category,
-  }) {
-    return '$category destination suggestion for visitors exploring $city, $province.';
   }
 
   String _buildReason({

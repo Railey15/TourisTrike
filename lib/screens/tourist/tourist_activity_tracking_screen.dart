@@ -20,6 +20,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/components/tourist/driver_review_modal.dart';
 import 'package:touristrike/components/tourist/share_trip_bottom_sheet.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
+import 'package:touristrike/core/policies/live_tour_visibility.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/emergency_service.dart';
 import 'package:touristrike/widgets/emergency_alert_form.dart';
@@ -127,6 +128,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   DateTime? _lastTouristLocationUploadAt;
   LatLng? _lastTouristUploadedPosition;
   bool _touristLocationUploadInFlight = false;
+  bool _touristGpsStarting = false;
 
   StreamSubscription<Position>? _touristGpsSub;
   Timer? _routeRefreshTimer;
@@ -154,6 +156,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   int get _completedSpotCount =>
       _spots.where((spot) => spot.spotStatus == 'completed').length;
+
+  bool get _canShowLiveTourMap => LiveTourVisibility.tourist(
+    roster: _convoy,
+    statuses: [
+      _booking?.status,
+      _booking?.bookingStatus,
+      _activity?.status,
+      _activity?.tourStatus,
+    ],
+  );
 
   // =========================================================================
   // PAYMENT HELPERS
@@ -662,7 +674,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _debugTourState('load');
 
       _buildMarkers();
-      _fetchCurrentRoute();
+      if (_canShowLiveTourMap) _fetchCurrentRoute();
 
       _subscribeToActivity();
       _subscribeToConvoyRoster();
@@ -671,7 +683,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       unawaited(_refreshPaymentPromptState());
 
       _checkAndShowReviewModal();
-      _startTouristGpsStreaming();
+      _syncLiveTracking();
     } catch (e) {
       if (!mounted) return;
 
@@ -725,7 +737,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
     });
     _buildMarkers();
-    unawaited(_fetchCurrentRoute());
+    _syncLiveTracking();
+    if (_canShowLiveTourMap) unawaited(_fetchCurrentRoute());
   }
 
   void _subscribeToActivity() {
@@ -757,6 +770,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
               _activity = updated;
             });
 
+            _syncLiveTracking();
+
             _buildMarkers();
 
             if (updated.tourStatus != previousStatus) {
@@ -772,7 +787,63 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         )
         .subscribe();
 
-    _locationChannel?.unsubscribe();
+    _syncLiveTracking();
+
+    _itineraryChannel?.unsubscribe();
+
+    _itineraryChannel = _supabase
+        .channel('itinerary:${widget.bookingId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'booking_itinerary_items',
+          filter: PostgresChangeFilter(
+            column: 'booking_id',
+            type: PostgresChangeFilterType.eq,
+            value: widget.bookingId,
+          ),
+          callback: (payload) {
+            final newRow = payload.newRecord;
+
+            if (!mounted) return;
+
+            if (newRow.isNotEmpty) {
+              final itemId = newRow['id']?.toString();
+
+              if (itemId != null && itemId.isNotEmpty) {
+                setState(() {
+                  _spots = _spots.map((spot) {
+                    if (spot.id?.toString() == itemId) {
+                      return BookingItineraryItem(
+                        Map<String, dynamic>.from({...spot.row, ...newRow}),
+                      );
+                    }
+
+                    return spot;
+                  }).toList();
+                });
+              }
+            }
+
+            _refreshSpots(logTag: 'itinerary-update');
+          },
+        )
+        .subscribe();
+  }
+
+  void _syncLiveTracking() {
+    if (!_canShowLiveTourMap) {
+      _locationChannel?.unsubscribe();
+      _locationChannel = null;
+      _touristGpsSub?.cancel();
+      _touristGpsSub = null;
+      _routeRefreshTimer?.cancel();
+      return;
+    }
+    if (_touristGpsSub == null && !_touristGpsStarting) {
+      unawaited(_startTouristGpsStreaming());
+    }
+    if (_locationChannel != null) return;
     _locationChannel = _supabase
         .channel('convoy-live-loc:${widget.bookingId}')
         .onPostgresChanges(
@@ -783,6 +854,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             final row = payload.newRecord;
             final driverId = row['driver_id']?.toString() ?? '';
             if (!mounted ||
+                !_canShowLiveTourMap ||
                 driverId.isEmpty ||
                 !_convoy.any((driver) => driver.driverId == driverId)) {
               return;
@@ -825,47 +897,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
               },
             );
             _scheduleRouteRefresh();
-          },
-        )
-        .subscribe();
-
-    _itineraryChannel?.unsubscribe();
-
-    _itineraryChannel = _supabase
-        .channel('itinerary:${widget.bookingId}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'booking_itinerary_items',
-          filter: PostgresChangeFilter(
-            column: 'booking_id',
-            type: PostgresChangeFilterType.eq,
-            value: widget.bookingId,
-          ),
-          callback: (payload) {
-            final newRow = payload.newRecord;
-
-            if (!mounted) return;
-
-            if (newRow.isNotEmpty) {
-              final itemId = newRow['id']?.toString();
-
-              if (itemId != null && itemId.isNotEmpty) {
-                setState(() {
-                  _spots = _spots.map((spot) {
-                    if (spot.id?.toString() == itemId) {
-                      return BookingItineraryItem(
-                        Map<String, dynamic>.from({...spot.row, ...newRow}),
-                      );
-                    }
-
-                    return spot;
-                  }).toList();
-                });
-              }
-            }
-
-            _refreshSpots(logTag: 'itinerary-update');
           },
         )
         .subscribe();
@@ -1049,6 +1080,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     _debugTourState(logTag);
 
     _buildMarkers();
+    _syncLiveTracking();
     _fetchCurrentRoute();
 
     _checkAndShowReviewModal();
@@ -1109,6 +1141,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // =========================================================================
 
   Future<void> _startTouristGpsStreaming() async {
+    if (_touristGpsStarting || !_canShowLiveTourMap) return;
+    _touristGpsStarting = true;
     try {
       var permission = await Geolocator.checkPermission();
 
@@ -1117,7 +1151,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
 
       if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
+          permission == LocationPermission.deniedForever ||
+          !_canShowLiveTourMap) {
         return;
       }
 
@@ -1130,7 +1165,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
               distanceFilter: 10,
             ),
           ).listen((position) async {
-            if (!mounted) return;
+            if (!mounted || !_canShowLiveTourMap) return;
 
             setState(() {
               _touristPosition = position;
@@ -1150,7 +1185,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     point.latitude,
                     point.longitude,
                   );
-            if (!_touristLocationUploadInFlight &&
+            if (_canShowLiveTourMap &&
+                !_touristLocationUploadInFlight &&
                 (elapsed >= const Duration(seconds: 15) ||
                     (elapsed >= const Duration(seconds: 5) && moved >= 3))) {
               _touristLocationUploadInFlight = true;
@@ -1174,7 +1210,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
               }
             }
           });
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _touristGpsStarting = false;
+    }
   }
 
   // =========================================================================
@@ -1341,6 +1380,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Future<void> _fetchCurrentRoute() async {
     if (!mounted) return;
+    if (!_canShowLiveTourMap) {
+      _routeRefreshTimer?.cancel();
+      setState(() {
+        _polylines = {};
+        _eta = null;
+      });
+      return;
+    }
     final activity = _activity;
     final destination = _isTourCompleted() ? null : _currentRouteDestination();
     if (_convoy.isNotEmpty) _hadConvoyRouteRoster = true;
@@ -1380,7 +1427,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       phase: activity?.tourStatus ?? '',
       load: (origin, target) => _routeService.fetchRoute(origin, target),
       onChanged: () {
-        if (!mounted) return;
+        if (!mounted || !_canShowLiveTourMap) return;
         final routes = _convoyRoutes.routes;
         setState(() {
           _polylines = buildConvoyRoutePolylines(routes);
@@ -2020,42 +2067,43 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // MAP
                 // ===========================================================
-                _TourMapCard(
-                  initialCenter: _initialCenter,
-                  markers: _markers,
-                  polylines: _polylines,
-                  isFollowing: _isFollowingDriver,
-                  onMapCreated: (controller) {
-                    _mapCtrl = controller;
-                    _animateCameraToRelevant();
-                  },
-                  onCameraMoveStarted: () {
-                    if (!_isProgrammaticMove && _isFollowingDriver) {
+                if (_canShowLiveTourMap)
+                  _TourMapCard(
+                    initialCenter: _initialCenter,
+                    markers: _markers,
+                    polylines: _polylines,
+                    isFollowing: _isFollowingDriver,
+                    onMapCreated: (controller) {
+                      _mapCtrl = controller;
+                      _animateCameraToRelevant();
+                    },
+                    onCameraMoveStarted: () {
+                      if (!_isProgrammaticMove && _isFollowingDriver) {
+                        setState(() {
+                          _isFollowingDriver = false;
+                        });
+                      }
+                    },
+                    onCameraIdle: () {
+                      _isProgrammaticMove = false;
+                    },
+                    onPickupTap: () {
                       setState(() {
                         _isFollowingDriver = false;
                       });
-                    }
-                  },
-                  onCameraIdle: () {
-                    _isProgrammaticMove = false;
-                  },
-                  onPickupTap: () {
-                    setState(() {
-                      _isFollowingDriver = false;
-                    });
 
-                    _animateCameraToPickup();
-                  },
-                  onDriverTap: () {
-                    setState(() {
-                      _isFollowingDriver = true;
-                    });
+                      _animateCameraToPickup();
+                    },
+                    onDriverTap: () {
+                      setState(() {
+                        _isFollowingDriver = true;
+                      });
 
-                    _animateCameraToRelevant();
-                  },
-                ),
+                      _animateCameraToRelevant();
+                    },
+                  ),
 
-                const SizedBox(height: 14),
+                if (_canShowLiveTourMap) const SizedBox(height: 14),
 
                 if (enRouteStatusCard != null) ...[
                   enRouteStatusCard,
@@ -2160,11 +2208,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ITINERARY
                 // ===========================================================
                 if (_spots.isNotEmpty) ...[
-                  _ItineraryProgressCard(
+                  TourItineraryProgressCard(
                     spots: _spots,
                     currentItemId: _currentItineraryItem?.id?.toString(),
                     tourStatus: tourStatus,
-                    onShare: !completed
+                    onShare: _canShowLiveTourMap
                         ? () {
                             ShareTripBottomSheet.show(
                               context,
@@ -3429,8 +3477,9 @@ class _DriverContactButton extends StatelessWidget {
 // ITINERARY
 // ============================================================================
 
-class _ItineraryProgressCard extends StatelessWidget {
-  const _ItineraryProgressCard({
+class TourItineraryProgressCard extends StatelessWidget {
+  const TourItineraryProgressCard({
+    super.key,
     required this.spots,
     required this.currentItemId,
     required this.tourStatus,
@@ -3550,15 +3599,47 @@ class _ItineraryProgressCard extends StatelessWidget {
               last: index == spots.length - 1,
             );
           }),
-          if (onShare != null && _tourIsActive(tourStatus)) ...[
+          if (onShare != null) ...[
             const Divider(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onShare,
-                icon: const Icon(Icons.share_location_outlined),
-                label: const Text('Share Trip'),
-              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final shareButton = OutlinedButton.icon(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_outlined, size: 17),
+                  label: const Text('Share'),
+                );
+                final copy = const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Share this trip',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: _ink,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Let someone follow your current tour progress.',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ],
+                );
+                if (constraints.maxWidth < 330 ||
+                    MediaQuery.textScalerOf(context).scale(1) > 1.25) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [copy, const SizedBox(height: 8), shareButton],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: copy),
+                    const SizedBox(width: 8),
+                    shareButton,
+                  ],
+                );
+              },
             ),
           ],
         ],

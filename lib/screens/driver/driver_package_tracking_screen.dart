@@ -22,6 +22,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
+import 'package:touristrike/core/policies/live_tour_visibility.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/services/live_marker_motion.dart';
@@ -89,6 +90,7 @@ class _DriverPackageTrackingScreenState
   String? _convoyError;
 
   RealtimeChannel? _bookingDriversChannel;
+  RealtimeChannel? _driverLocationsChannel;
   RealtimeChannel? _participantLocationChannel;
   LatLng? _touristLivePosition;
 
@@ -276,6 +278,7 @@ class _DriverPackageTrackingScreenState
   RealtimeChannel? _paymentChannel;
 
   StreamSubscription<Position>? _gpsSub;
+  bool _gpsStarting = false;
   Timer? _scheduleGateTimer;
   Timer? _routeRefreshTimer;
   int _routeLoadGeneration = 0;
@@ -302,7 +305,15 @@ class _DriverPackageTrackingScreenState
   }
 
   bool get _isBookingClosed {
-    const terminal = {'cancelled', 'completed', 'done', 'rejected', 'closed'};
+    const terminal = {
+      'cancelled',
+      'completed',
+      'done',
+      'rejected',
+      'expired',
+      'failed',
+      'closed',
+    };
     final values = [
       _booking?.status,
       _booking?.bookingStatus,
@@ -312,9 +323,17 @@ class _DriverPackageTrackingScreenState
     return values.any((value) => terminal.contains(value?.toLowerCase()));
   }
 
-  bool get _shouldShareDriverLocation =>
-      !_isBookingClosed &&
-      _myConvoyStatus?.journeyState != ConvoyJourneyState.completed;
+  bool get _canShowLiveTourMap => LiveTourVisibility.driver(
+    assignment: _myConvoyStatus,
+    statuses: [
+      _booking?.status,
+      _booking?.bookingStatus,
+      _activity?.status,
+      _activity?.tourStatus,
+    ],
+  );
+
+  bool get _shouldShareDriverLocation => _canShowLiveTourMap;
 
   bool _hasConfirmedPayment(String stage, double requiredAmount) {
     if (requiredAmount <= 0) return true;
@@ -401,6 +420,7 @@ class _DriverPackageTrackingScreenState
     _paymentChannel?.unsubscribe();
 
     _bookingDriversChannel?.unsubscribe();
+    _driverLocationsChannel?.unsubscribe();
     _participantLocationChannel?.unsubscribe();
 
     _convoyPollTimer?.cancel();
@@ -545,6 +565,10 @@ class _DriverPackageTrackingScreenState
 
         _bookingDriversChannel?.unsubscribe();
         _bookingDriversChannel = null;
+        _driverLocationsChannel?.unsubscribe();
+        _driverLocationsChannel = null;
+        _participantLocationChannel?.unsubscribe();
+        _participantLocationChannel = null;
 
         _convoyPollTimer?.cancel();
         _convoyPollTimer = null;
@@ -563,9 +587,6 @@ class _DriverPackageTrackingScreenState
         await _loadConvoy();
         _buildMarkers();
       } else {
-        _fetchCurrentRoute();
-        _startGpsStreaming();
-
         await _loadConvoy();
         _subscribeConvoyRealtime();
       }
@@ -647,10 +668,14 @@ class _DriverPackageTrackingScreenState
       });
 
       _syncConvoyTicker();
+      _syncDriverLocationSubscriptions();
 
       if (!_shouldShareDriverLocation) {
         await _gpsSub?.cancel();
         _gpsSub = null;
+        _routeRefreshTimer?.cancel();
+      } else if (_gpsSub == null) {
+        unawaited(_startGpsStreaming());
       }
 
       _buildMarkers();
@@ -707,6 +732,31 @@ class _DriverPackageTrackingScreenState
             _refreshLifecycleAndConvoy('convoy-update');
           },
         )
+        .subscribe();
+
+    _syncDriverLocationSubscriptions();
+
+    _convoyPollTimer?.cancel();
+
+    _convoyPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!_isBookingClosed) {
+        _loadConvoy();
+      }
+    });
+  }
+
+  void _syncDriverLocationSubscriptions() {
+    if (!_canShowLiveTourMap) {
+      _driverLocationsChannel?.unsubscribe();
+      _driverLocationsChannel = null;
+      _participantLocationChannel?.unsubscribe();
+      _participantLocationChannel = null;
+      _touristLivePosition = null;
+      return;
+    }
+    final bookingId = _bookingId;
+    _driverLocationsChannel ??= _supabase
+        .channel('convoy-live-location:$bookingId')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
@@ -714,7 +764,9 @@ class _DriverPackageTrackingScreenState
           callback: (payload) {
             final row = payload.newRecord;
             final driverId = row['driver_id']?.toString() ?? '';
-            if (driverId.isEmpty ||
+            if (!mounted ||
+                !_canShowLiveTourMap ||
+                driverId.isEmpty ||
                 !_convoy.any((driver) => driver.driverId == driverId)) {
               return;
             }
@@ -757,45 +809,44 @@ class _DriverPackageTrackingScreenState
         )
         .subscribe();
 
-    _participantLocationChannel?.unsubscribe();
-    _participantLocationChannel = _supabase
-        .channel('booking-participant-location:$bookingId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'booking_participant_live_locations',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'booking_id',
-            value: bookingId,
-          ),
-          callback: (payload) {
-            final row = payload.newRecord;
-            if (row['participant_role'] != 'tourist') return;
-            final lat = (row['latitude'] as num?)?.toDouble();
-            final lng = (row['longitude'] as num?)?.toDouble();
-            if (!mounted || lat == null || lng == null) return;
-            setState(() => _touristLivePosition = LatLng(lat, lng));
-            _buildMarkers();
-          },
-        )
-        .subscribe();
-    unawaited(_loadTouristLiveLocation());
-
-    _convoyPollTimer?.cancel();
-
-    _convoyPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (!_isBookingClosed) {
-        _loadConvoy();
-      }
-    });
+    if (_participantLocationChannel == null) {
+      _participantLocationChannel = _supabase
+          .channel('booking-participant-location:$bookingId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'booking_participant_live_locations',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'booking_id',
+              value: bookingId,
+            ),
+            callback: (payload) {
+              final row = payload.newRecord;
+              if (row['participant_role'] != 'tourist') return;
+              final lat = (row['latitude'] as num?)?.toDouble();
+              final lng = (row['longitude'] as num?)?.toDouble();
+              if (!mounted ||
+                  !_canShowLiveTourMap ||
+                  lat == null ||
+                  lng == null) {
+                return;
+              }
+              setState(() => _touristLivePosition = LatLng(lat, lng));
+              _buildMarkers();
+            },
+          )
+          .subscribe();
+      unawaited(_loadTouristLiveLocation());
+    }
   }
 
   Future<void> _loadTouristLiveLocation() async {
+    if (!_canShowLiveTourMap) return;
     final row = await _repo.fetchTouristLiveLocation(_bookingId);
     final lat = (row?['latitude'] as num?)?.toDouble();
     final lng = (row?['longitude'] as num?)?.toDouble();
-    if (!mounted || lat == null || lng == null) return;
+    if (!mounted || !_canShowLiveTourMap || lat == null || lng == null) return;
     setState(() => _touristLivePosition = LatLng(lat, lng));
     _buildMarkers();
   }
@@ -1068,7 +1119,16 @@ class _DriverPackageTrackingScreenState
   // =========================================================================
 
   Future<void> _startGpsStreaming() async {
-    if (!_shouldShareDriverLocation) return;
+    if (_gpsStarting || !_shouldShareDriverLocation) return;
+    _gpsStarting = true;
+    try {
+      await _beginGpsStreaming();
+    } finally {
+      _gpsStarting = false;
+    }
+  }
+
+  Future<void> _beginGpsStreaming() async {
     _gpsMonitoringStartedAt ??= DateTime.now();
 
     final ok = await _checkLocationPermission();
@@ -1083,6 +1143,7 @@ class _DriverPackageTrackingScreenState
       return;
     }
 
+    if (!mounted || !_shouldShareDriverLocation) return;
     await _gpsSub?.cancel();
 
     const settings = LocationSettings(
@@ -1090,6 +1151,7 @@ class _DriverPackageTrackingScreenState
       distanceFilter: 0,
     );
 
+    if (!mounted || !_shouldShareDriverLocation) return;
     _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen(
       (position) async {
         final activity = _activity;
@@ -1126,6 +1188,7 @@ class _DriverPackageTrackingScreenState
             return;
           }
           // Each driver always writes to their own live-location row.
+          if (!mounted || !_shouldShareDriverLocation) return;
           await _repo.upsertDriverLiveLocation(
             activityId: widget.activityId,
             latitude: position.latitude,
@@ -1646,12 +1709,18 @@ class _DriverPackageTrackingScreenState
 
     _debugTourState(logTag);
 
+    _syncDriverLocationSubscriptions();
+
     if (_isBookingClosed) {
       await _gpsSub?.cancel();
       _gpsSub = null;
 
       _bookingDriversChannel?.unsubscribe();
       _bookingDriversChannel = null;
+      _driverLocationsChannel?.unsubscribe();
+      _driverLocationsChannel = null;
+      _participantLocationChannel?.unsubscribe();
+      _participantLocationChannel = null;
 
       _convoyPollTimer?.cancel();
       _convoyPollTimer = null;
@@ -1927,7 +1996,7 @@ class _DriverPackageTrackingScreenState
   }
 
   Future<void> _fetchCurrentRoute() async {
-    if (_activity == null) return;
+    if (_activity == null || !_canShowLiveTourMap) return;
     final destination = _currentRouteDestination();
     if (destination == null) {
       if (mounted) {
@@ -1967,7 +2036,11 @@ class _DriverPackageTrackingScreenState
         }
       }),
     );
-    if (!mounted || generation != _routeLoadGeneration) return;
+    if (!mounted ||
+        !_canShowLiveTourMap ||
+        generation != _routeLoadGeneration) {
+      return;
+    }
 
     final lines = <Polyline>{};
     String? myEta;
@@ -3090,73 +3163,74 @@ class _DriverPackageTrackingScreenState
                   const SizedBox(height: 12),
                 ],
 
-                _NavigationMapCard(
-                  markers: _markers,
-                  polylines: _polylines,
-                  initialTarget:
-                      _driverLatLng() ?? _pickupLatLng() ?? _defaultCenter,
-                  isFollowing: _isFollowingDriver,
-                  showConvoyControl: _convoy.length > 1,
-                  status: status,
-                  onMapCreated: (controller) {
-                    _mapCtrl = controller;
-                  },
-                  onCameraMoveStarted: () {
-                    if (!_isProgrammaticMove && _isFollowingDriver) {
+                if (_canShowLiveTourMap)
+                  _NavigationMapCard(
+                    markers: _markers,
+                    polylines: _polylines,
+                    initialTarget:
+                        _driverLatLng() ?? _pickupLatLng() ?? _defaultCenter,
+                    isFollowing: _isFollowingDriver,
+                    showConvoyControl: _convoy.length > 1,
+                    status: status,
+                    onMapCreated: (controller) {
+                      _mapCtrl = controller;
+                    },
+                    onCameraMoveStarted: () {
+                      if (!_isProgrammaticMove && _isFollowingDriver) {
+                        setState(() {
+                          _isFollowingDriver = false;
+                        });
+                      }
+                    },
+                    onCameraIdle: () {
+                      _isProgrammaticMove = false;
+                    },
+                    onPickupTap: () {
                       setState(() {
                         _isFollowingDriver = false;
                       });
-                    }
-                  },
-                  onCameraIdle: () {
-                    _isProgrammaticMove = false;
-                  },
-                  onPickupTap: () {
-                    setState(() {
-                      _isFollowingDriver = false;
-                    });
 
-                    final pickup = _pickupLatLng();
+                      final pickup = _pickupLatLng();
 
-                    if (pickup == null) {
-                      _showSnack('Pickup location unavailable.', error: true);
-                      return;
-                    }
+                      if (pickup == null) {
+                        _showSnack('Pickup location unavailable.', error: true);
+                        return;
+                      }
 
-                    _isProgrammaticMove = true;
-
-                    _mapCtrl?.animateCamera(
-                      CameraUpdate.newLatLngZoom(pickup, 17),
-                    );
-                  },
-                  onDriverTap: () {
-                    setState(() {
-                      _isFollowingDriver = true;
-                    });
-
-                    final position = _currentPosition;
-
-                    if (position != null) {
-                      _animateCameraFollowing(
-                        LatLng(position.latitude, position.longitude),
-                        position.speed,
-                      );
-                      return;
-                    }
-
-                    final driver = _driverLatLng();
-
-                    if (driver != null) {
                       _isProgrammaticMove = true;
 
                       _mapCtrl?.animateCamera(
-                        CameraUpdate.newLatLngZoom(driver, 15),
+                        CameraUpdate.newLatLngZoom(pickup, 17),
                       );
-                    }
-                  },
-                  onConvoyTap: _fitConvoyBounds,
-                ),
-                const SizedBox(height: 14),
+                    },
+                    onDriverTap: () {
+                      setState(() {
+                        _isFollowingDriver = true;
+                      });
+
+                      final position = _currentPosition;
+
+                      if (position != null) {
+                        _animateCameraFollowing(
+                          LatLng(position.latitude, position.longitude),
+                          position.speed,
+                        );
+                        return;
+                      }
+
+                      final driver = _driverLatLng();
+
+                      if (driver != null) {
+                        _isProgrammaticMove = true;
+
+                        _mapCtrl?.animateCamera(
+                          CameraUpdate.newLatLngZoom(driver, 15),
+                        );
+                      }
+                    },
+                    onConvoyTap: _fitConvoyBounds,
+                  ),
+                if (_canShowLiveTourMap) const SizedBox(height: 14),
                 if (!assignmentCompleted && _spots.isNotEmpty)
                   DriverTourDestinationCard(
                     bookingId: _bookingId,

@@ -7,6 +7,36 @@ import 'package:touristrike/core/places/google_places_gateway.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/tourist/tourist_saved_places_state.dart';
 
+String spotDescriptionForDisplay(String raw) {
+  var description = raw.trim();
+  description = description.replaceFirst(
+    RegExp(
+      r'^[^.]*destination suggestion for visitors exploring [^.]*\.\s*',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  description = description.replaceFirst(
+    RegExp(
+      r'^[^.]*recommended tourist destination where visitors can enjoy local attractions[^.]*\.\s*',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  description = description
+      .replaceFirst(
+        RegExp(
+          r'\s*Visitors can enjoy the area, take memorable photos, and experience one of the local highlights of the municipality\.',
+          caseSensitive: false,
+        ),
+        '',
+      )
+      .trim();
+  return description.length < 4
+      ? 'No description has been added for this destination yet.'
+      : description;
+}
+
 class TouristSpotDetailsData {
   const TouristSpotDetailsData({
     required this.id,
@@ -105,10 +135,7 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
       );
 
   String get _aboutText {
-    final description = spot.description.trim();
-    return description.isEmpty
-        ? 'No description has been added for this destination yet.'
-        : description;
+    return spotDescriptionForDisplay(spot.description);
   }
 
   TouristSavedPlace get _savedPlace {
@@ -258,23 +285,6 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
     }
   }
 
-  Future<void> _sharePlace() async {
-    final text =
-        '${spot.title}\n'
-        '${spot.address.isEmpty ? '${spot.municipality}, Bulacan' : spot.address}\n\n'
-        'Google Maps: $_mapsUrl';
-
-    await Clipboard.setData(ClipboardData(text: text));
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Share link copied to clipboard'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final images = spot.imageUrls.isEmpty ? [spot.imageUrl] : spot.imageUrls;
@@ -286,37 +296,38 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
           CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
+              SliverToBoxAdapter(child: _SpotHeroImage(imageUrls: images)),
               SliverToBoxAdapter(
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    _SpotHeroImage(imageUrls: images),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 355,
-                      child: _SpotHeaderCard(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SpotHeaderCard(
                         spot: spot,
                         rating: _displayRating,
                         reviewCount: _displayReviewCount,
                         loading: _loadingGoogleDetails,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 30, 24, 34),
-                  child: _SpotDetailsBody(
-                    spot: spot,
-                    aboutText: _aboutText,
-                    mapImage: _mapImage,
-                    rating: _displayRating,
-                    reviewCount: _displayReviewCount,
-                    openText: _openText,
-                    openColor: _openColor,
-                    onMapTap: _openMaps,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 34),
+                        child: _SpotDetailsBody(
+                          spot: spot,
+                          aboutText: _aboutText,
+                          mapImage: _mapImage,
+                          rating: _displayRating,
+                          reviewCount: _displayReviewCount,
+                          openText: _openText,
+                          openColor: _openColor,
+                          onMapTap: _openMaps,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -341,11 +352,6 @@ class _TouristSpotDetailsScreenState extends State<TouristSpotDetailsScreen> {
                         ? const Color(0xFFEF4444)
                         : const Color(0xFF0F172A),
                     onTap: _toggleSaved,
-                  ),
-                  const SizedBox(width: 12),
-                  _FloatingActionButton(
-                    icon: Icons.ios_share_rounded,
-                    onTap: _sharePlace,
                   ),
                 ],
               ),
@@ -394,7 +400,7 @@ class _SpotHeroImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 470,
+      height: (MediaQuery.sizeOf(context).width * 0.78).clamp(260.0, 360.0),
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
@@ -479,61 +485,45 @@ class _SpotHeaderCard extends StatelessWidget {
         ? '${spot.municipality}, Bulacan'
         : spot.address;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(30, 28, 30, 24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(34)),
-      ),
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  spot.title,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF182433),
-                    fontSize: 24,
-                    height: 1.15,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.location_on_outlined,
-                      color: Color(0xFF4A77A6),
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        address,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF4A77A6),
-                          fontSize: 15,
-                          height: 1.25,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+          Text(
+            spot.title,
+            style: const TextStyle(
+              color: Color(0xFF182433),
+              fontSize: 24,
+              height: 1.15,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                color: Color(0xFF4A77A6),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  address,
+                  style: const TextStyle(
+                    color: Color(0xFF4A77A6),
+                    fontSize: 15,
+                    height: 1.25,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
           _HeaderRatingBadge(
             rating: rating,
             reviewCount: reviewCount,
@@ -670,10 +660,13 @@ class _SpotDetailsBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 28),
-        Row(
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 4,
           children: [
             const _DetailsSectionTitle('Location'),
-            const Spacer(),
             TextButton(
               onPressed: onMapTap,
               style: TextButton.styleFrom(
@@ -946,52 +939,59 @@ class _ReviewsSummary extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFE8EEF6)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: const BoxDecoration(
-              color: Color(0xFFFFF7ED),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.star_rounded,
-              color: Color(0xFFF59E0B),
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  rating.toStringAsFixed(1),
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                  ),
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF7ED),
+                  shape: BoxShape.circle,
                 ),
-                Text(
-                  countText,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
+                child: const Icon(
+                  Icons.star_rounded,
+                  color: Color(0xFFF59E0B),
+                  size: 28,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rating.toStringAsFixed(1),
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
+                    ),
+                    Text(
+                      countText,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: onOpenReviews,
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF2A86FF),
-              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onOpenReviews,
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF2A86FF),
+                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              child: const Text('See in Maps'),
             ),
-            child: const Text('See in Maps'),
           ),
         ],
       ),

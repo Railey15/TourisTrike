@@ -339,10 +339,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
         : suggestion.photoReference.trim();
     _sourceType = 'google_places';
     _titleCtrl.text = suggestion.title.trim();
-    _descriptionCtrl.text = _enhancedDescription(
-      suggestion.title,
-      suggestion.description,
-    );
+    _descriptionCtrl.text = suggestion.description.trim();
     _barangayCtrl.text = suggestion.barangayHint.trim();
     _addressCtrl.text = suggestion.address.trim();
     _latCtrl.text = suggestion.latitude.toStringAsFixed(7);
@@ -392,10 +389,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     _suggestedSpotCtrl.text = suggestion.title.trim();
 
     _titleCtrl.text = suggestion.title.trim();
-    _descriptionCtrl.text = _enhancedDescription(
-      suggestion.title,
-      suggestion.description,
-    );
+    _descriptionCtrl.text = suggestion.description.trim();
     _addressCtrl.text = _smartAddress(suggestion, barangays);
     _latCtrl.text = suggestion.latitude.toStringAsFixed(7);
     _lngCtrl.text = suggestion.longitude.toStringAsFixed(7);
@@ -659,10 +653,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     setState(() {
       if (_titleCtrl.text.trim().isEmpty) _titleCtrl.text = suggestion.title;
       if (_descriptionCtrl.text.trim().isEmpty) {
-        _descriptionCtrl.text = _enhancedDescription(
-          suggestion.title,
-          suggestion.description,
-        );
+        _descriptionCtrl.text = suggestion.description.trim();
       }
       _addressCtrl.text = suggestion.address;
       _latCtrl.text = suggestion.latitude.toStringAsFixed(7);
@@ -916,7 +907,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
 
     final payload = <String, dynamic>{
       'title': title,
-      'description': _enhancedDescription(title, _descriptionCtrl.text),
+      'description': _descriptionCtrl.text.trim(),
       'address': _nonEmpty(_addressCtrl.text, fallback: 'Brgy. $barangay'),
       'barangay': barangay,
       'city': profile.assignedCity.trim(),
@@ -1059,19 +1050,6 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
       travelTips:
           'Bring water and wear comfortable clothing. Best visited during daylight hours.',
     );
-  }
-
-  String _enhancedDescription(String title, String description) {
-    final cleanTitle = title.trim();
-    final cleanDescription = description.trim();
-
-    if (cleanDescription.length >= 90) return cleanDescription;
-
-    if (cleanDescription.isEmpty) {
-      return '$cleanTitle is a recommended tourist destination where visitors can enjoy local attractions, take photos, and explore the surrounding community.';
-    }
-
-    return '$cleanDescription Visitors can enjoy the area, take memorable photos, and experience one of the local highlights of the municipality.';
   }
 
   String _smartAddress(CitySpotSuggestion suggestion, List<String> barangays) {
