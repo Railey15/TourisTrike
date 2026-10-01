@@ -2171,7 +2171,19 @@ class SubTenantService {
   }
 
   Future<void> startCaseReview(String caseId) async {
-    await _supabase.rpc('start_dispute_case', params: {'p_case_id': caseId});
+    await _runCaseMutation(
+      rpcName: 'start_dispute_case',
+      params: {'p_case_id': caseId},
+      caseId: caseId,
+      responseMatches: (row) =>
+          stString(row, const ['status']) == 'under_review' &&
+          stDate(row['reviewed_at']) != null &&
+          stId(row['assigned_to']).isNotEmpty,
+      persistedMatches: (item) =>
+          item.status == 'under_review' &&
+          item.reviewedAt != null &&
+          item.assignee != null,
+    );
   }
 
   Future<void> resolveCase({
@@ -2196,15 +2208,86 @@ class SubTenantService {
         'A custom resolution is required.',
       );
     }
-    await _supabase.rpc(
-      'resolve_dispute_case',
+    await _runCaseMutation(
+      rpcName: 'resolve_dispute_case',
       params: {
         'p_case_id': caseId,
         'p_resolution_type': resolutionType,
         'p_resolution_notes': notes,
         'p_custom_resolution': custom.isEmpty ? null : custom,
       },
+      caseId: caseId,
+      responseMatches: (row) =>
+          stString(row, const ['status']) == 'closed' &&
+          stString(row, const ['resolution_type']) == resolutionType &&
+          stString(row, const ['resolution_note']) == notes &&
+          stString(row, const ['custom_resolution']) == custom &&
+          stDate(row['resolved_at']) != null,
+      persistedMatches: (item) =>
+          item.status == 'closed' &&
+          item.resolutionType == resolutionType &&
+          item.resolutionNotes == notes &&
+          item.customResolution == custom &&
+          item.resolvedAt != null,
     );
+  }
+
+  Future<void> _runCaseMutation({
+    required String rpcName,
+    required Map<String, dynamic> params,
+    required String caseId,
+    required bool Function(Map<String, dynamic> row) responseMatches,
+    required bool Function(SubTenantCase item) persistedMatches,
+  }) async {
+    try {
+      final result = await _supabase.rpc(rpcName, params: params);
+      final row = _caseMutationRow(result);
+      if (row != null && responseMatches(row)) {
+        final notificationFailures = stInt(row['notification_failures']);
+        if (notificationFailures > 0) {
+          developer.log(
+            '$rpcName committed with $notificationFailures notification failure(s).',
+            name: 'SubTenantService',
+          );
+        }
+        return;
+      }
+
+      final persisted = await fetchCaseDetails(caseId);
+      if (persistedMatches(persisted)) return;
+      throw StateError('$rpcName returned without the requested case state.');
+    } catch (error, stackTrace) {
+      // A transport/response failure can be ambiguous after PostgreSQL commits.
+      // Reconcile through the scoped read RPC before reporting a false failure.
+      try {
+        final persisted = await fetchCaseDetails(caseId);
+        if (persistedMatches(persisted)) {
+          developer.log(
+            '$rpcName response failed after the requested state persisted.',
+            name: 'SubTenantService',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return;
+        }
+      } catch (verificationError, verificationStack) {
+        developer.log(
+          '$rpcName authoritative-state verification failed.',
+          name: 'SubTenantService',
+          error: verificationError,
+          stackTrace: verificationStack,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Map<String, dynamic>? _caseMutationRow(dynamic result) {
+    if (result is Map) return Map<String, dynamic>.from(result);
+    if (result is List && result.length == 1 && result.single is Map) {
+      return Map<String, dynamic>.from(result.single as Map);
+    }
+    return null;
   }
 
   Future<void> _notifyUser({

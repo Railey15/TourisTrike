@@ -170,6 +170,7 @@ void main() {
       farePerKm: 18.5,
       minimumFare: 120,
       waitingFee: 25,
+      additionalWaitingIntervalMinutes: 20,
     );
 
     final parsed = SubTenantFareSettings.fromMap(original.toMap(), profile);
@@ -180,6 +181,10 @@ void main() {
     expect(parsed.farePerKm, original.farePerKm);
     expect(parsed.minimumFare, original.minimumFare);
     expect(parsed.waitingFee, original.waitingFee);
+    expect(
+      parsed.additionalWaitingIntervalMinutes,
+      original.additionalWaitingIntervalMinutes,
+    );
   });
 
   test(

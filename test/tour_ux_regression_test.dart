@@ -347,6 +347,7 @@ void main() {
                   includedMinutes: 60,
                   secondsRemaining: -1080,
                   rate: 50,
+                  intervalMinutes: 20,
                   accruedWaiting: 100,
                 ),
                 TourPaymentSummary(
@@ -360,11 +361,11 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Overtime: 18 min'), findsOneWidget);
+    expect(find.text('Free grace: 2 min remaining'), findsOneWidget);
     expect(find.text('Included stay: 60 min'), findsOneWidget);
-    expect(find.text('₱50.00 / started 15 min'), findsNothing);
+    expect(find.text('₱50.00 / started 20 min'), findsNothing);
     expect(
-      find.textContaining('₱50.00 / 15 min after one free interval'),
+      find.textContaining('₱50.00 / 20 min after one free interval'),
       findsOneWidget,
     );
     expect(find.text('₱150.00'), findsOneWidget);

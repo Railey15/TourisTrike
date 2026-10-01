@@ -15,9 +15,7 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart'
 
 const _actor = '10000000-0000-4000-8000-000000000001';
 const _hourly = 'Waiting Fee (PHP / hour)';
-const _tour = 'Tour Additional Waiting Fee (PHP / 15 min)';
-const _helper =
-    'Charged per started 15 minutes after the tourist exceeds the included Time of Stay.';
+const _calculated = 'Calculated Waiting Fee';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -51,15 +49,16 @@ void main() {
   SubTenantFareSettings settings({
     String city = 'Bustos',
     String owner = _actor,
-    double? tour = 25,
+    double hourly = 200,
+    int interval = 20,
   }) => SubTenantFareSettings(
     subtenantId: owner,
     city: city,
     baseFare: 50,
     farePerKm: 10,
     minimumFare: 100,
-    waitingFee: 200,
-    tourWaitingFeePer15Minutes: tour,
+    waitingFee: hourly,
+    additionalWaitingIntervalMinutes: interval,
   );
 
   http.Response response(
@@ -175,40 +174,37 @@ void main() {
       'fare_per_km': 10,
       'minimum_fare': 100,
       'waiting_fee': 200,
-      'tour_waiting_fee_per_15_minutes': 25,
+      'additional_waiting_interval_minutes': 20,
+      'tour_waiting_fee_per_15_minutes': 66.67,
       'is_active': true,
     };
   });
 
-  test(
-    'loads own authoritative row with separate hourly and tour rates',
-    () async {
-      final loaded = await service.loadFareSettings(profile());
-      expect(loaded.waitingFee, 200);
-      expect(loaded.tourWaitingFeePer15Minutes, 25);
-      final query = requests
-          .singleWhere((r) => r.url.path.endsWith('/subtenant_fare_settings'))
-          .url
-          .queryParameters;
-      expect(query['subtenant_id'], 'eq.$_actor');
-      expect(query['city'], 'eq.Bustos');
-      expect(query['is_active'], 'eq.true');
-    },
-  );
-  test(
-    'saves explicit tour amount through the existing scoped upsert',
-    () async {
-      await service.saveFareSettings(profile(), settings(tour: 35.5));
-      expect(saved.single['tour_waiting_fee_per_15_minutes'], 35.5);
-      expect(saved.single['waiting_fee'], 200);
-      final post = requests.singleWhere(
-        (r) => r.url.path.endsWith('/subtenant_fare_settings'),
-      );
-      expect(post.url.queryParameters['on_conflict'], 'subtenant_id,city');
-      expect(saved.single['subtenant_id'], _actor);
-      expect(saved.single['city'], 'Bustos');
-    },
-  );
+  test('loads own authoritative hourly rate and waiting interval', () async {
+    final loaded = await service.loadFareSettings(profile());
+    expect(loaded.waitingFee, 200);
+    expect(loaded.additionalWaitingIntervalMinutes, 20);
+    expect(loaded.calculatedAdditionalWaitingFee, 66.67);
+    final query = requests
+        .singleWhere((r) => r.url.path.endsWith('/subtenant_fare_settings'))
+        .url
+        .queryParameters;
+    expect(query['subtenant_id'], 'eq.$_actor');
+    expect(query['city'], 'eq.Bustos');
+    expect(query['is_active'], 'eq.true');
+  });
+  test('saves interval and a freshly derived compatibility fee', () async {
+    await service.saveFareSettings(profile(), settings(interval: 30));
+    expect(saved.single['additional_waiting_interval_minutes'], 30);
+    expect(saved.single['tour_waiting_fee_per_15_minutes'], 100);
+    expect(saved.single['waiting_fee'], 200);
+    final post = requests.singleWhere(
+      (r) => r.url.path.endsWith('/subtenant_fare_settings'),
+    );
+    expect(post.url.queryParameters['on_conflict'], 'subtenant_id,city');
+    expect(saved.single['subtenant_id'], _actor);
+    expect(saved.single['city'], 'Bustos');
+  });
   test(
     'uses the authoritative city name for reads and unique-key upserts',
     () async {
@@ -224,13 +220,15 @@ void main() {
     },
   );
   test(
-    'missing tour rate remains unset and never uses hourly waiting_fee',
+    'existing municipality without interval defaults to 15 minutes',
     () async {
-      fareRow!['tour_waiting_fee_per_15_minutes'] = null;
+      fareRow!.remove('additional_waiting_interval_minutes');
       final loaded = await service.loadFareSettings(profile());
-      expect(loaded.tourWaitingFeePer15Minutes, isNull);
-      await service.saveFareSettings(profile(), settings(tour: null));
-      expect(saved.single['tour_waiting_fee_per_15_minutes'], isNull);
+      expect(loaded.additionalWaitingIntervalMinutes, 15);
+      expect(loaded.calculatedAdditionalWaitingFee, 50);
+      await service.saveFareSettings(profile(), loaded);
+      expect(saved.single['additional_waiting_interval_minutes'], 15);
+      expect(saved.single['tour_waiting_fee_per_15_minutes'], 50);
       expect(saved.single['waiting_fee'], 200);
     },
   );
@@ -241,14 +239,15 @@ void main() {
       fareRow = null;
       final loaded = await service.loadFareSettings(profile(city: 'Malolos'));
       expect(loaded.id, isNull);
-      expect(loaded.tourWaitingFeePer15Minutes, isNull);
+      expect(loaded.additionalWaitingIntervalMinutes, 15);
       expect(saved, isEmpty);
       await service.saveFareSettings(
         profile(city: 'Malolos'),
-        settings(city: 'Malolos', tour: 30),
+        settings(city: 'Malolos', interval: 30),
       );
       expect(saved.single['city'], 'Malolos');
-      expect(saved.single['tour_waiting_fee_per_15_minutes'], 30);
+      expect(saved.single['additional_waiting_interval_minutes'], 30);
+      expect(saved.single['tour_waiting_fee_per_15_minutes'], 100);
     },
   );
   test(
@@ -307,11 +306,17 @@ void main() {
     },
   );
   test(
-    'rejects nonfinite, negative and fractional-cent rates before persistence',
+    'rejects invalid hourly money and waiting intervals before persistence',
     () async {
       for (final amount in [double.nan, double.infinity, -1.0, 1.234]) {
         await expectLater(
-          service.saveFareSettings(profile(), settings(tour: amount)),
+          service.saveFareSettings(profile(), settings(hourly: amount)),
+          throwsFormatException,
+        );
+      }
+      for (final interval in [0, 61, -1]) {
+        await expectLater(
+          service.saveFareSettings(profile(), settings(interval: interval)),
           throwsFormatException,
         );
       }
@@ -341,16 +346,38 @@ void main() {
       expect(SubTenantFareSettings.parseMoneyAmount('1,234.50'), 1234.5);
       expect(
         () => SubTenantFareSettings.fromMap({
-          'tour_waiting_fee_per_15_minutes': 'invalid',
+          'additional_waiting_interval_minutes': 'invalid',
         }, profile()),
         throwsFormatException,
       );
     },
   );
+  test('calculated interval fee uses the hourly rate', () {
+    expect(settings(interval: 15).calculatedAdditionalWaitingFee, 50);
+    expect(settings(interval: 20).calculatedAdditionalWaitingFee, 66.67);
+    expect(settings(interval: 30).calculatedAdditionalWaitingFee, 100);
+    expect(
+      settings(hourly: 300, interval: 20).calculatedAdditionalWaitingFee,
+      100,
+    );
+  });
+  test('started intervals and aggregate rounding use the unrounded rate', () {
+    final fare = settings(interval: 20);
+    for (final entry in {1: 1, 20: 1, 21: 2, 40: 2, 41: 3}.entries) {
+      expect(
+        fare.startedWaitingIntervalsForSeconds(entry.key * 60),
+        entry.value,
+        reason: '${entry.key} excess minute(s)',
+      );
+    }
+    expect(fare.additionalWaitingChargeForSeconds(20 * 60), 66.67);
+    expect(fare.additionalWaitingChargeForSeconds(40 * 60), 133.33);
+    expect(fare.additionalWaitingChargeForSeconds(60 * 60), 200);
+  });
   test('tour overtime is excluded from the ordinary hourly fare sample', () {
     expect(
-      settings(tour: 5).calculate(routeDistanceKm: 8).total,
-      settings(tour: 500).calculate(routeDistanceKm: 8).total,
+      settings(interval: 15).calculate(routeDistanceKm: 8).total,
+      settings(interval: 30).calculate(routeDistanceKm: 8).total,
     );
     expect(settings().calculate(routeDistanceKm: 8).waitingFee, 200);
   });
@@ -363,6 +390,14 @@ void main() {
   );
   String text(WidgetTester tester, String label) =>
       tester.widget<TextFormField>(field(label)).controller!.text;
+  Finder calculatedField() => find.byWidgetPredicate((widget) {
+    final key = widget.key;
+    return widget is TextFormField &&
+        key is ValueKey<String> &&
+        key.value.startsWith('calculated-waiting-fee-');
+  });
+  String calculatedText(WidgetTester tester) =>
+      tester.widget<TextFormField>(calculatedField()).initialValue!;
   Future<void> openFareMatrix(
     WidgetTester tester, {
     Size size = const Size(1500, 1050),
@@ -407,49 +442,100 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets(
-    'desktop renders both exact labels and helper and loads current tour value',
-    (tester) async {
-      await openFareMatrix(tester);
-      expect(find.text(_hourly), findsOneWidget);
-      expect(find.text(_tour), findsOneWidget);
-      expect(find.text(_helper), findsOneWidget);
-      expect(text(tester, _tour), '25');
-      expect(text(tester, _hourly), '200');
-      expect(tester.takeException(), isNull);
-    },
-  );
-  testWidgets(
-    'mobile Fare Matrix displays and saves the independent tour field',
-    (tester) async {
-      await openFareMatrix(tester, size: const Size(430, 950));
-      await edit(tester, _tour, '35.50');
-      await save(tester);
-      expect(saved.single['tour_waiting_fee_per_15_minutes'], 35.5);
-      expect(saved.single['waiting_fee'], 200);
-      expect(
-        requests.where(
-          (r) =>
-              r.method != 'GET' &&
-              (r.url.path.endsWith('/profiles') ||
-                  r.url.path.endsWith('/subtenant_details')),
-        ),
-        isEmpty,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
-  testWidgets('NaN entry is rejected by the rendered form without saving', (
+  Future<void> selectInterval(WidgetTester tester, int minutes) async {
+    final dropdown = find.byKey(
+      const ValueKey('additional-waiting-interval-dropdown'),
+    );
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('$minutes minutes').last);
+    await tester.pump();
+  }
+
+  testWidgets('desktop loads interval and renders a read-only calculated fee', (
     tester,
   ) async {
     await openFareMatrix(tester);
-    await edit(tester, _tour, 'NaN');
-    await save(tester);
-    expect(saved, isEmpty);
+    expect(find.text(_hourly), findsOneWidget);
+    expect(find.text('Additional Waiting Interval'), findsOneWidget);
+    expect(find.text(_calculated), findsOneWidget);
     expect(
-      find.text('Enter a valid non-negative amount (up to 2 decimals)'),
+      find.text(
+        'Charged per started 20 minutes after the tourist exceeds the included Time of Stay.',
+      ),
       findsOneWidget,
     );
+    expect(calculatedText(tester), 'PHP 66.67');
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: calculatedField(),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .readOnly,
+      isTrue,
+    );
+    expect(text(tester, _hourly), '200');
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('mobile changes the interval preview immediately and persists it', (
+    tester,
+  ) async {
+    await openFareMatrix(tester, size: const Size(430, 950));
+    await selectInterval(tester, 30);
+    expect(calculatedText(tester), 'PHP 100.00');
+    expect(
+      find.text(
+        'Charged per started 30 minutes after the tourist exceeds the included Time of Stay.',
+      ),
+      findsOneWidget,
+    );
+    await save(tester);
+    expect(saved.single['additional_waiting_interval_minutes'], 30);
+    expect(saved.single['tour_waiting_fee_per_15_minutes'], 100);
+    expect(saved.single['waiting_fee'], 200);
+    expect(
+      requests.where(
+        (r) =>
+            r.method != 'GET' &&
+            (r.url.path.endsWith('/profiles') ||
+                r.url.path.endsWith('/subtenant_details')),
+      ),
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('changing the hourly fee recalculates the preview immediately', (
+    tester,
+  ) async {
+    await openFareMatrix(tester);
+    await edit(tester, _hourly, '300');
+    expect(calculatedText(tester), 'PHP 100.00');
+  });
+  testWidgets('custom interval validation rejects zero, text, and over 60', (
+    tester,
+  ) async {
+    await openFareMatrix(tester);
+    final dropdown = find.byKey(
+      const ValueKey('additional-waiting-interval-dropdown'),
+    );
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Custom').last);
+    await tester.pump();
+    for (final invalid in ['0', 'abc', '61', '1.5']) {
+      await edit(tester, 'Custom interval (minutes)', invalid);
+      await save(tester);
+      expect(saved, isEmpty, reason: invalid);
+      expect(find.text('Enter a whole number from 1 to 60'), findsOneWidget);
+    }
+    await edit(tester, 'Custom interval (minutes)', '25');
+    expect(calculatedText(tester), 'PHP 83.33');
+    await save(tester);
+    expect(saved.single['additional_waiting_interval_minutes'], 25);
   });
   testWidgets(
     'Malolos first-time form starts blank and requires entered ride fares',
@@ -462,11 +548,9 @@ void main() {
         'Fare per Kilometer',
         'Minimum Fare',
         _hourly,
-        _tour,
       ]) {
         expect(text(tester, label), isEmpty);
       }
-      await edit(tester, _tour, '30');
       await save(tester);
       expect(saved, isEmpty);
       for (final entry in {
@@ -479,7 +563,8 @@ void main() {
       }
       await save(tester);
       expect(saved.single['city'], 'Malolos');
-      expect(saved.single['tour_waiting_fee_per_15_minutes'], 30);
+      expect(saved.single['additional_waiting_interval_minutes'], 15);
+      expect(saved.single['tour_waiting_fee_per_15_minutes'], 50);
       expect(tester.takeException(), isNull);
     },
   );

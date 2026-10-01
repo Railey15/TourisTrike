@@ -11,6 +11,7 @@ enum AdministratorSection {
   configuration,
   integrations,
   security,
+  developerTools,
   audit,
 }
 
@@ -44,28 +45,36 @@ class AdministratorFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        SizedBox(
-          width: 390,
-          child: TextField(
-            controller: search,
-            onChanged: onChanged,
-            decoration: InputDecoration(
-              hintText: hint,
-              prefixIcon: const Icon(Icons.search_rounded),
-              isDense: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(11),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 620;
+        final searchWidth = compact ? constraints.maxWidth : 390.0;
+        final filterWidth = compact ? constraints.maxWidth : 190.0;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: searchWidth,
+              child: TextField(
+                controller: search,
+                onChanged: onChanged,
+                decoration: InputDecoration(
+                  hintText: hint,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        ...filters,
-      ],
+            for (final filter in filters)
+              SizedBox(width: filterWidth, child: filter),
+          ],
+        );
+      },
     );
   }
 }
@@ -505,6 +514,7 @@ String administratorSectionLabel(AdministratorSection section) =>
       AdministratorSection.configuration => 'System Configuration',
       AdministratorSection.integrations => 'Integrations',
       AdministratorSection.security => 'Security',
+      AdministratorSection.developerTools => 'Developer Tools',
       AdministratorSection.audit => 'Audit Logs',
     };
 
@@ -522,6 +532,8 @@ String administratorSectionSubtitle(AdministratorSection section) =>
         'Review live availability checks for administrator data services',
       AdministratorSection.security =>
         'Review authentication, account status, and access boundaries',
+      AdministratorSection.developerTools =>
+        'Authorize narrow, time-limited booking test sessions',
       AdministratorSection.audit =>
         'Search the latest recorded platform and administrative events',
     };
@@ -534,6 +546,7 @@ IconData administratorSectionIcon(AdministratorSection section) =>
       AdministratorSection.configuration => Icons.tune_outlined,
       AdministratorSection.integrations => Icons.hub_outlined,
       AdministratorSection.security => Icons.security_outlined,
+      AdministratorSection.developerTools => Icons.science_outlined,
       AdministratorSection.audit => Icons.fact_check_outlined,
     };
 

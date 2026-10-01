@@ -112,7 +112,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   BookingFeedback? _feedback;
   String? _feedbackError;
   bool _feedbackBusy = false;
-  bool _serverTestModeEnabled = false;
+  bool _testSessionAuthorized = false;
 
   String? _error;
   String? _eta;
@@ -492,23 +492,24 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       debugPrint('[PayMongo] app resumed; refreshing server payment status');
       unawaited(_refreshPaymentPromptState());
       _refreshPayments();
-      _refreshServerTestModeState();
+      _refreshTestAuthorization();
     }
   }
 
-  Future<void> _refreshServerTestModeState() async {
-    if (!kDebugMode) return;
-    var enabled = false;
+  Future<void> _refreshTestAuthorization() async {
+    var authorized = false;
     try {
-      enabled = await _repo.fetchDeveloperTestBookingMode(widget.bookingId);
+      final result = await _repo.fetchMyBookingTestAuthorization(
+        widget.bookingId,
+      );
+      authorized = result['authorized'] == true;
     } catch (error) {
       debugPrint(
-        '[TEST MODE] booking_id=${widget.bookingId} action=read '
-        'server_state_error=$error',
+        '[TEST AUTHORIZATION] booking_id=${widget.bookingId} read_error=$error',
       );
     }
-    if (mounted && enabled != _serverTestModeEnabled) {
-      setState(() => _serverTestModeEnabled = enabled);
+    if (mounted && authorized != _testSessionAuthorized) {
+      setState(() => _testSessionAuthorized = authorized);
     }
   }
 
@@ -586,18 +587,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       final emergencyContacts = await _repo.fetchEmergencyContacts();
       final convoy = await _repo.fetchConvoyRoster(widget.bookingId);
 
-      var serverTestModeEnabled = false;
-      if (kDebugMode) {
-        try {
-          serverTestModeEnabled = await _repo.fetchDeveloperTestBookingMode(
-            widget.bookingId,
-          );
-        } catch (error) {
-          debugPrint(
-            '[TEST MODE] booking_id=${widget.bookingId} action=read '
-            'server_state_error=$error',
-          );
-        }
+      var testSessionAuthorized = false;
+      try {
+        final result = await _repo.fetchMyBookingTestAuthorization(
+          widget.bookingId,
+        );
+        testSessionAuthorized = result['authorized'] == true;
+      } catch (error) {
+        debugPrint(
+          '[TEST AUTHORIZATION] booking_id=${widget.bookingId} read_error=$error',
+        );
       }
 
       DriverInfo? driverInfo;
@@ -655,7 +654,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _emergencyContacts = emergencyContacts;
         _paymentRecords = paymentRecords;
         _paymentAllocations = paymentAllocations;
-        _serverTestModeEnabled = serverTestModeEnabled;
+        _testSessionAuthorized = testSessionAuthorized;
 
         _loading = false;
       });
@@ -1774,8 +1773,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         bottom: false,
         child: Column(
           children: [
-            if (kDebugMode && _serverTestModeEnabled)
-              const _TestModeActiveBanner(),
+            if (_testSessionAuthorized) const _AuthorizedTestSessionBanner(),
             Expanded(
               child: _loading
                   ? const _LoadingView()
@@ -2371,22 +2369,22 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 // TOP BAR
 // ============================================================================
 
-class _TestModeActiveBanner extends StatelessWidget {
-  const _TestModeActiveBanner();
+class _AuthorizedTestSessionBanner extends StatelessWidget {
+  const _AuthorizedTestSessionBanner();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: const Color(0xFFB91C1C),
+      color: const Color(0xFF1D4ED8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: const Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 17),
+          Icon(Icons.info_outline_rounded, color: Colors.white, size: 17),
           SizedBox(width: 7),
           Text(
-            'TEST MODE ACTIVE',
+            'Administrator-authorized test session',
             style: TextStyle(
               color: Colors.white,
               fontSize: 12,

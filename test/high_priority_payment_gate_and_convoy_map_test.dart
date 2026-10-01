@@ -100,7 +100,7 @@ void main() {
       contains("raise exception 'REMAINING_BALANCE_NOT_CONFIRMED'"),
     );
     expect(driverTracking, isNot(contains('Mark Remaining Balance Paid')));
-    expect(repository, contains('debug_mark_remaining_balance_paid'));
+    expect(repository, isNot(contains('debug_mark_remaining_balance_paid')));
   });
 
   test('tourist and driver maps keep unique markers and routes per driver', () {

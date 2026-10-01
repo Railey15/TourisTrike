@@ -141,6 +141,90 @@ class AdministratorService {
     });
   }
 
+  Future<AdministratorDeveloperToolsData> loadDeveloperTools(
+    AdministratorDeveloperToolsQuery query,
+  ) async {
+    final results = await Future.wait<dynamic>([
+      _supabase.rpc('administrator_get_developer_testing_overview'),
+      _supabase.rpc(
+        'administrator_list_testable_bookings',
+        params: {
+          'p_search': query.search.trim().isEmpty ? null : query.search.trim(),
+          'p_booking_filter': query.bookingFilter.databaseValue,
+          'p_test_filter': query.testFilter.databaseValue,
+          'p_limit': query.limit,
+          'p_offset': query.offset,
+        },
+      ),
+    ]);
+
+    final overviewMap = _map(results.first);
+    final rows = _rows(results.last);
+    final bookings = rows.map(_developerBookingFromMap).toList(growable: false);
+    final totalCount = rows.isEmpty ? 0 : _integer(rows.first['total_count']);
+
+    return AdministratorDeveloperToolsData(
+      overview: AdministratorDeveloperTestingOverview(
+        enabled: _boolean(overviewMap['enabled']),
+        eligibleBookings: _integer(overviewMap['eligible_bookings']),
+        activeSessions: _integer(overviewMap['active_sessions']),
+        upcomingBookings: _integer(overviewMap['upcoming_bookings']),
+        expiringSoon: _integer(overviewMap['expiring_soon']),
+        updatedBy: _string(overviewMap['updated_by']),
+        updatedAt: _date(overviewMap['updated_at']),
+      ),
+      bookings: bookings,
+      totalCount: totalCount,
+      query: query,
+    );
+  }
+
+  Future<void> setDeveloperTestingEnabled(bool enabled) async {
+    await _supabase.rpc(
+      'administrator_set_developer_testing',
+      params: {'p_enabled': enabled},
+    );
+  }
+
+  Future<void> activateDeveloperTestSession(
+    AdministratorDeveloperTestBooking booking,
+    AdministratorDeveloperTestActivation activation,
+  ) async {
+    await _supabase.rpc(
+      'administrator_activate_developer_test_session',
+      params: {
+        'p_booking_id': booking.id,
+        'p_reason': activation.reason.trim(),
+        'p_expires_at': activation.expiresAt.toUtc().toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> deactivateDeveloperTestSession(
+    AdministratorDeveloperTestBooking booking, {
+    String reason = '',
+  }) async {
+    if (booking.testSessionId.isEmpty) {
+      throw StateError('No active developer test session was found.');
+    }
+    await _supabase.rpc(
+      'administrator_deactivate_developer_test_session',
+      params: {
+        'p_session_id': booking.testSessionId,
+        'p_reason': reason.trim().isEmpty ? null : reason.trim(),
+      },
+    );
+  }
+
+  Future<void> resetDeveloperTestTrip(
+    AdministratorDeveloperTestBooking booking,
+  ) async {
+    await _supabase.rpc(
+      'administrator_reset_developer_test_trip',
+      params: {'p_booking_id': booking.id},
+    );
+  }
+
   Future<void> _invokeAccountAccess(Map<String, dynamic> body) async {
     try {
       final response = await _supabase.functions.invoke(
@@ -306,6 +390,52 @@ class AdministratorService {
     );
   }
 
+  AdministratorDeveloperTestBooking _developerBookingFromMap(
+    Map<String, dynamic> map,
+  ) {
+    final driverRows = map['drivers'] is List
+        ? (map['drivers'] as List).whereType<Map>()
+        : const Iterable<Map<dynamic, dynamic>>.empty();
+    return AdministratorDeveloperTestBooking(
+      id: _string(map['booking_id']),
+      reference: _string(map['booking_reference']),
+      touristId: _string(map['tourist_id']),
+      touristName: _string(map['tourist_name'], fallback: 'Unnamed tourist'),
+      packageId: _integer(map['package_id']),
+      packageName: _string(map['package_name'], fallback: 'Untitled package'),
+      municipality: _string(map['municipality']),
+      scheduledStartAt: _date(map['scheduled_start_at']),
+      estimatedEndAt: _date(map['estimated_end_at']),
+      bookingStatus: _string(map['booking_status'], fallback: 'unknown'),
+      tourStatus: _string(map['tour_status'], fallback: 'pending'),
+      drivers: driverRows
+          .map(
+            (driver) => AdministratorDeveloperTestDriver(
+              id: _string(driver['id']),
+              name: _string(driver['name'], fallback: 'Unnamed driver'),
+            ),
+          )
+          .toList(growable: false),
+      requiredDrivers: _integer(map['required_drivers']),
+      assignedDriverCount: _integer(map['assigned_driver_count']),
+      downpaymentReady: _boolean(map['downpayment_ready']),
+      remainingPaymentReady: _boolean(map['remaining_payment_ready']),
+      validTourist: _boolean(map['valid_tourist']),
+      driversReady: _boolean(map['drivers_ready']),
+      bookingStateValid: _boolean(map['booking_state_valid']),
+      eligible: _boolean(map['eligible']),
+      eligibilityReason: _string(map['eligibility_reason']),
+      testSessionId: _string(map['test_session_id']),
+      testSessionActive: _boolean(map['test_session_active']),
+      activatedBy: _string(map['activated_by']),
+      activatedByName: _string(map['activated_by_name']),
+      activatedAt: _date(map['activated_at']),
+      expiresAt: _date(map['expires_at']),
+      reason: _string(map['reason']),
+      bypassScheduledStart: _boolean(map['bypass_scheduled_start']),
+    );
+  }
+
   PlatformHealthCheck _healthFrom<T>({
     required String name,
     required String description,
@@ -363,6 +493,16 @@ class AdministratorService {
         .map((row) => Map<String, dynamic>.from(row))
         .toList(growable: false);
   }
+
+  Map<String, dynamic> _map(dynamic value) {
+    if (value is! Map) return const {};
+    return Map<String, dynamic>.from(value);
+  }
+
+  bool _boolean(dynamic value) => value == true || value?.toString() == 'true';
+
+  int _integer(dynamic value) =>
+      value is num ? value.toInt() : int.tryParse(value?.toString() ?? '') ?? 0;
 
   String _name(Map<String, dynamic> map) {
     final fullName = _string(map['full_name']);

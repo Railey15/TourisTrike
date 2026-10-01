@@ -59,3 +59,33 @@ class Responsive {
     );
   }
 }
+
+/// Keeps an AppBar's action cluster bounded on narrow browser windows while
+/// preserving access to every action through horizontal scrolling.
+class ResponsiveAppBarActions extends StatelessWidget {
+  const ResponsiveAppBarActions({
+    super.key,
+    required this.children,
+    this.maxWidthFraction = .44,
+  });
+
+  final List<Widget> children;
+  final double maxWidthFraction;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final maxWidth = (viewportWidth * maxWidthFraction)
+        .clamp(96.0, 220.0)
+        .toDouble();
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        child: Row(mainAxisSize: MainAxisSize.min, children: children),
+      ),
+    );
+  }
+}

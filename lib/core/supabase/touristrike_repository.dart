@@ -1,13 +1,9 @@
 import '../models/booking_capacity.dart';
-import 'dart:convert';
 import 'dart:math';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:touristrike/core/config/app_config.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/google_media_url.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:touristrike/core/services/developer_settings.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/participant_profiles.dart';
 
@@ -1887,12 +1883,7 @@ class TourisTrikeRepository {
           ? null
           : remainingPaymentMethod,
     };
-    final dynamic result;
-    if (kDebugMode && await fetchDeveloperTestBookingMode(bookingId)) {
-      result = await _client.rpc('debug_complete_package_tour', params: params);
-    } else {
-      result = await _client.rpc('complete_package_tour', params: params);
-    }
+    final result = await _client.rpc('complete_package_tour', params: params);
     return result is Map
         ? Map<String, dynamic>.from(result)
         : const {'success': true, 'overall_completed': true};
@@ -2108,15 +2099,10 @@ class TourisTrikeRepository {
       targetId = dbString(list.first['id']);
     }
     final params = {'p_booking_id': bookingId, 'p_itinerary_item_id': targetId};
-    final dynamic result;
-    if (kDebugMode && await fetchDeveloperTestBookingMode(bookingId)) {
-      result = await _client.rpc(
-        'debug_mark_itinerary_stop_arrived',
-        params: params,
-      );
-    } else {
-      result = await _client.rpc('mark_itinerary_stop_arrived', params: params);
-    }
+    final result = await _client.rpc(
+      'mark_itinerary_stop_arrived',
+      params: params,
+    );
     return result == true;
   }
 
@@ -2183,179 +2169,19 @@ class TourisTrikeRepository {
         .eq('id', targetId);
   }
 
-  /// Changes the authoritative server registration for a developer test
-  /// booking. The backend still verifies both trusted-test-user membership and
-  /// real participation in the target booking.
-  Future<bool> setDeveloperTestBookingMode({
-    required String bookingId,
-    required bool enabled,
-  }) async {
-    if (!kDebugMode) {
-      throw StateError('DEBUG_TEST_TOOLS_UNAVAILABLE');
-    }
-
-    final normalizedBookingId = bookingId.trim();
-    if (normalizedBookingId.isEmpty) {
-      throw ArgumentError.value(bookingId, 'bookingId', 'must not be empty');
-    }
-
-    await logDeveloperTestDiagnostics(
-      bookingId: normalizedBookingId,
-      event: enabled ? 'before_enable' : 'before_disable',
-      requestedEnabled: enabled,
-    );
-
-    dynamic result;
-    try {
-      result = await _client.rpc(
-        'debug_set_test_booking_mode',
-        params: {'p_booking_id': normalizedBookingId, 'p_enabled': enabled},
-      );
-    } catch (error) {
-      debugPrint(
-        '[TEST MODE DIAGNOSTICS] ${jsonEncode({'event': enabled ? 'enable_rejected' : 'disable_rejected', 'selected_test_booking_id': normalizedBookingId, 'server_authorization_response': error.toString()})}',
-      );
-      rethrow;
-    }
-    final row = result is Map ? Map<String, dynamic>.from(result) : const {};
-    final serverEnabled = row['enabled'] == true;
-
-    debugPrint(
-      '[TEST MODE DIAGNOSTICS] ${jsonEncode({'event': enabled ? 'enable_accepted' : 'disable_accepted', 'selected_test_booking_id': normalizedBookingId, 'server_authorization_response': row, 'server_enabled': serverEnabled})}',
-    );
-
-    if (serverEnabled != enabled) {
-      throw StateError('TEST_MODE_SERVER_STATE_MISMATCH');
-    }
-    return serverEnabled;
-  }
-
-  /// Emits a DEBUG-only, secret-free snapshot that can be compared verbatim
-  /// between an emulator and a physical device.
-  Future<Map<String, dynamic>> logDeveloperTestDiagnostics({
-    required String bookingId,
-    required String event,
-    bool? requestedEnabled,
-  }) async {
-    if (!kDebugMode) return const {};
-
-    final normalizedBookingId = bookingId.trim();
-    final user = _client.auth.currentUser;
-    final session = _client.auth.currentSession;
-    Map<String, dynamic> profile = const {};
-    Map<String, dynamic> serverAuthorization = const {};
-    String? diagnosticError;
-
-    if (user != null) {
-      try {
-        final result = await _client
-            .from(TourisTrikeTables.profiles)
-            .select('id, role')
-            .eq('id', user.id)
-            .maybeSingle()
-            .timeout(const Duration(seconds: 10));
-        if (result != null) profile = Map<String, dynamic>.from(result);
-      } catch (error) {
-        diagnosticError = 'profile_lookup_failed: $error';
-      }
-
-      try {
-        final result = await _client
-            .rpc(
-              'debug_get_test_mode_diagnostics',
-              params: {
-                'p_booking_id': normalizedBookingId.isEmpty
-                    ? null
-                    : normalizedBookingId,
-              },
-            )
-            .timeout(const Duration(seconds: 10));
-        if (result is Map) {
-          serverAuthorization = Map<String, dynamic>.from(result);
-        }
-      } catch (error) {
-        final message = 'server_diagnostics_failed: $error';
-        diagnosticError = diagnosticError == null
-            ? message
-            : '$diagnosticError; $message';
-      }
-    }
-
-    String appVersion = 'unavailable';
-    String buildNumber = 'unavailable';
-    String packageName = 'unavailable';
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      appVersion = packageInfo.version;
-      buildNumber = packageInfo.buildNumber;
-      packageName = packageInfo.packageName;
-    } catch (error) {
-      final message = 'package_info_failed: $error';
-      diagnosticError = diagnosticError == null
-          ? message
-          : '$diagnosticError; $message';
-    }
-
-    final profileId = profile['id']?.toString();
-    final payload = <String, dynamic>{
-      'event': event,
-      'supabase_url_host': AppConfig.supabaseHost,
-      'supabase_project_ref': AppConfig.supabaseProjectRef,
-      'auth_user_id': user?.id,
-      'auth_user_email': user?.email,
-      'profile_user_id': profileId,
-      'app_role': profile['role'],
-      'session_profile_match': user != null && profileId == user.id,
-      'session_present': session != null,
-      'session_expires_at': session?.expiresAt,
-      'build_mode': kDebugMode
-          ? 'debug'
-          : kProfileMode
-          ? 'profile'
-          : 'release',
-      'flavor': AppConfig.flavorName,
-      'environment': AppConfig.environmentName,
-      'app_version': appVersion,
-      'build_number': buildNumber,
-      'package_name': packageName,
-      'git_commit': AppConfig.gitCommit,
-      'test_mode_enabled': DeveloperSettings.instance.testModeActive,
-      'requested_enabled': requestedEnabled,
-      'selected_test_booking_id': normalizedBookingId,
-      'server_authorization_response': serverAuthorization,
-      'diagnostic_error': diagnosticError,
-    };
-    debugPrint('[TEST MODE DIAGNOSTICS] ${jsonEncode(payload)}');
-    return payload;
-  }
-
-  Future<bool> fetchDeveloperTestBookingMode(String bookingId) async {
-    if (!kDebugMode) return false;
-
-    final normalizedBookingId = bookingId.trim();
-    if (normalizedBookingId.isEmpty) return false;
-
-    final result = await _client.rpc(
-      'debug_get_test_booking_state',
-      params: {'p_booking_id': normalizedBookingId},
-    );
-    final row = result is Map ? Map<String, dynamic>.from(result) : const {};
-    return row['enabled'] == true;
-  }
-
-  Future<Map<String, dynamic>> markRemainingBalancePaidForDebugTest(
+  Future<Map<String, dynamic>> fetchMyBookingTestAuthorization(
     String bookingId,
   ) async {
-    if (!kDebugMode || !await fetchDeveloperTestBookingMode(bookingId)) {
-      throw StateError('DEBUG_TRANSACTION_BYPASS_UNAVAILABLE');
-    }
+    final normalizedBookingId = bookingId.trim();
+    if (normalizedBookingId.isEmpty) return const {'authorized': false};
+
     final result = await _client.rpc(
-      'debug_mark_remaining_balance_paid',
-      params: {'p_booking_id': bookingId},
+      'get_my_booking_test_authorization',
+      params: {'p_booking_id': normalizedBookingId},
     );
     return result is Map
         ? Map<String, dynamic>.from(result)
-        : const {'success': true};
+        : const {'authorized': false};
   }
 
   // ── GROUP BOOKING ────────────────────────────────────────────
@@ -2378,23 +2204,6 @@ class TourisTrikeRepository {
       orderBy: 'accepted_at',
     );
     return rows.map(BookingDriver.new).toList(growable: false);
-  }
-
-  /// Resets only lifecycle/navigation state for a server-registered test
-  /// booking. Payment records, allocations, chat, itinerary rows, and driver
-  /// assignment rows are preserved by the RPC.
-  Future<Map<String, dynamic>> resetDebugTestTrip(String bookingId) async {
-    if (!kDebugMode) {
-      throw StateError('DEBUG_TEST_TOOLS_UNAVAILABLE');
-    }
-
-    final result = await _client.rpc(
-      'debug_reset_test_trip',
-      params: {'p_booking_id': bookingId},
-    );
-    return result is Map
-        ? Map<String, dynamic>.from(result)
-        : const {'success': true};
   }
 
   Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(String bookingId) async {
@@ -2565,26 +2374,10 @@ class TourisTrikeRepository {
         'p_booking_id': bookingId,
         'p_target_state': targetState.dbValue,
       };
-      final dynamic result;
-      final isArrival = const {
-        ConvoyJourneyState.atPickup,
-        ConvoyJourneyState.atStop,
-        ConvoyJourneyState.atDropoff,
-      }.contains(targetState);
-      if (!isArrival &&
-          !automaticArrival &&
-          kDebugMode &&
-          await fetchDeveloperTestBookingMode(bookingId)) {
-        result = await _client.rpc(
-          'debug_advance_driver_journey_state',
-          params: params,
-        );
-      } else {
-        result = await _client.rpc(
-          'advance_driver_journey_state',
-          params: params,
-        );
-      }
+      final result = await _client.rpc(
+        'advance_driver_journey_state',
+        params: params,
+      );
 
       if (result is Map) {
         return Map<String, dynamic>.from(result);
@@ -2611,28 +2404,6 @@ class TourisTrikeRepository {
         'p_booking_id': bookingId,
         'p_expected_state': expectedState.dbValue,
         'p_stop_index': stopIndex,
-      },
-    );
-    return result is Map
-        ? Map<String, dynamic>.from(result)
-        : const {'success': true};
-  }
-
-  /// DEBUG-only completion escape hatch for an allowlisted disposable booking.
-  /// The server still verifies the authenticated driver is a real assignment.
-  Future<Map<String, dynamic>> forceCompleteDebugTestTrip({
-    required String bookingId,
-    bool allConvoyAssignments = false,
-  }) async {
-    if (!kDebugMode || !await fetchDeveloperTestBookingMode(bookingId)) {
-      throw StateError('DEBUG_TRANSACTION_BYPASS_UNAVAILABLE');
-    }
-
-    final result = await _client.rpc(
-      'debug_force_complete_test_trip',
-      params: {
-        'p_booking_id': bookingId,
-        'p_force_all_assignments': allConvoyAssignments,
       },
     );
     return result is Map

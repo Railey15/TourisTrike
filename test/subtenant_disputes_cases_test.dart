@@ -47,13 +47,20 @@ Map<String, dynamic> _case({
 void main() {
   const migration =
       'supabase/migrations/20260930000000_subtenant_disputes_cases.sql';
+  const repairMigration =
+      'supabase/migrations/20260930040000_repair_dispute_case_mutation_results.sql';
   const screen = 'lib/screens/subtenant/subtenant_payment_disputes_screen.dart';
+  const service = 'lib/screens/subtenant/subtenant_service.dart';
   late String sql;
+  late String repairSql;
   late String ui;
+  late String serviceSource;
 
   setUpAll(() {
     sql = _read(migration);
+    repairSql = _read(repairMigration);
     ui = _read(screen);
+    serviceSource = _read(service);
   });
 
   test(
@@ -159,6 +166,58 @@ void main() {
       expect(sql, contains("'Case resolved'"));
       expect(sql, contains("where id = p_case_id and status = 'needs_review'"));
       expect(sql, contains("where id = p_case_id and status = 'under_review'"));
+    },
+  );
+
+  test(
+    'case mutation repair is idempotent and notifications are best-effort',
+    () {
+      expect(repairSql, contains("if v_case.status = 'under_review'"));
+      expect(repairSql, contains("if v_case.status = 'closed'"));
+      expect(repairSql, contains("'transitioned', false"));
+      expect(repairSql, contains("'notification_failures'"));
+      expect(repairSql, contains('exception when others then'));
+      expect(repairSql, contains("raise warning 'CASE_NOTIFICATION_FAILED"));
+      expect(repairSql, contains("'start_case_review'"));
+      expect(repairSql, contains("'resolve_dispute_case'"));
+      expect(repairSql, contains('for update;'));
+    },
+  );
+
+  test('service reconciles ambiguous RPC failures against persisted state', () {
+    expect(serviceSource, contains('Future<void> _runCaseMutation'));
+    expect(
+      serviceSource,
+      contains('final persisted = await fetchCaseDetails(caseId)'),
+    );
+    expect(serviceSource, contains('if (persistedMatches(persisted))'));
+    expect(
+      serviceSource,
+      contains('Error.throwWithStackTrace(error, stackTrace)'),
+    );
+    expect(
+      serviceSource,
+      contains("stString(row, const ['status']) == 'under_review'"),
+    );
+    expect(
+      serviceSource,
+      contains("stString(row, const ['status']) == 'closed'"),
+    );
+  });
+
+  test(
+    'UI refreshes authoritative cases before reporting mutation success',
+    () {
+      final action = ui.indexOf('await action();');
+      final refresh = ui.indexOf(
+        'final refreshed = await _service.fetchCases();',
+      );
+      final success = ui.indexOf(
+        'showSubTenantSnack(context, message, error: false)',
+      );
+      expect(action, greaterThan(-1));
+      expect(refresh, greaterThan(action));
+      expect(success, greaterThan(refresh));
     },
   );
 

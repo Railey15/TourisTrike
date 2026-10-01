@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:touristrike/core/auth/app_role.dart';
-import 'package:touristrike/core/maintenance/maintenance_settings.dart';
 
 import 'administrator_models.dart';
 import 'administrator_audit_logs_screen.dart';
 import 'widgets/system_admin_shared.dart';
 
 class AdministratorDashboardScreen extends StatelessWidget {
-  const AdministratorDashboardScreen({super.key, required this.data});
+  const AdministratorDashboardScreen({
+    super.key,
+    required this.data,
+  });
 
   final AdministratorPortalData data;
 
@@ -16,6 +18,7 @@ class AdministratorDashboardScreen extends StatelessWidget {
     final totalHealthChecks = data.healthChecks.length;
     final operationalChecks = data.operationalHealthChecks;
     final degradedChecks = totalHealthChecks - operationalChecks;
+
     final healthy =
         totalHealthChecks == 0 || operationalChecks == totalHealthChecks;
 
@@ -26,8 +29,8 @@ class AdministratorDashboardScreen extends StatelessWidget {
           final horizontalPadding = constraints.maxWidth >= 1200
               ? 32.0
               : constraints.maxWidth >= 700
-              ? 24.0
-              : 16.0;
+                  ? 24.0
+                  : 16.0;
 
           return ListView(
             padding: EdgeInsets.fromLTRB(
@@ -49,13 +52,13 @@ class AdministratorDashboardScreen extends StatelessWidget {
                         operationalChecks: operationalChecks,
                         totalHealthChecks: totalHealthChecks,
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 26),
 
-                      _SectionIntro(
+                      const _SectionIntro(
                         eyebrow: 'OVERVIEW',
                         title: 'Platform at a glance',
                         subtitle:
-                            'Monitor account activity, tourism offices, and platform health from one place.',
+                            'A quick view of TourisTrike accounts, tourism offices, and system availability.',
                       ),
                       const SizedBox(height: 14),
 
@@ -64,38 +67,20 @@ class AdministratorDashboardScreen extends StatelessWidget {
                         healthy: healthy,
                         degradedChecks: degradedChecks,
                       ),
-                      const SizedBox(height: 24),
 
-                      LayoutBuilder(
-                        builder: (context, innerConstraints) {
-                          final wide = innerConstraints.maxWidth >= 980;
+                      const SizedBox(height: 26),
 
-                          final rolePanel = _RoleDistribution(data: data);
-                          final healthPanel = _HealthSummary(
-                            checks: data.healthChecks,
-                          );
-
-                          if (!wide) {
-                            return Column(
-                              children: [
-                                rolePanel,
-                                const SizedBox(height: 18),
-                                healthPanel,
-                              ],
-                            );
-                          }
-
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(flex: 5, child: rolePanel),
-                              const SizedBox(width: 18),
-                              Expanded(flex: 5, child: healthPanel),
-                            ],
-                          );
-                        },
+                      const _SectionIntro(
+                        eyebrow: 'PLATFORM',
+                        title: 'Platform overview',
+                        subtitle:
+                            'Account distribution and monitored system services.',
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
+
+                      _PlatformOverview(data: data),
+
+                      const SizedBox(height: 26),
 
                       _RecentActivitySection(data: data),
                     ],
@@ -109,6 +94,10 @@ class AdministratorDashboardScreen extends StatelessWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// Welcome
+// -----------------------------------------------------------------------------
 
 class _WelcomeCard extends StatelessWidget {
   const _WelcomeCard({
@@ -135,13 +124,16 @@ class _WelcomeCard extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF102E61), Color(0xFF155EEF)],
+              colors: [
+                Color(0xFF102E61),
+                Color(0xFF155EEF),
+              ],
             ),
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF155EEF).withValues(alpha: 0.16),
-                blurRadius: 28,
+                color: const Color(0xFF155EEF).withValues(alpha: 0.15),
+                blurRadius: 30,
                 offset: const Offset(0, 12),
               ),
             ],
@@ -149,14 +141,20 @@ class _WelcomeCard extends StatelessWidget {
           child: Stack(
             children: [
               const Positioned(
-                right: -48,
-                top: -58,
-                child: _DecorativeCircle(size: 190, opacity: 0.06),
+                right: -55,
+                top: -70,
+                child: _DecorativeCircle(
+                  size: 205,
+                  opacity: 0.055,
+                ),
               ),
               const Positioned(
-                right: 80,
-                bottom: -75,
-                child: _DecorativeCircle(size: 150, opacity: 0.05),
+                right: 110,
+                bottom: -85,
+                child: _DecorativeCircle(
+                  size: 165,
+                  opacity: 0.045,
+                ),
               ),
               Padding(
                 padding: EdgeInsets.all(compact ? 20 : 26),
@@ -166,18 +164,23 @@ class _WelcomeCard extends StatelessWidget {
                         children: [
                           _WelcomeContent(profile: profile),
                           const SizedBox(height: 20),
-                          _WelcomeStatusCard(
-                            healthy: healthy,
-                            operationalChecks: operationalChecks,
-                            totalHealthChecks: totalHealthChecks,
+                          SizedBox(
+                            width: double.infinity,
+                            child: _WelcomeStatusCard(
+                              healthy: healthy,
+                              operationalChecks: operationalChecks,
+                              totalHealthChecks: totalHealthChecks,
+                            ),
                           ),
                         ],
                       )
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Expanded(child: _WelcomeContent(profile: profile)),
-                          const SizedBox(width: 24),
+                          Expanded(
+                            child: _WelcomeContent(profile: profile),
+                          ),
+                          const SizedBox(width: 28),
                           _WelcomeStatusCard(
                             healthy: healthy,
                             operationalChecks: operationalChecks,
@@ -195,7 +198,9 @@ class _WelcomeCard extends StatelessWidget {
 }
 
 class _WelcomeContent extends StatelessWidget {
-  const _WelcomeContent({required this.profile});
+  const _WelcomeContent({
+    required this.profile,
+  });
 
   final AdministratorProfile profile;
 
@@ -209,11 +214,16 @@ class _WelcomeContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+            ),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
@@ -248,11 +258,11 @@ class _WelcomeContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        ConstrainedBox(
+         ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 650),
           child: Text(
-            'Review platform activity, account distribution, tenant status, '
-            'and system health across TourisTrike.',
+            'Monitor platform accounts, tourism offices, activity, '
+            'and system availability across TourisTrike.',
             style: TextStyle(
               color: Color(0xFFDDE8FF),
               fontSize: 13.5,
@@ -261,7 +271,7 @@ class _WelcomeContent extends StatelessWidget {
             ),
           ),
         ),
-        if (profile.email.isNotEmpty) ...[
+        if (profile.email.trim().isNotEmpty) ...[
           const SizedBox(height: 15),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -310,18 +320,25 @@ class _WelcomeStatusCard extends StatelessWidget {
         : const Color(0xFFFEC84B);
 
     return Container(
-      constraints: const BoxConstraints(minWidth: 220, maxWidth: 270),
+      constraints: const BoxConstraints(
+        minWidth: 220,
+        maxWidth: 280,
+      ),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.14),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AdministratorStatusPill(
-            label: healthy ? 'All systems operational' : 'Attention required',
+            label: healthy
+                ? 'All systems operational'
+                : 'Attention required',
             color: healthy
                 ? AdministratorColors.green
                 : AdministratorColors.amber,
@@ -344,7 +361,10 @@ class _WelcomeStatusCard extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 2),
+                padding: const EdgeInsets.only(
+                  left: 4,
+                  bottom: 2,
+                ),
                 child: Text(
                   '/ $totalHealthChecks',
                   style: const TextStyle(
@@ -373,8 +393,11 @@ class _WelcomeStatusCard extends StatelessWidget {
               value: totalHealthChecks == 0
                   ? 1
                   : operationalChecks / totalHealthChecks,
-              backgroundColor: Colors.white.withValues(alpha: 0.14),
-              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+              backgroundColor:
+                  Colors.white.withValues(alpha: 0.14),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                statusColor,
+              ),
             ),
           ),
         ],
@@ -384,7 +407,10 @@ class _WelcomeStatusCard extends StatelessWidget {
 }
 
 class _DecorativeCircle extends StatelessWidget {
-  const _DecorativeCircle({required this.size, required this.opacity});
+  const _DecorativeCircle({
+    required this.size,
+    required this.opacity,
+  });
 
   final double size;
   final double opacity;
@@ -401,6 +427,10 @@ class _DecorativeCircle extends StatelessWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// Section heading
+// -----------------------------------------------------------------------------
 
 class _SectionIntro extends StatelessWidget {
   const _SectionIntro({
@@ -453,6 +483,10 @@ class _SectionIntro extends StatelessWidget {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Metrics
+// -----------------------------------------------------------------------------
+
 class _MetricsGrid extends StatelessWidget {
   const _MetricsGrid({
     required this.data,
@@ -472,38 +506,15 @@ class _MetricsGrid extends StatelessWidget {
 
         final columns = constraints.maxWidth >= 1180
             ? 4
-            : constraints.maxWidth >= 720
-            ? 2
-            : 1;
+            : constraints.maxWidth >= 680
+                ? 2
+                : 1;
 
         final width =
-            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+            (constraints.maxWidth - spacing * (columns - 1)) /
+                columns;
 
         final metrics = <Widget>[
-          _DashboardMetricCard(
-            label: 'Platform status',
-            value: switch (data.maintenance.status) {
-              MaintenanceSystemStatus.operational => 'Operational',
-              MaintenanceSystemStatus.scheduled => 'Scheduled',
-              MaintenanceSystemStatus.active => 'Maintenance',
-            },
-            helper: switch (data.maintenance.status) {
-              MaintenanceSystemStatus.operational =>
-                'Normal access is available',
-              MaintenanceSystemStatus.scheduled => 'Maintenance is scheduled',
-              MaintenanceSystemStatus.active => 'Maintenance Mode is active',
-            },
-            icon: switch (data.maintenance.status) {
-              MaintenanceSystemStatus.operational => Icons.check_circle_outline,
-              MaintenanceSystemStatus.scheduled => Icons.schedule_rounded,
-              MaintenanceSystemStatus.active => Icons.construction_rounded,
-            },
-            color: switch (data.maintenance.status) {
-              MaintenanceSystemStatus.operational => AdministratorColors.green,
-              MaintenanceSystemStatus.scheduled => AdministratorColors.amber,
-              MaintenanceSystemStatus.active => AdministratorColors.red,
-            },
-          ),
           _DashboardMetricCard(
             label: 'Total accounts',
             value: '${data.accounts.length}',
@@ -513,7 +524,8 @@ class _MetricsGrid extends StatelessWidget {
           ),
           _DashboardMetricCard(
             label: 'Active accounts',
-            value: '${data.statusCount(PlatformAccountStatus.active)}',
+            value:
+                '${data.statusCount(PlatformAccountStatus.active)}',
             helper: 'Currently active accounts',
             icon: Icons.verified_user_outlined,
             color: AdministratorColors.green,
@@ -530,7 +542,7 @@ class _MetricsGrid extends StatelessWidget {
             value: healthy ? 'Healthy' : '$degradedChecks issue(s)',
             helper: healthy
                 ? 'All monitored checks passed'
-                : 'Review integration status',
+                : 'Some services need attention',
             icon: healthy
                 ? Icons.monitor_heart_outlined
                 : Icons.warning_amber_rounded,
@@ -544,7 +556,12 @@ class _MetricsGrid extends StatelessWidget {
           spacing: spacing,
           runSpacing: spacing,
           children: [
-            for (final metric in metrics) SizedBox(width: width, child: metric),
+            for (final metric in metrics)
+              SizedBox(
+                width: width,
+                height: 146,
+                child: metric,
+              ),
           ],
         );
       },
@@ -570,15 +587,16 @@ class _DashboardMetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 132),
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AdministratorColors.line),
+        border: Border.all(
+          color: AdministratorColors.line,
+        ),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x08000000),
+            color: Color(0x07000000),
             blurRadius: 18,
             offset: Offset(0, 6),
           ),
@@ -588,27 +606,32 @@ class _DashboardMetricCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(13),
+                  color: color.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: color, size: 22),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 21,
+                ),
               ),
               const Spacer(),
               Container(
                 width: 8,
                 height: 8,
-                margin: const EdgeInsets.only(top: 4),
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const Spacer(),
           Text(
             value,
             maxLines: 1,
@@ -621,23 +644,25 @@ class _DashboardMetricCard extends StatelessWidget {
               letterSpacing: -0.4,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AdministratorColors.ink,
               fontSize: 12.5,
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 2),
           Text(
             helper,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AdministratorColors.muted,
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -647,8 +672,131 @@ class _DashboardMetricCard extends StatelessWidget {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Platform overview
+// -----------------------------------------------------------------------------
+
+class _PlatformOverview extends StatelessWidget {
+  const _PlatformOverview({
+    required this.data,
+  });
+
+  final AdministratorPortalData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return AdministratorPanel(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 900;
+
+          final roles = _RoleDistribution(data: data);
+          final health = _HealthSummary(
+            checks: data.healthChecks,
+          );
+
+          if (!wide) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                roles,
+                const SizedBox(height: 22),
+                const Divider(
+                  height: 1,
+                  color: AdministratorColors.line,
+                ),
+                const SizedBox(height: 22),
+                health,
+              ],
+            );
+          }
+
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: roles),
+                const SizedBox(width: 24),
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: AdministratorColors.line,
+                ),
+                const SizedBox(width: 24),
+                Expanded(child: health),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SubsectionHeader extends StatelessWidget {
+  const _SubsectionHeader({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AdministratorColors.blue.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: AdministratorColors.blue,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: AdministratorColors.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: AdministratorColors.muted,
+                  fontSize: 10.8,
+                  height: 1.35,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _RoleDistribution extends StatelessWidget {
-  const _RoleDistribution({required this.data});
+  const _RoleDistribution({
+    required this.data,
+  });
 
   final AdministratorPortalData data;
 
@@ -656,21 +804,27 @@ class _RoleDistribution extends StatelessWidget {
   Widget build(BuildContext context) {
     final totalAccounts = data.accounts.length;
 
-    return AdministratorPanel(
-      title: 'Accounts by role',
-      subtitle: 'Distribution across TourisTrike access levels',
-      child: Column(
-        children: [
-          for (var index = 0; index < AppRole.values.length; index++) ...[
-            _RoleDistributionItem(
-              role: AppRole.values[index],
-              count: data.countFor(AppRole.values[index]),
-              total: totalAccounts,
-            ),
-            if (index < AppRole.values.length - 1) const SizedBox(height: 15),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SubsectionHeader(
+          icon: Icons.groups_2_outlined,
+          title: 'Accounts by role',
+          subtitle: 'Distribution across platform access levels',
+        ),
+        const SizedBox(height: 20),
+        for (var index = 0;
+            index < AppRole.values.length;
+            index++) ...[
+          _RoleDistributionItem(
+            role: AppRole.values[index],
+            count: data.countFor(AppRole.values[index]),
+            total: totalAccounts,
+          ),
+          if (index < AppRole.values.length - 1)
+            const SizedBox(height: 15),
         ],
-      ),
+      ],
     );
   }
 }
@@ -703,7 +857,11 @@ class _RoleDistributionItem extends StatelessWidget {
                 color: color.withValues(alpha: 0.09),
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: Icon(administratorRoleIcon(role), size: 18, color: color),
+              child: Icon(
+                administratorRoleIcon(role),
+                size: 18,
+                color: color,
+              ),
             ),
             const SizedBox(width: 11),
             Expanded(
@@ -714,7 +872,7 @@ class _RoleDistributionItem extends StatelessWidget {
                     role.displayName,
                     style: const TextStyle(
                       color: AdministratorColors.ink,
-                      fontSize: 12.5,
+                      fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -725,7 +883,7 @@ class _RoleDistributionItem extends StatelessWidget {
                         : '${(ratio * 100).toStringAsFixed(0)}% of all accounts',
                     style: const TextStyle(
                       color: AdministratorColors.muted,
-                      fontSize: 10.5,
+                      fontSize: 10,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -733,23 +891,28 @@ class _RoleDistributionItem extends StatelessWidget {
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              constraints: const BoxConstraints(minWidth: 34),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 9,
+                vertical: 5,
+              ),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 '$count',
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   color: color,
-                  fontSize: 12,
+                  fontSize: 11.5,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 9),
+        const SizedBox(height: 8),
         ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: LinearProgressIndicator(
@@ -765,107 +928,118 @@ class _RoleDistributionItem extends StatelessWidget {
 }
 
 class _HealthSummary extends StatelessWidget {
-  const _HealthSummary({required this.checks});
+  const _HealthSummary({
+    required this.checks,
+  });
 
   final List<PlatformHealthCheck> checks;
 
   @override
   Widget build(BuildContext context) {
-    final operational = checks.where((check) => check.isOperational).length;
-    final healthy = checks.isEmpty || operational == checks.length;
+    final operational =
+        checks.where((check) => check.isOperational).length;
 
-    return AdministratorPanel(
-      title: 'System & integrations',
-      subtitle: 'Live availability from this authenticated session',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
+    final healthy =
+        checks.isEmpty || operational == checks.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SubsectionHeader(
+          icon: Icons.monitor_heart_outlined,
+          title: 'System & integrations',
+          subtitle: 'Current availability of monitored services',
+        ),
+        const SizedBox(height: 20),
+
+        Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: healthy
+                ? AdministratorColors.green
+                    .withValues(alpha: 0.055)
+                : AdministratorColors.amber
+                    .withValues(alpha: 0.065),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
               color: healthy
-                  ? AdministratorColors.green.withValues(alpha: 0.06)
-                  : AdministratorColors.amber.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: healthy
-                    ? AdministratorColors.green.withValues(alpha: 0.16)
-                    : AdministratorColors.amber.withValues(alpha: 0.18),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: healthy
-                        ? AdministratorColors.green.withValues(alpha: 0.12)
-                        : AdministratorColors.amber.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: Icon(
-                    healthy
-                        ? Icons.check_circle_outline_rounded
-                        : Icons.warning_amber_rounded,
-                    color: healthy
-                        ? AdministratorColors.green
-                        : AdministratorColors.amber,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        healthy
-                            ? 'All monitored services are operational'
-                            : 'Some services need attention',
-                        style: const TextStyle(
-                          color: AdministratorColors.ink,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$operational of ${checks.length} checks passed',
-                        style: const TextStyle(
-                          color: AdministratorColors.muted,
-                          fontSize: 10.8,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                  ? AdministratorColors.green
+                      .withValues(alpha: 0.14)
+                  : AdministratorColors.amber
+                      .withValues(alpha: 0.16),
             ),
           ),
-          const SizedBox(height: 14),
-          if (checks.isEmpty)
-            const _DashboardEmptyState(
-              icon: Icons.monitor_heart_outlined,
-              title: 'No health checks available',
-              message:
-                  'Integration health information is not available for this session.',
-            )
-          else
-            for (var index = 0; index < checks.length; index++) ...[
-              _HealthItem(check: checks[index]),
-              if (index < checks.length - 1)
-                const Divider(height: 18, color: AdministratorColors.line),
+          child: Row(
+            children: [
+              Icon(
+                healthy
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.warning_amber_rounded,
+                color: healthy
+                    ? AdministratorColors.green
+                    : AdministratorColors.amber,
+                size: 20,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      healthy
+                          ? 'All monitored services operational'
+                          : 'Some services need attention',
+                      style: const TextStyle(
+                        color: AdministratorColors.ink,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$operational of ${checks.length} checks passed',
+                      style: const TextStyle(
+                        color: AdministratorColors.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
-        ],
-      ),
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        if (checks.isEmpty)
+          const _DashboardEmptyState(
+            icon: Icons.monitor_heart_outlined,
+            title: 'No health checks available',
+            message:
+                'Health information is not available for this session.',
+          )
+        else
+          for (var index = 0;
+              index < checks.length;
+              index++) ...[
+            _HealthItem(check: checks[index]),
+            if (index < checks.length - 1)
+              const Divider(
+                height: 18,
+                color: AdministratorColors.line,
+              ),
+          ],
+      ],
     );
   }
 }
 
 class _HealthItem extends StatelessWidget {
-  const _HealthItem({required this.check});
+  const _HealthItem({
+    required this.check,
+  });
 
   final PlatformHealthCheck check;
 
@@ -876,70 +1050,55 @@ class _HealthItem extends StatelessWidget {
         : AdministratorColors.amber;
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 36,
-          height: 36,
+          width: 34,
+          height: 34,
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.09),
-            borderRadius: BorderRadius.circular(11),
+            color: color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(
             check.isOperational
                 ? Icons.check_rounded
                 : Icons.priority_high_rounded,
-            size: 18,
+            size: 17,
             color: color,
           ),
         ),
-        const SizedBox(width: 11),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      check.name,
-                      style: const TextStyle(
-                        color: AdministratorColors.ink,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  _HealthStatusBadge(operational: check.isOperational),
-                ],
+              Text(
+                check.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AdministratorColors.ink,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 2),
               Text(
                 check.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AdministratorColors.muted,
-                  fontSize: 10.8,
+                  fontSize: 10,
                   height: 1.35,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              if (check.detail.isNotEmpty) ...[
-                const SizedBox(height: 5),
-                Text(
-                  check.detail,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
             ],
           ),
+        ),
+        const SizedBox(width: 10),
+        _HealthStatusBadge(
+          operational: check.isOperational,
         ),
       ],
     );
@@ -947,7 +1106,9 @@ class _HealthItem extends StatelessWidget {
 }
 
 class _HealthStatusBadge extends StatelessWidget {
-  const _HealthStatusBadge({required this.operational});
+  const _HealthStatusBadge({
+    required this.operational,
+  });
 
   final bool operational;
 
@@ -958,7 +1119,10 @@ class _HealthStatusBadge extends StatelessWidget {
         : AdministratorColors.amber;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -967,7 +1131,7 @@ class _HealthStatusBadge extends StatelessWidget {
         operational ? 'Operational' : 'Degraded',
         style: TextStyle(
           color: color,
-          fontSize: 9.5,
+          fontSize: 9,
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -975,26 +1139,31 @@ class _HealthStatusBadge extends StatelessWidget {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Recent activity
+// -----------------------------------------------------------------------------
+
 class _RecentActivitySection extends StatelessWidget {
-  const _RecentActivitySection({required this.data});
+  const _RecentActivitySection({
+    required this.data,
+  });
 
   final AdministratorPortalData data;
 
   @override
   Widget build(BuildContext context) {
-    final recentEntries = data.auditEntries.take(8).toList(growable: false);
+    final recentEntries =
+        data.auditEntries.take(6).toList(growable: false);
 
     return AdministratorPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 10,
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              const Column(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 560;
+
+              final heading = const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -1005,24 +1174,26 @@ class _RecentActivitySection extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  SizedBox(height: 3),
+                  SizedBox(height: 4),
                   Text(
-                    'Latest auditable actions recorded across TourisTrike',
+                    'Latest administrative and platform events',
                     style: TextStyle(
                       color: AdministratorColors.muted,
-                      fontSize: 12,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
-              ),
-              Container(
+              );
+
+              final badge = Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: AdministratorColors.blue.withValues(alpha: 0.08),
+                  color: AdministratorColors.blue
+                      .withValues(alpha: 0.07),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Row(
@@ -1030,30 +1201,49 @@ class _RecentActivitySection extends StatelessWidget {
                   children: [
                     const Icon(
                       Icons.history_rounded,
-                      size: 15,
+                      size: 14,
                       color: AdministratorColors.blue,
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     Text(
                       '${recentEntries.length} recent',
                       style: const TextStyle(
                         color: AdministratorColors.blue,
-                        fontSize: 10.5,
+                        fontSize: 10,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              );
+
+              if (compact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    heading,
+                    const SizedBox(height: 10),
+                    badge,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: heading),
+                  badge,
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
+
           if (recentEntries.isEmpty)
             const _DashboardEmptyState(
               icon: Icons.history_toggle_off_rounded,
               title: 'No recent activity',
               message:
-                  'Platform activity will appear here when auditable actions are recorded.',
+                  'Platform activity will appear here when actions are recorded.',
             )
           else
             AdministratorAuditList(
@@ -1065,6 +1255,10 @@ class _RecentActivitySection extends StatelessWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// Empty state
+// -----------------------------------------------------------------------------
 
 class _DashboardEmptyState extends StatelessWidget {
   const _DashboardEmptyState({
@@ -1081,30 +1275,40 @@ class _DashboardEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 28),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 18,
+        vertical: 24,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AdministratorColors.line),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: AdministratorColors.line,
+        ),
       ),
       child: Column(
         children: [
           Container(
-            width: 46,
-            height: 46,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: AdministratorColors.blue.withValues(alpha: 0.08),
+              color: AdministratorColors.blue
+                  .withValues(alpha: 0.07),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: AdministratorColors.blue, size: 23),
+            child: Icon(
+              icon,
+              color: AdministratorColors.blue,
+              size: 21,
+            ),
           ),
-          const SizedBox(height: 11),
+          const SizedBox(height: 10),
           Text(
             title,
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: AdministratorColors.ink,
-              fontSize: 13,
+              fontSize: 12.5,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -1116,7 +1320,7 @@ class _DashboardEmptyState extends StatelessWidget {
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: AdministratorColors.muted,
-                fontSize: 11,
+                fontSize: 10.5,
                 height: 1.4,
                 fontWeight: FontWeight.w500,
               ),
@@ -1127,6 +1331,10 @@ class _DashboardEmptyState extends StatelessWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
 
 Color _roleColor(AppRole role) {
   return switch (role) {

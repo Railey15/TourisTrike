@@ -80,14 +80,41 @@ class _AdministratorAccountsScreenState
   List<PlatformAccountSummary> get _filtered {
     final query = _search.text.trim();
 
-    return widget.accounts
+    final accounts = widget.accounts
         .where(
           (account) =>
               account.matches(query) &&
               (_role == null || account.role == _role) &&
               (_status == null || _effectiveStatus(account) == _status),
         )
-        .toList(growable: false);
+        .toList(growable: true);
+
+    accounts.sort((a, b) {
+      final roleComparison =
+          _roleSortOrder(a.role).compareTo(_roleSortOrder(b.role));
+
+      if (roleComparison != 0) {
+        return roleComparison;
+      }
+
+      return _displayName(
+        a,
+      ).toLowerCase().compareTo(
+        _displayName(b).toLowerCase(),
+      );
+    });
+
+    return List<PlatformAccountSummary>.unmodifiable(accounts);
+  }
+
+  int _roleSortOrder(AppRole role) {
+    return switch (role) {
+      AppRole.administrator => 0,
+      AppRole.mainTenant => 1,
+      AppRole.subtenant => 2,
+      AppRole.driver => 3,
+      AppRole.tourist => 4,
+    };
   }
 
   bool get _hasFilters =>

@@ -172,7 +172,8 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
         ? 0
         : deadline.difference(_now.toLocal()).inSeconds;
     final rate = current == null
-        ? summary['current_rate_per_15_minutes']
+        ? summary['current_rate_per_interval'] ??
+              summary['current_rate_per_15_minutes']
         : current['rate_per_interval'];
     final intervalMinutes =
         (current?['interval_minutes'] as num?)?.toInt() ??

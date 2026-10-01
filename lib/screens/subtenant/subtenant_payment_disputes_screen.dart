@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -6,6 +8,7 @@ import 'subtenant_models.dart';
 import 'subtenant_service.dart';
 import 'widgets/subtenant_admin_widgets.dart';
 import 'widgets/subtenant_components.dart';
+
 const caseCategories = <String, String>{
   'all': 'All Categories',
   'payment': 'Payment',
@@ -34,6 +37,7 @@ const caseResolutions = <String, String>{
   'dismissed_insufficient_evidence': 'Dismissed / Insufficient Evidence',
   'other_resolution': 'Other Resolution',
 };
+
 class SubTenantPaymentDisputesScreen extends StatefulWidget {
   const SubTenantPaymentDisputesScreen({super.key, this.service});
   final SubTenantService? service;
@@ -41,6 +45,7 @@ class SubTenantPaymentDisputesScreen extends StatefulWidget {
   State<SubTenantPaymentDisputesScreen> createState() =>
       _SubTenantPaymentDisputesScreenState();
 }
+
 class _SubTenantPaymentDisputesScreenState
     extends State<SubTenantPaymentDisputesScreen> {
   late final SubTenantService _service;
@@ -55,17 +60,20 @@ class _SubTenantPaymentDisputesScreenState
     _service = widget.service ?? SubTenantService();
     _future = _service.fetchCases();
   }
+
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
   }
+
   void _reload() => setState(() => _future = _service.fetchCases());
   Future<void> _refresh() async {
     final next = _service.fetchCases();
     setState(() => _future = next);
     await next;
   }
+
   bool _matches(SubTenantCase item) {
     return item.matchesFilters(
       categoryFilter: _category,
@@ -73,6 +81,7 @@ class _SubTenantPaymentDisputesScreenState
       searchQuery: _search.text,
     );
   }
+
   Future<void> _mutate(
     SubTenantCase item,
     Future<void> Function() action,
@@ -83,14 +92,27 @@ class _SubTenantPaymentDisputesScreenState
     try {
       await action();
       if (!mounted) return;
-      showSubTenantSnack(context, message, error: false);
-      _reload();
+      try {
+        final refreshed = await _service.fetchCases();
+        if (mounted) {
+          setState(() => _future = Future.value(refreshed));
+        }
+      } catch (refreshError, refreshStack) {
+        developer.log(
+          'Case mutation committed, but the authoritative list refresh failed.',
+          name: 'SubTenantPaymentDisputesScreen',
+          error: refreshError,
+          stackTrace: refreshStack,
+        );
+      }
+      if (mounted) showSubTenantSnack(context, message, error: false);
     } catch (error) {
       if (mounted) showSubTenantSnack(context, 'Unable to update case: $error');
     } finally {
       if (mounted) setState(() => _processing.remove(item.id));
     }
   }
+
   Future<void> _startReview(SubTenantCase item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -119,6 +141,7 @@ class _SubTenantPaymentDisputesScreenState
       );
     }
   }
+
   Future<void> _resolve(SubTenantCase item) async {
     final result = await showDialog<_ResolutionInput>(
       context: context,
@@ -139,6 +162,7 @@ class _SubTenantPaymentDisputesScreenState
           : 'Case resolved and closed.',
     );
   }
+
   Future<void> _view(SubTenantCase item) async {
     await showDialog<void>(
       context: context,
@@ -156,6 +180,7 @@ class _SubTenantPaymentDisputesScreenState
       ),
     );
   }
+
   @override
   Widget build(BuildContext context) {
     return SubTenantAdminShell(
@@ -222,8 +247,10 @@ class _SubTenantPaymentDisputesScreenState
                 _filters(),
                 const SizedBox(height: 12),
                 _CaseWorkspace(
-                  minHeight: (MediaQuery.sizeOf(context).height - 470)
-                      .clamp(300.0, 680.0),
+                  minHeight: (MediaQuery.sizeOf(context).height - 470).clamp(
+                    300.0,
+                    680.0,
+                  ),
                   visible: visible,
                   emptyMessage: _emptyMessage(),
                   processing: _processing,
@@ -236,6 +263,7 @@ class _SubTenantPaymentDisputesScreenState
       ),
     );
   }
+
   Widget _metric(
     String label,
     int value,
@@ -251,6 +279,7 @@ class _SubTenantPaymentDisputesScreenState
       onTap: () => setState(() => _status = status),
     );
   }
+
   Widget _filters() {
     return DashboardSectionCard(
       child: LayoutBuilder(
@@ -302,6 +331,7 @@ class _SubTenantPaymentDisputesScreenState
       ),
     );
   }
+
   String _emptyMessage() {
     if (_search.text.trim().isNotEmpty) {
       return 'No cases match your search and filters.';
@@ -315,6 +345,7 @@ class _SubTenantPaymentDisputesScreenState
     };
   }
 }
+
 class _CaseWorkspace extends StatelessWidget {
   const _CaseWorkspace({
     required this.minHeight,
@@ -447,8 +478,7 @@ class _CaseWorkspace extends StatelessWidget {
                       busy: processing.contains(visible[i].id),
                       onView: () => onView(visible[i]),
                     ),
-                    if (i != visible.length - 1)
-                      const SizedBox(height: 10),
+                    if (i != visible.length - 1) const SizedBox(height: 10),
                   ],
                 ],
               ),
@@ -490,6 +520,7 @@ class _Filter extends StatelessWidget {
     },
   );
 }
+
 class _CaseCard extends StatelessWidget {
   const _CaseCard({
     required this.item,
@@ -595,6 +626,7 @@ class _CaseCard extends StatelessWidget {
     );
   }
 }
+
 class _CaseDialog extends StatelessWidget {
   const _CaseDialog({
     required this.item,
@@ -830,11 +862,13 @@ class _CaseDialog extends StatelessWidget {
     );
   }
 }
+
 class _ResolveDialog extends StatefulWidget {
   const _ResolveDialog();
   @override
   State<_ResolveDialog> createState() => _ResolveDialogState();
 }
+
 class _ResolveDialogState extends State<_ResolveDialog> {
   final _key = GlobalKey<FormState>();
   final _notes = TextEditingController();
@@ -846,6 +880,7 @@ class _ResolveDialogState extends State<_ResolveDialog> {
     _custom.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -943,6 +978,7 @@ class _ResolveDialogState extends State<_ResolveDialog> {
     );
   }
 }
+
 class _Section extends StatelessWidget {
   const _Section({required this.title, required this.child});
   final String title;
@@ -971,6 +1007,7 @@ class _Section extends StatelessWidget {
     ),
   );
 }
+
 class _Details extends StatelessWidget {
   const _Details({required this.rows});
   final Map<String, String> rows;
@@ -1011,6 +1048,7 @@ class _Details extends StatelessWidget {
     },
   );
 }
+
 class _Party extends StatelessWidget {
   const _Party({required this.label, required this.party});
   final String label;
@@ -1049,6 +1087,7 @@ class _Party extends StatelessWidget {
     ],
   );
 }
+
 class _Evidence extends StatelessWidget {
   const _Evidence({required this.evidence});
   final SubTenantCaseEvidence evidence;
@@ -1077,6 +1116,7 @@ class _Evidence extends StatelessWidget {
     final uri = Uri.tryParse(evidence.url);
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
+
   @override
   Widget build(BuildContext context) => InkWell(
     borderRadius: BorderRadius.circular(12),
@@ -1108,6 +1148,7 @@ class _Evidence extends StatelessWidget {
     ),
   );
 }
+
 class _Timeline extends StatelessWidget {
   const _Timeline({required this.label, required this.date});
   final String label;
@@ -1137,6 +1178,7 @@ class _Timeline extends StatelessWidget {
     ),
   );
 }
+
 class _Badge extends StatelessWidget {
   const _Badge({required this.label, required this.color});
   final String label;
@@ -1154,6 +1196,7 @@ class _Badge extends StatelessWidget {
     ),
   );
 }
+
 class _Inline extends StatelessWidget {
   const _Inline({required this.icon, required this.text});
   final IconData icon;
@@ -1171,6 +1214,7 @@ class _Inline extends StatelessWidget {
     ],
   );
 }
+
 class _HandlingNotice extends StatelessWidget {
   const _HandlingNotice({this.embedded = false});
 
@@ -1199,6 +1243,7 @@ class _HandlingNotice extends StatelessWidget {
     ),
   );
 }
+
 class _ResolutionInput {
   const _ResolutionInput({
     required this.type,
@@ -1209,6 +1254,7 @@ class _ResolutionInput {
   final String notes;
   final String custom;
 }
+
 String _statusLabel(String status) => switch (status) {
   'needs_review' => 'Needs Review',
   'under_review' => 'Under Review',

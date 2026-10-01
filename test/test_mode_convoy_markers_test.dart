@@ -100,79 +100,65 @@ void main() {
     expect(roster.length, 2);
   });
 
-  for (final enabled in [false, true]) {
-    test(
-      'test=$enabled: automatic GPS uses real RPC, manual uses authorized mode',
-      () async {
-        final paths = <String>[];
-        final client = SupabaseClient(
-          'https://example.supabase.co',
-          'test',
-          authOptions: const AuthClientOptions(autoRefreshToken: false),
-          httpClient: MockClient((request) async {
-            paths.add(request.url.path.split('/').last);
-            return http.Response(
-              jsonEncode(
-                paths.last == 'debug_get_test_booking_state'
-                    ? {'enabled': enabled}
-                    : {'success': true},
-              ),
-              200,
-              headers: {'content-type': 'application/json'},
-              request: request,
-            );
-          }),
+  test('automatic and manual journey actions use the canonical RPC', () async {
+    final paths = <String>[];
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test',
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+      httpClient: MockClient((request) async {
+        paths.add(request.url.path.split('/').last);
+        return http.Response(
+          jsonEncode({'success': true}),
+          200,
+          headers: {'content-type': 'application/json'},
+          request: request,
         );
-        final repo = TourisTrikeRepository(client: client);
+      }),
+    );
+    final repo = TourisTrikeRepository(client: client);
+    await repo.advanceDriverJourneyState(
+      bookingId: 'booking',
+      targetState: ConvoyJourneyState.enRoutePickup,
+    );
+    expect(paths, ['advance_driver_journey_state']);
+    paths.clear();
+    final detector = StableArrivalDetector(radiusMeters: 150);
+    for (final seconds in [0, 3, 6]) {
+      final time = DateTime.utc(2026, 9, 6).add(Duration(seconds: seconds));
+      if (detector.observe(
+        target: 'stop',
+        distanceMeters: 30,
+        accuracyMeters: 5,
+        sampledAt: time,
+        now: time,
+      )) {
         await repo.advanceDriverJourneyState(
           bookingId: 'booking',
-          targetState: ConvoyJourneyState.enRoutePickup,
+          targetState: ConvoyJourneyState.atStop,
+          automaticArrival: true,
         );
-        expect(
-          paths.last,
-          enabled
-              ? 'debug_advance_driver_journey_state'
-              : 'advance_driver_journey_state',
-        );
-        paths.clear();
-        final detector = StableArrivalDetector(radiusMeters: 150);
-        for (final seconds in [0, 3, 6]) {
-          final time = DateTime.utc(2026, 9, 6).add(Duration(seconds: seconds));
-          if (detector.observe(
-            target: 'stop',
-            distanceMeters: 30,
-            accuracyMeters: 5,
-            sampledAt: time,
-            now: time,
-          )) {
-            await repo.advanceDriverJourneyState(
-              bookingId: 'booking',
-              targetState: ConvoyJourneyState.atStop,
-              automaticArrival: true,
-            );
-          }
-        }
-        expect(paths, ['advance_driver_journey_state']);
-        // Even callers omitting the automaticArrival hint cannot use the
-        // operational bypass for an arrival transition.
-        for (final stage in [
-          ConvoyJourneyState.atPickup,
-          ConvoyJourneyState.atStop,
-          ConvoyJourneyState.atDropoff,
-        ]) {
-          paths.clear();
-          await repo.advanceDriverJourneyState(
-            bookingId: 'booking',
-            targetState: stage,
-          );
-          expect(paths, ['advance_driver_journey_state']);
-        }
-        await client.dispose();
-      },
-    );
-  }
+      }
+    }
+    expect(paths, ['advance_driver_journey_state']);
+    // Even callers omitting the automaticArrival hint cannot use the
+    // operational bypass for an arrival transition.
+    for (final stage in [
+      ConvoyJourneyState.atPickup,
+      ConvoyJourneyState.atStop,
+      ConvoyJourneyState.atDropoff,
+    ]) {
+      paths.clear();
+      await repo.advanceDriverJourneyState(
+        bookingId: 'booking',
+        targetState: stage,
+      );
+      expect(paths, ['advance_driver_journey_state']);
+    }
+    await client.dispose();
+  });
 
-  test('tracking keeps GPS automation enabled independently of bypass', () {
+  test('tracking keeps real GPS automation and no simulated bypass', () {
     final source = File(
       'lib/screens/driver/driver_package_tracking_screen.dart',
     ).readAsStringSync();
@@ -184,9 +170,10 @@ void main() {
       final end = source.indexOf('\n  Future', start + 1);
       expect(
         source.substring(start, end < 0 ? source.length : end),
-        isNot(contains('_bypassTransactionValidation')),
+        isNot(contains('DeveloperSettings')),
       );
     }
     expect(source, contains('_repo.observeDriverJourneyLocation('));
+    expect(source, isNot(contains('_simulatedDriverLocation')));
   });
 }

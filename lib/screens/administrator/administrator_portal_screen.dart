@@ -8,6 +8,7 @@ import 'administrator_accounts_screen.dart';
 import 'administrator_audit_logs_screen.dart';
 import 'administrator_configuration_screen.dart';
 import 'administrator_dashboard_screen.dart';
+import 'administrator_developer_tools_screen.dart';
 import 'administrator_integrations_screen.dart';
 import 'administrator_security_screen.dart';
 import 'administrator_tenants_screen.dart';
@@ -143,6 +144,8 @@ class _AdministratorPortalScreenState extends State<AdministratorPortalScreen> {
             AdministratorSection.security => AdministratorSecurityScreen(
               data: data!,
             ),
+            AdministratorSection.developerTools =>
+              const AdministratorDeveloperToolsScreen(),
             AdministratorSection.audit => AdministratorAuditLogsScreen(
               entries: data!.auditEntries,
               actorNames: data.accountNamesById,

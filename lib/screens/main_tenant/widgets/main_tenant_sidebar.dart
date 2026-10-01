@@ -28,13 +28,10 @@ class MainTenantSidebar extends StatelessWidget {
       backgroundColor: Colors.transparent,
       elevation: 0,
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: MainTenantSidebar(
-            current: current,
-            onDestinationSelected: onDestinationSelected,
-            onLogout: onLogout,
-          ),
+        child: MainTenantSidebar(
+          current: current,
+          onDestinationSelected: onDestinationSelected,
+          onLogout: onLogout,
         ),
       ),
     );
@@ -82,9 +79,13 @@ class MainTenantSidebar extends StatelessWidget {
                     child: Image.network(
                       'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo1.png',
                       fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const Icon(
+                        Icons.account_balance_rounded,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),  
+                ),
                 if (!compact) ...[
                   const SizedBox(width: 12),
                   const Expanded(
@@ -142,14 +143,16 @@ class MainTenantSidebar extends StatelessWidget {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              children: mainTenantNavItems.map((item) {
-                return _SidebarTile(
-                  item: item,
-                  compact: compact,
-                  active: item.destination == current,
-                  onTap: () => onDestinationSelected(item.destination),
-                );
-              }).toList(growable: false),
+              children: mainTenantNavItems
+                  .map((item) {
+                    return _SidebarTile(
+                      item: item,
+                      compact: compact,
+                      active: item.destination == current,
+                      onTap: () => onDestinationSelected(item.destination),
+                    );
+                  })
+                  .toList(growable: false),
             ),
           ),
           Padding(
@@ -183,7 +186,9 @@ class _SidebarTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 7),
       padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 14),
       decoration: BoxDecoration(
-        color: active ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
+        color: active
+            ? Colors.white.withValues(alpha: 0.18)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(18),
         border: active
             ? Border.all(color: Colors.white.withValues(alpha: 0.24))

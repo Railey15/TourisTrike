@@ -41,8 +41,10 @@ class _SubTenantCityProfileScreenState
   final _farePerKmCtrl = TextEditingController();
   final _minimumFareCtrl = TextEditingController();
   final _waitingFeeCtrl = TextEditingController();
-  final _tourWaitingFeeCtrl = TextEditingController();
-  final _tourWaitingIntervalCtrl = TextEditingController();
+  final _customWaitingIntervalCtrl = TextEditingController();
+
+  int _waitingIntervalSelection =
+      SubTenantFareSettings.defaultAdditionalWaitingIntervalMinutes;
 
   SubTenantProfile? _profile;
 
@@ -85,8 +87,7 @@ class _SubTenantCityProfileScreenState
       _farePerKmCtrl,
       _minimumFareCtrl,
       _waitingFeeCtrl,
-      _tourWaitingFeeCtrl,
-      _tourWaitingIntervalCtrl,
+      _customWaitingIntervalCtrl,
     ]) {
       controller.addListener(_markDirty);
     }
@@ -156,10 +157,14 @@ class _SubTenantCityProfileScreenState
     _farePerKmCtrl.text = fare.id == null ? '' : _moneyText(fare.farePerKm);
     _minimumFareCtrl.text = fare.id == null ? '' : _moneyText(fare.minimumFare);
     _waitingFeeCtrl.text = fare.id == null ? '' : _moneyText(fare.waitingFee);
-    _tourWaitingFeeCtrl.text = fare.tourWaitingFeePer15Minutes == null
-        ? ''
-        : _moneyText(fare.tourWaitingFeePer15Minutes!);
-    _tourWaitingIntervalCtrl.text = fare.tourWaitingIntervalMinutes.toString();
+    final interval = fare.additionalWaitingIntervalMinutes;
+    if (const {15, 20, 30}.contains(interval)) {
+      _waitingIntervalSelection = interval;
+      _customWaitingIntervalCtrl.clear();
+    } else {
+      _waitingIntervalSelection = -1;
+      _customWaitingIntervalCtrl.text = '$interval';
+    }
     _hydrating = false;
     _dirty = false;
 
@@ -408,8 +413,7 @@ class _SubTenantCityProfileScreenState
     _farePerKmCtrl.dispose();
     _minimumFareCtrl.dispose();
     _waitingFeeCtrl.dispose();
-    _tourWaitingFeeCtrl.dispose();
-    _tourWaitingIntervalCtrl.dispose();
+    _customWaitingIntervalCtrl.dispose();
     super.dispose();
   }
 
@@ -431,6 +435,21 @@ class _SubTenantCityProfileScreenState
     return null;
   }
 
+  int? get _additionalWaitingIntervalMinutes {
+    if (_waitingIntervalSelection != -1) return _waitingIntervalSelection;
+    final raw = _customWaitingIntervalCtrl.text.trim();
+    if (!RegExp(r'^\d+$').hasMatch(raw)) return null;
+    final minutes = int.tryParse(raw);
+    return minutes != null && minutes >= 1 && minutes <= 60 ? minutes : null;
+  }
+
+  String? _waitingIntervalValidator(String? value) {
+    if (_waitingIntervalSelection != -1) return null;
+    return _additionalWaitingIntervalMinutes == null
+        ? 'Enter a whole number from 1 to 60'
+        : null;
+  }
+
   SubTenantFareSettings _fareFromState(SubTenantProfile profile) {
     return SubTenantFareSettings(
       subtenantId: profile.id,
@@ -439,12 +458,9 @@ class _SubTenantCityProfileScreenState
       farePerKm: _moneyValue(_farePerKmCtrl),
       minimumFare: _moneyValue(_minimumFareCtrl),
       waitingFee: _moneyValue(_waitingFeeCtrl),
-      tourWaitingFeePer15Minutes: _tourWaitingFeeCtrl.text.trim().isEmpty
-          ? null
-          : _moneyValue(_tourWaitingFeeCtrl),
-      tourWaitingIntervalMinutes: int.parse(
-        _tourWaitingIntervalCtrl.text.trim(),
-      ),
+      additionalWaitingIntervalMinutes:
+          _additionalWaitingIntervalMinutes ??
+          SubTenantFareSettings.defaultAdditionalWaitingIntervalMinutes,
     );
   }
 
@@ -511,7 +527,7 @@ class _SubTenantCityProfileScreenState
       title: 'Settings',
       subtitle: 'Manage your tourism office profile and active fare settings.',
       actions: [
-        if (_dirty)
+        if (_dirty && !Responsive.isMobile(context))
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
@@ -930,31 +946,55 @@ class _SubTenantCityProfileScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SubTenantTextField(
-                controller: _tourWaitingFeeCtrl,
-                label: 'Tour Additional Waiting Fee (PHP / interval)',
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) => (value ?? '').trim().isEmpty
-                    ? null
-                    : _nonNegativeMoneyValidator(value),
-              ),
-              const SizedBox(height: 12),
-              SubTenantTextField(
-                controller: _tourWaitingIntervalCtrl,
-                label: 'Tour Waiting Interval (minutes)',
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  final minutes = int.tryParse((value ?? '').trim());
-                  return minutes != null && minutes >= 1 && minutes <= 120
+              ListenableBuilder(
+                listenable: Listenable.merge([
+                  _waitingFeeCtrl,
+                  _customWaitingIntervalCtrl,
+                ]),
+                builder: (context, child) {
+                  final interval = _additionalWaitingIntervalMinutes;
+                  final hourly = SubTenantFareSettings.parseMoneyAmount(
+                    _waitingFeeCtrl.text,
+                  );
+                  final calculated = interval == null || hourly == null
                       ? null
-                      : 'Enter 1 to 120 minutes';
+                      : SubTenantFareSettings(
+                          subtenantId: profile.id,
+                          city: profile.assignedCity,
+                          waitingFee: hourly,
+                          additionalWaitingIntervalMinutes: interval,
+                        ).calculatedAdditionalWaitingFee;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _TwoColumn(
+                        left: _WaitingIntervalField(
+                          selection: _waitingIntervalSelection,
+                          customController: _customWaitingIntervalCtrl,
+                          customValidator: _waitingIntervalValidator,
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _waitingIntervalSelection = value);
+                            _markDirty();
+                          },
+                        ),
+                        right: _CalculatedWaitingFeeField(amount: calculated),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        interval == null
+                            ? 'Choose a valid interval to calculate the waiting fee.'
+                            : 'Charged per started $interval minutes after the tourist exceeds the included Time of Stay.',
+                      ),
+                      if (interval != null) ...[
+                        const SizedBox(height: 4),
+                        const Text(
+                          'One configured interval is free; the first charge applies when that grace interval ends.',
+                        ),
+                      ],
+                    ],
+                  );
                 },
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'One configured interval after the included Time of Stay is free. The first charge applies at the threshold.',
               ),
             ],
           ),
@@ -1320,6 +1360,128 @@ class _HeaderPreview extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _WaitingIntervalField extends StatelessWidget {
+  const _WaitingIntervalField({
+    required this.selection,
+    required this.customController,
+    required this.customValidator,
+    required this.onChanged,
+  });
+
+  final int selection;
+  final TextEditingController customController;
+  final FormFieldValidator<String> customValidator;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Additional Waiting Interval',
+          style: TextStyle(
+            color: SubTenantColors.text,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<int>(
+          key: const ValueKey('additional-waiting-interval-dropdown'),
+          initialValue: selection,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: SubTenantColors.line),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: SubTenantColors.line),
+            ),
+          ),
+          items: const [
+            DropdownMenuItem(value: 15, child: Text('15 minutes')),
+            DropdownMenuItem(value: 20, child: Text('20 minutes')),
+            DropdownMenuItem(value: 30, child: Text('30 minutes')),
+            DropdownMenuItem(value: -1, child: Text('Custom')),
+          ],
+          onChanged: onChanged,
+        ),
+        if (selection == -1) ...[
+          const SizedBox(height: 10),
+          SubTenantTextField(
+            controller: customController,
+            label: 'Custom interval (minutes)',
+            keyboardType: TextInputType.number,
+            validator: customValidator,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CalculatedWaitingFeeField extends StatelessWidget {
+  const _CalculatedWaitingFeeField({required this.amount});
+
+  final double? amount;
+
+  @override
+  Widget build(BuildContext context) {
+    final display = amount == null
+        ? 'PHP —'
+        : 'PHP ${amount!.toStringAsFixed(2)}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Calculated Waiting Fee',
+          style: TextStyle(
+            color: SubTenantColors.text,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          key: ValueKey('calculated-waiting-fee-$display'),
+          initialValue: display,
+          readOnly: true,
+          enableInteractiveSelection: false,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFFEFF5FC),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: SubTenantColors.line),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: SubTenantColors.line),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Automatically calculated from the hourly waiting fee.',
+          style: TextStyle(color: SubTenantColors.muted, fontSize: 12),
+        ),
+      ],
     );
   }
 }

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'core/notifications/notification_service.dart';
 import 'core/notifications/notification_visibility.dart';
 import 'widgets/notification_host.dart';
@@ -9,8 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/config/app_config.dart';
 import 'package:touristrike/core/maintenance/maintenance_gate.dart';
 import 'package:touristrike/core/maintenance/maintenance_service.dart';
-import 'package:touristrike/core/services/developer_settings.dart';
-import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/guest/guest_trip_access_screen.dart';
 import 'package:touristrike/screens/tourist/tourist_spots_screen.dart';
 import 'package:touristrike/screens/driver/driver_home_screen.dart';
@@ -26,16 +23,6 @@ Future<void> main() async {
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dHFoc3JkZ3R3ZGVvb3RnamNpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwODYxMDcsImV4cCI6MjA4NzY2MjEwN30.TI-q2wAlBtd5qAZkZGhUo45rKFFooXfXLyB6kZu070o',
   );
-
-  if (kDebugMode) {
-    await DeveloperSettings.instance.initialize();
-    unawaited(
-      TourisTrikeRepository().logDeveloperTestDiagnostics(
-        bookingId: DeveloperSettings.instance.testBookingId,
-        event: 'app_start',
-      ),
-    );
-  }
 
   if (!(kIsWeb && Uri.base.pathSegments.firstOrNull == 'trip')) {
     // Complete Firebase setup and background-handler registration before runApp.

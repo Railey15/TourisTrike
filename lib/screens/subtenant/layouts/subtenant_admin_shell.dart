@@ -506,9 +506,13 @@ class _MobileShell extends StatelessWidget {
           ],
         ),
         actions: [
-          const _NotificationButton(),
-          ...actions,
-          const SizedBox(width: 6),
+          ResponsiveAppBarActions(
+            children: [
+              const _NotificationButton(),
+              ...actions,
+              const SizedBox(width: 6),
+            ],
+          ),
         ],
       ),
       body: DecoratedBox(
@@ -541,56 +545,71 @@ class _DesktopHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // These thresholds describe the header's actual available width after
+        // the sidebar, rather than the full browser viewport.
+        final showSearch = constraints.maxWidth >= 760;
+        final showBadge = constraints.maxWidth >= 980;
 
-    return Container(
-      height: 92,
-      padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.055),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 14),
-          Expanded(
-            child: PageTitleBar(
-              title: title,
-              subtitle: subtitle,
-              actions: const [],
-            ),
-          ),
-          const SizedBox(width: 14),
-          if (desktop) ...[
-            _HeaderSearch(scope: currentIndex),
-            const SizedBox(width: 12),
-          ],
-          const _NotificationButton(),
-          const SizedBox(width: 10),
-          if (actions.isNotEmpty) ...[
-            Container(
-              height: 46,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FBFF),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: SubTenantColors.line),
+        return Container(
+          height: 92,
+          padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.055),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
               ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: actions),
-            ),
-            const SizedBox(width: 10),
-          ],
-          if (desktop) const _AdminBadge(),
-        ],
-      ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 14),
+              Expanded(
+                child: PageTitleBar(
+                  title: title,
+                  subtitle: subtitle,
+                  actions: const [],
+                ),
+              ),
+              const SizedBox(width: 14),
+              if (showSearch) ...[
+                _HeaderSearch(scope: currentIndex),
+                const SizedBox(width: 12),
+              ],
+              const _NotificationButton(),
+              const SizedBox(width: 10),
+              if (actions.isNotEmpty) ...[
+                Flexible(
+                  child: Container(
+                    height: 46,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FBFF),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: SubTenantColors.line),
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: actions,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              if (showBadge) const _AdminBadge(),
+            ],
+          ),
+        );
+      },
     );
   }
 }

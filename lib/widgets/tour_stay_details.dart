@@ -9,8 +9,8 @@ class TourStayDetails extends StatelessWidget {
     required this.includedMinutes,
     this.secondsRemaining,
     this.rate,
-    this.accruedWaiting,
     this.intervalMinutes = 15,
+    this.accruedWaiting,
     this.showDestination = true,
     this.showIncluded = true,
   });
@@ -18,8 +18,8 @@ class TourStayDetails extends StatelessWidget {
   final int? includedMinutes;
   final int? secondsRemaining;
   final double? rate;
-  final double? accruedWaiting;
   final int intervalMinutes;
+  final double? accruedWaiting;
   final bool showDestination;
   final bool showIncluded;
   @override

@@ -23,7 +23,6 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
-import 'package:touristrike/core/services/developer_settings.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/services/live_marker_motion.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
@@ -257,7 +256,7 @@ class _DriverPackageTrackingScreenState
 
   bool _loading = true;
   bool _actionBusy = false;
-  bool _serverTestModeEnabled = false;
+  bool _testSessionAuthorized = false;
 
   String? _error;
   String? _eta;
@@ -289,26 +288,7 @@ class _DriverPackageTrackingScreenState
   final Map<String, LatLng> _liveMarkerPositions = <String, LatLng>{};
   final Map<String, double> _liveMarkerHeadings = <String, double>{};
 
-  bool get _configuredTestMode => kDebugMode && _serverTestModeEnabled;
-
-  bool get _bypassTransactionValidation => _configuredTestMode;
-
-  String _testActionLabel(String productionLabel) =>
-      kDebugMode && _bypassTransactionValidation
-      ? '$productionLabel — TEST'
-      : productionLabel;
-
-  LatLng? get _simulatedDriverLocation {
-    final settings = DeveloperSettings.instance;
-    final driverId = _repo.currentUserId ?? '';
-    if (!settings.canSimulateLocationFor(
-      bookingId: _bookingId,
-      driverId: driverId,
-    )) {
-      return null;
-    }
-    return LatLng(settings.simulatedLatitude!, settings.simulatedLongitude!);
-  }
+  bool get _scheduledStartBypassAuthorized => _testSessionAuthorized;
 
   bool get _isBookingCancelled {
     final values = [
@@ -353,13 +333,12 @@ class _DriverPackageTrackingScreenState
 
     if (me.journeyState == ConvoyJourneyState.assigned) {
       final scheduled = booking.scheduledStartAt;
-      if (!_bypassTransactionValidation &&
+      if (!_scheduledStartBypassAuthorized &&
           scheduled != null &&
           DateTime.now().isBefore(scheduled)) {
         return 'Upcoming booking • Navigation unlocks ${DateFormat('MMM d, yyyy • h:mm a').format(scheduled.toLocal())}.';
       }
-      if (!_bypassTransactionValidation &&
-          booking.downpaymentAmount > 0 &&
+      if (booking.downpaymentAmount > 0 &&
           !_hasConfirmedPayment('down_payment', booking.downpaymentAmount)) {
         return 'Down payment has not been confirmed yet. Required: ₱${booking.downpaymentAmount.toStringAsFixed(2)}.';
       }
@@ -397,7 +376,6 @@ class _DriverPackageTrackingScreenState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    DeveloperSettings.instance.addListener(_onDeveloperSettingsChanged);
     _initCustomMarkers();
     _load();
     _journeyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -413,14 +391,8 @@ class _DriverPackageTrackingScreenState
     });
   }
 
-  void _onDeveloperSettingsChanged() {
-    if (mounted) setState(() {});
-    if (mounted && !_loading) unawaited(_startGpsStreaming());
-  }
-
   @override
   void dispose() {
-    DeveloperSettings.instance.removeListener(_onDeveloperSettingsChanged);
     _journeyTicker?.cancel();
     _gpsRecoveryTimer?.cancel();
     _activityChannel?.unsubscribe();
@@ -504,18 +476,14 @@ class _DriverPackageTrackingScreenState
         await _repo.fetchTourTrackingStatus(bookingId),
       );
 
-      var serverTestModeEnabled = false;
-      if (kDebugMode) {
-        try {
-          serverTestModeEnabled = await _repo.fetchDeveloperTestBookingMode(
-            bookingId,
-          );
-        } catch (error) {
-          debugPrint(
-            '[TEST MODE] booking_id=$bookingId action=read '
-            'server_state_error=$error',
-          );
-        }
+      var testSessionAuthorized = false;
+      try {
+        final result = await _repo.fetchMyBookingTestAuthorization(bookingId);
+        testSessionAuthorized = result['authorized'] == true;
+      } catch (error) {
+        debugPrint(
+          '[TEST AUTHORIZATION] booking_id=$bookingId read_error=$error',
+        );
       }
 
       final booking = results[0] as PackageBooking?;
@@ -560,7 +528,7 @@ class _DriverPackageTrackingScreenState
         _paymentRecords = paymentRecords;
         _paymentAllocations = paymentAllocations;
         _dropoffPaymentGate = dropoffPaymentGate;
-        _serverTestModeEnabled = serverTestModeEnabled;
+        _testSessionAuthorized = testSessionAuthorized;
         _loading = false;
       });
 
@@ -1103,16 +1071,6 @@ class _DriverPackageTrackingScreenState
     if (!_shouldShareDriverLocation) return;
     _gpsMonitoringStartedAt ??= DateTime.now();
 
-    final simulated = _simulatedDriverLocation;
-    if (simulated != null) {
-      await _gpsSub?.cancel();
-      _gpsSub = null;
-      await _recoverGpsFix();
-      _buildMarkers();
-      _fetchCurrentRoute();
-      return;
-    }
-
     final ok = await _checkLocationPermission();
 
     if (!ok) {
@@ -1292,6 +1250,7 @@ class _DriverPackageTrackingScreenState
       if (!mounted) return;
       setState(() => _trackingStatus = TourTrackingStatus(status));
       await Future.wait([
+        _syncTestAuthorization(),
         _loadConvoy(),
         _refreshTrackingState(logTag: 'tracking-resumed'),
       ]);
@@ -1355,13 +1314,11 @@ class _DriverPackageTrackingScreenState
     }
     _gpsRecoveryBusy = true;
     try {
-      final simulated = _simulatedDriverLocation;
-      if (simulated == null &&
-          (!await Geolocator.isLocationServiceEnabled() ||
-              !const {
-                LocationPermission.always,
-                LocationPermission.whileInUse,
-              }.contains(await Geolocator.checkPermission()))) {
+      if (!await Geolocator.isLocationServiceEnabled() ||
+          !const {
+            LocationPermission.always,
+            LocationPermission.whileInUse,
+          }.contains(await Geolocator.checkPermission())) {
         if (mounted) {
           setState(
             () => _gpsIssue =
@@ -1370,23 +1327,10 @@ class _DriverPackageTrackingScreenState
         }
         return;
       }
-      final position = simulated == null
-          ? await Geolocator.getCurrentPosition(
-              desiredAccuracy: LocationAccuracy.high,
-              timeLimit: const Duration(seconds: 7),
-            )
-          : Position(
-              latitude: simulated.latitude,
-              longitude: simulated.longitude,
-              timestamp: DateTime.now(),
-              accuracy: 0,
-              altitude: 0,
-              altitudeAccuracy: 0,
-              heading: 0,
-              headingAccuracy: 0,
-              speed: 0,
-              speedAccuracy: 0,
-            );
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 7),
+      );
       if (!mounted || !_shouldShareDriverLocation || !_acceptGpsFix(position)) {
         return;
       }
@@ -2053,9 +1997,6 @@ class _DriverPackageTrackingScreenState
   }
 
   LatLng? _driverLatLng() {
-    final simulated = _simulatedDriverLocation;
-    if (simulated != null) return simulated;
-
     final position = _currentPosition;
 
     if (position != null) {
@@ -2210,21 +2151,21 @@ class _DriverPackageTrackingScreenState
   // ACTION WRAPPER
   // =========================================================================
 
-  Future<void> _syncServerTestModeState() async {
-    if (!kDebugMode || _bookingId.isEmpty) return;
+  Future<void> _syncTestAuthorization() async {
+    if (_bookingId.isEmpty) return;
 
-    var enabled = false;
+    var authorized = false;
     try {
-      enabled = await _repo.fetchDeveloperTestBookingMode(_bookingId);
+      final result = await _repo.fetchMyBookingTestAuthorization(_bookingId);
+      authorized = result['authorized'] == true;
     } catch (error) {
       debugPrint(
-        '[TEST MODE] booking_id=$_bookingId action=refresh '
-        'server_state_error=$error',
+        '[TEST AUTHORIZATION] booking_id=$_bookingId refresh_error=$error',
       );
     }
 
-    if (mounted && enabled != _serverTestModeEnabled) {
-      setState(() => _serverTestModeEnabled = enabled);
+    if (mounted && authorized != _testSessionAuthorized) {
+      setState(() => _testSessionAuthorized = authorized);
     }
   }
 
@@ -2241,7 +2182,7 @@ class _DriverPackageTrackingScreenState
     });
 
     try {
-      await _syncServerTestModeState();
+      await _syncTestAuthorization();
       await action();
     } catch (e) {
       if (mounted) {
@@ -2264,23 +2205,6 @@ class _DriverPackageTrackingScreenState
     }
     if (raw.contains('ITINERARY_NOT_FINALIZED')) {
       return 'The final stop is still being finalized. Refresh the tour and wait for the convoy before starting drop-off.';
-    }
-    if (kDebugMode && _bypassTransactionValidation) {
-      if (raw.contains('TEST_BOOKING_NOT_REGISTERED')) {
-        return 'Server-side Testing Mode is not active for this booking. Re-enable Testing Mode in Developer Tools, then retry.';
-      }
-      if (raw.contains('NOT_TEST_BOOKING_DRIVER') ||
-          raw.contains('NOT_ASSIGNED_DRIVER') ||
-          raw.contains('NOT_IN_CONVOY')) {
-        return 'Testing Mode can only advance the real driver assignment signed in on this device.';
-      }
-      if (raw.contains('CANCELLED_BOOKING_CANNOT_ADVANCE')) {
-        return 'A cancelled test booking cannot be advanced. Use another disposable booking.';
-      }
-      if (raw.contains('debug_') &&
-          (raw.contains('PGRST202') || raw.contains('not found'))) {
-        return 'The server-side Testing Mode migration is missing. Apply the pending Supabase migrations and retry.';
-      }
     }
     return 'Unable to update the trip. Please retry. ($error)';
   }
@@ -2536,16 +2460,14 @@ class _DriverPackageTrackingScreenState
     }
 
     final position = _currentPosition;
-    final simulated = _simulatedDriverLocation;
-
     _repo
         .logTripStatus(
           activityId: widget.activityId,
           bookingId: activity.bookingId,
           status: status,
           spotIndex: spotIndex,
-          latitude: simulated?.latitude ?? position?.latitude,
-          longitude: simulated?.longitude ?? position?.longitude,
+          latitude: position?.latitude,
+          longitude: position?.longitude,
         )
         .catchError((_) {});
   }
@@ -2764,7 +2686,7 @@ class _DriverPackageTrackingScreenState
 
     if (me.journeyState == ConvoyJourneyState.assigned) {
       return _PrimaryTourAction(
-        label: _testActionLabel('Start Navigation to Pickup'),
+        label: 'Start Navigation to Pickup',
         description:
             'Navigate to pickup. GPS detects arrivals; slide to confirm tour actions.',
         icon: Icons.navigation_rounded,
@@ -2834,13 +2756,8 @@ class _DriverPackageTrackingScreenState
         bottom: false,
         child: Column(
           children: [
-            if (kDebugMode)
-              AnimatedBuilder(
-                animation: DeveloperSettings.instance,
-                builder: (context, _) => _configuredTestMode
-                    ? const _DriverTestModeActiveBanner()
-                    : const SizedBox.shrink(),
-              ),
+            if (_testSessionAuthorized)
+              const _DriverAuthorizedTestSessionBanner(),
             Expanded(
               child: _loading
                   ? const _TrackingLoadingView()
@@ -5383,17 +5300,17 @@ class _PendingPaymentItem extends StatelessWidget {
 // TEST MODE
 // ============================================================================
 
-class _DriverTestModeActiveBanner extends StatelessWidget {
-  const _DriverTestModeActiveBanner();
+class _DriverAuthorizedTestSessionBanner extends StatelessWidget {
+  const _DriverAuthorizedTestSessionBanner();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: const Color(0xFFB91C1C),
+      color: const Color(0xFF1D4ED8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: const Text(
-        'TEST MODE ACTIVE • OPERATIONAL CONSTRAINTS BYPASSED',
+        'Administrator-authorized test session',
         textAlign: TextAlign.center,
         style: TextStyle(
           color: Colors.white,

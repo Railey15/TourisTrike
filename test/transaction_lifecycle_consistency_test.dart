@@ -96,7 +96,7 @@ void main() {
       migration,
       contains("raise exception 'TEST_FORCE_ALL_ASSIGNMENTS_NOT_ALLOWED'"),
     );
-    expect(driverTracking, contains('OPERATIONAL CONSTRAINTS BYPASSED'));
+    expect(driverTracking, isNot(contains('OPERATIONAL CONSTRAINTS BYPASSED')));
   });
 
   test(

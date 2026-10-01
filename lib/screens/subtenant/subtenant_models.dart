@@ -365,6 +365,8 @@ class SubTenantCityProfileData {
 }
 
 class SubTenantFareSettings {
+  static const int defaultAdditionalWaitingIntervalMinutes = 15;
+
   const SubTenantFareSettings({
     this.id,
     required this.subtenantId,
@@ -373,10 +375,15 @@ class SubTenantFareSettings {
     this.farePerKm = 50,
     this.minimumFare = 0,
     this.waitingFee = 0,
+    int additionalWaitingIntervalMinutes =
+        defaultAdditionalWaitingIntervalMinutes,
+    int? tourWaitingIntervalMinutes,
     this.tourWaitingFeePer15Minutes,
-    this.tourWaitingIntervalMinutes = 15,
     this.isActive = true,
-  });
+  }) : additionalWaitingIntervalMinutes =
+           tourWaitingIntervalMinutes ?? additionalWaitingIntervalMinutes,
+       tourWaitingIntervalMinutes =
+           tourWaitingIntervalMinutes ?? additionalWaitingIntervalMinutes;
 
   final dynamic id;
   final String subtenantId;
@@ -385,9 +392,40 @@ class SubTenantFareSettings {
   final double farePerKm;
   final double minimumFare;
   final double waitingFee;
+  final int additionalWaitingIntervalMinutes;
   final double? tourWaitingFeePer15Minutes;
   final int tourWaitingIntervalMinutes;
   final bool isActive;
+
+  /// Display value for one configured started interval.
+  ///
+  /// Charge totals are calculated from the unrounded hourly rate instead of
+  /// multiplying this rounded preview, so fractional-cent intervals cannot
+  /// accumulate an extra centavo over a full hour.
+  double get calculatedAdditionalWaitingFee =>
+      calculatedAdditionalWaitingFeeCentavos / 100;
+
+  int get calculatedAdditionalWaitingFeeCentavos =>
+      (_waitingFeeCentavos * additionalWaitingIntervalMinutes / 60).round();
+
+  int get _waitingFeeCentavos => (waitingFee * 100).round();
+
+  int startedWaitingIntervalsForSeconds(int excessWaitingSeconds) {
+    if (excessWaitingSeconds <= 0) return 0;
+    final intervalSeconds = additionalWaitingIntervalMinutes * 60;
+    return (excessWaitingSeconds + intervalSeconds - 1) ~/ intervalSeconds;
+  }
+
+  double additionalWaitingChargeForSeconds(int excessWaitingSeconds) {
+    final intervals = startedWaitingIntervalsForSeconds(excessWaitingSeconds);
+    final centavos =
+        (_waitingFeeCentavos *
+                additionalWaitingIntervalMinutes *
+                intervals /
+                60)
+            .round();
+    return centavos / 100;
+  }
 
   /// Money entered in Fare Matrix: finite PHP amounts, at most two decimals.
   /// Blank stays unset; it must never acquire the hourly ride waiting rate.
@@ -406,9 +444,6 @@ class SubTenantFareSettings {
   }
 
   void validateMonetaryAmounts() {
-    if (tourWaitingIntervalMinutes < 1 || tourWaitingIntervalMinutes > 120) {
-      throw const FormatException('Waiting interval must be 1 to 120 minutes.');
-    }
     for (final amount in [
       baseFare,
       farePerKm,
@@ -424,6 +459,12 @@ class SubTenantFareSettings {
           'Enter a valid non-negative PHP amount with at most two decimal places.',
         );
       }
+    }
+    if (additionalWaitingIntervalMinutes < 1 ||
+        additionalWaitingIntervalMinutes > 60) {
+      throw const FormatException(
+        'Additional waiting interval must be a whole number from 1 to 60 minutes.',
+      );
     }
   }
 
@@ -452,11 +493,24 @@ class SubTenantFareSettings {
         fallback: defaults.minimumFare,
       ),
       waitingFee: stDouble(map['waiting_fee'], fallback: defaults.waitingFee),
+      additionalWaitingIntervalMinutes: _waitingIntervalFromMap(map),
       tourWaitingFeePer15Minutes: _tourRateFromMap(map),
-      tourWaitingIntervalMinutes:
-          (map['tour_waiting_interval_minutes'] as num?)?.toInt() ?? 15,
       isActive: _stBool(map['is_active'], fallback: defaults.isActive),
     );
+  }
+
+  static int _waitingIntervalFromMap(Map<String, dynamic> map) {
+    final value =
+        map['tour_waiting_interval_minutes'] ??
+        map['additional_waiting_interval_minutes'];
+    if (value == null) return defaultAdditionalWaitingIntervalMinutes;
+    final interval = value is int ? value : int.tryParse(value.toString());
+    if (interval == null || interval < 1 || interval > 60) {
+      throw const FormatException(
+        'Invalid municipality additional waiting interval.',
+      );
+    }
+    return interval;
   }
 
   static double? _tourRateFromMap(Map<String, dynamic> map) {
@@ -477,8 +531,11 @@ class SubTenantFareSettings {
       'fare_per_km': farePerKm,
       'minimum_fare': minimumFare,
       'waiting_fee': waitingFee,
-      'tour_waiting_fee_per_15_minutes': tourWaitingFeePer15Minutes,
-      'tour_waiting_interval_minutes': tourWaitingIntervalMinutes,
+      'additional_waiting_interval_minutes': additionalWaitingIntervalMinutes,
+      // Kept for deployed clients and database readers. It is always derived.
+      'tour_waiting_fee_per_15_minutes': calculatedAdditionalWaitingFee,
+      // The newer grace-period migration reads this compatibility column.
+      'tour_waiting_interval_minutes': additionalWaitingIntervalMinutes,
       'is_active': isActive,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };

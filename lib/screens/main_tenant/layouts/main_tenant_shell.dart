@@ -41,9 +41,7 @@ class MainTenantPortalScreen extends StatefulWidget {
     MainTenantDestination.settings,
   ];
 
-  static MainTenantDestination normalize(
-    MainTenantDestination destination,
-  ) {
+  static MainTenantDestination normalize(MainTenantDestination destination) {
     return destination == MainTenantDestination.registrations
         ? MainTenantDestination.cityTenants
         : destination;
@@ -56,19 +54,16 @@ class MainTenantPortalScreen extends StatefulWidget {
       MainTenantDestination.tourismData => const ProvincialSpotsScreen(),
       MainTenantDestination.reports => const ProvinceReportsScreen(),
       MainTenantDestination.feedback => const FeedbackTrendsScreen(),
-      MainTenantDestination.settings =>
-        const MainTenantSettingsScreen(),
+      MainTenantDestination.settings => const MainTenantSettingsScreen(),
       _ => const MainTenantDashboardScreen(),
     };
   }
 
   @override
-  State<MainTenantPortalScreen> createState() =>
-      _MainTenantPortalScreenState();
+  State<MainTenantPortalScreen> createState() => _MainTenantPortalScreenState();
 }
 
-class _MainTenantPortalScreenState
-    extends State<MainTenantPortalScreen> {
+class _MainTenantPortalScreenState extends State<MainTenantPortalScreen> {
   late MainTenantDestination _current;
   final Map<MainTenantDestination, Widget> _pages = {};
   final Map<MainTenantDestination, _MainTenantTabChrome> _chrome = {};
@@ -98,9 +93,7 @@ class _MainTenantPortalScreenState
   void _registerChrome(_MainTenantTabChrome chrome) {
     if (!mounted) return;
 
-    final destination = MainTenantPortalScreen.normalize(
-      chrome.destination,
-    );
+    final destination = MainTenantPortalScreen.normalize(chrome.destination);
     final previous = _chrome[destination];
     _chrome[destination] = chrome;
 
@@ -113,9 +106,7 @@ class _MainTenantPortalScreenState
   Widget build(BuildContext context) {
     final chrome =
         _chrome[_current] ?? _MainTenantTabChrome.fallbackFor(_current);
-    final currentIndex = MainTenantPortalScreen.destinations.indexOf(
-      _current,
-    );
+    final currentIndex = MainTenantPortalScreen.destinations.indexOf(_current);
 
     return _MainTenantPortalScope(
       current: _current,
@@ -170,9 +161,7 @@ class _MainTenantTabChrome {
     floatingActionButton?.runtimeType,
   );
 
-  static _MainTenantTabChrome fallbackFor(
-    MainTenantDestination destination,
-  ) {
+  static _MainTenantTabChrome fallbackFor(MainTenantDestination destination) {
     return switch (MainTenantPortalScreen.normalize(destination)) {
       MainTenantDestination.cityTenants => const _MainTenantTabChrome(
         destination: MainTenantDestination.cityTenants,
@@ -230,8 +219,7 @@ class _MainTenantPortalScope extends InheritedWidget {
   final ValueChanged<_MainTenantTabChrome> onRegisterChrome;
 
   static _MainTenantPortalScope? maybeOf(BuildContext context) {
-    return context
-        .dependOnInheritedWidgetOfExactType<_MainTenantPortalScope>();
+    return context.dependOnInheritedWidgetOfExactType<_MainTenantPortalScope>();
   }
 
   @override
@@ -322,11 +310,7 @@ class _MainTenantShellState extends State<MainTenantShell> {
   }
 
   void _navigate(MainTenantDestination destination) {
-    MainTenantShell.navigateTo(
-      context,
-      destination,
-      current: widget.current,
-    );
+    MainTenantShell.navigateTo(context, destination, current: widget.current);
   }
 
   void _openTenant(String tenantId) {
@@ -552,7 +536,7 @@ class _MobileShell extends StatelessWidget {
             fontWeight: FontWeight.w900,
           ),
         ),
-        actions: actions,
+        actions: [ResponsiveAppBarActions(children: actions)],
       ),
       body: child,
       floatingActionButton: floatingActionButton,
@@ -579,43 +563,53 @@ class _DesktopHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Use the space left after the sidebar, not the global viewport width.
+        // At 1024px the expanded sidebar leaves too little room for the full
+        // search/profile cluster even though the viewport is "desktop" sized.
+        final showSearch = constraints.maxWidth >= 760;
+        final showProfile = constraints.maxWidth >= 980;
 
-    return Container(
-      height: 88,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: Colors.white),
-        boxShadow: [mainTenantShadow()],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _HeaderTitle(title: title, subtitle: subtitle),
+        return Container(
+          height: 88,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: Colors.white),
+            boxShadow: [mainTenantShadow()],
           ),
-          if (actions.isNotEmpty) ...[
-            const SizedBox(width: 14),
-            Flexible(
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 10,
-                runSpacing: 8,
-                children: actions,
+          child: Row(
+            children: [
+              Expanded(
+                child: _HeaderTitle(title: title, subtitle: subtitle),
               ),
-            ),
-          ],
-          const SizedBox(width: 14),
-          if (desktop) ...[search, const SizedBox(width: 12)],
-          notifications,
-          if (desktop) ...[
-            const SizedBox(width: 10),
-            _ProfileChip(profile: profile),
-          ],
-        ],
-      ),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: 14),
+                Flexible(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: actions,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 14),
+              if (showSearch) ...[search, const SizedBox(width: 12)],
+              notifications,
+              if (showProfile) ...[
+                const SizedBox(width: 10),
+                _ProfileChip(profile: profile),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -669,37 +663,42 @@ class _ProfileChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: MainTenantColors.line),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircleAvatar(
-            radius: 16,
-            backgroundColor: Color(0xFFEAF4FF),
-            child: Icon(
-              Icons.account_balance_rounded,
-              color: MainTenantColors.blue,
-              size: 18,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: MainTenantColors.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircleAvatar(
+              radius: 16,
+              backgroundColor: Color(0xFFEAF4FF),
+              child: Icon(
+                Icons.account_balance_rounded,
+                color: MainTenantColors.blue,
+                size: 18,
+              ),
             ),
-          ),
-          const SizedBox(width: 9),
-          Text(
-            profile.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: MainTenantColors.text,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w900,
+            const SizedBox(width: 9),
+            Flexible(
+              child: Text(
+                profile.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: MainTenantColors.text,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

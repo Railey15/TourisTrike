@@ -1576,12 +1576,17 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         },
       );
       if (!mounted) return;
-      final policy = policyValue is Map ? policyValue : const {};
-      final rateValue = policy['rate'];
+      final policy = policyValue is Map
+          ? Map<String, dynamic>.from(policyValue)
+          : null;
+      final rateValue = policy?['rate'] ?? policy?['rate_per_interval'];
       final waitingRate = rateValue is num
           ? rateValue.toDouble()
           : double.tryParse('$rateValue');
-      final waitingInterval = (policy['interval_minutes'] as num?)?.toInt();
+      final intervalValue = policy?['interval_minutes'];
+      final waitingInterval = intervalValue is num
+          ? intervalValue.toInt()
+          : int.tryParse('$intervalValue');
       if (waitingRate == null || waitingInterval == null) {
         _snack('The municipality has not configured its tour waiting rate.');
         return;
