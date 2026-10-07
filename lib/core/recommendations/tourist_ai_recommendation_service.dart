@@ -121,13 +121,23 @@ class TouristAiRecommendationService {
     required LatLng center,
   }) async {
     try {
+      final scope = spotSuggestionService
+          .citySearchNames(municipality)
+          .where((name) => name != 'Bulacan')
+          .expand(
+            (name) => ['municipality.ilike.*$name*', 'city.ilike.*$name*'],
+          )
+          .join(',');
       final responses = await Future.wait([
         supabase
             .from('tourist_spots')
             .select(
               'id, title, city, municipality, latitude, longitude, rating, image_url, description, address, barangay, source_type, google_place_id, category_id, tourist_spot_images(image_url, sort_order, is_cover)',
             )
-            .neq('status', 'archived')
+            .eq('status', 'active')
+            .inFilter('verification_status', ['approved', 'verified'])
+            .eq('province', 'Bulacan')
+            .or(scope)
             .order('title', ascending: true)
             .limit(200)
             .timeout(const Duration(seconds: 15)),
@@ -144,24 +154,17 @@ class TouristAiRecommendationService {
         for (final row in categoryRows)
           '${row['id']}': ((row['name'] as String?) ?? '').trim(),
       };
-      final selectedCity = normalizeText(municipality);
-
       return spotRows
           .map((row) => Map<String, dynamic>.from(row))
           .where((row) {
-            final city = normalizeText(
-              ((row['municipality'] as String?) ??
-                      (row['city'] as String?) ??
-                      '')
-                  .trim(),
+            final recorded =
+                ((row['municipality'] as String?)?.trim().isNotEmpty == true)
+                ? row['municipality'] as String
+                : (row['city'] as String?) ?? '';
+            return CitySpotSuggestionService.matchesMunicipalityName(
+              recorded,
+              municipality,
             );
-            final fallbackCity = normalizeText(
-              ((row['city'] as String?) ?? '').trim(),
-            );
-            return city == selectedCity ||
-                fallbackCity == selectedCity ||
-                fallbackCity == normalizeText('$municipality Bulacan') ||
-                fallbackCity.contains(selectedCity);
           })
           .map((row) {
             final lat = (row['latitude'] as num?)?.toDouble() ?? 0;

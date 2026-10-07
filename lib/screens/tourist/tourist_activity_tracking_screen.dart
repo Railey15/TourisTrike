@@ -1,4 +1,5 @@
 import 'package:touristrike/widgets/payment_contact_sheet.dart';
+import 'package:touristrike/widgets/payment_email_verification_sheet.dart';
 import '../../core/services/booking_driver_markers.dart';
 import '../../core/services/convoy_route_polylines.dart';
 import 'dart:async';
@@ -406,6 +407,23 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             PaymentContactSheet(name: defaults.name, email: defaults.email),
       );
       if (contact == null || !mounted) return;
+      final registeredEmail = _supabase.auth.currentUser?.email;
+      if (registeredEmail == null) {
+        _showSnack('Please sign in again to continue to payment.');
+        return;
+      }
+      final verified = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => PaymentEmailVerificationSheet(
+          repository: _repo,
+          bookingId: widget.bookingId,
+          paymentStage: stage,
+          registeredEmail: registeredEmail,
+        ),
+      );
+      if (verified != true || !mounted) return;
       final checkout = await _repo.createPayMongoCheckout(
         bookingId: widget.bookingId,
         paymentStage: stage,

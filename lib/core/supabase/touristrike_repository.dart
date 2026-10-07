@@ -1,4 +1,5 @@
 import '../models/booking_capacity.dart';
+import '../models/additional_tricycle_request.dart';
 import 'dart:math';
 import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/places/google_media_url.dart';
@@ -524,6 +525,13 @@ class TourisTrikeRepository {
     });
   }
 
+  Future<int> fetchTricyclePassengerCapacity() async {
+    final value = await _client.rpc('tricycle_passenger_capacity');
+    final capacity = (value as num).toInt();
+    if (capacity < 1) throw StateError('Invalid tricycle capacity.');
+    return capacity;
+  }
+
   Future<PackageBooking> createPackageBooking({
     required dynamic packageId,
     required DateTime travelDate,
@@ -555,10 +563,16 @@ class TourisTrikeRepository {
     String municipality = '',
     String province = '',
     int totalPassengers = 0,
+    AdditionalTricycleRequest? additionalTricycleRequest,
     required String termsVersion,
     String? fareQuoteId,
   }) async {
-    BookingCapacity.validate(adults + children, requiredDrivers);
+    BookingCapacity.validate(
+      adults + children,
+      requiredDrivers,
+      await fetchTricyclePassengerCapacity(),
+    );
+    additionalTricycleRequest?.validate();
     final hasActive = await hasActiveTour();
     if (hasActive) {
       throw StateError(activeTourErrorMessage);
@@ -606,6 +620,10 @@ class TourisTrikeRepository {
           ? null
           : dropoffCountryCode.trim(),
       'required_drivers': requiredDrivers,
+      'additional_tricycle_count': additionalTricycleRequest?.count ?? 0,
+      'additional_tricycle_reason': additionalTricycleRequest?.reason,
+      'additional_tricycle_explanation': additionalTricycleRequest?.explanation
+          ?.trim(),
       'municipality': municipality.trim().isEmpty ? null : municipality.trim(),
       'province': province.trim().isEmpty ? null : province.trim(),
       'total_passengers': totalPassengers > 0
@@ -957,6 +975,35 @@ class TourisTrikeRepository {
       (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
     return 'touristrike:$bookingId:$stage:$nonce';
+  }
+
+  Future<void> paymentEmailVerification({
+    required String action,
+    required String bookingId,
+    required String paymentStage,
+    String? code,
+  }) async {
+    try {
+      final response = await _client.functions.invoke(
+        'payment-email-verification',
+        body: {
+          'action': action,
+          'booking_id': bookingId,
+          'payment_stage': paymentStage,
+          'code': ?code,
+        },
+      );
+      if (response.data is! Map ||
+          response.data['status'] != (action == 'request' ? 'SENT' : 'VERIFIED')) {
+        throw const PaymentProviderException('VERIFICATION_UNAVAILABLE');
+      }
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final code = details is Map
+          ? dbString(details['error'], fallback: 'VERIFICATION_UNAVAILABLE')
+          : 'VERIFICATION_UNAVAILABLE';
+      throw PaymentProviderException(code);
+    }
   }
 
   Future<PayMongoCheckout> createPayMongoCheckout({

@@ -216,9 +216,22 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _loading = true);
 
     try {
-      await supabase.auth.signInWithOtp(email: email, shouldCreateUser: true);
-
-      final roleString = _role == SignupUserRole.tourist ? 'tourist' : 'driver';
+      final response = await supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: {
+          'registration_role': _role == SignupUserRole.tourist ? 'tourist' : 'driver',
+          if (_role == SignupUserRole.tourist)
+            'privacy_notice_version': privacyNoticeVersion,
+        },
+      );
+      // Supabase returns a session immediately when Confirm email is disabled.
+      // Keep the registration flow closed until the dashboard is configured.
+      if (response.session != null) {
+        await supabase.auth.signOut();
+        _showSnack('Email verification is temporarily unavailable. Please contact support.');
+        return;
+      }
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -226,18 +239,15 @@ class _SignupScreenState extends State<SignupScreen> {
         MaterialPageRoute(
           builder: (_) => VerifyEmailOtpScreen(
             email: email,
-            roleString: roleString,
-            password: password,
-            privacyNoticeVersion: _role == SignupUserRole.tourist
-                ? privacyNoticeVersion
-                : null,
           ),
         ),
       );
     } on AuthException catch (e) {
-      _showSnack(e.message);
-    } catch (e) {
-      _showSnack('Signup failed: $e');
+      _showSnack(e.statusCode == '429' || e.message.toLowerCase().contains('rate limit')
+          ? 'Please wait before requesting another verification code.'
+          : 'We could not create your account right now. Please try again.');
+    } catch (_) {
+      _showSnack('We could not create your account right now. Please try again.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

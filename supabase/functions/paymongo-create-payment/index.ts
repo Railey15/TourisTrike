@@ -128,6 +128,22 @@ serve(async (request) => {
     return jsonResponse({ error: "NOT_BOOKING_TOURIST" }, 403);
   }
 
+  // Consume the recent, obligation-scoped proof before preparing or reusing a
+  // checkout. A direct call to this function cannot skip email verification.
+  const verificationClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
+  const { data: authorized, error: verificationError } = await verificationClient.rpc(
+    "consume_payment_email_verification", {
+      p_tourist_id: userData.user.id,
+      p_booking_id: bookingId,
+      p_payment_stage: paymentStage,
+    },
+  );
+  if (verificationError || authorized !== true) {
+    return jsonResponse({ error: "PAYMENT_EMAIL_VERIFICATION_REQUIRED" }, 403);
+  }
+
   const { data: touristProfile, error: profileError } = await userClient
     .from("profiles")
     .select("first_name,last_name,full_name,mobile")

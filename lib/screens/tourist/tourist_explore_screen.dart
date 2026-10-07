@@ -12,6 +12,7 @@ import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 import 'package:touristrike/screens/tourist/package_details_screen.dart';
 import 'spot_details_screen.dart';
 import 'tourist_location_state.dart';
+import 'tourist_available_municipalities.dart';
 
 enum ExploreContentType { spots, packages }
 
@@ -120,24 +121,31 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
 
   void _onLocationSelectionChanged() {
     if (!mounted) return;
-    setState(() => _future = _loadExploreData());
+    _searchDebounce?.cancel();
+    final query = _searchCtrl.text.trim();
+    setState(() {
+      _googleSearchSpots.clear();
+      _isSearchingGoogle = false;
+      _future = _loadExploreData();
+    });
+    if (query.length >= 3) {
+      final currentLoad = _future;
+      currentLoad.then((data) {
+        if (mounted &&
+            identical(_future, currentLoad) &&
+            _searchCtrl.text.trim() == query) {
+          _onSearchTextChanged(query, data);
+        }
+      });
+    }
   }
 
   Future<void> _loadActiveMunicipalities() async {
     try {
-      final rows = await supabase
-          .from('tour_packages')
-          .select('city')
-          .eq('status', 'published')
-          .eq('visibility_status', 'visible');
+      final municipalities = await loadTouristAvailableMunicipalities(supabase);
       if (!mounted) return;
       setState(() {
-        _activeMunicipalities = {
-          for (final row in rows as List)
-            if (row['city'] is String &&
-                (row['city'] as String).trim().isNotEmpty)
-              (row['city'] as String).trim(),
-        };
+        _activeMunicipalities = municipalities;
       });
     } catch (_) {}
   }
@@ -244,13 +252,23 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     required LatLng center,
   }) async {
     try {
+      final scope = _spotSuggestionService
+          .citySearchNames(municipality)
+          .where((name) => name != 'Bulacan')
+          .expand(
+            (name) => ['municipality.ilike.*$name*', 'city.ilike.*$name*'],
+          )
+          .join(',');
       final responses = await Future.wait([
         supabase
             .from('tourist_spots')
             .select(
               'id, title, city, municipality, latitude, longitude, rating, image_url, description, address, barangay, source_type, google_place_id, category_id, tourist_spot_images(image_url, sort_order, is_cover)',
             )
-            .neq('status', 'archived')
+            .eq('status', 'active')
+            .inFilter('verification_status', ['approved', 'verified'])
+            .eq('province', 'Bulacan')
+            .or(scope)
             .order('title', ascending: true)
             .limit(200)
             .timeout(const Duration(seconds: 15)),
@@ -269,22 +287,17 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
           '${row['id']}': ((row['name'] as String?) ?? '').trim(),
       };
 
-      final selectedCity = _normalText(municipality);
-
       return spotRows
           .map((row) => Map<String, dynamic>.from(row))
           .where((row) {
-            final city = _normalText(
-              ((row['municipality'] as String?) ??
-                  (row['city'] as String?) ??
-                  ''),
+            final recorded =
+                (row['municipality'] as String?)?.trim().isNotEmpty == true
+                ? row['municipality'] as String
+                : (row['city'] as String?) ?? '';
+            return CitySpotSuggestionService.matchesMunicipalityName(
+              recorded,
+              municipality,
             );
-            final fallbackCity = _normalText((row['city'] as String?) ?? '');
-
-            return city == selectedCity ||
-                fallbackCity == selectedCity ||
-                fallbackCity == _normalText('$municipality Bulacan') ||
-                fallbackCity.contains(selectedCity);
           })
           .map((row) {
             final lat = (row['latitude'] as num?)?.toDouble() ?? 0;
@@ -608,7 +621,12 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
         center: data.center,
       );
 
-      if (!mounted || _searchCtrl.text.trim() != query) return;
+      if (!mounted ||
+          _searchCtrl.text.trim() != query ||
+          touristLocationStore.value.manualArea?.name !=
+              (data.usingManualLocation ? data.municipality : null)) {
+        return;
+      }
 
       setState(() {
         _googleSearchSpots
@@ -651,6 +669,11 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   }
 
   Future<void> _selectMunicipality() async {
+    await _loadActiveMunicipalities();
+    if (!mounted) return;
+    final available = touristBulacanMunicipalities
+        .where((area) => _activeMunicipalities.contains(area.name))
+        .toList();
     final selected = await showModalBottomSheet<TouristMunicipalityArea>(
       context: context,
       isScrollControlled: true,
@@ -705,10 +728,10 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                     child: ListView.separated(
                       controller: scrollController,
                       padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
-                      itemCount: touristBulacanMunicipalities.length,
+                      itemCount: available.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 6),
                       itemBuilder: (_, i) {
-                        final m = touristBulacanMunicipalities[i];
+                        final m = available[i];
                         final selectedNow = selectedArea?.name == m.name;
                         final isActive = _activeMunicipalities.contains(m.name);
 
@@ -1013,9 +1036,11 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
                     final query = _searchCtrl.text.trim();
                     final isGoogleSearch =
                         query.length >= 3 && data.municipality != null;
-                    final spots = isGoogleSearch
-                        ? List<_SpotModel>.unmodifiable(_googleSearchSpots)
-                        : _filteredSpots(data.spots);
+                    final spots = _filteredSpots(
+                      isGoogleSearch
+                          ? List<_SpotModel>.unmodifiable(_googleSearchSpots)
+                          : data.spots,
+                    );
                     final packages = _filteredPackages(data.packages);
 
                     final showSpots = _selectedType == ExploreContentType.spots;

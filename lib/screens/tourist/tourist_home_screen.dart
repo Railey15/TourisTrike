@@ -18,6 +18,7 @@ import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 import 'package:touristrike/widgets/optional_places_builder.dart';
 import 'package:touristrike/components/tourist/ai_chatbot_floating_widget.dart';
 import 'tourist_location_state.dart';
+import 'tourist_available_municipalities.dart';
 import 'tourist_explore_screen.dart';
 import 'package_details_screen.dart';
 
@@ -71,6 +72,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     super.initState();
 
     _syncManualLocationFromStore();
+    touristLocationStore.addListener(_onLocationSelectionChanged);
     if (!_usingManualLocation) _usingPhoneLocation = true;
     _serviceAreasReady = _loadServiceAreas();
 
@@ -90,8 +92,20 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   @override
   void dispose() {
+    touristLocationStore.removeListener(_onLocationSelectionChanged);
     _positionSub?.cancel();
     super.dispose();
+  }
+
+  void _onLocationSelectionChanged() {
+    if (!mounted) return;
+    _syncManualLocationFromStore();
+    if (touristLocationStore.value.manualArea == null) {
+      _selectedArea = null;
+      _usingManualLocation = false;
+      _usingPhoneLocation = true;
+    }
+    setState(() => _homeFuture = _loadHome());
   }
 
   Future<_HomeData> _loadHome() async {
@@ -573,28 +587,13 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
   Future<void> _loadActiveMunicipalities() async {
     try {
-      final results = await Future.wait([
-        supabase
-            .from('tour_packages')
-            .select('city')
-            .eq('status', 'published')
-            .eq('visibility_status', 'visible'),
-        supabase
-            .from('tourist_spots')
-            .select('city, municipality')
-            .eq('status', 'active')
-            .eq('province', 'Bulacan'),
-      ]);
+      final municipalities = await loadTouristAvailableMunicipalities(supabase);
 
       if (!mounted) return;
 
       setState(() {
         _activeMunicipalities = {
-          for (final rows in results)
-            for (final row in rows)
-              for (final value in [row['municipality'], row['city']])
-                if (value is String && value.trim().isNotEmpty)
-                  _municipalityKey(value),
+          for (final value in municipalities) _municipalityKey(value),
         };
       });
     } catch (_) {}
@@ -923,10 +922,7 @@ class _MunicipalityHero extends StatelessWidget {
     final uri = Uri.tryParse(data.cover.sourceUrl);
 
     if (uri != null) {
-      await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -974,12 +970,7 @@ class _MunicipalityHero extends StatelessWidget {
                   SafeArea(
                     bottom: false,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        16,
-                        10,
-                        16,
-                        62,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 62),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1016,9 +1007,7 @@ class _MunicipalityHero extends StatelessWidget {
                               const SizedBox(width: 8),
 
                               // Notification stays on the right.
-                              const NotificationBell(
-                                color: Colors.white,
-                              ),
+                              const NotificationBell(color: Colors.white),
 
                               // Removed:
                               // _WhiteCircleButton(
@@ -1046,13 +1035,10 @@ class _MunicipalityHero extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Colors.white.withValues(
-                                      alpha: 0.78,
-                                    ),
+                                    color: Colors.white.withValues(alpha: 0.78),
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.w500,
-                                    decoration:
-                                        data.cover.sourceUrl.isEmpty
+                                    decoration: data.cover.sourceUrl.isEmpty
                                         ? null
                                         : TextDecoration.underline,
                                     decorationColor: Colors.white70,
@@ -1560,10 +1546,7 @@ class _ErrorState extends StatelessWidget {
 // ============================================================================
 
 class _AvatarWithDot extends StatelessWidget {
-  const _AvatarWithDot({
-    required this.imageUrl,
-    required this.onTap,
-  });
+  const _AvatarWithDot({required this.imageUrl, required this.onTap});
 
   final String imageUrl;
   final VoidCallback onTap;
@@ -1630,10 +1613,7 @@ class _AvatarWithDot extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: const Color(0xFF22C55E),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
+                        border: Border.all(color: Colors.white, width: 2),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.15),
@@ -1668,7 +1648,6 @@ class _AvatarFallback extends StatelessWidget {
     );
   }
 }
-
 
 class _FloatingLocationSelector extends StatelessWidget {
   const _FloatingLocationSelector({
@@ -1777,11 +1756,7 @@ class _FloatingLocationSelector extends StatelessWidget {
               ),
             ),
           ),
-          Container(
-            width: 1,
-            height: 34,
-            color: const Color(0xFFE8EEF5),
-          ),
+          Container(width: 1, height: 34, color: const Color(0xFFE8EEF5)),
           Material(
             color: Colors.transparent,
             child: InkWell(

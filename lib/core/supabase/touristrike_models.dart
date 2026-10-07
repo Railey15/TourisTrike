@@ -381,6 +381,12 @@ class PackageBooking extends TourisTrikeRow {
       dbInt(row['total_passengers'], fallback: adults + children);
   int get currentSpotIndex => dbInt(row['current_spot_index'], fallback: 0);
   int get requiredDrivers => dbInt(row['required_drivers'], fallback: 1);
+  int get additionalTricycleCount =>
+      dbInt(row['additional_tricycle_count']);
+  String get additionalTricycleReason =>
+      dbString(row['additional_tricycle_reason']);
+  String get additionalTricycleExplanation =>
+      dbString(row['additional_tricycle_explanation']);
   int get acceptedDriversCount =>
       dbInt(row['accepted_drivers_count'], fallback: 0);
   double? get driverLatitude => row['driver_latitude'] is num

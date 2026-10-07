@@ -1,4 +1,6 @@
 import 'package:touristrike/core/models/booking_capacity.dart';
+import 'package:touristrike/core/models/additional_tricycle_request.dart';
+import 'package:touristrike/core/models/itinerary_stay_options.dart';
 import 'package:touristrike/widgets/booking_route_preview_map.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -104,7 +106,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   int _adults = 1;
   int _children = 0;
-  int _selectedTricycles = 1;
+  int? _tricyclePassengerCapacity;
+  AdditionalTricycleRequest? _additionalTricycleRequest;
 
   _PaymentMethod _payment = _PaymentMethod.gcash;
 
@@ -142,9 +145,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   List<_EditableItineraryStop> _suggestedItinerary = const [];
   List<_EditableItineraryStop> _customizedItinerary = const [];
 
-  _ItineraryViewMode _itineraryMode = _ItineraryViewMode.suggested;
-
-  bool _customizedItineraryDirty = false;
+  bool _itineraryCustomized = false;
   bool _scheduleLoading = false;
   int _scheduleRevision = 0;
   int _finalTravelDurationMinutes = 0;
@@ -185,6 +186,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     _scheduleReady = _scheduleLoading = false;
     _scheduleError = _scheduleValidationError = null;
     _currentStep = 0;
+    _additionalTricycleRequest = null;
+    _itineraryCustomized = false;
     _future = _loadAndInitializePackage();
   }
 
@@ -206,8 +209,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   Future<_BookingScreenData> _loadAndInitializePackage() async {
     final revision = ++_packageLoadRevision;
+    final capacity = await _repo.fetchTricyclePassengerCapacity();
     final data = await _loadPackage();
     if (mounted && revision == _packageLoadRevision) {
+      _tricyclePassengerCapacity = capacity;
       _serviceArea = data.serviceArea;
       // Runs on Future completion, before FutureBuilder receives the data;
       // initialization and its synchronous schedule updates never run in build.
@@ -316,12 +321,147 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   int get _totalParticipants => _adults + _children;
 
-  int get _minimumRequiredTricycles =>
-      BookingCapacity.minimumTricycles(_totalParticipants);
-  int get _requiredTricycles =>
-      BookingCapacity.normalize(_totalParticipants, _selectedTricycles);
-  void _keepSelectedTricyclesAboveMinimum() {
-    _selectedTricycles = _requiredTricycles;
+  int get _requiredTricycles => BookingCapacity.requiredTricycles(
+    _totalParticipants,
+    _tricyclePassengerCapacity!,
+  );
+  int get _additionalTricycleCount => _additionalTricycleRequest?.count ?? 0;
+  int get _totalRequestedTricycles =>
+      _requiredTricycles + _additionalTricycleCount;
+
+  void _changeAdditionalTricycleCount(int change) {
+    final count = _additionalTricycleCount + change;
+    if (count < 0 || count > 3) return;
+    if (count == 0) {
+      setState(() => _additionalTricycleRequest = null);
+    } else if (_additionalTricycleRequest == null) {
+      unawaited(_requestAdditionalTricycle());
+    } else {
+      setState(
+        () => _additionalTricycleRequest = AdditionalTricycleRequest(
+          count: count,
+          reason: _additionalTricycleRequest!.reason,
+          explanation: _additionalTricycleRequest!.explanation,
+        ),
+      );
+    }
+  }
+
+  Future<void> _requestAdditionalTricycle() async {
+    String? selectedReason = _additionalTricycleRequest?.reason;
+    final explanationController = TextEditingController(
+      text: _additionalTricycleRequest?.explanation ?? '',
+    );
+    String? error;
+    final result = await showModalBottomSheet<AdditionalTricycleRequest>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, updateSheet) => SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              8,
+              20,
+              MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Why do you need another tricycle?',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: _ink,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Please choose a reason. No medical details are needed.',
+                  style: TextStyle(color: _secondaryText, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                for (final entry in AdditionalTricycleReasons.labels.entries)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(entry.value),
+                    trailing: Icon(
+                      selectedReason == entry.key
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: selectedReason == entry.key
+                          ? _primary
+                          : _secondaryText,
+                    ),
+                    onTap: () => updateSheet(() {
+                      selectedReason = entry.key;
+                      error = null;
+                    }),
+                  ),
+                if (selectedReason == AdditionalTricycleReasons.other)
+                  TextField(
+                    controller: explanationController,
+                    maxLength: 200,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Short explanation',
+                      hintText: 'Tell the tourism office what you need',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      final request = AdditionalTricycleRequest(
+                        count: _additionalTricycleCount == 0
+                            ? 1
+                            : _additionalTricycleCount,
+                        reason: selectedReason,
+                        explanation:
+                            selectedReason == AdditionalTricycleReasons.other
+                            ? explanationController.text.trim()
+                            : null,
+                      );
+                      try {
+                        request.validate();
+                        Navigator.pop(sheetContext, request);
+                      } on ArgumentError catch (validationError) {
+                        updateSheet(
+                          () => error = validationError.message.toString(),
+                        );
+                      }
+                    },
+                    child: const Text('Confirm Request'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    explanationController.dispose();
+    if (mounted && result != null) {
+      setState(() => _additionalTricycleRequest = result);
+    }
   }
 
   // =============================================================================
@@ -358,7 +498,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   bool get _needsFareQuote =>
       _addedGoogleSpotCount > 0 ||
       _removedOriginalSpots.isNotEmpty ||
-      _itineraryMode == _ItineraryViewMode.customize;
+      _itineraryCustomized;
 
   double _unitPrice(TourPackage package) {
     return _needsFareQuote
@@ -745,9 +885,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     final suggested = <_EditableItineraryStop>[];
 
     for (final spot in _selectedSpots) {
-      final stayMinutes = resolveItineraryStayMinutes(
-        estimatedMinutes: spot.estimatedDurationMinutes,
-        recommendedMinutes: spot.recommendedVisitDurationMinutes,
+      final stayMinutes = ItineraryStayOptions.nearest(
+        spot.recommendedVisitDurationMinutes > 0
+            ? spot.recommendedVisitDurationMinutes
+            : resolveItineraryStayMinutes(
+                estimatedMinutes: spot.estimatedDurationMinutes,
+              ),
       );
 
       suggested.add(
@@ -777,7 +920,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         .map(_EditableItineraryStop.cloneFrom)
         .toList(growable: true);
     for (final item in _customizedItinerary) {
-      item.stayMinutes = previousStays[item.localKey] ?? item.stayMinutes;
+      item.stayMinutes = ItineraryStayOptions.nearest(
+        previousStays[item.localKey] ?? item.stayMinutes,
+      );
     }
     if (preserveOrder && previousOrder.isNotEmpty) {
       final selectedOrder = _customizedItinerary
@@ -794,7 +939,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     _spotSelectionDirtyForSchedule = false;
-    _customizedItineraryDirty = false;
     unawaited(_recalculateSelectedItinerary());
   }
 
@@ -861,69 +1005,28 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
     if (itinerary.any(
-      (item) => item.stayMinutes <= 0 || item.stayMinutes > 600,
+      (item) => !ItineraryStayOptions.minutes.contains(item.stayMinutes),
     )) {
       setState(
         () => _scheduleValidationError =
-            'Time of Stay must be between 1 and 600 minutes for each destination.',
+            'Choose a Time of Stay of up to 3 hours for each destination.',
       );
       return;
     }
-    var points = <LatLng>[
+    final points = <LatLng>[
       LatLng(pickup.latitude, pickup.longitude),
       ...itinerary.map((item) => LatLng(item.latitude, item.longitude)),
       LatLng(dropoff.latitude, dropoff.longitude),
     ];
-    var key = buildItineraryRouteKey(points);
+    final key = buildItineraryRouteKey(points);
     setState(() => _scheduleLoading = true);
     try {
       // Pickup/stay edits reuse this route's Maps durations. Location/order
       // changes invalidate the key and fetch a new ordered route.
-      var legs = !retry && key == _routeKey && _routeLegs != null
+      final legs = !retry && key == _routeKey && _routeLegs != null
           ? _routeLegs!
           : await _scheduleService.fetchTravelLegs(points);
       if (!mounted || revision != _scheduleRevision) return;
-      if (_itineraryMode == _ItineraryViewMode.suggested &&
-          itinerary.length >= 3 &&
-          key != _routeKey) {
-        final order = twoOptItineraryOrder(
-          points.first,
-          points.sublist(1, points.length - 1),
-          points.last,
-        );
-        if (order.indexed.any((entry) => entry.$1 != entry.$2)) {
-          final candidateStops = [for (final index in order) itinerary[index]];
-          final candidatePoints = <LatLng>[
-            points.first,
-            ...candidateStops.map(
-              (stop) => LatLng(stop.latitude, stop.longitude),
-            ),
-            points.last,
-          ];
-          try {
-            final candidateLegs = await _scheduleService.fetchTravelLegs(
-              candidatePoints,
-            );
-            if (!mounted || revision != _scheduleRevision) return;
-            final originalMeters = legs.fold<int>(
-              0,
-              (sum, leg) => sum + leg.distanceMeters,
-            );
-            final candidateMeters = candidateLegs.fold<int>(
-              0,
-              (sum, leg) => sum + leg.distanceMeters,
-            );
-            if (candidateMeters < originalMeters) {
-              itinerary.setAll(0, candidateStops);
-              points = candidatePoints;
-              key = buildItineraryRouteKey(points);
-              legs = candidateLegs;
-            }
-          } on ItineraryRouteException {
-            // Keep the validated original route when a second Maps request fails.
-          }
-        }
-      }
       final timings = calculateItineraryTimings(
         pickupMinutes: _pickupMinutes,
         stayDurationMinutes: itinerary.map((item) => item.stayMinutes).toList(),
@@ -1014,19 +1117,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
   }
 
-  List<_EditableItineraryStop> get _selectedItinerary {
-    if (_itineraryMode == _ItineraryViewMode.customize) {
-      return _customizedItinerary;
-    }
+  List<_EditableItineraryStop> get _selectedItinerary => _customizedItinerary;
 
-    return _suggestedItinerary;
-  }
-
-  String get _selectedItineraryLabel {
-    return _itineraryMode == _ItineraryViewMode.customize
-        ? 'Customized Schedule'
-        : 'Suggested Schedule';
-  }
+  String get _selectedItineraryLabel => 'Your Itinerary';
 
   int get _selectedItineraryDurationMinutes {
     final start = _scheduledPickupAt;
@@ -1162,27 +1255,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
       _customizedItinerary.insert(target, item);
 
-      _customizedItineraryDirty = true;
+      _itineraryCustomized = true;
     });
     unawaited(_recalculateSelectedItinerary());
-  }
-
-  bool _commitCustomizedItinerary({bool showSnack = true}) {
-    final error = _itineraryValidationMessage();
-
-    if (error != null) {
-      if (showSnack) {
-        _snack(error);
-      }
-
-      return false;
-    }
-
-    setState(() {
-      _customizedItineraryDirty = false;
-    });
-
-    return true;
   }
 
   List<Json> _buildFinalItineraryPayload() {
@@ -1190,9 +1265,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         .map((entry) {
           return entry.$2.toBookingPayload(
             order: entry.$1 + 1,
-            sourceType: _itineraryMode == _ItineraryViewMode.customize
-                ? 'customized'
-                : 'ai_suggested',
+            // Existing database values distinguish the untouched package route
+            // from a manually edited route for fare-quote validation.
+            sourceType: _itineraryCustomized ? 'customized' : 'ai_suggested',
           );
         })
         .toList(growable: false);
@@ -1353,11 +1428,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         return _spotValidationMessage();
 
       case 3:
-        if (_itineraryMode == _ItineraryViewMode.customize &&
-            !_commitCustomizedItinerary(showSnack: false)) {
-          return _itineraryValidationMessage();
-        }
-
         return _itineraryValidationMessage();
 
       case 4:
@@ -1559,11 +1629,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       });
     }
 
-    if (_itineraryMode == _ItineraryViewMode.customize &&
-        !_commitCustomizedItinerary()) {
-      return;
-    }
-
     try {
       await _recalculateSelectedItinerary();
       if (!mounted) return;
@@ -1623,7 +1688,29 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               value:
                   '$_totalParticipants ($_adults adults, $_children children)',
             ),
-            (label: 'Tricycles', value: '$_requiredTricycles'),
+            (label: 'Required Tricycles', value: '$_requiredTricycles'),
+            (
+              label: 'Additional Tricycle',
+              value: _additionalTricycleCount > 0
+                  ? '$_additionalTricycleCount requested'
+                  : 'None',
+            ),
+            if (_additionalTricycleCount > 0) ...[
+              (
+                label: 'Total Requested Vehicles',
+                value: '$_totalRequestedTricycles',
+              ),
+              (label: 'Reason', value: _additionalTricycleRequest!.reasonLabel),
+              if (_additionalTricycleRequest!.explanation != null)
+                (
+                  label: 'Explanation',
+                  value: _additionalTricycleRequest!.explanation!,
+                ),
+              (
+                label: 'Additional Vehicle Status',
+                value: 'Subject to availability',
+              ),
+            ],
             (
               label: 'Booking Type',
               value: _isSameDay ? 'Same-Day Booking' : 'Advance Booking',
@@ -1742,6 +1829,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         itineraryItems: itinerary,
 
         requiredDrivers: _requiredTricycles,
+        additionalTricycleRequest: _additionalTricycleRequest,
 
         municipality: package.city,
         province: _packageProvince(package),
@@ -1922,13 +2010,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 : () {
                                     setState(() {
                                       _adults--;
-                                      _keepSelectedTricyclesAboveMinimum();
                                     });
                                   },
                             onAdultsPlus: () {
                               setState(() {
                                 _adults++;
-                                _keepSelectedTricyclesAboveMinimum();
                               });
                             },
                             onChildrenMinus: _children <= 0
@@ -1936,13 +2022,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 : () {
                                     setState(() {
                                       _children--;
-                                      _keepSelectedTricyclesAboveMinimum();
                                     });
                                   },
                             onChildrenPlus: () {
                               setState(() {
                                 _children++;
-                                _keepSelectedTricyclesAboveMinimum();
                               });
                             },
                           ),
@@ -1951,19 +2035,16 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
                           _TransportRequirementCard(
                             participants: _totalParticipants,
-                            minimumTricycles: _minimumRequiredTricycles,
-                            selectedTricycles: _requiredTricycles,
-                            onMinus:
-                                _requiredTricycles <= _minimumRequiredTricycles
-                                ? null
-                                : () => setState(() => _selectedTricycles--),
-                            onPlus:
-                                BookingCapacity.canAdd(
-                                  _totalParticipants,
-                                  _requiredTricycles,
-                                )
-                                ? () => setState(() => _selectedTricycles++)
-                                : null,
+                            requiredTricycles: _requiredTricycles,
+                          ),
+                          const SizedBox(height: 10),
+                          _AdditionalTricycleRequestCard(
+                            requiredTricycles: _requiredTricycles,
+                            request: _additionalTricycleRequest,
+                            onIncrease: () => _changeAdditionalTricycleCount(1),
+                            onDecrease: () =>
+                                _changeAdditionalTricycleCount(-1),
+                            onEditReason: _requestAdditionalTricycle,
                           ),
                         ],
                       ),
@@ -2205,7 +2286,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             step: 'Step 4 of 6',
                             title: 'Plan Your Itinerary',
                             description:
-                                'Your destinations are already selected. Now choose a suggested schedule or customize their order and timing.',
+                                'Arrange your destinations and choose how long you want to stay at each stop.',
                           ),
 
                           const SizedBox(height: 18),
@@ -2213,18 +2294,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           _FinalSpotStrip(spots: _selectedSpots),
 
                           const SizedBox(height: 18),
-
-                          _ItineraryModeToggle(
-                            selected: _itineraryMode,
-                            onChanged: (mode) {
-                              setState(() {
-                                _itineraryMode = mode;
-                              });
-                              unawaited(_recalculateSelectedItinerary());
-                            },
-                          ),
-
-                          const SizedBox(height: 12),
 
                           if (_scheduleLoading)
                             const Padding(
@@ -2254,16 +2323,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 ),
                               ],
                             )
-                          else if (_itineraryMode ==
-                              _ItineraryViewMode.suggested)
-                            _ReadOnlyItineraryCard(
-                              items: _suggestedItinerary,
-                              totalDurationLabel: _scheduleReady
-                                  ? _formatDurationLabel(
-                                      _selectedItineraryDurationMinutes,
-                                    )
-                                  : 'Unavailable',
-                            )
                           else
                             _EditableItineraryCard(
                               items: _customizedItinerary,
@@ -2272,11 +2331,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                       _selectedItineraryDurationMinutes,
                                     )
                                   : 'Unavailable',
-                              hasUnsavedChanges: _customizedItineraryDirty,
                               onStayChanged: (item, minutes) {
+                                if (item.stayMinutes == minutes) return;
                                 setState(() {
                                   item.stayMinutes = minutes;
-                                  _customizedItineraryDirty = true;
+                                  _itineraryCustomized = true;
                                 });
                                 unawaited(_recalculateSelectedItinerary());
                               },
@@ -2449,9 +2508,37 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 value: '$_totalParticipants',
                               ),
                               _ReviewRow(
-                                label: 'Tricycles',
+                                label: 'Required Tricycles',
                                 value: '$_requiredTricycles',
                               ),
+                              _ReviewRow(
+                                label: 'Additional Tricycle',
+                                value: _additionalTricycleCount > 0
+                                    ? '$_additionalTricycleCount requested'
+                                    : 'None',
+                              ),
+                              if (_additionalTricycleCount > 0) ...[
+                                _ReviewRow(
+                                  label: 'Total Requested Vehicles',
+                                  value: '$_totalRequestedTricycles',
+                                ),
+                                _ReviewRow(
+                                  label: 'Reason',
+                                  value:
+                                      _additionalTricycleRequest!.reasonLabel,
+                                ),
+                                if (_additionalTricycleRequest!.explanation !=
+                                    null)
+                                  _ReviewRow(
+                                    label: 'Explanation',
+                                    value: _additionalTricycleRequest!
+                                        .explanation!,
+                                  ),
+                                const _ReviewRow(
+                                  label: 'Additional Vehicle Status',
+                                  value: 'Subject to availability',
+                                ),
+                              ],
                             ],
                           ),
 
@@ -2617,8 +2704,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 // =============================================================================
 
 enum _PaymentMethod { gcash }
-
-enum _ItineraryViewMode { suggested, customize }
 
 class _BookingScreenData {
   const _BookingScreenData({
@@ -3561,17 +3646,11 @@ class _CounterRow extends StatelessWidget {
 class _TransportRequirementCard extends StatelessWidget {
   const _TransportRequirementCard({
     required this.participants,
-    required this.minimumTricycles,
-    required this.selectedTricycles,
-    required this.onMinus,
-    required this.onPlus,
+    required this.requiredTricycles,
   });
 
   final int participants;
-  final int minimumTricycles;
-  final int selectedTricycles;
-  final VoidCallback? onMinus;
-  final VoidCallback? onPlus;
+  final int requiredTricycles;
 
   @override
   Widget build(BuildContext context) {
@@ -3589,9 +3668,8 @@ class _TransportRequirementCard extends StatelessWidget {
 
           Expanded(
             child: Text(
-              '$participants passenger${participants == 1 ? '' : 's'} • '
-              'minimum $minimumTricycles tricycle${minimumTricycles == 1 ? '' : 's'} | selected $selectedTricycles'
-              '${participants == 1 ? '\nAdd another tricycle when booking for 2 or more tourists.' : ''}',
+              '$requiredTricycles Tricycle${requiredTricycles == 1 ? '' : 's'} Required\n'
+              'Based on $participants passenger${participants == 1 ? '' : 's'} and vehicle capacity',
               style: const TextStyle(
                 color: Color(0xFF4D6686),
                 fontWeight: FontWeight.w700,
@@ -3599,20 +3677,114 @@ class _TransportRequirementCard extends StatelessWidget {
               ),
             ),
           ),
-          _RoundButton(icon: Icons.remove_rounded, onTap: onMinus),
-          SizedBox(
-            width: 38,
-            child: Text(
-              '$selectedTricycles',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _ink,
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
+        ],
+      ),
+    );
+  }
+}
+
+class _AdditionalTricycleRequestCard extends StatelessWidget {
+  const _AdditionalTricycleRequestCard({
+    required this.requiredTricycles,
+    required this.request,
+    required this.onIncrease,
+    required this.onDecrease,
+    required this.onEditReason,
+  });
+
+  final int requiredTricycles;
+  final AdditionalTricycleRequest? request;
+  final VoidCallback onIncrease;
+  final VoidCallback onDecrease;
+  final VoidCallback onEditReason;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = request?.count ?? 0;
+    final requested = count > 0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (requested) ...[
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Color(0xFF16A34A),
+                  size: 17,
+                ),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: Text(
+                  'Need additional tricycles?',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: _ink,
+                    fontSize: 13,
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            requested
+                ? '$requiredTricycles required + $count requested = '
+                      '${requiredTricycles + count} total tricycles\n'
+                      '${request!.reasonLabel}'
+                      '${request!.explanation == null ? '' : ': ${request!.explanation}'}\n'
+                      'Additional tricycles are subject to availability.'
+                : 'For luggage, accessibility, additional space, or other special needs.',
+            style: const TextStyle(
+              color: _secondaryText,
+              fontSize: 11.5,
+              height: 1.4,
             ),
           ),
-          _RoundButton(icon: Icons.add_rounded, onTap: onPlus, filled: true),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text(
+                'Additional Tricycles',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: count > 0 ? onDecrease : null,
+                icon: const Icon(Icons.remove_circle_outline),
+                tooltip: 'Remove one',
+              ),
+              Text(
+                '$count',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              IconButton(
+                onPressed: count < 3 ? onIncrease : null,
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Add one',
+              ),
+            ],
+          ),
+          Text(
+            count == 3
+                ? 'Maximum of 3 additional tricycles reached'
+                : 'Maximum of 3 additional tricycles. Subject to availability.',
+            style: const TextStyle(color: _secondaryText, fontSize: 11),
+          ),
+          if (requested)
+            TextButton(
+              onPressed: onEditReason,
+              child: const Text('Change reason'),
+            ),
         ],
       ),
     );
@@ -4513,184 +4685,6 @@ class _FinalSpotStrip extends StatelessWidget {
 // SCHEDULE
 // =============================================================================
 
-class _ItineraryModeToggle extends StatelessWidget {
-  const _ItineraryModeToggle({required this.selected, required this.onChanged});
-
-  final _ItineraryViewMode selected;
-  final ValueChanged<_ItineraryViewMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8EDF5),
-        borderRadius: BorderRadius.circular(17),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _ItineraryModeChip(
-              icon: Icons.auto_awesome_rounded,
-              label: 'Suggested Schedule',
-              selected: selected == _ItineraryViewMode.suggested,
-              onTap: () => onChanged(_ItineraryViewMode.suggested),
-            ),
-          ),
-
-          const SizedBox(width: 5),
-
-          Expanded(
-            child: _ItineraryModeChip(
-              icon: Icons.tune_rounded,
-              label: 'Customize Schedule',
-              selected: selected == _ItineraryViewMode.customize,
-              onTap: () => onChanged(_ItineraryViewMode.customize),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ItineraryModeChip extends StatelessWidget {
-  const _ItineraryModeChip({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(13),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(13),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: selected ? _primary : const Color(0xFF667085),
-            ),
-
-            const SizedBox(width: 5),
-
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? _ink : const Color(0xFF667085),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 9.5,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ReadOnlyItineraryCard extends StatelessWidget {
-  const _ReadOnlyItineraryCard({
-    required this.items,
-    required this.totalDurationLabel,
-  });
-
-  final List<_EditableItineraryStop> items;
-  final String totalDurationLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(21),
-        border: Border.all(color: _border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                decoration: BoxDecoration(
-                  color: _softBlue,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Text(
-                  'TOURISTRlKE SUGGESTED',
-                  style: TextStyle(
-                    color: _primary,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 8.5,
-                  ),
-                ),
-              ),
-
-              const Spacer(),
-
-              Text(
-                totalDurationLabel,
-                style: const TextStyle(
-                  color: _ink,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 11.5,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 9),
-
-          const Text(
-            'A recommended timing for the destinations you selected.',
-            style: TextStyle(
-              color: _secondaryText,
-              fontWeight: FontWeight.w600,
-              fontSize: 10.5,
-            ),
-          ),
-
-          const SizedBox(height: 13),
-
-          ...items.asMap().entries.map(
-            (entry) => Padding(
-              padding: EdgeInsets.only(
-                bottom: entry.key == items.length - 1 ? 0 : 8,
-              ),
-              child: _ItineraryPreviewTile(
-                index: entry.key + 1,
-                item: entry.value,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ItineraryPreviewTile extends StatelessWidget {
   const _ItineraryPreviewTile({required this.index, required this.item});
 
@@ -4770,7 +4764,6 @@ class _EditableItineraryCard extends StatelessWidget {
   const _EditableItineraryCard({
     required this.items,
     required this.currentDurationLabel,
-    required this.hasUnsavedChanges,
     required this.onStayChanged,
     required this.onMoveUp,
     required this.onMoveDown,
@@ -4779,8 +4772,6 @@ class _EditableItineraryCard extends StatelessWidget {
   final List<_EditableItineraryStop> items;
 
   final String currentDurationLabel;
-
-  final bool hasUnsavedChanges;
 
   final void Function(_EditableItineraryStop item, int minutes) onStayChanged;
 
@@ -4800,7 +4791,7 @@ class _EditableItineraryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Customized Schedule',
+            'YOUR ITINERARY',
             style: TextStyle(
               color: _ink,
               fontWeight: FontWeight.w900,
@@ -4973,24 +4964,28 @@ class _EditableItineraryTile extends StatelessWidget {
             style: const TextStyle(color: _secondaryText, fontSize: 11),
           ),
           const SizedBox(height: 8),
-          TextFormField(
-            initialValue: '${item.stayMinutes}',
-            keyboardType: TextInputType.number,
-            onChanged: (value) {
-              final minutes = int.tryParse(value.trim());
-
-              onStayChanged(minutes ?? 0);
+          DropdownButtonFormField<int>(
+            key: ValueKey('${item.localKey}:${item.stayMinutes}'),
+            initialValue: item.stayMinutes,
+            items: [
+              for (final minutes in ItineraryStayOptions.minutes)
+                DropdownMenuItem(
+                  value: minutes,
+                  child: Text(ItineraryStayOptions.label(minutes)),
+                ),
+            ],
+            onChanged: (minutes) {
+              if (minutes != null) onStayChanged(minutes);
             },
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            validator: (value) =>
-                (int.tryParse(value ?? '') ?? 0) > 0 &&
-                    (int.tryParse(value ?? '') ?? 0) <= 600
-                ? null
-                : 'Enter 1–600 minutes',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+            style: const TextStyle(
+              color: _ink,
+              fontWeight: FontWeight.w700,
+              fontSize: 11.5,
+            ),
             decoration: InputDecoration(
               labelText: 'Time of Stay',
-              suffixText: 'min',
+              helperText:
+                  'Choose how long you plan to stay at this destination.',
               filled: true,
               fillColor: Colors.white,
               contentPadding: const EdgeInsets.symmetric(

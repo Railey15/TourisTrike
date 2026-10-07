@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/auth/app_role.dart';
 import 'package:touristrike/core/auth/app_role_destination.dart';
+import 'package:touristrike/core/auth/complete_registration.dart';
 import 'package:touristrike/screens/administrator/administrator_portal_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_profile_completion_screen.dart';
 import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
 import 'web_portal_login_screen.dart';
 import 'signup_screen.dart';
+import 'verify_email_otp_screen.dart';
 import 'complete_profile_screen.dart';
 import '../tourist/tourist_home_screen.dart';
 import '../driver/driver_home_screen.dart';
@@ -90,7 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final profile = await supabase
+      var profile = await supabase
           .from('profiles')
           .select('role, first_name, last_name, full_name')
           .eq('id', user.id)
@@ -101,6 +103,13 @@ class _LoginScreenState extends State<LoginScreen> {
               throw TimeoutException('Profile lookup timed out.');
             },
           );
+
+      if (profile == null) {
+        await completeConfirmedRegistration(supabase);
+        profile = await supabase.from('profiles')
+            .select('role, first_name, last_name, full_name')
+            .eq('id', user.id).maybeSingle();
+      }
 
       if (profile == null) {
         _showSnack('Profile not found. Please complete your profile.');
@@ -167,7 +176,15 @@ class _LoginScreenState extends State<LoginScreen> {
     } on TimeoutException catch (e) {
       _showSnack(e.message ?? 'Login timed out.');
     } on AuthException catch (e) {
-      _showSnack(e.message);
+      if (e.code == 'email_not_confirmed' ||
+          e.message.toLowerCase().contains('email not confirmed')) {
+        if (!mounted) return;
+        Navigator.pushReplacement(context, MaterialPageRoute(
+          builder: (_) => VerifyEmailOtpScreen(email: email),
+        ));
+      } else {
+        _showSnack(e.message);
+      }
     } catch (e) {
       _showSnack('Login error: $e');
     } finally {

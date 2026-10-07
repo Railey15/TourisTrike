@@ -34,19 +34,18 @@ void main() {
   });
   tearDownAll(() async => Supabase.instance.dispose());
 
-  test(
-    'one tourist has exactly one tricycle and two retain existing range',
-    () {
-      expect(BookingCapacity.minimumTricycles(1), 1);
-      expect(BookingCapacity.canAdd(1, 1), false);
-      expect(BookingCapacity.normalize(1, 4), 1);
-      expect(() => BookingCapacity.validate(1, 2), throwsArgumentError);
-      expect(BookingCapacity.canAdd(2, 1), true);
-      expect(BookingCapacity.normalize(2, 2), 2);
-      expect(BookingCapacity.minimumTricycles(4), 2);
-      expect(() => BookingCapacity.validate(4, 1), throwsArgumentError);
-    },
-  );
+  test('required tricycles follow the server supplied capacity exactly', () {
+    const capacity = 3;
+    expect(BookingCapacity.requiredTricycles(1, capacity), 1);
+    expect(BookingCapacity.requiredTricycles(3, capacity), 1);
+    expect(BookingCapacity.requiredTricycles(4, capacity), 2);
+    expect(BookingCapacity.requiredTricycles(6, capacity), 2);
+    expect(BookingCapacity.requiredTricycles(7, capacity), 3);
+    expect(BookingCapacity.requiredTricycles(2, capacity), 1);
+    expect(() => BookingCapacity.validate(1, 2, capacity), throwsArgumentError);
+    expect(() => BookingCapacity.validate(4, 1, capacity), throwsArgumentError);
+    expect(() => BookingCapacity.validate(4, 2, capacity), returnsNormally);
+  });
 
   test('registered contact prefills but missing data stays empty', () {
     final contact = PaymentContact.fromAccount(

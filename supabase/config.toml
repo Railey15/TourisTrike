@@ -13,6 +13,9 @@ verify_jwt = false
 [functions.paymongo-switch-to-cash]
 verify_jwt = true
 
+[functions.payment-email-verification]
+verify_jwt = true
+
 # Didit authenticates callbacks with its destination signing secret, not a Supabase JWT.
 [functions.didit-webhook]
 verify_jwt = false
@@ -44,6 +47,7 @@ verify_jwt = true
 [functions.tour-fare-quote]
 verify_jwt = true
 
+<<<<<<< HEAD
 [functions.generate-tour-package]
 enabled = true
 verify_jwt = false
@@ -54,3 +58,8 @@ entrypoint = "./functions/generate-tour-package/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/generate-tour-package/*.html" ]
+=======
+# Tourist JWT is checked again in the handler; Gemini stays server-side.
+[functions.itinerary-ai-suggest]
+verify_jwt = true
+>>>>>>> 088045a (improved booking)

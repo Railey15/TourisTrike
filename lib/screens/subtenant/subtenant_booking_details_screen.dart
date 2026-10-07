@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/participant_profiles.dart';
+import 'package:touristrike/core/models/additional_tricycle_request.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
@@ -1490,6 +1491,14 @@ class _SubTenantBookingDetailsScreenState
                 details.notesLabel,
           ),
         ),
+        if (details.additionalTricycleCount > 0) ...[
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: 'Additional Tricycles Requested: ${details.additionalTricycleCount}',
+            subtitle: 'Optional request, subject to availability.',
+            child: _NoteBox(text: details.additionalTricycleReasonLabel),
+          ),
+        ],
       ],
     );
   }
@@ -1914,6 +1923,19 @@ class _BookingDetailsData {
     return value > 0
         ? value
         : 1;
+  }
+
+  int get additionalTricycleCount =>
+      stInt(bookingRow['additional_tricycle_count']);
+
+  String get additionalTricycleReasonLabel {
+    final reason = bookingRow['additional_tricycle_reason']?.toString();
+    final label = AdditionalTricycleReasons.labels[reason] ?? 'Not specified';
+    final explanation =
+        bookingRow['additional_tricycle_explanation']?.toString().trim();
+    return explanation == null || explanation.isEmpty
+        ? 'Reason: $label'
+        : 'Reason: $label — $explanation';
   }
 
   int get acceptedDriversCount =>

@@ -1,24 +1,21 @@
 // lib/screens/auth/verify_email_otp_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/auth/complete_registration.dart';
+import '../../widgets/email_otp_input.dart';
 
 import 'complete_profile_screen.dart';
 import 'complete_profile_driver_screen.dart';
+import 'signup_screen.dart';
 
 class VerifyEmailOtpScreen extends StatefulWidget {
   const VerifyEmailOtpScreen({
     super.key,
     required this.email,
-    required this.roleString,
-    required this.password,
-    this.privacyNoticeVersion,
   });
 
   final String email;
-  final String roleString;
-  final String password;
-  final String? privacyNoticeVersion;
 
   @override
   State<VerifyEmailOtpScreen> createState() => _VerifyEmailOtpScreenState();
@@ -27,13 +24,36 @@ class VerifyEmailOtpScreen extends StatefulWidget {
 class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
   final supabase = Supabase.instance.client;
 
-  static const int _otpLen = 8;
+  static const int _otpLen = 6;
 
   final _otpCtrl = TextEditingController();
   bool _loading = false;
+  int _resendSeconds = 30;
+  Timer? _resendTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _otpCtrl.addListener(_onCodeChanged);
+    _startCooldown();
+  }
+
+  void _onCodeChanged() => setState(() {});
+
+  void _startCooldown() {
+    _resendTimer?.cancel();
+    _resendSeconds = 30;
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() => _resendSeconds--);
+      if (_resendSeconds <= 0) timer.cancel();
+    });
+  }
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
+    _otpCtrl.removeListener(_onCodeChanged);
     _otpCtrl.dispose();
     super.dispose();
   }
@@ -69,41 +89,34 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
     setState(() => _loading = true);
 
     try {
-      await supabase.auth.verifyOTP(
+      final response = await supabase.auth.verifyOTP(
         type: OtpType.email,
         email: widget.email,
         token: otp,
       );
 
-      final user = supabase.auth.currentUser;
-      if (user == null) {
-        _showSnack('Verified, but no session found. Please try again.');
+      final user = (await supabase.auth.getUser()).user;
+      if (response.session == null || user == null ||
+          user.emailConfirmedAt == null ||
+          user.email?.toLowerCase() != widget.email.toLowerCase()) {
+        _showSnack('We could not verify your email right now. Please try again.');
         return;
       }
-
-      await supabase.auth.updateUser(UserAttributes(password: widget.password));
-
-      if (widget.roleString == 'tourist') {
-        await supabase.rpc(
-          'register_tourist_with_privacy_notice',
-          params: {'p_version': widget.privacyNoticeVersion},
-        );
-      } else {
-        await supabase.from('profiles').upsert({
-          'id': user.id,
-          'role': widget.roleString,
-        });
+      final role = await completeConfirmedRegistration(supabase);
+      if (role != 'tourist' && role != 'driver') {
+        _showSnack('We could not complete registration. Please contact support.');
+        return;
       }
 
       if (!mounted) return;
 
-      _showSnack('Email verified successfully.', isError: false);
+      _showSnack('Email Verified. Your TourisTrike account has been verified.', isError: false);
 
       await Future.delayed(const Duration(milliseconds: 350));
 
       if (!mounted) return;
 
-      if (widget.roleString == 'driver') {
+      if (role == 'driver') {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -117,30 +130,38 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         );
       }
     } on AuthException catch (e) {
-      _showSnack(e.message);
-    } on PostgrestException catch (e) {
-      _showSnack('DB error: ${e.message}');
-    } catch (e) {
-      _showSnack('Verify failed: $e');
+      final message = e.message.toLowerCase();
+      _showSnack(e.statusCode == '429' || message.contains('rate limit')
+          ? 'Please wait before requesting another verification code.'
+          : message.contains('expired')
+              ? 'This verification code has expired. Request a new code to continue.'
+              : message.contains('invalid') || message.contains('incorrect')
+                  ? 'The verification code is incorrect. Please try again.'
+                  : "We couldn't verify your email right now. Please try again.");
+    } catch (_) {
+      _showSnack("We couldn't verify your email right now. Please try again.");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _resend() async {
+    if (_loading || _resendSeconds > 0) return;
     setState(() => _loading = true);
 
     try {
-      await supabase.auth.signInWithOtp(
+      await supabase.auth.resend(
+        type: OtpType.signup,
         email: widget.email,
-        shouldCreateUser: true,
       );
-
+      if (mounted) setState(_startCooldown);
       _showSnack('OTP sent again. Check your email.', isError: false);
     } on AuthException catch (e) {
-      _showSnack(e.message);
-    } catch (e) {
-      _showSnack('Resend failed: $e');
+      _showSnack(e.statusCode == '429'
+          ? 'Please wait before requesting another verification code.'
+          : "We couldn't send a new code right now. Please try again.");
+    } catch (_) {
+      _showSnack("We couldn't send a new code right now. Please try again.");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -169,12 +190,15 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _TopBar(onBack: () => Navigator.maybePop(context)),
+                        _TopBar(onBack: () => Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(builder: (_) => const SignupScreen()),
+                        )),
                         const SizedBox(height: 28),
                         const _HeroIcon(),
                         const SizedBox(height: 24),
                         const Text(
-                          'Verify your email',
+                          'Verify Your Email',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Color(0xFF0F172A),
@@ -186,7 +210,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          'Enter the $_otpLen-digit verification code sent to your email address.',
+                          'We sent a verification code to your email.\nEnter the code below to complete your registration.',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Color(0xFF64748B),
@@ -202,8 +226,16 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                           otpCtrl: _otpCtrl,
                           otpLength: _otpLen,
                           loading: _loading,
+                          resendSeconds: _resendSeconds,
                           onVerify: _verify,
                           onResend: _resend,
+                        ),
+                        TextButton(
+                          onPressed: _loading ? null : () => Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => const SignupScreen()),
+                          ),
+                          child: const Text('Wrong email? Go Back'),
                         ),
                         const SizedBox(height: 18),
                         const _SecurityNote(),
@@ -352,7 +384,7 @@ class _EmailPill extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              email,
+              maskVerificationEmail(email),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -373,6 +405,7 @@ class _VerifyCard extends StatelessWidget {
     required this.otpCtrl,
     required this.otpLength,
     required this.loading,
+    required this.resendSeconds,
     required this.onVerify,
     required this.onResend,
   });
@@ -380,6 +413,7 @@ class _VerifyCard extends StatelessWidget {
   final TextEditingController otpCtrl;
   final int otpLength;
   final bool loading;
+  final int resendSeconds;
   final VoidCallback onVerify;
   final VoidCallback onResend;
 
@@ -413,7 +447,7 @@ class _VerifyCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          _OtpField(controller: otpCtrl, otpLength: otpLength),
+          EmailOtpInput(controller: otpCtrl),
           const SizedBox(height: 18),
           SizedBox(
             height: 58,
@@ -421,12 +455,13 @@ class _VerifyCard extends StatelessWidget {
             child: _GradientButton(
               text: loading ? 'Verifying...' : 'Verify Email',
               loading: loading,
-              onPressed: loading ? null : onVerify,
+              onPressed: loading || otpCtrl.text.length != otpLength ? null : onVerify,
             ),
           ),
           const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text(
                 'Didn’t receive the code?',
@@ -437,75 +472,21 @@ class _VerifyCard extends StatelessWidget {
                 ),
               ),
               TextButton(
-                onPressed: loading ? null : onResend,
+                onPressed: loading || resendSeconds > 0 ? null : onResend,
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   minimumSize: const Size(10, 34),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   foregroundColor: const Color(0xFF2A86FF),
                 ),
-                child: const Text(
-                  'Resend',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                child: Text(
+                  resendSeconds > 0 ? 'Resend code in ${resendSeconds}s' : 'Resend Code',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _OtpField extends StatelessWidget {
-  const _OtpField({required this.controller, required this.otpLength});
-
-  final TextEditingController controller;
-  final int otpLength;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      maxLength: otpLength,
-      textAlign: TextAlign.center,
-      inputFormatters: [
-        FilteringTextInputFormatter.digitsOnly,
-        LengthLimitingTextInputFormatter(otpLength),
-      ],
-      style: const TextStyle(
-        color: Color(0xFF0F172A),
-        fontSize: 25,
-        fontWeight: FontWeight.w900,
-        letterSpacing: 9,
-      ),
-      decoration: InputDecoration(
-        counterText: '',
-        hintText: '0' * otpLength,
-        hintStyle: const TextStyle(
-          color: Color(0xFFCBD5E1),
-          fontWeight: FontWeight.w900,
-          letterSpacing: 9,
-        ),
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 18,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(22),
-          borderSide: const BorderSide(color: Color(0xFF2A86FF), width: 1.5),
-        ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:touristrike/core/branding/municipality_cover_service.dart';
 
 import 'google_places_gateway.dart';
 
@@ -696,35 +697,33 @@ class CitySpotSuggestionService {
     required double longitude,
     required LatLng center,
   }) {
-    final normalizedAddress = normalizeText(address);
-    final selectedProvince = normalizeText(province);
-    final aliases = cityAliases(city);
+    return matchesMunicipalityAddress(address: address, city: city);
+  }
 
+  static bool matchesMunicipalityAddress({
+    required String address,
+    required String city,
+  }) {
+    final aliases = cityAliases(city)..remove('bulacan');
     if (aliases.isEmpty) return false;
+    // A nearby place can be in the next municipality. Match an address
+    // component, so a street name cannot stand in for the municipality.
+    return address
+        .split(',')
+        .map(normalizeText)
+        .any(
+          (part) =>
+              aliases.contains(part) ||
+              aliases.any((alias) => part == 'municipalityof$alias'),
+        );
+  }
 
-    final distanceKm = _haversineKm(
-      center.latitude,
-      center.longitude,
-      latitude,
-      longitude,
-    );
-
-    // Prefer geographic proximity to the selected municipality center.
-    // Google addresses often omit "Bulacan", so do not require it in text.
-    if (distanceKm <= 25) return true;
-
-    if (normalizedAddress.isNotEmpty &&
-        aliases.any(normalizedAddress.contains)) {
-      return true;
-    }
-
-    if (selectedProvince.isNotEmpty &&
-        normalizedAddress.contains(selectedProvince) &&
-        distanceKm <= 40) {
-      return true;
-    }
-
-    return false;
+  static bool matchesMunicipalityName(String value, String selectedCity) {
+    final normalized = MunicipalityCoverService.normalizeMunicipality(
+      value,
+    ).replaceAll(' ', '');
+    return normalized.isNotEmpty &&
+        cityAliases(selectedCity).contains(normalized);
   }
 
   String _buildReason({

@@ -1,6 +1,7 @@
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:touristrike/core/auth/complete_registration.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/core/auth/app_role.dart';
@@ -128,6 +129,7 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
     }
 
     try {
+<<<<<<< HEAD
       final currentUser = client.auth.currentUser;
 
       if (currentUser == null) {
@@ -135,6 +137,18 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
       }
 
       final profile = await client
+=======
+      final auth = Supabase.instance.client.auth;
+      final verifiedUser = (await auth.getUser()).user;
+      if (verifiedUser == null || verifiedUser.emailConfirmedAt == null) {
+        await auth.signOut();
+        _goToLogin();
+        return;
+      }
+      final userId = verifiedUser.id;
+
+      var profile = await Supabase.instance.client
+>>>>>>> 088045a (improved booking)
           .from('profiles')
           .select('role')
           .eq('id', currentUser.id)
@@ -143,6 +157,17 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
             const Duration(seconds: 10),
           );
 
+<<<<<<< HEAD
+=======
+      if (profile == null) {
+        await completeConfirmedRegistration(Supabase.instance.client);
+        profile = await Supabase.instance.client.from('profiles')
+            .select('role').eq('id', userId).maybeSingle();
+      }
+
+      if (!mounted) return;
+
+>>>>>>> 088045a (improved booking)
       if (profile == null) {
         return const LoginScreen();
       }

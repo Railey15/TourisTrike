@@ -159,7 +159,9 @@ void main() {
       expect(tile, contains("label: 'Arrival (auto)'"));
       expect(tile, contains("label: 'Departure (auto)'"));
       expect(RegExp(r'onTap: null').allMatches(tile), hasLength(2));
-      expect(RegExp(r'TextFormField\(').allMatches(tile), hasLength(1));
+      expect(RegExp(r'TextFormField\(').allMatches(tile), isEmpty);
+      expect(tile, contains('DropdownButtonFormField<int>('));
+      expect(tile, contains('ItineraryStayOptions.minutes'));
       expect(tile, contains("labelText: 'Time of Stay'"));
       expect(tile, isNot(contains('showTimePicker')));
       expect(source, isNot(contains('showTimePicker(')));
