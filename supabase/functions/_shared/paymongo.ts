@@ -1,5 +1,16 @@
 const encoder = new TextEncoder();
 
+// An active checkout may retain failed attempts. Unknown or pending outcomes
+// must keep the stage locked until PayMongo resolves them.
+export function checkoutHasOnlyFailedPayments(payments: unknown): boolean {
+  return Array.isArray(payments) &&
+    payments.every((payment) =>
+      payment !== null && typeof payment === "object" &&
+      (payment as { attributes?: { status?: unknown } }).attributes?.status ===
+        "failed"
+    );
+}
+
 function toHex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)]
     .map((value) => value.toString(16).padStart(2, "0"))

@@ -63,6 +63,7 @@ class AdministratorDeveloperToolsScreen extends StatefulWidget {
     @visibleForTesting this.deactivate,
 
     @visibleForTesting this.reset,
+    @visibleForTesting this.deleteBooking,
 
   });
 
@@ -77,6 +78,7 @@ class AdministratorDeveloperToolsScreen extends StatefulWidget {
   final AdministratorDeveloperTestDeactivator? deactivate;
 
   final AdministratorDeveloperTestResetter? reset;
+  final Future<void> Function(AdministratorDeveloperTestBooking)? deleteBooking;
 
 
 
@@ -218,6 +220,104 @@ class _AdministratorDeveloperToolsScreenState
 
 
 
+  Future<void> _deleteBooking(AdministratorDeveloperTestBooking booking) async {
+    if (_mutating) return;
+    var deleting = false;
+    String? failure;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Delete booking?'),
+          content: SizedBox(
+            width: 450,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${booking.reference} · ${booking.packageName}'),
+                Text('Tourist: ${booking.touristName}'),
+                Text('Schedule: ${_formatDate(booking.scheduledStartAt)}'),
+                const SizedBox(height: 16),
+                const Text(
+                  'This will permanently delete this booking and its related test data. '
+                  'This action cannot be undone.',
+                ),
+                if (failure != null) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Unable to delete booking',
+                    style: TextStyle(
+                      color: AdministratorColors.red,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(failure!, style: const TextStyle(color: AdministratorColors.red)),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: deleting ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('developer-booking-confirm-delete'),
+              onPressed: deleting
+                  ? null
+                  : () async {
+                      if (_mutating) return;
+                      setState(() => _mutating = true);
+                      setDialogState(() {
+                        deleting = true;
+                        failure = null;
+                      });
+                      try {
+                        await (widget.deleteBooking?.call(booking) ??
+                            _activeService.deleteDeveloperTestBooking(booking));
+                        if (!mounted || !dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        _reload(resetPage: true);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text(
+                            'Booking deleted successfully.',
+                          )),
+                        );
+                      } catch (error) {
+                        if (dialogContext.mounted) {
+                          setDialogState(() {
+                            deleting = false;
+                            failure = _friendlyError(error);
+                          });
+                        }
+                      } finally {
+                        if (mounted) setState(() => _mutating = false);
+                      }
+                    },
+              style: FilledButton.styleFrom(backgroundColor: AdministratorColors.red),
+              child: deleting
+                  ? const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        ),
+                        SizedBox(width: 8),
+                        Text('Deleting…'),
+                      ],
+                    )
+                  : const Text('Delete Booking'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openBooking(
 
     AdministratorDeveloperTestBooking booking,
@@ -225,6 +325,8 @@ class _AdministratorDeveloperToolsScreenState
     bool globalEnabled,
 
   ) async {
+
+    if (_mutating) return;
 
     final action = await showDialog<_DeveloperBookingAction>(
 
@@ -440,15 +542,38 @@ class _AdministratorDeveloperToolsScreenState
 
   String _friendlyError(Object error) {
 
-    final text = error.toString().replaceFirst(
-
-      'PostgrestException(message: ',
-
-      '',
-
-    );
-
-    return text.replaceFirst('Bad state: ', '');
+    final text = error.toString();
+    if (text.contains('BOOKING_HAS_LIVE_PROVIDER_PAYMENT')) {
+      return 'This booking contains a live provider payment that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_PAYMENT_EVIDENCE')) {
+      return 'This booking contains confirmed or externally documented payment evidence that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_REFUND')) {
+      return 'This booking contains a refund record that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_DISPUTE')) {
+      return 'This booking contains a financial dispute that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_PAYOUT') || text.contains('BOOKING_HAS_TRANSFER')) {
+      return 'This booking contains a payout or transfer record that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_EMERGENCY_RECORD')) {
+      return 'This booking contains an emergency record that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_REVIEW')) {
+      return 'This booking contains a review that must be retained.';
+    }
+    if (text.contains('BOOKING_HAS_OTHER_REFERENCE')) {
+      return 'This booking has another related record that prevents deletion.';
+    }
+    if (text.contains('BOOKING_NOT_ELIGIBLE_FOR_DEVELOPER_CLEANUP')) {
+      return 'This booking is no longer eligible for Developer Tools cleanup. Refresh the list.';
+    }
+    if (text.contains('BOOKING_NOT_FOUND')) {
+      return 'This booking is no longer available. Refresh the list.';
+    }
+    return 'Unable to update Developer Tools. Please refresh and try again.';
 
   }
 
@@ -488,7 +613,7 @@ class _AdministratorDeveloperToolsScreenState
 
           return AdministratorErrorState(
 
-            message: snapshot.error.toString(),
+            message: 'Please refresh and try again.',
 
             onRetry: _reload,
 
@@ -719,6 +844,7 @@ class _AdministratorDeveloperToolsScreenState
                                 globalEnabled: overview.enabled,
 
                                 onOpen: _openBooking,
+                                onDelete: _deleteBooking,
 
                               )
 
@@ -729,6 +855,7 @@ class _AdministratorDeveloperToolsScreenState
                                 globalEnabled: overview.enabled,
 
                                 onOpen: _openBooking,
+                                onDelete: _deleteBooking,
 
                               ),
 
@@ -1049,11 +1176,13 @@ class _DeveloperBookingsTable extends StatelessWidget {
     required this.bookings,
     required this.globalEnabled,
     required this.onOpen,
+    required this.onDelete,
   });
 
   final List<AdministratorDeveloperTestBooking> bookings;
   final bool globalEnabled;
   final void Function(AdministratorDeveloperTestBooking, bool) onOpen;
+  final void Function(AdministratorDeveloperTestBooking) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1064,7 +1193,7 @@ class _DeveloperBookingsTable extends StatelessWidget {
         // desktop widths, keep a sensible minimum width and allow horizontal
         // scrolling rather than compressing the columns.
         final tableWidth =
-            constraints.maxWidth < 1120 ? 1120.0 : constraints.maxWidth;
+            constraints.maxWidth < 1500 ? 1500.0 : constraints.maxWidth;
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -1130,11 +1259,23 @@ class _DeveloperBookingsTable extends StatelessWidget {
                       DataCell(
                         Align(
                           alignment: Alignment.centerRight,
-                          child: IconButton(
-                            key: Key('developer-booking-${booking.id}'),
-                            tooltip: 'Open booking test controls',
-                            onPressed: () => onOpen(booking, globalEnabled),
-                            icon: const Icon(Icons.open_in_new_rounded),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                key: Key('developer-booking-${booking.id}'),
+                                tooltip: 'Open booking test controls',
+                                onPressed: () => onOpen(booking, globalEnabled),
+                                icon: const Icon(Icons.open_in_new_rounded),
+                              ),
+                              IconButton(
+                                key: Key('developer-booking-delete-${booking.id}'),
+                                tooltip: 'Delete booking',
+                                color: AdministratorColors.red,
+                                onPressed: () => onDelete(booking),
+                                icon: const Icon(Icons.delete_outline_rounded),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1159,6 +1300,7 @@ class _DeveloperBookingCards extends StatelessWidget {
     required this.globalEnabled,
 
     required this.onOpen,
+    required this.onDelete,
 
   });
 
@@ -1169,6 +1311,7 @@ class _DeveloperBookingCards extends StatelessWidget {
   final bool globalEnabled;
 
   final void Function(AdministratorDeveloperTestBooking, bool) onOpen;
+  final void Function(AdministratorDeveloperTestBooking) onDelete;
 
 
 
@@ -1267,6 +1410,25 @@ class _DeveloperBookingCards extends StatelessWidget {
                     ),
 
                   ],
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        key: Key('developer-booking-open-${booking.id}'),
+                        tooltip: 'Open booking test controls',
+                        onPressed: () => onOpen(booking, globalEnabled),
+                        icon: const Icon(Icons.open_in_new_rounded),
+                      ),
+                      IconButton(
+                        key: Key('developer-booking-delete-${booking.id}'),
+                        tooltip: 'Delete booking',
+                        color: AdministratorColors.red,
+                        onPressed: () => onDelete(booking),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                      ),
+                    ],
+                  ),
 
                 ],
 

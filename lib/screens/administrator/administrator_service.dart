@@ -225,6 +225,15 @@ class AdministratorService {
     );
   }
 
+  Future<void> deleteDeveloperTestBooking(
+    AdministratorDeveloperTestBooking booking,
+  ) async {
+    await _supabase.rpc(
+      'administrator_delete_test_booking',
+      params: {'p_booking_id': booking.id},
+    );
+  }
+
   Future<void> _invokeAccountAccess(Map<String, dynamic> body) async {
     try {
       final response = await _supabase.functions.invoke(

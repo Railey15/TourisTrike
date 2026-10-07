@@ -373,10 +373,14 @@ try {
   const requirement=Number(await scalar("select amount from booking_payment_requirements where booking_id=$1 and payment_stage='remaining_balance'",[settledBooking]));
   check(requirement,debt,'new waiting obligation after confirmed payment must match the collectible remaining requirement');
   await runPaymentCases({db,check,failure,scalar,login,uuid,migration,section});
+  if (process.env.TOUR_PAYMENT_ONLY === '1') {
+    console.log(`PASS: ${checks} tour payment and waiting checks`);
+  } else {
   const priorChecks = checks;
   await runTourUxCases({db,check,failure,scalar,login,uuid});
   console.log(`PASS: ${checks - priorChecks} assignment / cash UX SQL checks`);
   console.log(`PASS: ${checks} tour waiting and tourist-review SQL checks`);
+  }
 } finally {
   await db.close();
 }

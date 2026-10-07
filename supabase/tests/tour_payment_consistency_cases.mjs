@@ -16,6 +16,7 @@ export async function runPaymentCases({db,check,failure,scalar,login,uuid,migrat
       add column provider_reference text,add column provider_livemode boolean default false,
       add column idempotency_key text,add column service_description text,
       add column provider_payment_id text,add column provider_checkout_id text,
+      add column checkout_url text,
       add column provider_payment_intent_id text,add column provider_payload jsonb,
       add column provider_fee_amount numeric,add column provider_net_amount numeric;
     create table payment_allocations(id uuid primary key default gen_random_uuid(),
@@ -45,6 +46,13 @@ export async function runPaymentCases({db,check,failure,scalar,login,uuid,migrat
   const start=migration.indexOf('drop index public.payment_records_one_active_booking_stage_idx;');
   const end=migration.indexOf('end $waiting_payment_reuse$;',start);
   await db.exec(migration.slice(start,end+'end $waiting_payment_reuse$;'.length));
+  const repair=readFileSync(new URL('../migrations/20261007020000_recover_remaining_payment_attempts.sql',import.meta.url),'utf8').replaceAll('\r\n','\n');
+  await db.exec("create role service_role; create function auth.role() returns text language sql stable as $$ select nullif(current_setting('test.role',true),'') $$");
+  for(const name of ['prepare_group_cash_remaining_balance','prepare_paymongo_payment_authenticated_impl','mark_paymongo_checkout_expired']) {
+    const begin=repair.indexOf(`create or replace function public.${name}(`);
+    const finish=repair.indexOf('\n$$;',begin);
+    await db.exec(repair.slice(begin,finish+4));
+  }
   await db.exec(`
     create trigger trg_validate_booking_payment_submission before insert on payment_records
       for each row execute function validate_booking_payment_submission();
@@ -193,6 +201,44 @@ export async function runPaymentCases({db,check,failure,scalar,login,uuid,migrat
   check(await debt(online.bid),40,'old equal-amount webhook cannot settle a later 40 obligation');
   check(await jsonReceipt(prepared.payment.id),onlinePaid,'provider replay preserves confirmed payment history');
   check(await scalar('select to_jsonb(a) from payment_allocations a where payment_record_id=$1',[prepared.payment.id]),onlineAlloc,'provider replay preserves allocation history');
+
+  const owed900=await seed({obligation:900,credited:0});
+  await stop(owed900.bid,{minutes:0});
+  check(await debt(owed900.bid),900,'confirmed downpayment leaves exact unpaid 900');
+  await login(tourist);
+  const firstGc=(await db.query("select prepare_paymongo_payment_authenticated_impl($1,'remaining_balance',$2,$3,false) as result",[owed900.bid,'gcash-900-attempt-key',tourist])).rows[0].result.payment;
+  check(Number(firstGc.amount),900,'GCash prepares the remaining stage, not downpayment');
+  await db.query("update payment_records set provider_status='checkout_created',provider_checkout_id='fixture-session',checkout_url='https://checkout.paymongo.com/fixture' where id=$1",[firstGc.id]);
+  await failure('select prepare_group_cash_remaining_balance($1,$2)',[owed900.bid,'cash-900-attempt-key'],'PAYMENT_STAGE_HAS_ACTIVE_CHECKOUT');
+  await failure('select mark_paymongo_checkout_expired($1,$2)',[firstGc.id,'fixture-session'],'SERVICE_ROLE_REQUIRED');
+  await db.query("select set_config('test.role','service_role',false)");
+  check(await scalar('select mark_paymongo_checkout_expired($1,$2)',[firstGc.id,'fixture-session']),true,'provider-verified expiry releases active GCash attempt');
+  await db.query("select set_config('test.role','',false)");
+  const cash900=await cash(owed900);
+  check(Number(cash900.amount),900,'Cash prepares full remaining 900 after checkout expiry');
+  check((await cash(owed900)).id,cash900.id,'Cash retry reuses abandoned preparation');
+  const gcAfterCash=(await db.query("select prepare_paymongo_payment_authenticated_impl($1,'remaining_balance',$2,$3,false) as result",[owed900.bid,'gcash-after-cash-key',tourist])).rows[0].result.payment;
+  check(gcAfterCash.id!==firstGc.id,true,'Cash to GCash switch creates one current checkout attempt');
+  check((await jsonReceipt(cash900.id)).status,'cancelled','Cash to GCash switch retires unconfirmed cash');
+  check(await scalar("select count(*)::int from payment_records where booking_id=$1 and payment_stage='remaining_balance' and status='pending_confirmation'",[owed900.bid]),1,'method switching leaves one payable record');
+  await db.query("update payment_records set provider_status='checkout_failed' where id=$1",[gcAfterCash.id]);
+  const recoveredCash=await cash(owed900);
+  check(recoveredCash.id!==cash900.id,true,'failed GCash attempt permits Cash recovery');
+  await confirm(recoveredCash.id);
+  check(await debt(owed900.bid),0,'Cash confirmation settles authoritative outstanding');
+  check(await scalar('select is_booking_remaining_payment_satisfied($1)',[owed900.bid]),true,'zero outstanding unlocks drop-off gate');
+  await login(tourist);
+  await failure('select prepare_group_cash_remaining_balance($1,$2)',[owed900.bid,'duplicate-cash-payment-key'],'PAYMENT_STAGE_NOT_DUE');
+
+  const failedCash=await seed({obligation:900,credited:0});
+  await stop(failedCash.bid,{minutes:0});
+  const staleCash=await cash(failedCash);
+  await db.query('update payment_records set amount=800 where id=$1',[staleCash.id]);
+  const replacement=await cash(failedCash);
+  check(Number(replacement.amount),900,'outdated incomplete Cash attempt is replaced for current obligation');
+  check((await jsonReceipt(staleCash.id)).status,'cancelled','old Cash preparation retained as cancelled history');
+  const nextGc=(await db.query("select prepare_paymongo_payment_authenticated_impl($1,'remaining_balance',$2,$3,false) as result",[failedCash.bid,'gcash-replacement-key',tourist])).rows[0].result.payment;
+  check(nextGc.provider,'paymongo','GCash may replace unconfirmed Cash safely');
 
   // The scoped report must count confirmed records, never gross requirements.
   await login(uuid(1));

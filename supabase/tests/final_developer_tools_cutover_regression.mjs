@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
 const sql = readFileSync(
-  new URL('../migrations/20260930060000_final_developer_tools_cutover.sql', import.meta.url),
+  new URL('../migrations/20261001060000_final_developer_tools_cutover.sql', import.meta.url),
   'utf8',
 ).replaceAll('\r\n', '\n');
 const db = new PGlite();

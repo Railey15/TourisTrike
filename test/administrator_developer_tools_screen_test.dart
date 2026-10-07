@@ -187,7 +187,8 @@ void main() {
       find.text('Unable to load System Administrator data'),
       findsOneWidget,
     );
-    expect(find.textContaining('RPC unavailable'), findsOneWidget);
+    expect(find.textContaining('RPC unavailable'), findsNothing);
+    expect(find.text('Please refresh and try again.'), findsOneWidget);
 
     await tester.pumpWidget(
       testHarness(
@@ -281,10 +282,14 @@ void main() {
     );
     var reset = false;
     var deactivated = false;
+    var deleted = false;
+    var loads = 0;
     await tester.pumpWidget(
       testHarness(
         AdministratorDeveloperToolsScreen(
-          loadData: (query) async => AdministratorDeveloperToolsData(
+          loadData: (query) async {
+            loads++;
+            return AdministratorDeveloperToolsData(
             overview: const AdministratorDeveloperTestingOverview(
               enabled: true,
               eligibleBookings: 1,
@@ -292,12 +297,14 @@ void main() {
               upcomingBookings: 1,
               expiringSoon: 1,
             ),
-            bookings: [active],
-            totalCount: 1,
+            bookings: deleted ? [] : [active],
+            totalCount: deleted ? 0 : 1,
             query: query,
-          ),
+            );
+          },
           reset: (_) async => reset = true,
           deactivate: (_) async => deactivated = true,
+          deleteBooking: (_) async => deleted = true,
         ),
       ),
     );
@@ -335,5 +342,98 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(deactivated, isTrue);
+
+    final deleteAction = find.byKey(Key('developer-booking-delete-${booking.id}'));
+    await tester.ensureVisible(deleteAction);
+    expect(find.byTooltip('Delete booking'), findsOneWidget);
+    await tester.tap(deleteAction);
+    await tester.pumpAndSettle();
+    expect(find.text('Delete booking?'), findsOneWidget);
+    expect(find.textContaining('This action cannot be undone'), findsOneWidget);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+    expect(deleted, isFalse);
+
+    await tester.tap(deleteAction);
+    await tester.pumpAndSettle();
+    final beforeDeleteLoads = loads;
+    await tester.tap(find.byKey(const Key('developer-booking-confirm-delete')));
+    await tester.pumpAndSettle();
+    expect(deleted, isTrue);
+    expect(loads, beforeDeleteLoads + 1);
+    expect(find.text('No bookings found'), findsOneWidget);
+  });
+
+  testWidgets('inactive row exposes adjacent trash action with guarded progress', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1600, 950));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final pending = Completer<void>();
+    var attempts = 0;
+    var loads = 0;
+    var deleted = false;
+    await tester.pumpWidget(testHarness(AdministratorDeveloperToolsScreen(
+      loadData: (query) async {
+        loads++;
+        if (!deleted) return dataFor(query);
+        return AdministratorDeveloperToolsData(
+          overview: const AdministratorDeveloperTestingOverview(
+            enabled: true,
+            eligibleBookings: 0,
+            activeSessions: 0,
+            upcomingBookings: 0,
+            expiringSoon: 0,
+          ),
+          bookings: const [],
+          totalCount: 0,
+          query: query,
+        );
+      },
+      deleteBooking: (_) async {
+        attempts++;
+        if (attempts == 1) {
+          throw StateError(
+            'PostgrestException(message: BOOKING_HAS_LIVE_PROVIDER_PAYMENT, code: P0001)',
+          );
+        }
+        await pending.future;
+        deleted = true;
+      },
+    )));
+    await tester.pumpAndSettle();
+
+    final open = find.byKey(Key('developer-booking-${booking.id}'));
+    final trash = find.byKey(Key('developer-booking-delete-${booking.id}'));
+    expect(open, findsOneWidget);
+    expect(trash, findsOneWidget);
+    expect(find.byTooltip('Delete booking'), findsOneWidget);
+    await tester.ensureVisible(trash);
+    await tester.tap(trash);
+    await tester.pumpAndSettle();
+    expect(find.text('Delete booking?'), findsOneWidget);
+    expect(attempts, 0);
+
+    final confirm = find.byKey(const Key('developer-booking-confirm-delete'));
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+    expect(attempts, 1);
+    expect(find.text('Unable to delete booking'), findsOneWidget);
+    expect(find.text('This booking contains a live provider payment that must be retained.'), findsOneWidget);
+    expect(find.textContaining('PostgrestException'), findsNothing);
+    expect(find.textContaining('P0001'), findsNothing);
+
+    await tester.tap(confirm);
+    await tester.pump();
+    expect(attempts, 2);
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+    expect(find.text('Deleting…'), findsOneWidget);
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(deleted, isTrue);
+    expect(attempts, 2);
+    expect(loads, 2);
+    expect(find.text('No bookings found'), findsOneWidget);
+    expect(find.text('Booking deleted successfully.'), findsOneWidget);
   });
 }

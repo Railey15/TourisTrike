@@ -10,6 +10,9 @@ verify_jwt = false
 [functions.paymongo-payment-return]
 verify_jwt = false
 
+[functions.paymongo-switch-to-cash]
+verify_jwt = true
+
 # Didit authenticates callbacks with its destination signing secret, not a Supabase JWT.
 [functions.didit-webhook]
 verify_jwt = false

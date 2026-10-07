@@ -107,6 +107,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   bool _paymentPromptScheduled = false;
   bool _paymentPromptRefreshing = false;
   bool _paymentPromptRefreshAgain = false;
+  DateTime? _lastPaymentReconcileAt;
 
   bool _loading = true;
   final _feedbackGate = BookingFeedbackGate();
@@ -208,19 +209,44 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           _repo.fetchConvoyRoster(widget.bookingId),
           _repo.fetchPaymentAllocationsForBooking(widget.bookingId),
         ]);
+        final paymentRecords = results[1] as List<PaymentRecord>;
+        final now = DateTime.now();
+        if (paymentRecords.any(
+              (record) =>
+                  record.paymentStage == 'remaining_balance' &&
+                  record.provider == 'paymongo' &&
+                  record.status == 'pending_confirmation',
+            ) &&
+            (_lastPaymentReconcileAt == null ||
+                now.difference(_lastPaymentReconcileAt!) >
+                    const Duration(seconds: 15))) {
+          _lastPaymentReconcileAt = now;
+          try {
+            if (await _repo.reconcilePayMongoRemainingPayment(
+              widget.bookingId,
+            )) {
+              _paymentPromptRefreshAgain = true;
+              continue;
+            }
+          } catch (error) {
+            debugPrint(
+              '[Payments] provider reconciliation unavailable: $error',
+            );
+          }
+        }
         if (!mounted) return;
         final booking = results[0] as PackageBooking?;
         if (booking == null) return;
         _paymentPrompt.value = BookingPaymentPrompt.fromRecords(
           booking,
-          results[1] as List<PaymentRecord>,
+          paymentRecords,
         );
         _paymentPromptGate.observe(_paymentPrompt.value!);
         final itinerary = results[2] as List<BookingItineraryItem>;
         final roster = results[3] as List<ConvoyDriverSnapshot>;
         _remainingPrompt.value = BookingPaymentPrompt.fromRecords(
           booking,
-          results[1] as List<PaymentRecord>,
+          paymentRecords,
           stage: 'remaining_balance',
           itineraryComplete:
               itinerary.isNotEmpty &&
@@ -350,6 +376,17 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
     setState(() => _busyPaymentStages.add(stage));
     try {
+      if (stage == 'remaining_balance') {
+        try {
+          if (await _repo.reconcilePayMongoRemainingPayment(widget.bookingId)) {
+            await _refreshPayments();
+            _showSnack('Payment is already confirmed.');
+            return;
+          }
+        } catch (error) {
+          debugPrint('[PayMongo] provider reconciliation unavailable: $error');
+        }
+      }
       Profile? profile;
       try {
         profile = await _repo.currentProfile();
@@ -403,10 +440,21 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         'INVALID_PAYMONGO_CHECKOUT_API_VERSION',
       };
       debugPrint('[PayMongo] checkout failed: ${error.code}');
+      if (const {
+        'PAYMENT_STAGE_IN_PROGRESS',
+        'PAYMENT_STAGE_HAS_ACTIVE_CHECKOUT',
+        'CASH_PAYMENT_IN_PROGRESS',
+      }.contains(error.code)) {
+        await _refreshPayments();
+        _showSnack(
+          'An existing payment is already being processed. Please continue or refresh its status.',
+        );
+        return;
+      }
       _showSnack(
         configurationErrors.contains(error.code)
             ? 'GCash payment is temporarily unavailable.'
-            : 'Unable to open secure GCash payment: ${error.code}',
+            : 'Unable to open secure GCash payment. Please try again.',
       );
     } catch (error) {
       debugPrint('[PayMongo] checkout launch failed: $error');
@@ -459,14 +507,32 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
     setState(() => _busyPaymentStages.add('remaining_balance'));
     try {
-      await _repo.prepareGroupCashRemainingBalance(bookingId: widget.bookingId);
+      await _repo.prepareGroupCashWithCheckoutRecovery(
+        bookingId: widget.bookingId,
+      );
       await _refreshPayments();
       _showSnack(
         'Cash selected. Each driver must confirm their received share.',
       );
-    } on PostgrestException catch (error) {
+    } on PaymentProviderException catch (error) {
       debugPrint('[CashPayment] preparation failed: ${error.code}');
-      _showSnack('Unable to prepare the cash payment: ${error.message}');
+      await _refreshPayments();
+      if (error.code == 'PAYMENT_ALREADY_CONFIRMED') {
+        _showSnack('Payment is already confirmed.');
+        return;
+      }
+      _showSnack(
+        const {
+              'PAYMENT_STAGE_IN_PROGRESS',
+              'PAYMENT_STAGE_HAS_ACTIVE_CHECKOUT',
+              'CASH_PAYMENT_IN_PROGRESS',
+            }.contains(error.code)
+            ? 'An existing payment is already being processed. Please continue or refresh its status.'
+            : 'Unable to prepare the cash payment. Please try again.',
+      );
+    } catch (error) {
+      debugPrint('[CashPayment] preparation failed: $error');
+      _showSnack('Unable to prepare the cash payment. Please try again.');
     } finally {
       if (mounted) {
         setState(() => _busyPaymentStages.remove('remaining_balance'));

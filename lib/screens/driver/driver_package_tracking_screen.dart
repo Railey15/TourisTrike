@@ -23,6 +23,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
 import 'package:touristrike/core/policies/live_tour_visibility.dart';
+import 'package:touristrike/core/policies/driver_withdrawal_policy.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/services/live_marker_motion.dart';
@@ -101,6 +102,7 @@ class _DriverPackageTrackingScreenState
   Timer? _gpsRecoveryTimer;
   bool _gpsRecoveryBusy = false;
   bool _automaticTransitionBusy = false;
+  Position? _pendingAutomaticPosition;
   String? _gpsIssue;
   DateTime? _gpsMonitoringStartedAt;
   DateTime? _lastUsableGpsAt;
@@ -1170,6 +1172,9 @@ class _DriverPackageTrackingScreenState
                     const Duration(seconds: 3));
         if (!mayUpload) {
           if (!usable) return;
+          // Upload throttling must not delay the first fix inside the server
+          // arrival radius. The observer coalesces fixes while an RPC runs.
+          unawaited(_evaluateAutomaticJourney(position));
           _buildMarkers();
           if (_isFollowingDriver) {
             _animateCameraFollowing(
@@ -1187,7 +1192,9 @@ class _DriverPackageTrackingScreenState
             await _evaluateAutomaticJourney(position);
             return;
           }
-          // Each driver always writes to their own live-location row.
+          // The server observer verifies arrival and writes the live-location
+          // row itself. Run it first so an extra upload does not delay arrival.
+          await _evaluateAutomaticJourney(position);
           if (!mounted || !_shouldShareDriverLocation) return;
           await _repo.upsertDriverLiveLocation(
             activityId: widget.activityId,
@@ -1196,8 +1203,6 @@ class _DriverPackageTrackingScreenState
             heading: position.heading,
             speed: position.speed,
           );
-
-          await _evaluateAutomaticJourney(position);
 
           if (!mounted || !_shouldShareDriverLocation) return;
 
@@ -1330,40 +1335,52 @@ class _DriverPackageTrackingScreenState
   }
 
   Future<void> _evaluateAutomaticJourney(Position position) async {
-    if (!_shouldShareDriverLocation ||
-        _automaticTransitionBusy ||
-        _actionBusy) {
+    if (!_shouldShareDriverLocation || _actionBusy) return;
+    if (_automaticTransitionBusy) {
+      if (_pendingAutomaticPosition == null ||
+          position.timestamp.isAfter(_pendingAutomaticPosition!.timestamp)) {
+        _pendingAutomaticPosition = position;
+      }
       return;
     }
     _automaticTransitionBusy = true;
     try {
-      final result = TourTrackingStatus(
-        await _repo.observeDriverJourneyLocation(
-          bookingId: _bookingId,
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracyMeters: position.accuracy,
-          speedMps: position.speed,
-          sampledAt: position.timestamp,
-        ),
-      );
-      if (!mounted) return;
-      setState(() => _trackingStatus = result);
-      if (result.changed) {
-        await Future.wait([
-          _loadConvoy(),
-          _refreshTrackingState(logTag: 'gps-progression'),
-        ]);
+      Position? nextPosition = position;
+      while (nextPosition != null && _shouldShareDriverLocation && !_actionBusy) {
+        final current = nextPosition;
+        _pendingAutomaticPosition = null;
+        try {
+          final result = TourTrackingStatus(
+            await _repo.observeDriverJourneyLocation(
+              bookingId: _bookingId,
+              latitude: current.latitude,
+              longitude: current.longitude,
+              accuracyMeters: current.accuracy,
+              speedMps: current.speed,
+              sampledAt: current.timestamp,
+            ),
+          );
+          if (!mounted) return;
+          setState(() => _trackingStatus = result);
+          if (result.changed) {
+            await Future.wait([
+              _loadConvoy(),
+              _refreshTrackingState(logTag: 'gps-progression'),
+            ]);
+          }
+        } catch (error) {
+          if (mounted) {
+            setState(
+              () => _gpsIssue =
+                  'Automatic tracking could not sync. Check GPS and internet; progress is preserved.',
+            );
+          }
+          debugPrint('[DriverTracking:automatic] $error');
+        }
+        nextPosition = _pendingAutomaticPosition;
       }
-    } catch (error) {
-      if (mounted) {
-        setState(
-          () => _gpsIssue =
-              'Automatic tracking could not sync. Check GPS and internet; progress is preserved.',
-        );
-      }
-      debugPrint('[DriverTracking:automatic] $error');
     } finally {
+      _pendingAutomaticPosition = null;
       _automaticTransitionBusy = false;
     }
   }
@@ -2864,6 +2881,10 @@ class _DriverPackageTrackingScreenState
   }
 
   Future<void> _requestWithdrawal() async {
+    if (!_withdrawalAvailable) {
+      _showSnack(withdrawalAfterStartMessage, error: true);
+      return;
+    }
     const reasons = <String, String>{
       'vehicle_problem': 'Vehicle problem',
       'medical_emergency': 'Medical emergency',
@@ -2945,8 +2966,21 @@ class _DriverPackageTrackingScreenState
     );
     note.dispose();
     if (choice == null || !mounted) return;
+    if (!_withdrawalAvailable) {
+      _showSnack(withdrawalAfterStartMessage, error: true);
+      return;
+    }
     setState(() => _actionBusy = true);
     try {
+      await Future.wait([
+        _refreshTrackingState(logTag: 'withdrawal-check'),
+        _loadConvoy(),
+      ]);
+      if (!mounted) return;
+      if (!_withdrawalAvailable) {
+        _showSnack(withdrawalAfterStartMessage, error: true);
+        return;
+      }
       await _repo.requestDriverWithdrawal(
         bookingId: _bookingId,
         reason: choice.$1,
@@ -2958,10 +2992,23 @@ class _DriverPackageTrackingScreenState
       );
       Navigator.of(context).pop();
     } catch (error) {
-      if (mounted) _showSnack('Unable to withdraw: $error', error: true);
+      if (mounted) _showSnack(withdrawalErrorMessage(error), error: true);
     } finally {
       if (mounted) setState(() => _actionBusy = false);
     }
+  }
+
+  bool get _withdrawalAvailable {
+    final booking = _booking;
+    final activity = _activity;
+    if (booking == null || activity == null) return false;
+    return canRequestDriverWithdrawal(
+      bookingStatus: booking.bookingStatus,
+      tourStatus: activity.tourStatus,
+      assignmentStatus: _myConvoyStatus?.assignmentStatus ?? '',
+      hasArrived: booking.arrivedAt != null,
+      hasPickedUp: booking.pickedUpAt != null,
+    );
   }
 
   Widget _buildContent() {
@@ -3082,19 +3129,22 @@ class _DriverPackageTrackingScreenState
                     totalCount: _spots.length,
                   ),
                 if (!_actionBusy &&
-                    {
-                      'waiting_driver',
-                      'accepted',
-                      'driver_accepted',
-                      'driver_en_route',
-                      'driver_on_the_way',
-                      'ready_to_start',
-                    }.contains(status.toLowerCase())) ...[
+                    _myConvoyStatus?.assignmentStatus == 'accepted' &&
+                    !_isBookingClosed) ...[
                   const SizedBox(height: 8),
                   TextButton.icon(
-                    onPressed: _requestWithdrawal,
+                    onPressed: _withdrawalAvailable
+                        ? _requestWithdrawal
+                        : () => _showSnack(
+                            withdrawalAfterStartMessage,
+                            error: true,
+                          ),
                     icon: const Icon(Icons.person_remove_outlined),
-                    label: const Text('Request to withdraw from this tour'),
+                    label: Text(
+                      _withdrawalAvailable
+                          ? 'Request to withdraw from this tour'
+                          : 'Withdrawal unavailable after tour start',
+                    ),
                   ),
                 ],
                 if (bookingCompleted && !_touristReviewed) ...[

@@ -1018,6 +1018,43 @@ class TourisTrikeRepository {
     return PaymentRecord(Json.from(result as Map));
   }
 
+  Future<PaymentRecord> prepareGroupCashWithCheckoutRecovery({
+    required String bookingId,
+  }) async {
+    try {
+      final response = await _client.functions.invoke(
+        'paymongo-switch-to-cash',
+        body: {
+          'booking_id': bookingId,
+          'idempotency_key': _paymentAttemptKey(
+            bookingId,
+            'remaining_balance_cash',
+          ),
+        },
+      );
+      final data = response.data;
+      if (data is! Map || data['payment'] is! Map) {
+        throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+      }
+      return PaymentRecord(Json.from(data['payment'] as Map));
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final code = details is Map
+          ? dbString(details['error'], fallback: 'PAYMENT_STATE_UNAVAILABLE')
+          : 'PAYMENT_STATE_UNAVAILABLE';
+      throw PaymentProviderException(code);
+    }
+  }
+
+  Future<bool> reconcilePayMongoRemainingPayment(String bookingId) async {
+    final response = await _client.functions.invoke(
+      'paymongo-switch-to-cash',
+      body: {'booking_id': bookingId, 'action': 'reconcile'},
+    );
+    final data = response.data;
+    return data is Map && data['reconciled'] == true;
+  }
+
   Future<PaymentRecord> confirmGroupCashShare(String paymentRecordId) async {
     final result = await _client.rpc(
       'confirm_group_cash_share',

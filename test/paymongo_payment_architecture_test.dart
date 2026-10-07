@@ -114,8 +114,8 @@ void main() {
 
   test('tourist payment insert preserves JWT auth context', () {
     final preparation = createFunction
-        .split('const { data: prepared, error: prepareError }')[1]
-        .split('const payment = prepared.payment')[0];
+        .split('let { data: prepared, error: prepareError }')[1]
+        .split('let payment = prepared.payment')[0];
     expect(createFunction, contains('userClient.auth.getUser()'));
     expect(createFunction, contains('.select("tourist_id")'));
     expect(preparation, contains('userClient.rpc('));
@@ -225,7 +225,7 @@ void main() {
     expect(loadingScreen, contains('AppLinks'));
     expect(
       loadingScreen,
-      contains('ActivityTrackingScreen(bookingId: bookingId)'),
+      matches(RegExp(r'ActivityTrackingScreen\s*\(\s*bookingId:\s*bookingId,')),
     );
     expect(loadingScreen, contains('refreshing server state'));
     expect(

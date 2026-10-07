@@ -1,7 +1,10 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, enabled, jsonResponse } from "../_shared/http.ts";
-import { basicAuth } from "../_shared/paymongo.ts";
+import {
+  basicAuth,
+  checkoutHasOnlyFailedPayments,
+} from "../_shared/paymongo.ts";
 import { resolveCheckoutBilling } from "./customer_billing.ts";
 
 type Allocation = {
@@ -54,8 +57,7 @@ serve(async (request) => {
     .toLowerCase();
   const livemode = environment === "live";
   const splitEnabled = enabled("PAYMONGO_SPLIT_PAYMENTS_ENABLED");
-  const checkoutEndpoint =
-    "https://api.paymongo.com/v1/checkout_sessions";
+  const checkoutEndpoint = "https://api.paymongo.com/v1/checkout_sessions";
 
   if (!enabled("PAYMONGO_ENABLED") || !payMongoKey) {
     return jsonResponse({ error: "PAYMENT_PROVIDER_NOT_CONFIGURED" }, 503);
@@ -155,7 +157,7 @@ serve(async (request) => {
     return jsonResponse({ error: "INVALID_PAYMENT_CONTACT" }, 400);
   }
 
-  const { data: prepared, error: prepareError } = await userClient.rpc(
+  let { data: prepared, error: prepareError } = await userClient.rpc(
     "prepare_paymongo_payment",
     {
       p_booking_id: bookingId,
@@ -172,7 +174,7 @@ serve(async (request) => {
     }, 400);
   }
 
-  const payment = prepared.payment as Record<string, unknown>;
+  let payment = prepared.payment as Record<string, unknown>;
   console.info(
     `[PayMongo] payment record created/prepared record=${payment.id} allocations=${
       Array.isArray(prepared.allocations) ? prepared.allocations.length : 0
@@ -186,13 +188,80 @@ serve(async (request) => {
     }, 409);
   }
   if (typeof payment.checkout_url === "string" && payment.checkout_url) {
-    console.info(`[PayMongo] existing checkout returned record=${payment.id}`);
-    return jsonResponse({
-      payment_record_id: payment.id,
-      checkout_url: payment.checkout_url,
-      reused: true,
-      livemode,
+    if (
+      typeof payment.provider_checkout_id !== "string" ||
+      !payment.provider_checkout_id
+    ) {
+      return jsonResponse({ error: "PAYMENT_STATE_UNAVAILABLE" }, 503);
+    }
+    const sessionEndpoint = `${checkoutEndpoint}/${
+      encodeURIComponent(payment.provider_checkout_id)
+    }`;
+    let session: Record<string, unknown>;
+    try {
+      const result = await fetch(sessionEndpoint, {
+        headers: {
+          Authorization: basicAuth(payMongoKey),
+          Accept: "application/json",
+        },
+      });
+      if (!result.ok) {
+        return jsonResponse({ error: "PAYMENT_PROVIDER_UNAVAILABLE" }, 503);
+      }
+      session = await result.json();
+    } catch {
+      return jsonResponse({ error: "PAYMENT_PROVIDER_UNAVAILABLE" }, 503);
+    }
+    const attributes = (session.data as Record<string, unknown> | undefined)
+      ?.attributes as Record<string, unknown> | undefined;
+    if (!checkoutHasOnlyFailedPayments(attributes?.payments)) {
+      return jsonResponse({ error: "PAYMENT_STAGE_IN_PROGRESS" }, 409);
+    }
+    if (attributes?.status === "active") {
+      console.info(
+        `[PayMongo] existing checkout returned record=${payment.id}`,
+      );
+      return jsonResponse({
+        payment_record_id: payment.id,
+        checkout_url: payment.checkout_url,
+        reused: true,
+        livemode,
+      });
+    }
+    if (attributes?.status !== "expired") {
+      return jsonResponse({ error: "PAYMENT_STATE_UNAVAILABLE" }, 503);
+    }
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
     });
+    const { error: markError } = await serviceClient.rpc(
+      "mark_paymongo_checkout_expired",
+      {
+        p_payment_record_id: payment.id,
+        p_provider_checkout_id: payment.provider_checkout_id,
+      },
+    );
+    if (markError) {
+      return jsonResponse({ error: "PAYMENT_STAGE_IN_PROGRESS" }, 409);
+    }
+    const { data: retried, error: retryError } = await userClient.rpc(
+      "prepare_paymongo_payment",
+      {
+        p_booking_id: bookingId,
+        p_payment_stage: paymentStage,
+        p_idempotency_key:
+          `touristrike-retry:${bookingId}:${crypto.randomUUID()}`,
+        p_tourist_id: userData.user.id,
+        p_provider_livemode: livemode,
+      },
+    );
+    if (retryError || !retried?.payment) {
+      return jsonResponse({
+        error: retryError?.message ?? "PAYMENT_PREPARATION_FAILED",
+      }, 409);
+    }
+    payment = retried.payment as Record<string, unknown>;
+    prepared = retried;
   }
   if (payment.status === "cancelled") {
     return jsonResponse({ error: "PAYMENT_ATTEMPT_ALREADY_FAILED" }, 409);
