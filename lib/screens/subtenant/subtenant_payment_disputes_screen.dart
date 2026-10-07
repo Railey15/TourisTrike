@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:touristrike/core/responsive/responsive.dart';
 import 'layouts/subtenant_admin_shell.dart';
 import 'subtenant_models.dart';
 import 'subtenant_service.dart';
@@ -210,6 +211,12 @@ class _SubTenantPaymentDisputesScreenState
               children: [
                 ResponsiveGrid(
                   minItemWidth: 180,
+                  maxColumns: Responsive.isMobile(context)
+                      ? 1
+                      : Responsive.isLargeDesktop(context)
+                          ? 3
+                          : 2,
+                  mainAxisExtent: 156,
                   mobileAspectRatio: 2.25,
                   desktopAspectRatio: 3.25,
                   children: [
@@ -305,16 +312,22 @@ class _SubTenantPaymentDisputesScreenState
           );
           if (constraints.maxWidth < 720) {
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 search,
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: category),
-                    const SizedBox(width: 10),
-                    Expanded(child: status),
-                  ],
-                ),
+                if (constraints.maxWidth < 430) ...[
+                  category,
+                  const SizedBox(height: 10),
+                  status,
+                ] else
+                  Row(
+                    children: [
+                      Expanded(child: category),
+                      const SizedBox(width: 10),
+                      Expanded(child: status),
+                    ],
+                  ),
               ],
             );
           }
@@ -905,7 +918,11 @@ class _ResolveDialogState extends State<_ResolveDialog> {
                     for (final entry in caseResolutions.entries)
                       DropdownMenuItem(
                         value: entry.key,
-                        child: Text(entry.value),
+                        child: Text(
+                          entry.value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                   ],
                   onChanged: (value) => setState(() => _type = value),

@@ -2,6 +2,40 @@ import 'package:flutter/material.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
+class SubTenantHeaderAction extends StatelessWidget {
+  const SubTenantHeaderAction({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 46,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        style: FilledButton.styleFrom(
+          backgroundColor: SubTenantColors.blue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      ),
+    );
+  }
+}
+
 class ResponsivePageContainer extends StatelessWidget {
   const ResponsivePageContainer({
     super.key,
@@ -77,6 +111,7 @@ class ResponsiveGrid extends StatelessWidget {
     this.mobileAspectRatio = 1.55,
     this.tabletAspectRatio = 1.35,
     this.desktopAspectRatio = 1.45,
+    this.mainAxisExtent,
   });
 
   final List<Widget> children;
@@ -88,14 +123,19 @@ class ResponsiveGrid extends StatelessWidget {
   final double mobileAspectRatio;
   final double tabletAspectRatio;
   final double desktopAspectRatio;
+  final double? mainAxisExtent;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        var columns = constraints.maxWidth ~/ minItemWidth;
-        if (columns < minColumns) columns = minColumns;
-        if (columns > maxColumns) columns = maxColumns;
+        var columns = Responsive.columnsForWidth(
+          constraints.maxWidth,
+          minItemWidth: minItemWidth,
+          spacing: spacing,
+          minColumns: minColumns,
+          maxColumns: maxColumns,
+        );
         if (children.length < columns && children.isNotEmpty) {
           columns = children.length;
         }
@@ -114,6 +154,7 @@ class ResponsiveGrid extends StatelessWidget {
           crossAxisSpacing: spacing,
           mainAxisSpacing: runSpacing,
           childAspectRatio: aspectRatio,
+          mainAxisExtent: mainAxisExtent,
           children: children,
         );
       },

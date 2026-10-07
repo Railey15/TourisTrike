@@ -594,6 +594,7 @@ class SubTenantTextField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.hint,
+    this.minLines,
     this.maxLines = 1,
     this.keyboardType,
     this.enabled = true,
@@ -606,6 +607,7 @@ class SubTenantTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String? hint;
+  final int? minLines;
   final int maxLines;
   final TextInputType? keyboardType;
   final bool enabled;
@@ -630,6 +632,7 @@ class SubTenantTextField extends StatelessWidget {
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
+          minLines: minLines,
           maxLines: maxLines,
           keyboardType: keyboardType,
           enabled: enabled,
@@ -781,6 +784,7 @@ PreferredSizeWidget subTenantAppBar(
   BuildContext context, {
   required String title,
   bool showBack = false,
+  VoidCallback? onBack,
   List<Widget>? actions,
 }) {
   return AppBar(
@@ -790,7 +794,7 @@ PreferredSizeWidget subTenantAppBar(
     surfaceTintColor: Colors.white,
     leading: showBack
         ? IconButton(
-            onPressed: () => Navigator.maybePop(context),
+            onPressed: onBack ?? () => Navigator.maybePop(context),
             icon: const Icon(
               Icons.arrow_back_ios_new_rounded,
               color: SubTenantColors.text,

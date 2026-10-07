@@ -3,6 +3,8 @@ import 'dart:math' show atan2, cos, sin, sqrt;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
+import 'package:touristrike/core/services/package_builder_ai_service.dart';
+import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
@@ -75,7 +77,10 @@ class SubTenantPackageFormScreen extends StatefulWidget {
 
 class _SubTenantPackageFormScreenState
     extends State<SubTenantPackageFormScreen> {
+  static const double _desktopPanelHeight = 600;
+
   final SubTenantService _service = SubTenantService();
+  final PackageBuilderAiService _packageAi = PackageBuilderAiService();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final _titleCtrl = TextEditingController();
@@ -89,6 +94,10 @@ class _SubTenantPackageFormScreenState
   final _imageCtrl = TextEditingController();
   final _coverCtrl = TextEditingController();
   final _spotSearchCtrl = TextEditingController();
+  final _aiRequestCtrl = TextEditingController(
+    text: 'Create a cafe hopping package',
+  );
+  final _aiPreferencesCtrl = TextEditingController();
 
   String _status = 'draft';
   String _visibility = 'visible';
@@ -99,6 +108,13 @@ class _SubTenantPackageFormScreenState
   bool _uploadingCover = false;
   bool _spotsInitialized = false;
   bool _itineraryLoading = false;
+  bool _aiMode = true;
+  bool _aiGenerating = false;
+  bool _aiGenerated = false;
+  int _aiSpotCount = 3;
+  String? _aiError;
+  String _aiRecommendation = '';
+  final Set<String> _aiRecommendedSpotIds = {};
 
   String _spotCategoryFilter = 'all';
   final List<SelectedPackageSpot> _selectedSpots = [];
@@ -114,12 +130,17 @@ class _SubTenantPackageFormScreenState
   bool get _editing => widget.package != null;
   bool get _isFinalStep => _currentStep == 3;
   bool get _wizardBusy =>
-      _saving || _uploadingImage || _uploadingCover || _itineraryLoading;
+      _saving ||
+      _uploadingImage ||
+      _uploadingCover ||
+      _itineraryLoading ||
+      _aiGenerating;
 
   @override
   void initState() {
     super.initState();
     _workingPackageId = widget.package?.id;
+    _aiMode = !_editing;
     _prefillFromPackage();
     _dataFuture = _loadData();
     _spotSearchCtrl.addListener(() => setState(() {}));
@@ -139,6 +160,8 @@ class _SubTenantPackageFormScreenState
     _imageCtrl.dispose();
     _coverCtrl.dispose();
     _spotSearchCtrl.dispose();
+    _aiRequestCtrl.dispose();
+    _aiPreferencesCtrl.dispose();
     super.dispose();
   }
 
@@ -605,33 +628,6 @@ class _SubTenantPackageFormScreenState
     return filtered;
   }
 
-  static const _tagOrder = [
-    'Historical',
-    'Nature',
-    'Church',
-    'Museum',
-    'Sports',
-    'Food',
-  ];
-
-  static IconData _tagIcon(String tag) => switch (tag) {
-    'Nature' => Icons.terrain_outlined,
-    'Church' => Icons.church_outlined,
-    'Museum' => Icons.museum_outlined,
-    'Sports' => Icons.sports_basketball_outlined,
-    'Food' => Icons.restaurant_outlined,
-    _ => Icons.account_balance_outlined,
-  };
-
-  static Color _tagColor(String tag) => switch (tag) {
-    'Nature' => const Color(0xFF16A34A),
-    'Church' => const Color(0xFF7C3AED),
-    'Museum' => const Color(0xFF0284C7),
-    'Sports' => const Color(0xFFEA580C),
-    'Food' => const Color(0xFFDC2626),
-    _ => const Color(0xFF78716C),
-  };
-
   Future<void> _addGoogleSpot(
     SubTenantProfile profile,
     _GPlaceSuggestion suggestion,
@@ -663,6 +659,164 @@ class _SubTenantPackageFormScreenState
       if (mounted) {
         setState(() => _addingPlaceIds.remove(suggestion.placeId));
       }
+    }
+  }
+
+  Future<void> _generateWithAi(
+    _BuilderData data, {
+    bool spotsOnly = false,
+  }) async {
+    if (_aiGenerating) return;
+    final request = _aiRequestCtrl.text.trim();
+    if (request.isEmpty) {
+      setState(() => _aiError = 'Describe the package you want to create.');
+      return;
+    }
+
+    final categoriesById = {
+      for (final category in data.categories) stId(category.id): category.name,
+    };
+    final dbByKey = <String, SubTenantSpot>{};
+    final googleByKey = <String, _GPlaceSuggestion>{};
+    final candidates = <PackageBuilderCandidate>[];
+    final seenTitles = <String>{};
+
+    for (final spot in data.spots) {
+      if (spot.status.trim().toLowerCase() != 'active') continue;
+      final normalizedTitle = spot.title.trim().toLowerCase();
+      if (normalizedTitle.isEmpty || !seenTitles.add(normalizedTitle)) continue;
+      final key = 'db:${stId(spot.id)}';
+      dbByKey[key] = spot;
+      candidates.add(
+        PackageBuilderCandidate(
+          key: key,
+          title: spot.title,
+          category: categoriesById[stId(spot.categoryId)] ?? '',
+          address: spot.address,
+          rating: spot.rating,
+        ),
+      );
+    }
+    for (final entry in data.googleSuggestions.entries) {
+      for (final suggestion in entry.value) {
+        final normalizedTitle = suggestion.title.trim().toLowerCase();
+        if (normalizedTitle.isEmpty || !seenTitles.add(normalizedTitle)) {
+          continue;
+        }
+        final key = 'google:${suggestion.placeId}';
+        googleByKey[key] = suggestion;
+        candidates.add(
+          PackageBuilderCandidate(
+            key: key,
+            title: suggestion.title,
+            category: suggestion.tag,
+            address: suggestion.address,
+            rating: suggestion.rating,
+          ),
+        );
+      }
+    }
+
+    setState(() {
+      _aiGenerating = true;
+      _aiError = null;
+    });
+    try {
+      final plan = await _packageAi.generate(
+        request: request,
+        municipality: data.profile.assignedCity,
+        spotCount: _aiSpotCount,
+        preferences: _aiPreferencesCtrl.text,
+        candidates: candidates,
+      );
+
+      final generatedSpots = <SelectedPackageSpot>[];
+      final generatedIds = <String>{};
+      var scheduleCursor = 9 * 60;
+      for (final key in plan.orderedCandidateKeys) {
+        SubTenantSpot? spot = dbByKey[key];
+        final google = googleByKey[key];
+        if (spot == null && google != null) {
+          spot = await _service.upsertSpotFromGoogle(
+            profile: data.profile,
+            title: google.title,
+            description: google.address,
+            address: google.address,
+            latitude: google.latitude,
+            longitude: google.longitude,
+            imageUrl: google.imageUrl,
+            rating: google.rating,
+            tag: google.tag,
+            googlePlaceId: google.placeId,
+          );
+        }
+        if (spot == null) continue;
+        final city = (spot.city.isNotEmpty ? spot.city : spot.municipality)
+            .trim()
+            .toLowerCase();
+        if (city != data.profile.assignedCity.trim().toLowerCase()) continue;
+        final stay = plan.suggestedStayMinutes[key] ?? 60;
+        generatedSpots.add(
+          SelectedPackageSpot(
+            spot: spot,
+            sortOrder: generatedSpots.length,
+            estimatedArrivalTime: _formatScheduleTime(scheduleCursor),
+            estimatedDurationMinutes: stay,
+            recommendedVisitDurationMinutes: stay,
+          ),
+        );
+        generatedIds.add(stId(spot.id));
+        scheduleCursor += stay + 20;
+      }
+
+      if (!mounted) return;
+      if (!spotsOnly) {
+        _titleCtrl.text = plan.title;
+        _subtitleCtrl.text = plan.subtitle;
+        _descriptionCtrl.text = plan.description;
+        final categoryText = plan.category.toLowerCase();
+        for (final category in data.categories) {
+          final name = category.name.toLowerCase();
+          if (categoryText.contains(name) || name.contains(categoryText)) {
+            _packageCategoryId = category.id;
+            break;
+          }
+        }
+      }
+      setState(() {
+        _selectedSpots
+          ..clear()
+          ..addAll(generatedSpots);
+        _aiRecommendedSpotIds
+          ..clear()
+          ..addAll(generatedIds);
+        _aiGenerated = true;
+        _aiRecommendation = plan.recommendation;
+        _aiError = generatedSpots.length < _aiSpotCount
+            ? 'Only ${generatedSpots.length} matching spot${generatedSpots.length == 1 ? '' : 's'} were found in ${data.profile.assignedCity}.'
+            : null;
+      });
+      await _recalcDistance();
+    } on PackageBuilderAiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _aiError = '${error.message} Your current work is unchanged.';
+      });
+    } on ArgumentError catch (error) {
+      if (!mounted) return;
+      setState(() => _aiError = error.message?.toString() ?? error.toString());
+    } on StateError catch (error) {
+      if (!mounted) return;
+      setState(() => _aiError = error.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _aiError =
+            'Could not apply the generated package. '
+            'Your current work is unchanged.';
+      });
+    } finally {
+      if (mounted) setState(() => _aiGenerating = false);
     }
   }
 
@@ -912,6 +1066,16 @@ class _SubTenantPackageFormScreenState
     setState(() => _currentStep -= 1);
   }
 
+  void _handleAppBarBack() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+
+    SubTenantAdminShell.navigateTo(context, 2, currentIndex: 2);
+  }
+
   Future<void> _reloadItinerary(SubTenantProfile profile) async {
     if (_workingPackageId == null) return;
 
@@ -1030,191 +1194,230 @@ class _SubTenantPackageFormScreenState
     _ => 'Configure pricing, route details, images, and publish settings.',
   };
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: SubTenantColors.background,
-      appBar: subTenantAppBar(
-        context,
-        title: _editing ? 'Edit Package' : 'Build Tour Package',
-        showBack: true,
-      ),
-      body: FutureBuilder<_BuilderData>(
-        future: _dataFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SubTenantLoadingView();
-          }
-
-          if (snapshot.hasError) {
-            return SubTenantErrorView(
-              message: snapshot.error.toString(),
-              onRetry: _reloadData,
-            );
-          }
-
-          final data = snapshot.data!;
-          return Form(
-            key: _formKey,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide = constraints.maxWidth > 960;
-                final padding = isWide
-                    ? const EdgeInsets.fromLTRB(24, 16, 24, 30)
-                    : const EdgeInsets.fromLTRB(14, 12, 14, 24);
-
-                return SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: padding,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _WizardProgressCard(
-                        currentStep: _currentStep,
-                        subtitle: _stepSubtitle,
-                      ),
-                      const SizedBox(height: 14),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        child: KeyedSubtree(
-                          key: ValueKey<int>(_currentStep),
-                          child: _buildStepContent(data, isWide),
+  void _showPreview(_BuilderData data) {
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close package preview',
+      barrierColor: Colors.black38,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (context, _, _) => SafeArea(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Material(
+            color: SubTenantColors.background,
+            elevation: 16,
+            child: SizedBox(
+              width: MediaQuery.sizeOf(context).width > 700
+                  ? 440
+                  : MediaQuery.sizeOf(context).width * 0.94,
+              height: double.infinity,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 12, 8, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Package Preview',
+                            style: TextStyle(
+                              color: SubTenantColors.text,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 18),
-                      _buildNavigationBar(data),
-                    ],
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
                   ),
-                );
-              },
+                  const Divider(height: 1),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: _previewCard(data),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          );
-        },
+          ),
+        ),
+      ),
+      transitionBuilder: (_, animation, _, child) => SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(1, 0),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+        child: child,
       ),
     );
   }
 
-  Widget _buildStepContent(_BuilderData data, bool isWide) {
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_BuilderData>(
+      future: _dataFuture,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        return Scaffold(
+          backgroundColor: SubTenantColors.background,
+          appBar: subTenantAppBar(
+            context,
+            title: _editing ? 'Edit Package' : 'Build Tour Package',
+            showBack: true,
+            onBack: _handleAppBarBack,
+            actions: [
+              TextButton.icon(
+                onPressed: data == null ? null : () => _showPreview(data),
+                icon: const Icon(Icons.visibility_outlined, size: 18),
+                label: const Text('Preview'),
+              ),
+              const SizedBox(width: 6),
+            ],
+          ),
+          body: snapshot.connectionState == ConnectionState.waiting
+              ? const SubTenantLoadingView()
+              : snapshot.hasError
+              ? SubTenantErrorView(
+                  message: snapshot.error.toString(),
+                  onRetry: _reloadData,
+                )
+              : Form(
+                  key: _formKey,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isDesktop = constraints.maxWidth >= 860;
+                      final horizontal = isDesktop ? 20.0 : 14.0;
+                      return Column(
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              horizontal,
+                              12,
+                              horizontal,
+                              0,
+                            ),
+                            child: _WizardProgressCard(
+                              currentStep: _currentStep,
+                              subtitle: _stepSubtitle,
+                              aiAssisted: _aiGenerated,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: EdgeInsets.fromLTRB(
+                                horizontal,
+                                0,
+                                horizontal,
+                                20,
+                              ),
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                child: KeyedSubtree(
+                                  key: ValueKey<int>(_currentStep),
+                                  child: _buildStepContent(data!, isDesktop),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+          bottomNavigationBar: data == null
+              ? null
+              : SafeArea(
+                  top: false,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        top: BorderSide(color: SubTenantColors.line),
+                      ),
+                    ),
+                    child: _buildNavigationBar(data),
+                  ),
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStepContent(_BuilderData data, bool isDesktop) {
     switch (_currentStep) {
       case 0:
-        return isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 58, child: _basicInfoCard(data)),
-                  const SizedBox(width: 18),
-                  Expanded(flex: 42, child: _previewCard()),
-                ],
-              )
-            : Column(
-                children: [
-                  _basicInfoCard(data),
-                  const SizedBox(height: 14),
-                  _previewCard(),
-                ],
-              );
+        if (isDesktop) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 38, child: _aiAssistantCard(data)),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 62,
+                child: Column(
+                  children: [
+                    _basicInfoCard(data),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 240,
+                      child: _basicInfoSpotsSummaryCard(
+                        fillAvailableHeight: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+        return Column(
+          children: [
+            _aiAssistantCard(data),
+            const SizedBox(height: 14),
+            _basicInfoCard(data),
+            const SizedBox(height: 14),
+            _basicInfoSpotsSummaryCard(),
+          ],
+        );
       case 1:
-        // Spots selection step (previously case 2)
-        return isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 54,
-                    child: Column(
-                      children: [
-                        _smartRecsCard(data),
-                        const SizedBox(height: 14),
-                        _suggestedSpotsCard(data),
-                      ],
+        return isDesktop
+            ? SizedBox(
+                height: _desktopPanelHeight,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      flex: 62,
+                      child: _spotBrowserCard(data, fillAvailableHeight: true),
                     ),
-                  ),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    flex: 46,
-                    child: Column(
-                      children: [
-                        _selectedSpotsCard(),
-                        const SizedBox(height: 14),
-                        _previewCard(),
-                      ],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 38,
+                      child: _selectedSpotsCard(fillAvailableHeight: true),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               )
             : Column(
                 children: [
-                  _smartRecsCard(data),
-                  const SizedBox(height: 14),
-                  _suggestedSpotsCard(data),
+                  _spotBrowserCard(data),
                   const SizedBox(height: 14),
                   _selectedSpotsCard(),
-                  const SizedBox(height: 14),
-                  _previewCard(),
                 ],
               );
       case 2:
-        // Itinerary editor step (previously default)
-        return isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 58, child: _itineraryEditorCard(data)),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    flex: 42,
-                    child: Column(
-                      children: [
-                        _PackageReviewCard(
-                          title: _titleCtrl.text.trim(),
-                          subtitle: _subtitleCtrl.text.trim(),
-                          city: _cityCtrl.text.trim(),
-                          priceText: _priceCtrl.text.trim(),
-                          durationText: _durationCtrl.text.trim(),
-                          status: _status,
-                          visibility: _visibility,
-                          selectedSpotCount: _selectedSpots.length,
-                          itineraryDayCount: _itineraryDays.length,
-                          itineraryStopCount: _itineraryDays.fold<int>(
-                            0,
-                            (sum, day) => sum + day.items.length,
-                          ),
-                          packageId: _workingPackageId,
-                        ),
-                        const SizedBox(height: 14),
-                        _previewCard(),
-                      ],
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                children: [
-                  _itineraryEditorCard(data),
-                  const SizedBox(height: 14),
-                  _PackageReviewCard(
-                    title: _titleCtrl.text.trim(),
-                    subtitle: _subtitleCtrl.text.trim(),
-                    city: _cityCtrl.text.trim(),
-                    priceText: _priceCtrl.text.trim(),
-                    durationText: _durationCtrl.text.trim(),
-                    status: _status,
-                    visibility: _visibility,
-                    selectedSpotCount: _selectedSpots.length,
-                    itineraryDayCount: _itineraryDays.length,
-                    itineraryStopCount: _itineraryDays.fold<int>(
-                      0,
-                      (sum, day) => sum + day.items.length,
-                    ),
-                    packageId: _workingPackageId,
-                  ),
-                  const SizedBox(height: 14),
-                  _previewCard(),
-                ],
-              );
+        return _itineraryEditorCard(data);
       default:
-        // Details step moved to last (previously case 1)
-        return isWide
+        return isDesktop
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1225,8 +1428,6 @@ class _SubTenantPackageFormScreenState
                         _detailsCard(data),
                         const SizedBox(height: 14),
                         _imagesCard(data),
-                        const SizedBox(height: 14),
-                        _publishingCard(),
                       ],
                     ),
                   ),
@@ -1235,9 +1436,9 @@ class _SubTenantPackageFormScreenState
                     flex: 42,
                     child: Column(
                       children: [
-                        _previewCard(),
-                        const SizedBox(height: 14),
                         _fareBreakdownCard(data),
+                        const SizedBox(height: 14),
+                        _publishingCard(),
                       ],
                     ),
                   ),
@@ -1249,11 +1450,9 @@ class _SubTenantPackageFormScreenState
                   const SizedBox(height: 14),
                   _imagesCard(data),
                   const SizedBox(height: 14),
-                  _publishingCard(),
-                  const SizedBox(height: 14),
                   _fareBreakdownCard(data),
                   const SizedBox(height: 14),
-                  _previewCard(),
+                  _publishingCard(),
                 ],
               );
     }
@@ -1261,19 +1460,7 @@ class _SubTenantPackageFormScreenState
 
   Widget _buildNavigationBar(_BuilderData data) {
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: SubTenantColors.line),
-        boxShadow: const [
-          BoxShadow(
-            color: SubTenantColors.shadow,
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
+      constraints: const BoxConstraints(maxWidth: 1040),
       child: Row(
         children: [
           if (_currentStep > 0)
@@ -1317,16 +1504,211 @@ class _SubTenantPackageFormScreenState
     );
   }
 
+  Widget _aiAssistantCard(_BuilderData data) {
+    return SubTenantDashboardCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: SubTenantSectionHeader(
+                  title: 'Start your package',
+                  subtitle:
+                      'Generate a real, editable draft or build manually.',
+                ),
+              ),
+              if (_aiGenerated) const _AiPill(label: 'AI Assisted'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            children: [
+              ChoiceChip(
+                avatar: const Icon(Icons.auto_awesome_rounded, size: 16),
+                label: const Text('Create with AI'),
+                selected: _aiMode,
+                onSelected: (_) => setState(() => _aiMode = true),
+              ),
+              ChoiceChip(
+                avatar: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Build Manually'),
+                selected: !_aiMode,
+                onSelected: (_) => setState(() => _aiMode = false),
+              ),
+            ],
+          ),
+          if (_aiMode) ...[
+            const SizedBox(height: 12),
+            SubTenantTextField(
+              controller: _aiRequestCtrl,
+              label: 'What would you like to create?',
+              hint:
+                  'Describe the places, pace, group, and experience you want.',
+              minLines: 3,
+              maxLines: 5,
+              keyboardType: TextInputType.multiline,
+            ),
+            const SizedBox(height: 10),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final inlineFields = constraints.maxWidth >= 500;
+                final preferencesField = SubTenantTextField(
+                  controller: _aiPreferencesCtrl,
+                  label: 'Preferences (optional)',
+                  hint: 'Affordable, aesthetic, near town center',
+                );
+
+                if (!inlineFields) {
+                  return Column(
+                    children: [
+                      _aiSpotCountField(),
+                      const SizedBox(height: 10),
+                      preferencesField,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 170, child: _aiSpotCountField()),
+                    const SizedBox(width: 10),
+                    Expanded(child: preferencesField),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: _aiGenerating ? null : () => _generateWithAi(data),
+                  icon: _aiGenerating
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.auto_awesome_rounded, size: 18),
+                  label: Text(
+                    _aiGenerating
+                        ? 'Generating...'
+                        : _aiGenerated
+                        ? 'Regenerate Package'
+                        : 'Generate Package',
+                  ),
+                ),
+                if (_aiGenerated) ...[
+                  OutlinedButton.icon(
+                    onPressed: _aiGenerating
+                        ? null
+                        : () => _generateWithAi(data, spotsOnly: true),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Regenerate Spots'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _aiGenerating || _aiSpotCount >= 10
+                        ? null
+                        : () {
+                            setState(() => _aiSpotCount += 1);
+                            _generateWithAi(data, spotsOnly: true);
+                          },
+                    icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+                    label: const Text('Add One More'),
+                  ),
+                ],
+              ],
+            ),
+            if (_aiError != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _aiError!,
+                style: const TextStyle(
+                  color: Color(0xFFB45309),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ] else if (_aiRecommendation.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                _aiRecommendation,
+                style: const TextStyle(
+                  color: SubTenantColors.muted,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _aiSpotCountField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Number of spots',
+          style: TextStyle(
+            color: SubTenantColors.text,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<int>(
+          initialValue: _aiSpotCount,
+          isExpanded: true,
+          decoration: _dropdownDecoration(),
+          items: [
+            for (var count = 1; count <= 10; count++)
+              DropdownMenuItem(value: count, child: Text('$count spots')),
+          ],
+          onChanged: _aiGenerating
+              ? null
+              : (value) => setState(() => _aiSpotCount = value ?? 3),
+        ),
+      ],
+    );
+  }
+
   Widget _basicInfoCard(_BuilderData data) {
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SubTenantSectionHeader(
-            title: 'Step 1: Package Basic Info',
-            subtitle: 'Name, description, city, and category.',
+          Row(
+            children: [
+              const Expanded(
+                child: SubTenantSectionHeader(
+                  title: 'Package information',
+                  subtitle: 'Everything remains fully editable.',
+                ),
+              ),
+              if (_aiGenerated)
+                const Text(
+                  'Generated with AI • Fully editable',
+                  style: TextStyle(
+                    color: SubTenantColors.blue,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           SubTenantTextField(
             controller: _titleCtrl,
             label: 'Title',
@@ -1351,20 +1733,41 @@ class _SubTenantPackageFormScreenState
             controller: _descriptionCtrl,
             label: 'Description',
             hint: 'What tourists can expect...',
-            maxLines: 4,
+            maxLines: 3,
             validator: (value) =>
                 (value ?? '').trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 12),
-          SubTenantTextField(
-            controller: _cityCtrl,
-            label: 'City / Municipality',
-            enabled: false,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final sideBySide =
+                  data.categories.isNotEmpty && constraints.maxWidth > 620;
+              final city = SubTenantTextField(
+                controller: _cityCtrl,
+                label: 'City / Municipality',
+                enabled: false,
+              );
+              if (!sideBySide) {
+                return Column(
+                  children: [
+                    city,
+                    if (data.categories.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _categoryDropdown(data.categories),
+                    ],
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: city),
+                  const SizedBox(width: 12),
+                  Expanded(child: _categoryDropdown(data.categories)),
+                ],
+              );
+            },
           ),
-          if (data.categories.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _categoryDropdown(data.categories),
-          ],
         ],
       ),
     );
@@ -1384,6 +1787,7 @@ class _SubTenantPackageFormScreenState
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<dynamic>(
+          key: ValueKey(_packageCategoryId),
           initialValue: _packageCategoryId,
           decoration: _dropdownDecoration(),
           isExpanded: true,
@@ -1402,8 +1806,161 @@ class _SubTenantPackageFormScreenState
     );
   }
 
+  Widget _basicInfoSpotsSummaryCard({bool fillAvailableHeight = false}) {
+    final spotRows = [
+      for (var index = 0; index < _selectedSpots.length; index++)
+        _basicInfoSpotSummaryRow(index, _selectedSpots[index]),
+    ];
+    const emptyMessage = Text(
+      'Selected spots will appear here after generation.',
+      style: TextStyle(
+        color: SubTenantColors.muted,
+        fontSize: 12.5,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    const editingHint = Text(
+      'Full editing is available in Step 2.',
+      style: TextStyle(
+        color: SubTenantColors.lightMuted,
+        fontSize: 11.5,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
+    return SubTenantDashboardCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Generated / Selected Spots',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: SubTenantColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '${_selectedSpots.length} selected',
+                style: const TextStyle(
+                  color: SubTenantColors.blue,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (fillAvailableHeight) ...[
+            Expanded(
+              child: _selectedSpots.isEmpty
+                  ? const Align(
+                      alignment: Alignment.topLeft,
+                      child: emptyMessage,
+                    )
+                  : Scrollbar(
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: spotRows.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 6),
+                        itemBuilder: (_, index) => spotRows[index],
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 8),
+            editingHint,
+          ] else if (_selectedSpots.isEmpty) ...[
+            emptyMessage,
+            const SizedBox(height: 10),
+            editingHint,
+          ] else ...[
+            ...spotRows,
+            const SizedBox(height: 8),
+            editingHint,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _basicInfoSpotSummaryRow(int index, SelectedPackageSpot selected) {
+    final spot = selected.spot;
+    final locality = spot.city.isNotEmpty ? spot.city : spot.municipality;
+    final location = [
+      if (spot.barangay.isNotEmpty) 'Brgy. ${spot.barangay}',
+      if (locality.isNotEmpty) locality,
+    ].join(', ');
+    final displayLocation = location.isNotEmpty ? location : spot.address;
+    final aiPick = _aiRecommendedSpotIds.contains(stId(spot.id));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: SubTenantColors.backgroundAlt,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 13,
+            backgroundColor: SubTenantColors.blue,
+            child: Text(
+              '${index + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  spot.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: SubTenantColors.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (displayLocation.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    displayLocation,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: SubTenantColors.muted,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (aiPick) ...[
+            const SizedBox(width: 8),
+            const _AiPill(label: 'AI Pick', compact: true),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _detailsCard(_BuilderData data) {
-    final calculation = _fareCalculation(data.fareSettings);
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1452,12 +2009,6 @@ class _SubTenantPackageFormScreenState
                   )
                 : null,
           ),
-          const SizedBox(height: 12),
-          _PackageFareSuggestion(
-            calculation: calculation,
-            waitingLabel: _totalWaitingLabel(),
-            onUse: () => _useSuggestedPrice(data.fareSettings),
-          ),
         ],
       ),
     );
@@ -1473,13 +2024,7 @@ class _SubTenantPackageFormScreenState
             subtitle: 'Package photo and cover banner.',
           ),
           const SizedBox(height: 14),
-          SubTenantTextField(
-            controller: _imageCtrl,
-            label: 'Image URL',
-            keyboardType: TextInputType.url,
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
+          FilledButton.icon(
             onPressed: _uploadingImage
                 ? null
                 : () => _pickAndUploadImage(
@@ -1494,16 +2039,11 @@ class _SubTenantPackageFormScreenState
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.upload_file_rounded),
-            label: Text(_uploadingImage ? 'Uploading...' : 'Upload Image'),
+            label: Text(
+              _uploadingImage ? 'Uploading...' : 'Add Package Photos',
+            ),
           ),
           const SizedBox(height: 12),
-          SubTenantTextField(
-            controller: _coverCtrl,
-            label: 'Cover Image URL',
-            hint: 'Defaults to the package image if left empty',
-            keyboardType: TextInputType.url,
-          ),
-          const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: _uploadingCover
                 ? null
@@ -1520,6 +2060,33 @@ class _SubTenantPackageFormScreenState
                   )
                 : const Icon(Icons.upload_file_rounded),
             label: Text(_uploadingCover ? 'Uploading...' : 'Upload Cover'),
+          ),
+          const SizedBox(height: 6),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(bottom: 8),
+            title: const Text(
+              'Use image URLs instead',
+              style: TextStyle(
+                color: SubTenantColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            children: [
+              SubTenantTextField(
+                controller: _imageCtrl,
+                label: 'Package image URL',
+                keyboardType: TextInputType.url,
+              ),
+              const SizedBox(height: 10),
+              SubTenantTextField(
+                controller: _coverCtrl,
+                label: 'Cover image URL',
+                hint: 'Defaults to the package image if left empty',
+                keyboardType: TextInputType.url,
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           ValueListenableBuilder<TextEditingValue>(
@@ -1623,6 +2190,18 @@ class _SubTenantPackageFormScreenState
           ),
           const SizedBox(height: 10),
           _ReviewMetric(
+            icon: Icons.local_taxi_rounded,
+            label: 'Base Fare',
+            value: 'PHP ${calculation.baseFare.toStringAsFixed(0)}',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
+            icon: Icons.add_road_rounded,
+            label: 'Distance Fee',
+            value: 'PHP ${calculation.distanceFee.toStringAsFixed(0)}',
+          ),
+          const SizedBox(height: 10),
+          _ReviewMetric(
             icon: Icons.route_rounded,
             label: 'Route Distance',
             value: _distanceCtrl.text.trim().isEmpty
@@ -1641,25 +2220,40 @@ class _SubTenantPackageFormScreenState
             label: 'Waiting Fee',
             value: 'PHP ${calculation.waitingFee.toStringAsFixed(0)}',
           ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _useSuggestedPrice(data.fareSettings),
+              icon: const Icon(Icons.price_check_rounded),
+              label: const Text('Use Suggested Price'),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _smartRecsCard(_BuilderData data) {
+  Widget _spotBrowserCard(
+    _BuilderData data, {
+    bool fillAvailableHeight = false,
+  }) {
+    final dbSpots = _filteredSpots(data.spots, data.popularIds);
     final selectedTitles = _selectedSpots
-        .map((item) => item.spot.title.toLowerCase())
+        .map((item) => item.spot.title.trim().toLowerCase())
         .toSet();
-    final filtered = <String, List<_GPlaceSuggestion>>{};
-
-    for (final entry in data.googleSuggestions.entries) {
-      final spots = entry.value
-          .where((suggestion) {
-            return !selectedTitles.contains(suggestion.title.toLowerCase());
-          })
-          .toList(growable: false);
-      if (spots.isNotEmpty) {
-        filtered[entry.key] = spots;
+    final query = _spotSearchCtrl.text.trim().toLowerCase();
+    final googleSpots = <_GPlaceSuggestion>[];
+    final seenGoogle = <String>{};
+    for (final group in data.googleSuggestions.values) {
+      for (final spot in group) {
+        if (!seenGoogle.add(spot.placeId) ||
+            selectedTitles.contains(spot.title.trim().toLowerCase())) {
+          continue;
+        }
+        final searchable = '${spot.title} ${spot.address} ${spot.tag}'
+            .toLowerCase();
+        if (query.isEmpty || searchable.contains(query)) googleSpots.add(spot);
       }
     }
 
@@ -1667,238 +2261,106 @@ class _SubTenantPackageFormScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: SubTenantSectionHeader(
-                  title: 'Step 2: Smart Suggestions',
-                  subtitle: 'Google Places recommendations by category.',
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                decoration: BoxDecoration(
-                  gradient: SubTenantColors.gradient,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.auto_awesome_rounded,
-                      color: Colors.white,
-                      size: 12,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'AI',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final tag in _tagOrder)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: filtered.containsKey(tag)
-                        ? _tagColor(tag).withValues(alpha: 0.12)
-                        : SubTenantColors.backgroundAlt,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: filtered.containsKey(tag)
-                          ? _tagColor(tag).withValues(alpha: 0.3)
-                          : SubTenantColors.line,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _tagIcon(tag),
-                        color: filtered.containsKey(tag)
-                            ? _tagColor(tag)
-                            : SubTenantColors.lightMuted,
-                        size: 12,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        tag,
-                        style: TextStyle(
-                          color: filtered.containsKey(tag)
-                              ? _tagColor(tag)
-                              : SubTenantColors.lightMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          if (filtered.isEmpty) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: SubTenantColors.backgroundAlt,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: SubTenantColors.line),
-              ),
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    color: SubTenantColors.lightMuted,
-                    size: 16,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'No suggestions found. Try another keyword or check Google Places API.',
-                      style: TextStyle(
-                        color: SubTenantColors.muted,
-                        fontSize: 12,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 14),
-            for (final tag in _tagOrder)
-              if (filtered.containsKey(tag))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _tagColor(tag).withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _tagIcon(tag),
-                              color: _tagColor(tag),
-                              size: 13,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              tag,
-                              style: TextStyle(
-                                color: _tagColor(tag),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...filtered[tag]!.map(
-                        (suggestion) => _GSpotCard(
-                          suggestion: suggestion,
-                          adding: _addingPlaceIds.contains(suggestion.placeId),
-                          onAdd: () => _addGoogleSpot(data.profile, suggestion),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _suggestedSpotsCard(_BuilderData data) {
-    final filtered = _filteredSpots(data.spots, data.popularIds);
-
-    return SubTenantDashboardCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
           SubTenantSectionHeader(
-            title: 'Suggested Tourist Spots',
+            title: 'Spot Browser',
             subtitle:
-                '${data.spots.length} active spot${data.spots.length == 1 ? '' : 's'} in ${data.profile.assignedCity}',
+                'Real active spots and Google Places results in ${data.profile.assignedCity}',
           ),
           const SizedBox(height: 12),
           SubTenantSearchBar(
             controller: _spotSearchCtrl,
-            hintText: 'Search by name, barangay, or description...',
+            hintText: 'Search spots, barangays, or categories...',
           ),
           if (data.categories.isNotEmpty) ...[
             const SizedBox(height: 10),
             _categoryFilterRow(data.categories),
           ],
+          if (_aiGenerated && _aiRecommendedSpotIds.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: SubTenantColors.blue.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: SubTenantColors.blue.withValues(alpha: 0.16),
+                ),
+              ),
+              child: Text(
+                '✨ ${_aiRecommendedSpotIds.length} AI pick${_aiRecommendedSpotIds.length == 1 ? '' : 's'} added to Selected Spots',
+                style: const TextStyle(
+                  color: SubTenantColors.blue,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
-          if (filtered.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Center(
-                child: Text(
-                  _spotSearchCtrl.text.isNotEmpty
-                      ? 'No spots match your search.'
-                      : data.spots.isEmpty
-                      ? 'No active tourist spots found in ${data.profile.assignedCity} yet.'
-                      : 'All suggested spots have already been added.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontSize: 13,
-                    height: 1.4,
+          if (fillAvailableHeight)
+            Expanded(child: _spotBrowserResults(data, dbSpots, googleSpots))
+          else
+            SizedBox(
+              height: 420,
+              child: _spotBrowserResults(data, dbSpots, googleSpots),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _spotBrowserResults(
+    _BuilderData data,
+    List<SubTenantSpot> dbSpots,
+    List<_GPlaceSuggestion> googleSpots,
+  ) {
+    final query = _spotSearchCtrl.text.trim();
+    return Scrollbar(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          if (googleSpots.isNotEmpty) ...[
+            const _BrowserSectionLabel(
+              icon: Icons.auto_awesome_rounded,
+              label: 'Recommended from Google Places',
+            ),
+            const SizedBox(height: 8),
+            ...googleSpots
+                .take(8)
+                .map(
+                  (suggestion) => _GSpotCard(
+                    suggestion: suggestion,
+                    adding: _addingPlaceIds.contains(suggestion.placeId),
+                    onAdd: () => _addGoogleSpot(data.profile, suggestion),
                   ),
                 ),
+            const SizedBox(height: 8),
+          ],
+          _BrowserSectionLabel(
+            icon: Icons.location_city_rounded,
+            label: 'All available spots (${dbSpots.length})',
+          ),
+          const SizedBox(height: 8),
+          if (dbSpots.isEmpty && googleSpots.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              child: Text(
+                query.isEmpty
+                    ? 'No active spots are available in this municipality.'
+                    : 'No spots match your search.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: SubTenantColors.muted),
               ),
             )
-          else ...[
-            ...filtered
-                .take(12)
-                .map(
-                  (spot) => _SpotCard(
-                    spot: spot,
-                    onAdd: () => _addSpot(spot),
-                    popular: data.popularIds.contains(spot.id),
-                  ),
-                ),
-            if (filtered.length > 12)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '${filtered.length - 12} more available. Use search to narrow down.',
-                  style: const TextStyle(
-                    color: SubTenantColors.lightMuted,
-                    fontSize: 11.5,
-                  ),
-                ),
+          else
+            ...dbSpots.map(
+              (spot) => _SpotCard(
+                spot: spot,
+                onAdd: () => _addSpot(spot),
+                popular: data.popularIds.contains(spot.id),
               ),
-          ],
+            ),
         ],
       ),
     );
@@ -1930,7 +2392,73 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  Widget _selectedSpotsCard() {
+  Widget _selectedSpotsCard({bool fillAvailableHeight = false}) {
+    final helperText = const Text(
+      'Use the arrows to reorder package stops. Edit each stop to set arrival and visit timing.',
+      style: TextStyle(color: SubTenantColors.lightMuted, fontSize: 11),
+    );
+
+    final emptyState = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        decoration: BoxDecoration(
+          color: SubTenantColors.backgroundAlt,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: SubTenantColors.line),
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.add_location_alt_outlined,
+              color: SubTenantColors.lightMuted,
+              size: 28,
+            ),
+            SizedBox(height: 8),
+            Text(
+              'No spots added yet',
+              style: TextStyle(
+                color: SubTenantColors.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 3),
+            Text(
+              'Add spots from the smart suggestions or city list, then arrange them in order.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: SubTenantColors.muted,
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final selectedTiles = [
+      for (var i = 0; i < _selectedSpots.length; i++)
+        _SelectedSpotTile(
+          key: ValueKey(stId(_selectedSpots[i].spot.id)),
+          selectedSpot: _selectedSpots[i],
+          aiPick: _aiRecommendedSpotIds.contains(
+            stId(_selectedSpots[i].spot.id),
+          ),
+          index: i,
+          total: _selectedSpots.length,
+          onRemove: () => _removeSpot(i),
+          onEditSchedule: () => _editSpotSchedule(i),
+          onMoveUp: i > 0 ? () => _moveSpotUp(i) : null,
+          onMoveDown: i < _selectedSpots.length - 1
+              ? () => _moveSpotDown(i)
+              : null,
+        ),
+    ];
+
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1941,69 +2469,27 @@ class _SubTenantPackageFormScreenState
                 '${_selectedSpots.length} spot${_selectedSpots.length == 1 ? '' : 's'} included in this package',
           ),
           const SizedBox(height: 12),
-          if (_selectedSpots.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 18,
-                ),
-                decoration: BoxDecoration(
-                  color: SubTenantColors.backgroundAlt,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: SubTenantColors.line),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.add_location_alt_outlined,
-                      color: SubTenantColors.lightMuted,
-                      size: 28,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'No spots added yet',
-                      style: TextStyle(
-                        color: SubTenantColors.text,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+          if (fillAvailableHeight) ...[
+            Expanded(
+              child: _selectedSpots.isEmpty
+                  ? Align(alignment: Alignment.topCenter, child: emptyState)
+                  : Scrollbar(
+                      child: ListView(
+                        padding: EdgeInsets.zero,
+                        children: selectedTiles,
                       ),
                     ),
-                    SizedBox(height: 3),
-                    Text(
-                      'Add spots from the smart suggestions or city list, then arrange them in order.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: SubTenantColors.muted,
-                        fontSize: 12,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else ...[
-            for (var i = 0; i < _selectedSpots.length; i++)
-              _SelectedSpotTile(
-                key: ValueKey(stId(_selectedSpots[i].spot.id)),
-                selectedSpot: _selectedSpots[i],
-                index: i,
-                total: _selectedSpots.length,
-                onRemove: () => _removeSpot(i),
-                onEditSchedule: () => _editSpotSchedule(i),
-                onMoveUp: i > 0 ? () => _moveSpotUp(i) : null,
-                onMoveDown: i < _selectedSpots.length - 1
-                    ? () => _moveSpotDown(i)
-                    : null,
-              ),
-            const SizedBox(height: 6),
-            const Text(
-              'Use the arrows to reorder package stops. Edit each stop to set arrival and visit timing.',
-              style: TextStyle(color: SubTenantColors.lightMuted, fontSize: 11),
             ),
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            helperText,
+          ] else if (_selectedSpots.isEmpty)
+            emptyState
+          else ...[
+            ...selectedTiles,
+            const SizedBox(height: 6),
+            helperText,
           ],
         ],
       ),
@@ -2019,7 +2505,7 @@ class _SubTenantPackageFormScreenState
             children: [
               Expanded(
                 child: SubTenantSectionHeader(
-                  title: 'Step 3: Day Tour Itinerary',
+                  title: 'Day tour timeline',
                   subtitle: _workingPackageId == null
                       ? 'The package will be saved first before itinerary editing becomes available.'
                       : 'Manage the single-day itinerary from 7:00 AM to 5:00 PM.',
@@ -2027,6 +2513,37 @@ class _SubTenantPackageFormScreenState
               ),
             ],
           ),
+          if (_selectedSpots.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: SubTenantColors.backgroundAlt,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: SubTenantColors.line),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.route_rounded,
+                    size: 17,
+                    color: SubTenantColors.blue,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      '${_selectedSpots.length} stops • ${_durationCtrl.text.trim().isEmpty ? 'Duration calculating' : _durationCtrl.text.trim()} • ${_distanceCtrl.text.trim().isEmpty ? 'Distance calculating' : '${_distanceCtrl.text.trim()} km'}',
+                      style: const TextStyle(
+                        color: SubTenantColors.text,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           if (_workingPackageId == null)
             const SubTenantEmptyState(
@@ -2055,6 +2572,7 @@ class _SubTenantPackageFormScreenState
                 padding: const EdgeInsets.only(bottom: 14),
                 child: _WizardDayCard(
                   day: day,
+                  selectedSpots: _selectedSpots,
                   onEditItem: (item) => _openItemForm(data, item),
                   onMoveItem: (oldIndex, newIndex) =>
                       _moveItem(data.profile, day, oldIndex, newIndex),
@@ -2066,7 +2584,14 @@ class _SubTenantPackageFormScreenState
     );
   }
 
-  Widget _previewCard() {
+  Widget _previewCard(_BuilderData data) {
+    var category = '';
+    for (final item in data.categories) {
+      if (stId(item.id) == stId(_packageCategoryId)) {
+        category = item.name;
+        break;
+      }
+    }
     return _PackagePreviewCard(
       titleCtrl: _titleCtrl,
       subtitleCtrl: _subtitleCtrl,
@@ -2078,6 +2603,9 @@ class _SubTenantPackageFormScreenState
       status: _status,
       visibility: _visibility,
       selectedSpotCount: _selectedSpots.length,
+      category: category,
+      selectedSpots: _selectedSpots,
+      itineraryDays: _itineraryDays,
     );
   }
 
@@ -2119,87 +2647,113 @@ class _WizardProgressCard extends StatelessWidget {
   const _WizardProgressCard({
     required this.currentStep,
     required this.subtitle,
+    required this.aiAssisted,
   });
 
   final int currentStep;
   final String subtitle;
+  final bool aiAssisted;
 
   static const _steps = ['Basic Info', 'Spots', 'Itinerary', 'Details'];
 
   @override
   Widget build(BuildContext context) {
     return SubTenantDashboardCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Step ${currentStep + 1} of ${_steps.length}',
-            style: const TextStyle(
-              color: SubTenantColors.blue,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _steps[currentStep],
-            style: const TextStyle(
-              color: SubTenantColors.text,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              color: SubTenantColors.muted,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 14),
           Row(
-            children: List.generate(_steps.length, (index) {
-              final isDone = index < currentStep;
-              final isActive = index == currentStep;
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    right: index == _steps.length - 1 ? 0 : 8,
+            children: [
+              Expanded(
+                child: Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              if (aiAssisted) const _AiPill(label: 'AI Assisted'),
+            ],
+          ),
+          const SizedBox(height: 9),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 560;
+              return Row(
+                children: List.generate(_steps.length * 2 - 1, (rawIndex) {
+                  if (rawIndex.isOdd) {
+                    final beforeStep = rawIndex ~/ 2;
+                    return Expanded(
+                      child: Container(
+                        height: 2,
+                        color: beforeStep < currentStep
+                            ? SubTenantColors.blue
+                            : SubTenantColors.line,
+                      ),
+                    );
+                  }
+                  final index = rawIndex ~/ 2;
+                  final isDone = index < currentStep;
+                  final isActive = index == currentStep;
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
-                        height: 8,
+                        width: 24,
+                        height: 24,
                         decoration: BoxDecoration(
                           color: isDone || isActive
                               ? SubTenantColors.blue
-                              : SubTenantColors.line,
-                          borderRadius: BorderRadius.circular(999),
+                              : Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isDone || isActive
+                                ? SubTenantColors.blue
+                                : SubTenantColors.line,
+                          ),
+                        ),
+                        child: Center(
+                          child: isDone
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  size: 15,
+                                  color: Colors.white,
+                                )
+                              : Text(
+                                  '${index + 1}',
+                                  style: TextStyle(
+                                    color: isActive
+                                        ? Colors.white
+                                        : SubTenantColors.lightMuted,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _steps[index],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isDone || isActive
-                              ? SubTenantColors.text
-                              : SubTenantColors.lightMuted,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w900,
+                      if (!compact || isActive) ...[
+                        const SizedBox(width: 5),
+                        Text(
+                          _steps[index],
+                          style: TextStyle(
+                            color: isDone || isActive
+                                ? SubTenantColors.text
+                                : SubTenantColors.lightMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
-                  ),
-                ),
+                  );
+                }),
               );
-            }),
+            },
           ),
         ],
       ),
@@ -2207,100 +2761,57 @@ class _WizardProgressCard extends StatelessWidget {
   }
 }
 
-class _PackageFareSuggestion extends StatelessWidget {
-  const _PackageFareSuggestion({
-    required this.calculation,
-    required this.waitingLabel,
-    required this.onUse,
-  });
+class _AiPill extends StatelessWidget {
+  const _AiPill({required this.label, this.compact = false});
 
-  final FareCalculation calculation;
-  final String waitingLabel;
-  final VoidCallback onUse;
-
-  String _money(double value) => 'PHP ${value.toStringAsFixed(0)}';
+  final String label;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final rows = [
-      ('Base fare', calculation.baseFare),
-      ('Distance fee', calculation.distanceFee),
-      ('Waiting fee ($waitingLabel)', calculation.waitingFee),
-      if (calculation.minimumFareAdjustment > 0)
-        ('Minimum fare adjustment', calculation.minimumFareAdjustment),
-    ];
-
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(13),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 9,
+        vertical: compact ? 2 : 4,
+      ),
       decoration: BoxDecoration(
-        color: SubTenantColors.blue.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: SubTenantColors.blue.withValues(alpha: 0.14)),
+        color: SubTenantColors.blue.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: SubTenantColors.blue.withValues(alpha: 0.18)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Suggested Price',
-                  style: TextStyle(
-                    color: SubTenantColors.text,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Text(
-                _money(calculation.total),
-                style: const TextStyle(
-                  color: SubTenantColors.blue,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...rows.map(
-            (row) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      row.$1,
-                      style: const TextStyle(
-                        color: SubTenantColors.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    _money(row.$2),
-                    style: const TextStyle(
-                      color: SubTenantColors.text,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: onUse,
-              icon: const Icon(Icons.price_check_rounded, size: 18),
-              label: const Text('Use Suggested Price'),
-            ),
-          ),
-        ],
+      child: Text(
+        '✨ $label',
+        style: TextStyle(
+          color: SubTenantColors.blue,
+          fontSize: compact ? 9 : 10.5,
+          fontWeight: FontWeight.w900,
+        ),
       ),
+    );
+  }
+}
+
+class _BrowserSectionLabel extends StatelessWidget {
+  const _BrowserSectionLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: SubTenantColors.blue),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: SubTenantColors.text,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2488,6 +2999,7 @@ class _SelectedSpotTile extends StatelessWidget {
   const _SelectedSpotTile({
     super.key,
     required this.selectedSpot,
+    this.aiPick = false,
     required this.index,
     required this.total,
     required this.onRemove,
@@ -2497,6 +3009,7 @@ class _SelectedSpotTile extends StatelessWidget {
   });
 
   final SelectedPackageSpot selectedSpot;
+  final bool aiPick;
   final int index;
   final int total;
   final VoidCallback onRemove;
@@ -2539,15 +3052,25 @@ class _SelectedSpotTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  selectedSpot.spot.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SubTenantColors.text,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        selectedSpot.spot.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: SubTenantColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (aiPick) ...[
+                      const SizedBox(width: 5),
+                      const _AiPill(label: 'AI Pick', compact: true),
+                    ],
+                  ],
                 ),
                 if (selectedSpot.spot.barangay.isNotEmpty)
                   Text(
@@ -2970,11 +3493,13 @@ class _SpotScheduleSheetState extends State<_SpotScheduleSheet> {
 class _WizardDayCard extends StatelessWidget {
   const _WizardDayCard({
     required this.day,
+    required this.selectedSpots,
     required this.onEditItem,
     required this.onMoveItem,
   });
 
   final PackageItineraryDay day;
+  final List<SelectedPackageSpot> selectedSpots;
   final ValueChanged<PackageItineraryItem> onEditItem;
   final void Function(int oldIndex, int newIndex) onMoveItem;
 
@@ -3011,6 +3536,12 @@ class _WizardDayCard extends StatelessWidget {
             ...day.items.asMap().entries.map(
               (entry) => _WizardItineraryTile(
                 item: entry.value,
+                selectedSpot: selectedSpots
+                    .cast<SelectedPackageSpot?>()
+                    .firstWhere(
+                      (spot) => stId(spot?.spot.id) == stId(entry.value.spotId),
+                      orElse: () => null,
+                    ),
                 index: entry.key,
                 total: day.items.length,
                 onEdit: () => onEditItem(entry.value),
@@ -3027,6 +3558,7 @@ class _WizardDayCard extends StatelessWidget {
 class _WizardItineraryTile extends StatelessWidget {
   const _WizardItineraryTile({
     required this.item,
+    required this.selectedSpot,
     required this.index,
     required this.total,
     required this.onEdit,
@@ -3035,6 +3567,7 @@ class _WizardItineraryTile extends StatelessWidget {
   });
 
   final PackageItineraryItem item;
+  final SelectedPackageSpot? selectedSpot;
   final int index;
   final int total;
   final VoidCallback onEdit;
@@ -3043,10 +3576,15 @@ class _WizardItineraryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = [
-      if (item.timeLabel.isNotEmpty) item.timeLabel,
-      if (item.note.isNotEmpty) item.note,
-    ].join(' / ');
+    final arrival = item.timeLabel.isNotEmpty
+        ? item.timeLabel
+        : selectedSpot?.estimatedArrivalTime ?? '';
+    final stay = selectedSpot == null
+        ? 0
+        : selectedSpot!.estimatedDurationMinutes > 0
+        ? selectedSpot!.estimatedDurationMinutes
+        : selectedSpot!.recommendedVisitDurationMinutes;
+    final departure = _scheduleDepartureLabel(arrival, stay);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -3057,26 +3595,37 @@ class _WizardItineraryTile extends StatelessWidget {
         border: Border.all(color: SubTenantColors.line),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 50,
-            height: 50,
+            width: 64,
+            padding: const EdgeInsets.symmetric(vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFFE8EEF7),
-              borderRadius: BorderRadius.circular(15),
-              image: item.spotImageUrl.isEmpty
-                  ? null
-                  : DecorationImage(
-                      image: NetworkImage(item.spotImageUrl),
-                      fit: BoxFit.cover,
-                    ),
+              color: SubTenantColors.blue.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: item.spotImageUrl.isEmpty
-                ? const Icon(
-                    Icons.place_rounded,
-                    color: SubTenantColors.lightMuted,
-                  )
-                : null,
+            child: Column(
+              children: [
+                Text(
+                  arrival.isEmpty ? '--:--' : arrival,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: SubTenantColors.blue,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: const BoxDecoration(
+                    color: SubTenantColors.blue,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -3094,16 +3643,34 @@ class _WizardItineraryTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  subtitle.isEmpty ? 'No schedule note yet' : subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 3,
+                  children: [
+                    _TimelineDetail(
+                      icon: Icons.hourglass_bottom_rounded,
+                      label: stay > 0 ? 'Stay $stay min' : 'Set stay time',
+                    ),
+                    if (departure != null)
+                      _TimelineDetail(
+                        icon: Icons.logout_rounded,
+                        label: 'Depart $departure',
+                      ),
+                  ],
                 ),
+                if (item.note.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    item.note,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: SubTenantColors.lightMuted,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -3142,6 +3709,32 @@ class _WizardItineraryTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _TimelineDetail extends StatelessWidget {
+  const _TimelineDetail({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: SubTenantColors.lightMuted),
+        const SizedBox(width: 3),
+        Text(
+          label,
+          style: const TextStyle(
+            color: SubTenantColors.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3305,113 +3898,6 @@ class _ItineraryItemSheetState extends State<_ItineraryItemSheet> {
   }
 }
 
-class _PackageReviewCard extends StatelessWidget {
-  const _PackageReviewCard({
-    required this.title,
-    required this.subtitle,
-    required this.city,
-    required this.priceText,
-    required this.durationText,
-    required this.status,
-    required this.visibility,
-    required this.selectedSpotCount,
-    required this.itineraryDayCount,
-    required this.itineraryStopCount,
-    required this.packageId,
-  });
-
-  final String title;
-  final String subtitle;
-  final String city;
-  final String priceText;
-  final String durationText;
-  final String status;
-  final String visibility;
-  final int selectedSpotCount;
-  final int itineraryDayCount;
-  final int itineraryStopCount;
-  final dynamic packageId;
-
-  @override
-  Widget build(BuildContext context) {
-    return SubTenantDashboardCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SubTenantSectionHeader(
-            title: 'Review Summary',
-            subtitle: 'Check the package details before saving.',
-          ),
-          const SizedBox(height: 12),
-          _ReviewMetric(
-            icon: Icons.inventory_2_rounded,
-            label: 'Package',
-            value: title.isEmpty ? 'Untitled package' : title,
-          ),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _ReviewMetric(
-              icon: Icons.short_text_rounded,
-              label: 'Subtitle',
-              value: subtitle,
-            ),
-          ],
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.location_on_rounded,
-            label: 'City',
-            value: city.isEmpty ? 'Not set' : city,
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.payments_rounded,
-            label: 'Price',
-            value: priceText.isEmpty ? 'Not set' : priceText,
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.schedule_rounded,
-            label: 'Duration',
-            value: durationText.isEmpty ? 'Not set' : durationText,
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.place_rounded,
-            label: 'Selected Spots',
-            value: '$selectedSpotCount',
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.calendar_view_day_rounded,
-            label: 'Itinerary Days',
-            value: itineraryDayCount <= 0 ? '0' : '1',
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.route_rounded,
-            label: 'Itinerary Stops',
-            value: '$itineraryStopCount',
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.circle_rounded,
-            label: 'Status / Visibility',
-            value: '${stTitleCase(status)} / ${stTitleCase(visibility)}',
-          ),
-          const SizedBox(height: 10),
-          _ReviewMetric(
-            icon: Icons.tag_rounded,
-            label: 'Package ID',
-            value: packageId == null
-                ? 'Will be created on save'
-                : stId(packageId),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ReviewMetric extends StatelessWidget {
   const _ReviewMetric({
     required this.icon,
@@ -3480,6 +3966,9 @@ class _PackagePreviewCard extends StatelessWidget {
     required this.status,
     required this.visibility,
     required this.selectedSpotCount,
+    required this.category,
+    required this.selectedSpots,
+    required this.itineraryDays,
   });
 
   final TextEditingController titleCtrl;
@@ -3492,6 +3981,9 @@ class _PackagePreviewCard extends StatelessWidget {
   final String status;
   final String visibility;
   final int selectedSpotCount;
+  final String category;
+  final List<SelectedPackageSpot> selectedSpots;
+  final List<PackageItineraryDay> itineraryDays;
 
   @override
   Widget build(BuildContext context) {
@@ -3593,6 +4085,11 @@ class _PackagePreviewCard extends StatelessWidget {
                                   icon: Icons.location_on_rounded,
                                   label: city,
                                 ),
+                              if (category.isNotEmpty)
+                                _Chip(
+                                  icon: Icons.category_outlined,
+                                  label: category,
+                                ),
                               if (price.isNotEmpty)
                                 _Chip(
                                   icon: Icons.payments_rounded,
@@ -3617,6 +4114,68 @@ class _PackagePreviewCard extends StatelessWidget {
                                 ),
                             ],
                           ),
+                          if (selectedSpots.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            const Text(
+                              'Stops',
+                              style: TextStyle(
+                                color: SubTenantColors.text,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            for (final entry in selectedSpots.asMap().entries)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 5),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 10,
+                                      backgroundColor: SubTenantColors.blue,
+                                      child: Text(
+                                        '${entry.key + 1}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Expanded(
+                                      child: Text(
+                                        entry.value.spot.title,
+                                        style: const TextStyle(
+                                          color: SubTenantColors.muted,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    if (entry
+                                        .value
+                                        .estimatedArrivalTime
+                                        .isNotEmpty)
+                                      Text(
+                                        entry.value.estimatedArrivalTime,
+                                        style: const TextStyle(
+                                          color: SubTenantColors.lightMuted,
+                                          fontSize: 10.5,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            if (itineraryDays.isNotEmpty)
+                              Text(
+                                '${itineraryDays.fold<int>(0, (sum, day) => sum + day.items.length)} itinerary stops synced',
+                                style: const TextStyle(
+                                  color: SubTenantColors.lightMuted,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                          ],
                         ],
                       ),
                     ),

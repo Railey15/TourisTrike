@@ -5,6 +5,7 @@ class ResponsiveBreakpoints {
 
   static const double mobile = 768;
   static const double desktop = 1024;
+  static const double largeDesktop = 1200;
 }
 
 class Responsive {
@@ -24,6 +25,23 @@ class Responsive {
 
   static bool isDesktop(BuildContext context) =>
       widthOf(context) >= ResponsiveBreakpoints.desktop;
+
+  static bool isLargeDesktop(BuildContext context) =>
+      widthOf(context) >= ResponsiveBreakpoints.largeDesktop;
+
+  static int columnsForWidth(
+    double width, {
+    required double minItemWidth,
+    double spacing = 14,
+    int minColumns = 1,
+    int maxColumns = 4,
+  }) {
+    final available = width.isFinite ? width : minItemWidth;
+    var columns = ((available + spacing) / (minItemWidth + spacing)).floor();
+    if (columns < minColumns) columns = minColumns;
+    if (columns > maxColumns) columns = maxColumns;
+    return columns;
+  }
 
   static T responsiveValue<T>(
     BuildContext context, {

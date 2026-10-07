@@ -14,7 +14,9 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.da
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
 class SubTenantDashboardScreen extends StatefulWidget {
-  const SubTenantDashboardScreen({super.key});
+  const SubTenantDashboardScreen({super.key, this.service});
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantDashboardScreen> createState() =>
@@ -22,7 +24,7 @@ class SubTenantDashboardScreen extends StatefulWidget {
 }
 
 class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
-  final SubTenantService _service = SubTenantService();
+  late final SubTenantService _service;
   final SupabaseClient _supabase = Supabase.instance.client;
 
   SubTenantDashboardData? _data;
@@ -38,6 +40,7 @@ class _SubTenantDashboardScreenState extends State<SubTenantDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? SubTenantService();
     unawaited(_loadDashboard(showLoading: true));
   }
 
@@ -282,7 +285,10 @@ class _DashboardContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
+    final viewport = MediaQuery.sizeOf(context);
+    final desktop =
+        viewport.width >= ResponsiveBreakpoints.largeDesktop &&
+        viewport.height >= 720;
 
     // ── Mobile / tablet ─────────────────────────────────────────────────────
     if (!desktop) {
@@ -319,7 +325,7 @@ class _DashboardContent extends StatelessWidget {
                 onViewAll: onBookings,
               ),
               const SizedBox(height: 12),
-              _AnalyticsCard(data: data),
+              _AnalyticsCard(data: data, fillAvailableHeight: false),
               const SizedBox(height: 12),
               _SidePanel(
                 data: data,
@@ -368,7 +374,12 @@ class _DashboardContent extends StatelessWidget {
                         onAnnouncements: onAnnouncements,
                       ),
                       const SizedBox(height: 8),
-                      Expanded(child: _AnalyticsCard(data: data)),
+                      Expanded(
+                        child: _AnalyticsCard(
+                          data: data,
+                          fillAvailableHeight: true,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -411,97 +422,128 @@ class _CompactHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 92,
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF2A86FF), Color(0xFF0EA5E9)],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: SubTenantColors.blue.withValues(alpha: 0.15),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          height: 92,
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF2A86FF), Color(0xFF0EA5E9)],
             ),
-            child: const Icon(
-              Icons.location_city_rounded,
-              color: Colors.white,
-              size: 22,
-            ),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: SubTenantColors.blue.withValues(alpha: 0.15),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text(
-                  'City Tourism Dashboard',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.2,
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.18),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Hello, ${data.profile.displayName}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.3,
-                  ),
+                child: const Icon(
+                  Icons.location_city_rounded,
+                  color: Colors.white,
+                  size: 22,
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  'Managing ${data.profile.assignedCity} packages, bookings & drivers.',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'City Tourism Dashboard',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Hello, ${data.profile.displayName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Managing ${data.profile.assignedCity} packages, bookings & drivers.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              _CityScopeBadge(
+                profile: data.profile,
+                compact: constraints.maxWidth < 520,
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          _CityScopeBadge(profile: data.profile),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
 class _CityScopeBadge extends StatelessWidget {
-  const _CityScopeBadge({required this.profile});
+  const _CityScopeBadge({required this.profile, this.compact = false});
 
   final SubTenantProfile profile;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return Tooltip(
+        message: '${profile.assignedCity}, ${profile.province}',
+        child: Container(
+          width: 48,
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+          ),
+          child: const Icon(
+            Icons.verified_user_rounded,
+            color: Colors.white,
+            size: 18,
+          ),
+        ),
+      );
+    }
+
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1139,13 +1181,13 @@ class _BookingCompactTile extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _AnalyticsCard extends StatelessWidget {
-  const _AnalyticsCard({required this.data});
+  const _AnalyticsCard({required this.data, required this.fillAvailableHeight});
 
   final SubTenantDashboardData data;
+  final bool fillAvailableHeight;
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = Responsive.isDesktop(context);
     final values = [
       data.totalSpots,
       data.totalPackages,
@@ -1196,14 +1238,14 @@ class _AnalyticsCard extends StatelessWidget {
       child: Column(
         // max on desktop: Expanded(chart) fills the bounded card height.
         // min on mobile: card wraps the fixed-height SizedBox.
-        mainAxisSize: isDesktop ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisSize: fillAvailableHeight ? MainAxisSize.max : MainAxisSize.min,
         children: [
           const _CompactSectionTitle(
             title: 'Operations Snapshot',
             subtitle: 'City workspace volume',
           ),
           const SizedBox(height: 8),
-          if (isDesktop)
+          if (fillAvailableHeight)
             Expanded(child: chart)
           else
             SizedBox(height: 120, child: chart),

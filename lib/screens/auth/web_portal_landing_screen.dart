@@ -41,7 +41,6 @@ class WebPortalLandingScreen extends StatelessWidget {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          final height = constraints.maxHeight;
 
           final isDesktop = width >= 1050;
           final isTablet = width >= 700 && width < 1050;
@@ -51,7 +50,6 @@ class WebPortalLandingScreen extends StatelessWidget {
             isDesktop: isDesktop,
             isTablet: isTablet,
             isMobile: isMobile,
-            viewportHeight: height,
             onLogin: () => _openLogin(context),
             onApply: () => _openTourismOfficeSignup(context),
           );
@@ -62,12 +60,12 @@ class WebPortalLandingScreen extends StatelessWidget {
                 child: _LandingBackground(),
               ),
               SafeArea(
-                child: isMobile
-                    ? SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        child: page,
-                      )
-                    : page,
+                child: SingleChildScrollView(
+                  physics: isMobile
+                      ? const BouncingScrollPhysics()
+                      : const ClampingScrollPhysics(),
+                  child: page,
+                ),
               ),
             ],
           );
@@ -86,7 +84,6 @@ class _LandingPageContent extends StatelessWidget {
     required this.isDesktop,
     required this.isTablet,
     required this.isMobile,
-    required this.viewportHeight,
     required this.onLogin,
     required this.onApply,
   });
@@ -94,7 +91,6 @@ class _LandingPageContent extends StatelessWidget {
   final bool isDesktop;
   final bool isTablet;
   final bool isMobile;
-  final double viewportHeight;
   final VoidCallback onLogin;
   final VoidCallback onApply;
 
@@ -119,7 +115,7 @@ class _LandingPageContent extends StatelessWidget {
             vertical: verticalPadding,
           ),
           child: Column(
-            mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             children: [
               _TopNavigation(
                 isMobile: isMobile,
@@ -132,10 +128,8 @@ class _LandingPageContent extends StatelessWidget {
               ),
 
               if (isDesktop)
-                Expanded(
-                  child: _DesktopHero(
-                    onApply: onApply,
-                  ),
+                _DesktopHero(
+                  onApply: onApply,
                 )
               else
                 _ResponsiveHero(
@@ -202,9 +196,9 @@ class _TopNavigation extends StatelessWidget {
 
     return Row(
       children: [
-        const _Brand(),
+        const Expanded(child: _Brand()),
 
-        const Spacer(),
+        const SizedBox(width: 12),
 
         _ApplyButton(
           onPressed: onApply,
@@ -240,7 +234,7 @@ class _Brand extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF10213F).withOpacity(0.05),
+                color: const Color(0xFF10213F).withValues(alpha: 0.05),
                 blurRadius: 18,
                 offset: const Offset(0, 7),
               ),
@@ -249,7 +243,7 @@ class _Brand extends StatelessWidget {
           child: Image.network(
             WebPortalLandingScreen.logoUrl,
             fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) {
+            errorBuilder: (_, _, _) {
               return const Icon(
                 Icons.electric_rickshaw_rounded,
                 color: WebPortalLandingScreen.primaryBlue,
@@ -260,29 +254,35 @@ class _Brand extends StatelessWidget {
 
         const SizedBox(width: 11),
 
-        const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'TourisTrike',
-              style: TextStyle(
-                color: WebPortalLandingScreen.ink,
-                fontSize: 18,
-                height: 1,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.4,
+        const Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'TourisTrike',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: WebPortalLandingScreen.ink,
+                  fontSize: 18,
+                  height: 1,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                ),
               ),
-            ),
-            SizedBox(height: 5),
-            Text(
-              'Tourism Administration Portal',
-              style: TextStyle(
-                color: WebPortalLandingScreen.muted,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
+              SizedBox(height: 5),
+              Text(
+                'Tourism Administration Portal',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: WebPortalLandingScreen.muted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -347,7 +347,7 @@ class _ApplyButton extends StatelessWidget {
       ),
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFF087B67),
-        backgroundColor: Colors.white.withOpacity(0.78),
+        backgroundColor: Colors.white.withValues(alpha: 0.78),
         side: const BorderSide(
           color: Color(0xFFA7E4D3),
         ),
@@ -525,7 +525,7 @@ class _AdministrationBadge extends StatelessWidget {
         vertical: 7,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: const Color(0xFFDCE7F4),
@@ -575,14 +575,14 @@ class _AccessCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(17),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.78),
+          color: Colors.white.withValues(alpha: 0.78),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: const Color(0xFFDDE8F5),
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF173B72).withOpacity(0.045),
+              color: const Color(0xFF173B72).withValues(alpha: 0.045),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -726,14 +726,14 @@ class _SystemFlowCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9),
+          color: Colors.white.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(26),
           border: Border.all(
             color: Colors.white,
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF153C72).withOpacity(0.09),
+              color: const Color(0xFF153C72).withValues(alpha: 0.09),
               blurRadius: 32,
               offset: const Offset(0, 16),
             ),
@@ -802,7 +802,7 @@ class _SystemFlowHeader extends StatelessWidget {
           child: Image.network(
             WebPortalLandingScreen.logoUrl,
             fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) {
+            errorBuilder: (_, _, _) {
               return const Icon(
                 Icons.hub_rounded,
                 color: WebPortalLandingScreen.primaryBlue,
@@ -953,7 +953,7 @@ class _FlowHeroIcon extends StatelessWidget {
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
+        color: Colors.white.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(13),
       ),
       child: const Icon(
@@ -1088,7 +1088,7 @@ class _WorkflowStep extends StatelessWidget {
             number,
             style: TextStyle(
               color:
-                  WebPortalLandingScreen.primaryBlue.withOpacity(0.55),
+                  WebPortalLandingScreen.primaryBlue.withValues(alpha: 0.55),
               fontSize: 10,
               fontWeight: FontWeight.w900,
             ),
@@ -1245,14 +1245,14 @@ class _BottomTrustBar extends StatelessWidget {
 
   BoxDecoration _bottomBarDecoration() {
     return BoxDecoration(
-      color: Colors.white.withOpacity(0.82),
+      color: Colors.white.withValues(alpha: 0.82),
       borderRadius: BorderRadius.circular(18),
       border: Border.all(
         color: const Color(0xFFDDE8F5),
       ),
       boxShadow: [
         BoxShadow(
-          color: const Color(0xFF153C72).withOpacity(0.035),
+          color: const Color(0xFF153C72).withValues(alpha: 0.035),
           blurRadius: 18,
           offset: const Offset(0, 7),
         ),
@@ -1409,10 +1409,10 @@ class _GlowCircle extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: color.withOpacity(opacity),
+          color: color.withValues(alpha: opacity),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(opacity * 0.45),
+              color: color.withValues(alpha: opacity * 0.45),
               blurRadius: 100,
               spreadRadius: 20,
             ),
@@ -1456,7 +1456,7 @@ class _LandingBackgroundPainter extends CustomPainter {
     );
 
     final gridPaint = Paint()
-      ..color = const Color(0xFFBFD4EA).withOpacity(0.055)
+      ..color = const Color(0xFFBFD4EA).withValues(alpha: 0.055)
       ..strokeWidth = 1;
 
     const spacing = 64.0;
@@ -1479,7 +1479,7 @@ class _LandingBackgroundPainter extends CustomPainter {
 
     final routePaint = Paint()
       ..color =
-          WebPortalLandingScreen.primaryBlue.withOpacity(0.035)
+          WebPortalLandingScreen.primaryBlue.withValues(alpha: 0.035)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.4;
 
@@ -1515,7 +1515,7 @@ class _LandingBackgroundPainter extends CustomPainter {
 
     final dotPaint = Paint()
       ..color =
-          WebPortalLandingScreen.green.withOpacity(0.075);
+          WebPortalLandingScreen.green.withValues(alpha: 0.075);
 
     final dots = [
       Offset(

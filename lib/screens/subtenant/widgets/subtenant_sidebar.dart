@@ -17,8 +17,8 @@ class SubTenantSidebar extends StatefulWidget {
     required this.currentIndex,
     required this.onDestinationSelected,
     required this.onLogout,
-  })  : compact = false,
-        asDrawer = true;
+  }) : compact = false,
+       asDrawer = true;
 
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
@@ -39,11 +39,7 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       icon: Icons.dashboard_rounded,
       index: 0,
     ),
-    _SidebarDestination(
-      label: 'Spots',
-      icon: Icons.place_rounded,
-      index: 1,
-    ),
+    _SidebarDestination(label: 'Spots', icon: Icons.place_rounded, index: 1),
     _SidebarDestination(
       label: 'Packages',
       icon: Icons.inventory_2_rounded,
@@ -54,11 +50,7 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       icon: Icons.receipt_long_rounded,
       index: 3,
     ),
-    _SidebarDestination(
-      label: 'Drivers',
-      icon: Icons.badge_rounded,
-      index: 4,
-    ),
+    _SidebarDestination(label: 'Drivers', icon: Icons.badge_rounded, index: 4),
     _SidebarDestination(
       label: 'Reports',
       icon: Icons.bar_chart_rounded,
@@ -101,16 +93,14 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
     final width = widget.asDrawer
         ? 292.0
         : expanded
-            ? 258.0
-            : 86.0;
+        ? 258.0
+        : 86.0;
 
     final sidebar = AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       width: width,
-      margin: widget.asDrawer
-          ? EdgeInsets.zero
-          : const EdgeInsets.all(12),
+      margin: widget.asDrawer ? EdgeInsets.zero : const EdgeInsets.all(12),
       padding: EdgeInsets.fromLTRB(
         expanded ? 10 : 8,
         14,
@@ -121,77 +111,61 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF536DFE),
-            Color(0xFF2A86FF),
-            Color(0xFF1E63E9),
-          ],
+          colors: [Color(0xFF536DFE), Color(0xFF2A86FF), Color(0xFF1E63E9)],
         ),
-        borderRadius: BorderRadius.circular(
-          widget.asDrawer ? 0 : 28,
-        ),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.24),
-        ),
+        borderRadius: BorderRadius.circular(widget.asDrawer ? 0 : 28),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
         boxShadow: widget.asDrawer
             ? null
             : [
                 BoxShadow(
-                  color: SubTenantColors.blue.withValues(
-                    alpha: 0.30,
-                  ),
+                  color: SubTenantColors.blue.withValues(alpha: 0.30),
                   blurRadius: 30,
                   offset: const Offset(0, 18),
                 ),
               ],
       ),
-      child: Column(
-        children: [
-          _SidebarBrand(
-            expanded: expanded,
-            showToggle: _canToggle,
-            onToggle: _toggleSidebar,
-          ),
-
-          SizedBox(
-            height: expanded ? 22 : 14,
-          ),
-
-          Expanded(
-            child: ListView.separated(
-              padding: EdgeInsets.zero,
-              physics: const ClampingScrollPhysics(),
-              itemCount: _destinations.length,
-              separatorBuilder: (_, __) {
-                return const SizedBox(height: 9);
-              },
-              itemBuilder: (context, index) {
-                final item = _destinations[index];
-
-                return SidebarNavItem(
-                  label: item.label,
-                  icon: item.icon,
-                  expanded: expanded,
-                  active: widget.currentIndex == item.index,
-                  onTap: () {
-                    widget.onDestinationSelected(item.index);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final contentExpanded = expanded && constraints.maxWidth >= 180;
+          return Column(
+            children: [
+              _SidebarBrand(
+                expanded: contentExpanded,
+                showToggle: _canToggle,
+                onToggle: _toggleSidebar,
+              ),
+              SizedBox(height: contentExpanded ? 22 : 14),
+              Expanded(
+                child: ListView.separated(
+                  padding: EdgeInsets.zero,
+                  physics: const ClampingScrollPhysics(),
+                  itemCount: _destinations.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 9),
+                  itemBuilder: (context, index) {
+                    final item = _destinations[index];
+                    return SidebarNavItem(
+                      label: item.label,
+                      icon: item.icon,
+                      expanded: contentExpanded,
+                      active: widget.currentIndex == item.index,
+                      onTap: () => widget.onDestinationSelected(item.index),
+                    );
                   },
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          SidebarNavItem(
-            label: 'Logout',
-            icon: Icons.logout_rounded,
-            expanded: expanded,
-            active: false,
-            danger: true,
-            onTap: widget.onLogout,
-          ),
-        ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SidebarNavItem(
+                label: 'Logout',
+                icon: Icons.logout_rounded,
+                expanded: contentExpanded,
+                active: false,
+                danger: true,
+                onTap: widget.onLogout,
+              ),
+            ],
+          );
+        },
       ),
     );
 
@@ -199,9 +173,7 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       return Drawer(
         elevation: 0,
         backgroundColor: Colors.transparent,
-        child: SafeArea(
-          child: sidebar,
-        ),
+        child: SafeArea(child: sidebar),
       );
     }
 
@@ -240,15 +212,11 @@ class _SidebarNavItemState extends State<SidebarNavItem> {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = widget.danger
-        ? const Color(0xFFFFE4E6)
-        : Colors.white;
+    final foreground = widget.danger ? const Color(0xFFFFE4E6) : Colors.white;
 
-    final activeColor =
-        Colors.white.withValues(alpha: 0.18);
+    final activeColor = Colors.white.withValues(alpha: 0.18);
 
-    final hoverColor =
-        Colors.white.withValues(alpha: 0.10);
+    final hoverColor = Colors.white.withValues(alpha: 0.10);
 
     final item = MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -279,16 +247,10 @@ class _SidebarNavItemState extends State<SidebarNavItem> {
             decoration: BoxDecoration(
               color: widget.active
                   ? activeColor
-                  : (_hovered
-                      ? hoverColor
-                      : Colors.transparent),
+                  : (_hovered ? hoverColor : Colors.transparent),
               borderRadius: BorderRadius.circular(18),
               border: widget.active
-                  ? Border.all(
-                      color: Colors.white.withValues(
-                        alpha: 0.26,
-                      ),
-                    )
+                  ? Border.all(color: Colors.white.withValues(alpha: 0.26))
                   : null,
             ),
             child: widget.expanded
@@ -334,10 +296,7 @@ class _SidebarNavItemState extends State<SidebarNavItem> {
       return item;
     }
 
-    return Tooltip(
-      message: widget.label,
-      child: item,
-    );
+    return Tooltip(message: widget.label, child: item);
   }
 }
 
@@ -370,11 +329,7 @@ class _SidebarNavIcon extends StatelessWidget {
             : Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Icon(
-        icon,
-        color: foreground,
-        size: 21,
-      ),
+      child: Icon(icon, color: foreground, size: 21),
     );
   }
 }
@@ -443,9 +398,7 @@ class _SidebarBrand extends StatelessWidget {
 
           const SizedBox(width: 10),
 
-          const Expanded(
-            child: _SidebarBrandCopy(),
-          ),
+          const Expanded(child: _SidebarBrandCopy()),
 
           if (showToggle) ...[
             const SizedBox(width: 2),
@@ -494,14 +447,12 @@ class _SidebarLogo extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.20),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
       ),
       child: Image.network(
         'https://mvtqhsrdgtwdeootgjci.supabase.co/storage/v1/object/public/public-assets/logo1.png',
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) {
+        errorBuilder: (_, _, _) {
           return const Icon(
             Icons.admin_panel_settings_rounded,
             color: Colors.white,

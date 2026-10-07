@@ -10,7 +10,9 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.da
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
 class SubTenantBookingsScreen extends StatefulWidget {
-  const SubTenantBookingsScreen({super.key});
+  const SubTenantBookingsScreen({super.key, this.service});
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantBookingsScreen> createState() =>
@@ -18,7 +20,7 @@ class SubTenantBookingsScreen extends StatefulWidget {
 }
 
 class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
-  final SubTenantService _service = SubTenantService();
+  late final SubTenantService _service;
   final TextEditingController _searchCtrl = TextEditingController();
   final _workspaceSearch = SubTenantWorkspaceSearchController.instance;
 
@@ -28,6 +30,7 @@ class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? SubTenantService();
     _future = _load();
     _searchCtrl.addListener(() => setState(() {}));
     _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
@@ -165,10 +168,7 @@ class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
 }
 
 class _BookingsGrid extends StatelessWidget {
-  const _BookingsGrid({
-    required this.bookings,
-    required this.onOpenDetails,
-  });
+  const _BookingsGrid({required this.bookings, required this.onOpenDetails});
 
   final List<SubTenantBooking> bookings;
   final ValueChanged<SubTenantBooking> onOpenDetails;
@@ -177,12 +177,16 @@ class _BookingsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final mobile = Responsive.isMobile(context);
-        final isDesktop = Responsive.isDesktop(context);
-        final cols = mobile ? 1 : (isDesktop ? 3 : 2);
         const spacing = 14.0;
-        final cardWidth =
-            (constraints.maxWidth - spacing * (cols - 1)) / cols;
+        final cols = Responsive.isMobile(context)
+            ? 1
+            : Responsive.columnsForWidth(
+                constraints.maxWidth,
+                minItemWidth: 270,
+                spacing: spacing,
+                maxColumns: Responsive.isLargeDesktop(context) ? 3 : 2,
+              );
+        final cardWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
 
         return Wrap(
           spacing: spacing,
@@ -228,55 +232,55 @@ class _BookingsToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
-
     return DashboardSectionCard(
-      child: desktop
-          ? Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final search = SubTenantSearchBar(
+            controller: controller,
+            hintText: constraints.maxWidth >= 620
+                ? 'Search package, tourist, payment, date...'
+                : 'Search bookings...',
+            onChanged: (_) {},
+          );
+          final status = _StatusDropdown(
+            value: selectedStatus,
+            onChanged: onStatusChanged,
+          );
+          final count = _ResultPill(label: _countLabel);
+
+          if (constraints.maxWidth >= 820) {
+            return Row(
               children: [
-                Expanded(
-                  flex: 5,
-                  child: SubTenantSearchBar(
-                    controller: controller,
-                    hintText: 'Search package, tourist, payment, date...',
-                    onChanged: (_) {},
-                  ),
-                ),
+                Expanded(flex: 5, child: search),
                 const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: _StatusDropdown(
-                    value: selectedStatus,
-                    onChanged: onStatusChanged,
-                  ),
-                ),
+                Expanded(flex: 2, child: status),
                 const SizedBox(width: 12),
-                _ResultPill(label: _countLabel),
+                count,
               ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SubTenantSearchBar(
-                  controller: controller,
-                  hintText: 'Search bookings...',
-                  onChanged: (_) {},
-                ),
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              search,
+              const SizedBox(height: 10),
+              if (constraints.maxWidth < 430) ...[
+                status,
                 const SizedBox(height: 10),
+                Align(alignment: Alignment.centerLeft, child: count),
+              ] else
                 Row(
                   children: [
-                    Expanded(
-                      child: _StatusDropdown(
-                        value: selectedStatus,
-                        onChanged: onStatusChanged,
-                      ),
-                    ),
+                    Expanded(child: status),
                     const SizedBox(width: 10),
-                    _ResultPill(label: _countLabel),
+                    count,
                   ],
                 ),
-              ],
-            ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -419,8 +423,11 @@ class _BookingCardState extends State<_BookingCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        transform: Matrix4.identity()
-          ..translate(0.0, _hovered ? -3.0 : 0.0),
+        transform: Matrix4.translationValues(
+          0.0,
+          _hovered ? -3.0 : 0.0,
+          0.0,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
@@ -462,7 +469,9 @@ class _BookingCardState extends State<_BookingCard> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: SubTenantColors.blue.withValues(alpha: 0.22),
+                              color: SubTenantColors.blue.withValues(
+                                alpha: 0.22,
+                              ),
                               blurRadius: 10,
                               offset: const Offset(0, 5),
                             ),

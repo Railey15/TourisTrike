@@ -18,9 +18,7 @@ const _pageBackground = Color(0xFFF4F7FB);
 
 const _softBlue = Color(0xFFF1F6FF);
 const _softGreen = Color(0xFFF0FDF4);
-const _softAmber = Color(0xFFFFFBEB);
 const _softRed = Color(0xFFFEF2F2);
-const _softPurple = Color(0xFFF7F3FF);
 
 const _green = Color(0xFF16A34A);
 const _amber = Color(0xFFF59E0B);
@@ -34,7 +32,10 @@ const _purple = Color(0xFF7C3AED);
 class SubTenantPackagesScreen extends StatefulWidget {
   const SubTenantPackagesScreen({
     super.key,
+    this.service,
   });
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantPackagesScreen> createState() =>
@@ -42,7 +43,7 @@ class SubTenantPackagesScreen extends StatefulWidget {
 }
 
 class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
-  final SubTenantService _service = SubTenantService();
+  late final SubTenantService _service;
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -60,6 +61,8 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   @override
   void initState() {
     super.initState();
+
+    _service = widget.service ?? SubTenantService();
 
     _future = _load();
 
@@ -363,37 +366,10 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
           'Create, publish, hide, and maintain city tour packages.',
       actions: [
         if (!mobile)
-          FilledButton.icon(
-            onPressed: () {
-              _openForm();
-            },
-            icon: const Icon(
-              Icons.add_box_rounded,
-              size: 18,
-            ),
-            label:
-                const Text(
-              'Create Package',
-            ),
-            style:
-                FilledButton.styleFrom(
-              backgroundColor:
-                  SubTenantColors.blue,
-              foregroundColor:
-                  Colors.white,
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 14,
-              ),
-              shape:
-                  RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(
-                  13,
-                ),
-              ),
-            ),
+          SubTenantHeaderAction(
+            onPressed: () => _openForm(),
+            icon: Icons.add_box_rounded,
+            label: 'Create Package',
           ),
       ],
       floatingActionButton:
@@ -951,12 +927,13 @@ class _PackageGrid extends StatelessWidget {
         final width =
             constraints.maxWidth;
 
-        final columns =
-            width >= 1150
-                ? 3
-                : width >= 720
-                    ? 2
-                    : 1;
+        final columns = Responsive.isMobile(context)
+            ? 1
+            : Responsive.columnsForWidth(
+                width,
+                minItemWidth: 270,
+                maxColumns: Responsive.isLargeDesktop(context) ? 3 : 2,
+              );
 
         final cardHeight =
             columns == 1
@@ -1506,8 +1483,8 @@ class _PackageThumb extends StatelessWidget {
               errorBuilder:
                   (
                 _,
-                __,
-                ___,
+                _,
+                _,
               ) {
                 return const _PackageImageFallback();
               },

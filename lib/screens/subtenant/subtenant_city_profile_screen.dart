@@ -12,7 +12,9 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart'
 import 'package:url_launcher/url_launcher.dart';
 
 class SubTenantCityProfileScreen extends StatefulWidget {
-  const SubTenantCityProfileScreen({super.key});
+  const SubTenantCityProfileScreen({super.key, this.service});
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantCityProfileScreen> createState() =>
@@ -21,7 +23,7 @@ class SubTenantCityProfileScreen extends StatefulWidget {
 
 class _SubTenantCityProfileScreenState
     extends State<SubTenantCityProfileScreen> {
-  final SubTenantService _service = SubTenantService();
+  late final SubTenantService _service;
   final MunicipalityCoverService _coverService = MunicipalityCoverService();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
@@ -73,6 +75,7 @@ class _SubTenantCityProfileScreenState
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? SubTenantService();
     _future = _load();
 
     for (final controller in [
@@ -586,12 +589,15 @@ class _SubTenantCityProfileScreenState
                           child: LayoutBuilder(
                             builder: (context, constraints) {
                               final h = constraints.maxHeight;
+                              final navWidth = (constraints.maxWidth * .26)
+                                  .clamp(220.0, 270.0)
+                                  .toDouble();
 
                               return Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   SizedBox(
-                                    width: 270,
+                                    width: navWidth,
                                     height: h,
                                     child: _SettingsNav(
                                       sections: _sections,

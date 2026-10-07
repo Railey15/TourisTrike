@@ -9,14 +9,16 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.da
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
 class SubTenantDriversScreen extends StatefulWidget {
-  const SubTenantDriversScreen({super.key});
+  const SubTenantDriversScreen({super.key, this.service});
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantDriversScreen> createState() => _SubTenantDriversScreenState();
 }
 
 class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
-  final SubTenantService _service = SubTenantService();
+  late final SubTenantService _service;
   final TextEditingController _searchCtrl = TextEditingController();
   final _workspaceSearch = SubTenantWorkspaceSearchController.instance;
 
@@ -26,6 +28,7 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? SubTenantService();
     _future = _load();
     _searchCtrl.addListener(() => setState(() {}));
     _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
@@ -71,28 +74,30 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
       _workspaceSearch.queryFor(4),
     ].where((value) => value.isNotEmpty).join(' ').toLowerCase();
 
-    return drivers.where((driver) {
-      final searchable = [
-        driver.fullName,
-        driver.mobile,
-        driver.plateNumber,
-        driver.todaName,
-        driver.status,
-        driver.documentCompleteness,
-        driver.isOnline ? 'online' : 'offline',
-      ].join(' ').toLowerCase();
+    return drivers
+        .where((driver) {
+          final searchable = [
+            driver.fullName,
+            driver.mobile,
+            driver.plateNumber,
+            driver.todaName,
+            driver.status,
+            driver.documentCompleteness,
+            driver.isOnline ? 'online' : 'offline',
+          ].join(' ').toLowerCase();
 
-      final matchesSearch = query.isEmpty || searchable.contains(query);
+          final matchesSearch = query.isEmpty || searchable.contains(query);
 
-      final matchesStatus = switch (_status) {
-        'online' => driver.isOnline,
-        'offline' => !driver.isOnline,
-        'all' => true,
-        _ => driver.status == _status,
-      };
+          final matchesStatus = switch (_status) {
+            'online' => driver.isOnline,
+            'offline' => !driver.isOnline,
+            'all' => true,
+            _ => driver.status == _status,
+          };
 
-      return matchesSearch && matchesStatus;
-    }).toList(growable: false);
+          return matchesSearch && matchesStatus;
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -100,7 +105,8 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
     return SubTenantAdminShell(
       currentIndex: 4,
       title: 'Drivers & Guides',
-      subtitle: 'Review local driver profiles, TODA data, documents, and account status.',
+      subtitle:
+          'Review local driver profiles, TODA data, documents, and account status.',
       child: FutureBuilder<_DriverListLoad>(
         future: _future,
         builder: (context, snapshot) {
@@ -136,15 +142,13 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
                   EmptyStateCard(
                     icon: Icons.badge_outlined,
                     title: 'No local drivers found',
-                    message: _searchCtrl.text.trim().isNotEmpty || _status != 'all'
+                    message:
+                        _searchCtrl.text.trim().isNotEmpty || _status != 'all'
                         ? 'No drivers match your current search or filter.'
                         : 'Drivers must have profiles.role = driver and city = ${load.profile.assignedCity}.',
                   )
                 else
-                  _DriversGrid(
-                    drivers: drivers,
-                    onOpenDetails: _openDetails,
-                  ),
+                  _DriversGrid(drivers: drivers, onOpenDetails: _openDetails),
               ],
             ),
           );
@@ -178,64 +182,61 @@ class _DriversToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Responsive.isDesktop(context);
-
     return DashboardSectionCard(
-      child: desktop
-          ? Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final search = SubTenantSearchBar(
+            controller: controller,
+            hintText: constraints.maxWidth >= 620
+                ? 'Search name, mobile, plate, TODA...'
+                : 'Search drivers...',
+            onChanged: (_) {},
+          );
+          final status = _StatusDropdown(
+            value: selectedStatus,
+            onChanged: onStatusChanged,
+          );
+          final count = _ResultPill(label: _countLabel);
+
+          if (constraints.maxWidth >= 820) {
+            return Row(
               children: [
-                Expanded(
-                  flex: 5,
-                  child: SubTenantSearchBar(
-                    controller: controller,
-                    hintText: 'Search name, mobile, plate, TODA...',
-                    onChanged: (_) {},
-                  ),
-                ),
+                Expanded(flex: 5, child: search),
                 const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: _StatusDropdown(
-                    value: selectedStatus,
-                    onChanged: onStatusChanged,
-                  ),
-                ),
+                Expanded(flex: 2, child: status),
                 const SizedBox(width: 12),
-                _ResultPill(label: _countLabel),
+                count,
               ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SubTenantSearchBar(
-                  controller: controller,
-                  hintText: 'Search drivers...',
-                  onChanged: (_) {},
-                ),
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              search,
+              const SizedBox(height: 10),
+              if (constraints.maxWidth < 430) ...[
+                status,
                 const SizedBox(height: 10),
+                Align(alignment: Alignment.centerLeft, child: count),
+              ] else
                 Row(
                   children: [
-                    Expanded(
-                      child: _StatusDropdown(
-                        value: selectedStatus,
-                        onChanged: onStatusChanged,
-                      ),
-                    ),
+                    Expanded(child: status),
                     const SizedBox(width: 10),
-                    _ResultPill(label: _countLabel),
+                    count,
                   ],
                 ),
-              ],
-            ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
 
 class _DriversGrid extends StatelessWidget {
-  const _DriversGrid({
-    required this.drivers,
-    required this.onOpenDetails,
-  });
+  const _DriversGrid({required this.drivers, required this.onOpenDetails});
 
   final List<SubTenantDriver> drivers;
   final ValueChanged<SubTenantDriver> onOpenDetails;
@@ -244,10 +245,15 @@ class _DriversGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final mobile = Responsive.isMobile(context);
-        final isDesktop = Responsive.isDesktop(context);
-        final cols = mobile ? 1 : (isDesktop ? 3 : 2);
         const spacing = 14.0;
+        final cols = Responsive.isMobile(context)
+            ? 1
+            : Responsive.columnsForWidth(
+                constraints.maxWidth,
+                minItemWidth: 270,
+                spacing: spacing,
+                maxColumns: Responsive.isLargeDesktop(context) ? 3 : 2,
+              );
         final cardWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
 
         return Wrap(
@@ -271,10 +277,7 @@ class _DriversGrid extends StatelessWidget {
 }
 
 class _StatusDropdown extends StatelessWidget {
-  const _StatusDropdown({
-    required this.value,
-    required this.onChanged,
-  });
+  const _StatusDropdown({required this.value, required this.onChanged});
 
   final String value;
   final ValueChanged<String> onChanged;
@@ -387,10 +390,7 @@ class _ResultPill extends StatelessWidget {
 }
 
 class _DriverCard extends StatefulWidget {
-  const _DriverCard({
-    required this.driver,
-    required this.onTap,
-  });
+  const _DriverCard({required this.driver, required this.onTap});
 
   final SubTenantDriver driver;
   final VoidCallback onTap;
@@ -418,8 +418,11 @@ class _DriverCardState extends State<_DriverCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        transform: Matrix4.identity()
-          ..translate(0.0, _hovered ? -3.0 : 0.0),
+        transform: Matrix4.translationValues(
+          0.0,
+          _hovered ? -3.0 : 0.0,
+          0.0,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
@@ -469,10 +472,11 @@ class _DriverCardState extends State<_DriverCard> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: (driver.isOnline
-                                      ? const Color(0xFF16A34A)
-                                      : SubTenantColors.blue)
-                                  .withValues(alpha: 0.22),
+                              color:
+                                  (driver.isOnline
+                                          ? const Color(0xFF16A34A)
+                                          : SubTenantColors.blue)
+                                      .withValues(alpha: 0.22),
                               blurRadius: 10,
                               offset: const Offset(0, 5),
                             ),
@@ -527,7 +531,10 @@ class _DriverCardState extends State<_DriverCard> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      SubTenantStatusPill(status: onlineStatus, icon: Icons.circle),
+                      SubTenantStatusPill(
+                        status: onlineStatus,
+                        icon: Icons.circle,
+                      ),
                     ],
                   ),
 
@@ -576,8 +583,9 @@ class _DriverCardState extends State<_DriverCard> {
                         backgroundColor: _hovered
                             ? SubTenantColors.blue
                             : SubTenantColors.blue.withValues(alpha: 0.09),
-                        foregroundColor:
-                            _hovered ? Colors.white : SubTenantColors.blue,
+                        foregroundColor: _hovered
+                            ? Colors.white
+                            : SubTenantColors.blue,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -667,10 +675,7 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _DriverListLoad {
-  const _DriverListLoad({
-    required this.profile,
-    required this.drivers,
-  });
+  const _DriverListLoad({required this.profile, required this.drivers});
 
   final SubTenantProfile profile;
   final List<SubTenantDriver> drivers;

@@ -18,23 +18,21 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart'
 const _pageBackground = Color(0xFFF4F7FB);
 
 const _softBlue = Color(0xFFF2F7FF);
-const _softGreen = Color(0xFFF0FDF4);
-const _softAmber = Color(0xFFFFFBEB);
-const _softRed = Color(0xFFFEF2F2);
 
-const _green = Color(0xFF16A34A);
 const _amber = Color(0xFFF59E0B);
 const _red = Color(0xFFDC2626);
 
 class SubTenantSpotsScreen extends StatefulWidget {
-  const SubTenantSpotsScreen({super.key});
+  const SubTenantSpotsScreen({super.key, this.service});
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantSpotsScreen> createState() => _SubTenantSpotsScreenState();
 }
 
 class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
-  final SubTenantService _service = SubTenantService();
+  late final SubTenantService _service;
   final CitySpotSuggestionService _suggestionService =
       CitySpotSuggestionService();
 
@@ -54,6 +52,7 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? SubTenantService();
     _future = _load();
     _searchCtrl.addListener(_onSearchChanged);
     _workspaceSearch.addListener(_handleWorkspaceSearchChanged);
@@ -376,12 +375,6 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
     }).toList(growable: false);
   }
 
-  int _countByStatus(List<SubTenantSpot> spots, String status) {
-    return spots
-        .where((spot) => spot.status.trim().toLowerCase() == status)
-        .length;
-  }
-
   String _statusLabel(String value) {
     switch (value) {
       case 'active':
@@ -405,10 +398,10 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
       subtitle: 'Manage city-scoped destinations and spot visibility.',
       actions: [
         if (!mobile)
-          FilledButton.icon(
+          SubTenantHeaderAction(
             onPressed: () => _openForm(),
-            icon: const Icon(Icons.add_location_alt_rounded, size: 18),
-            label: const Text('Add Spot'),
+            icon: Icons.add_location_alt_rounded,
+            label: 'Add Spot',
           ),
       ],
       floatingActionButton: mobile
@@ -436,11 +429,6 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
 
           final load = snapshot.data!;
           final filteredSpots = _filtered(load.spots);
-
-          final totalCount = load.spots.length;
-          final activeCount = _countByStatus(load.spots, 'active');
-          final maintenanceCount = _countByStatus(load.spots, 'maintenance');
-          final archivedCount = _countByStatus(load.spots, 'archived');
 
           if (_tabIndex == 1) {
             _ensureSuggestions(load.profile, load.spots);
@@ -510,88 +498,6 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   }
 }
 
-
-class _SummaryMetricData {
-  const _SummaryMetricData({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    required this.background,
-  });
-
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final Color background;
-}
-
-class _SummaryMetricCard extends StatelessWidget {
-  const _SummaryMetricCard({
-    required this.data,
-  });
-
-  final _SummaryMetricData data;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 86,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: data.background,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: data.color.withOpacity(.10)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              data.icon,
-              size: 18,
-              color: data.color,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  data.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: SubTenantColors.muted,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  data.value,
-                  style: TextStyle(
-                    color: data.color,
-                    fontSize: 21,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _SpotModeSwitcher extends StatelessWidget {
   const _SpotModeSwitcher({
@@ -940,11 +846,13 @@ class _SpotGrid extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
 
-        final columns = width >= 1180
-            ? 3
-            : width >= 740
-                ? 2
-                : 1;
+        final columns = Responsive.isMobile(context)
+            ? 1
+            : Responsive.columnsForWidth(
+                width,
+                minItemWidth: 270,
+                maxColumns: Responsive.isLargeDesktop(context) ? 3 : 2,
+              );
 
         final cardHeight = columns == 1
             ? 318.0
@@ -1007,7 +915,7 @@ class _SpotImageCard extends StatelessWidget {
             border: Border.all(color: SubTenantColors.line),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(.03),
+                color: Colors.black.withValues(alpha: .03),
                 blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
@@ -1030,9 +938,9 @@ class _SpotImageCard extends StatelessWidget {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Colors.black.withOpacity(.06),
+                              Colors.black.withValues(alpha: .06),
                               Colors.transparent,
-                              Colors.black.withOpacity(.28),
+                              Colors.black.withValues(alpha: .28),
                             ],
                           ),
                         ),
@@ -1175,7 +1083,7 @@ class _SpotImage extends StatelessWidget {
     return Image.network(
       url,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => const _SpotImageFallback(),
+      errorBuilder: (_, _, _) => const _SpotImageFallback(),
       loadingBuilder: (context, child, progress) {
         if (progress == null) return child;
 
@@ -1208,11 +1116,11 @@ class _SpotImageFallback extends StatelessWidget {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.95),
+              color: Colors.white.withValues(alpha: .95),
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(.04),
+                  color: Colors.black.withValues(alpha: .04),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -1251,7 +1159,7 @@ class _SpotRatingBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(.58),
+        color: Colors.black.withValues(alpha: .58),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -1326,7 +1234,7 @@ class _SpotCardMenu extends StatelessWidget {
         width: 32,
         height: 32,
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(.52),
+          color: Colors.black.withValues(alpha: .52),
           shape: BoxShape.circle,
         ),
         child: const Icon(
@@ -1397,7 +1305,7 @@ class _GoogleSuggestionsSection extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: SubTenantColors.blue.withOpacity(.08),
+                color: SubTenantColors.blue.withValues(alpha: .08),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
@@ -1516,11 +1424,14 @@ class _SuggestionGrid extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
 
-        final columns = width >= 1050
-            ? 3
-            : width >= 640
-                ? 2
-                : 1;
+        final columns = Responsive.isMobile(context)
+            ? 1
+            : Responsive.columnsForWidth(
+                width,
+                minItemWidth: 270,
+                spacing: 12,
+                maxColumns: Responsive.isLargeDesktop(context) ? 3 : 2,
+              );
 
         final cardHeight = columns == 1 ? 430.0 : 400.0;
 
@@ -1573,7 +1484,7 @@ class _GoogleSuggestionCard extends StatelessWidget {
         border: Border.all(color: SubTenantColors.line),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.02),
+            color: Colors.black.withValues(alpha: .02),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -1714,7 +1625,7 @@ class _SuggestionImage extends StatelessWidget {
     return Image.network(
       url,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) {
+      errorBuilder: (_, _, _) {
         return Container(
           color: _softBlue,
           alignment: Alignment.center,
@@ -1745,7 +1656,7 @@ class _SuggestionChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
-        color: accent.withOpacity(.08),
+        color: accent.withValues(alpha: .08),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -1890,7 +1801,7 @@ class _SuggestionMessageCard extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: SubTenantColors.blue.withOpacity(.08),
+                  color: SubTenantColors.blue.withValues(alpha: .08),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(

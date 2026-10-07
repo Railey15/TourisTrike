@@ -304,7 +304,7 @@ class SubTenantAdminShell extends StatelessWidget {
       );
     }
 
-    final compactSidebar = Responsive.isTablet(context);
+    final compactSidebar = !Responsive.isLargeDesktop(context);
 
     return _SubTenantScopeActivation(
       scope: currentIndex,
@@ -506,26 +506,71 @@ class _MobileShell extends StatelessWidget {
           ],
         ),
         actions: [
-          ResponsiveAppBarActions(
-            children: [
-              const _NotificationButton(),
-              ...actions,
-              const SizedBox(width: 6),
-            ],
+          const _NotificationButton(),
+          const SizedBox(width: 8),
+          const _AdminBadge(compact: true),
+          const SizedBox(width: 12),
+        ],
+      ),
+      body: Column(
+        children: [
+          _MobileHeaderTools(scope: currentIndex, actions: actions),
+          Expanded(
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.white, Color(0xFFF6FAFF), Color(0xFFEFFAF5)],
+                ),
+              ),
+              child: child,
+            ),
           ),
         ],
       ),
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.white, Color(0xFFF6FAFF), Color(0xFFEFFAF5)],
-          ),
-        ),
-        child: child,
-      ),
       floatingActionButton: floatingActionButton,
+    );
+  }
+}
+
+class _MobileHeaderTools extends StatelessWidget {
+  const _MobileHeaderTools({required this.scope, required this.actions});
+
+  final int scope;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: SubTenantColors.line)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final search = _HeaderSearch(scope: scope, fillWidth: true);
+          if (actions.isEmpty) return search;
+
+          final actionCluster = _HeaderActionCluster(actions: actions);
+          if (constraints.maxWidth >= 520) {
+            return Row(
+              children: [
+                Expanded(child: search),
+                const SizedBox(width: 10),
+                Flexible(child: actionCluster),
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [search, const SizedBox(height: 8), actionCluster],
+          );
+        },
+      ),
     );
   }
 }
@@ -547,13 +592,19 @@ class _DesktopHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // These thresholds describe the header's actual available width after
-        // the sidebar, rather than the full browser viewport.
-        final showSearch = constraints.maxWidth >= 760;
-        final showBadge = constraints.maxWidth >= 980;
+        final twoRows = constraints.maxWidth < 840;
+        final showFullBadge = constraints.maxWidth >= 1060;
+        final titleBar = PageTitleBar(
+          title: title,
+          subtitle: subtitle,
+          actions: const [],
+        );
+        final actionCluster = actions.isEmpty
+            ? null
+            : _HeaderActionCluster(actions: actions);
 
         return Container(
-          height: 92,
+          height: twoRows ? 146 : 92,
           padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.88),
@@ -567,57 +618,96 @@ class _DesktopHeader extends StatelessWidget {
               ),
             ],
           ),
-          child: Row(
-            children: [
-              const SizedBox(width: 14),
-              Expanded(
-                child: PageTitleBar(
-                  title: title,
-                  subtitle: subtitle,
-                  actions: const [],
-                ),
-              ),
-              const SizedBox(width: 14),
-              if (showSearch) ...[
-                _HeaderSearch(scope: currentIndex),
-                const SizedBox(width: 12),
-              ],
-              const _NotificationButton(),
-              const SizedBox(width: 10),
-              if (actions.isNotEmpty) ...[
-                Flexible(
-                  child: Container(
-                    height: 46,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FBFF),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: SubTenantColors.line),
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
+          child: twoRows
+              ? Column(
+                  children: [
+                    Expanded(
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: actions,
+                        children: [
+                          Expanded(child: titleBar),
+                          const SizedBox(width: 12),
+                          const _NotificationButton(),
+                          const SizedBox(width: 10),
+                          const _AdminBadge(compact: true),
+                        ],
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _HeaderSearch(
+                            scope: currentIndex,
+                            fillWidth: true,
+                          ),
+                        ),
+                        if (actionCluster != null) ...[
+                          const SizedBox(width: 10),
+                          Flexible(child: actionCluster),
+                        ],
+                      ],
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const SizedBox(width: 14),
+                    Expanded(child: titleBar),
+                    const SizedBox(width: 14),
+                    SizedBox(
+                      width: (constraints.maxWidth * .22)
+                          .clamp(230.0, 340.0)
+                          .toDouble(),
+                      child: _HeaderSearch(
+                        scope: currentIndex,
+                        fillWidth: true,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    if (actionCluster != null) ...[
+                      Flexible(child: actionCluster),
+                      const SizedBox(width: 10),
+                    ],
+                    const _NotificationButton(),
+                    const SizedBox(width: 10),
+                    _AdminBadge(compact: !showFullBadge),
+                  ],
                 ),
-                const SizedBox(width: 10),
-              ],
-              if (showBadge) const _AdminBadge(),
-            ],
-          ),
         );
       },
     );
   }
 }
 
+class _HeaderActionCluster extends StatelessWidget {
+  const _HeaderActionCluster({required this.actions});
+
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+      ),
+    );
+  }
+}
+
 class _HeaderSearch extends StatefulWidget {
-  const _HeaderSearch({required this.scope});
+  const _HeaderSearch({required this.scope, this.fillWidth = false});
 
   final int scope;
+  final bool fillWidth;
 
   @override
   State<_HeaderSearch> createState() => _HeaderSearchState();
@@ -653,72 +743,75 @@ class _HeaderSearchState extends State<_HeaderSearch> {
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 340, minWidth: 230),
-      child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FBFF),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: SubTenantColors.line),
-        ),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.search_rounded,
-              color: SubTenantColors.lightMuted,
-              size: 21,
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                onChanged: (value) {
-                  setState(() {});
-                  _debouncer.run(() => _search.setQuery(widget.scope, value));
-                },
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  hintText: 'Search this page...',
-                  border: InputBorder.none,
-                  isCollapsed: true,
-                  hintStyle: TextStyle(
-                    color: SubTenantColors.lightMuted,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                style: const TextStyle(
-                  color: SubTenantColors.text,
-                  fontSize: 12.8,
+    final search = Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SubTenantColors.line),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.search_rounded,
+            color: SubTenantColors.lightMuted,
+            size: 21,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              onChanged: (value) {
+                setState(() {});
+                _debouncer.run(() => _search.setQuery(widget.scope, value));
+              },
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                hintText: 'Search this page...',
+                border: InputBorder.none,
+                isCollapsed: true,
+                hintStyle: TextStyle(
+                  color: SubTenantColors.lightMuted,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w800,
                 ),
               ),
+              style: const TextStyle(
+                color: SubTenantColors.text,
+                fontSize: 12.8,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-            if (_controller.text.trim().isNotEmpty)
-              IconButton(
-                tooltip: 'Clear search',
-                onPressed: () {
-                  _controller.clear();
-                  _search.clear(widget.scope);
-                  setState(() {});
-                },
-                icon: const Icon(
-                  Icons.close_rounded,
-                  color: SubTenantColors.lightMuted,
-                  size: 18,
-                ),
-              )
-            else
-              const Icon(
-                Icons.tune_rounded,
+          ),
+          if (_controller.text.trim().isNotEmpty)
+            IconButton(
+              tooltip: 'Clear search',
+              onPressed: () {
+                _controller.clear();
+                _search.clear(widget.scope);
+                setState(() {});
+              },
+              icon: const Icon(
+                Icons.close_rounded,
                 color: SubTenantColors.lightMuted,
                 size: 18,
               ),
-          ],
-        ),
+            )
+          else
+            const Icon(
+              Icons.tune_rounded,
+              color: SubTenantColors.lightMuted,
+              size: 18,
+            ),
+        ],
       ),
+    );
+
+    if (widget.fillWidth) return search;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 340, minWidth: 230),
+      child: search,
     );
   }
 }
@@ -783,6 +876,9 @@ class _NotificationButtonState extends State<_NotificationButton> {
     await showDialog<void>(
       context: context,
       builder: (context) {
+        final contentWidth = (MediaQuery.sizeOf(context).width - 80)
+            .clamp(240.0, 420.0)
+            .toDouble();
         return AlertDialog(
           title: Row(
             children: [
@@ -797,7 +893,7 @@ class _NotificationButtonState extends State<_NotificationButton> {
             ],
           ),
           content: SizedBox(
-            width: 420,
+            width: contentWidth,
             child: FutureBuilder<List<Map<String, dynamic>>>(
               future: _latest(),
               builder: (context, snapshot) {
@@ -967,10 +1063,37 @@ class _HeaderIconButton extends StatelessWidget {
 }
 
 class _AdminBadge extends StatelessWidget {
-  const _AdminBadge();
+  const _AdminBadge({this.compact = false});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return Tooltip(
+        message: 'City/Municipal Administrator',
+        child: Container(
+          width: 46,
+          height: 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: SubTenantColors.line),
+          ),
+          child: const CircleAvatar(
+            radius: 16,
+            backgroundColor: Color(0xFFEAF4FF),
+            child: Icon(
+              Icons.admin_panel_settings_rounded,
+              color: SubTenantColors.blue,
+              size: 18,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       height: 48,
       padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),

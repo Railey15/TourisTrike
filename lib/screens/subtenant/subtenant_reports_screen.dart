@@ -16,10 +16,7 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart'
 // Colors
 // ─────────────────────────────────────────────────────────────────────────────
 
-const _green = Color(0xFF16A34A);
 const _amber = Color(0xFFF59E0B);
-const _purple = Color(0xFF7C3AED);
-const _cyan = Color(0xFF0EA5E9);
 const _red = Color(0xFFDC2626);
 
 const _paperWorkspace = Color(0xFFF1F5F9);
@@ -190,7 +187,9 @@ class _ReportSnapshot {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class SubTenantReportsScreen extends StatefulWidget {
-  const SubTenantReportsScreen({super.key});
+  const SubTenantReportsScreen({super.key, this.service});
+
+  final SubTenantService? service;
 
   @override
   State<SubTenantReportsScreen> createState() =>
@@ -199,7 +198,7 @@ class SubTenantReportsScreen extends StatefulWidget {
 
 class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
     with SingleTickerProviderStateMixin {
-  final _service = SubTenantService();
+  late final SubTenantService _service;
 
   late Future<_FullLoad> _future;
   late TabController _tabController;
@@ -211,6 +210,8 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
   @override
   void initState() {
     super.initState();
+
+    _service = widget.service ?? SubTenantService();
 
     _tabController = TabController(
       length: _ReportTab.values.length,
@@ -2699,88 +2700,86 @@ class _PaperTable extends StatelessWidget {
   const _PaperTable({
     required this.columns,
     required this.rows,
-    this.columnFlex,
   });
 
   final List<String> columns;
   final List<List<String>> rows;
 
-  /// Optional flex values for each column.
-  /// Example:
-  /// [3, 2, 2, 1]
-  ///
-  /// If not supplied, all columns use equal widths.
-  final List<int>? columnFlex;
-
   @override
   Widget build(BuildContext context) {
-    final flexValues = columnFlex != null &&
-            columnFlex!.length == columns.length
-        ? columnFlex!
-        : List<int>.filled(columns.length, 1);
-
     final columnWidths = <int, TableColumnWidth>{};
 
     for (var i = 0; i < columns.length; i++) {
-      columnWidths[i] = FlexColumnWidth(
-        flexValues[i].toDouble(),
-      );
+      columnWidths[i] = const FlexColumnWidth();
     }
 
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: _paperBorder,
-          width: 1,
-        ),
-        borderRadius: BorderRadius.circular(5),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Table(
-        columnWidths: columnWidths,
-        defaultVerticalAlignment:
-            TableCellVerticalAlignment.middle,
-        border: const TableBorder(
-          horizontalInside: BorderSide(
-            color: _paperBorder,
-            width: 0.8,
-          ),
-        ),
-        children: [
-          // Header
-          TableRow(
-            decoration: const BoxDecoration(
-              color: _paperSoft,
-            ),
-            children: [
-              for (final column in columns)
-                _PaperTableCell(
-                  text: column,
-                  header: true,
-                ),
-            ],
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final requiredWidth = columns.length * 104.0;
+        final tableWidth = constraints.maxWidth < requiredWidth
+            ? requiredWidth
+            : constraints.maxWidth;
 
-          // Data
-          for (var rowIndex = 0;
-              rowIndex < rows.length;
-              rowIndex++)
-            TableRow(
-              decoration: BoxDecoration(
-                color: rowIndex.isEven
-                    ? Colors.white
-                    : const Color(0xFFFCFDFE),
-              ),
-              children: [
-                for (final cell in rows[rowIndex])
-                  _PaperTableCell(
-                    text: cell,
-                  ),
-              ],
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: _paperBorder,
+              width: 1,
             ),
-        ],
-      ),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: SizedBox(
+              width: tableWidth,
+              child: Table(
+                columnWidths: columnWidths,
+                defaultVerticalAlignment:
+                    TableCellVerticalAlignment.middle,
+                border: const TableBorder(
+                  horizontalInside: BorderSide(
+                    color: _paperBorder,
+                    width: 0.8,
+                  ),
+                ),
+                children: [
+                  TableRow(
+                    decoration: const BoxDecoration(
+                      color: _paperSoft,
+                    ),
+                    children: [
+                      for (final column in columns)
+                        _PaperTableCell(
+                          text: column,
+                          header: true,
+                        ),
+                    ],
+                  ),
+                  for (var rowIndex = 0;
+                      rowIndex < rows.length;
+                      rowIndex++)
+                    TableRow(
+                      decoration: BoxDecoration(
+                        color: rowIndex.isEven
+                            ? Colors.white
+                            : const Color(0xFFFCFDFE),
+                      ),
+                      children: [
+                        for (final cell in rows[rowIndex])
+                          _PaperTableCell(
+                            text: cell,
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
