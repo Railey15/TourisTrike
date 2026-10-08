@@ -403,6 +403,8 @@ class PackageBooking extends TourisTrikeRow {
   int get currentSpotIndex => dbInt(row['current_spot_index'], fallback: 0);
   int get requiredDrivers => dbInt(row['required_drivers'], fallback: 1);
   int get additionalTricycleCount => dbInt(row['additional_tricycle_count']);
+  String get additionalTricycleRequestStatus =>
+      dbString(row['additional_tricycle_request_status'], fallback: 'none');
   String get additionalTricycleReason =>
       dbString(row['additional_tricycle_reason']);
   String get additionalTricycleExplanation =>
