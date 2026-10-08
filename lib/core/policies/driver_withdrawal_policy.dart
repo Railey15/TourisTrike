@@ -5,9 +5,9 @@ bool canRequestDriverWithdrawal({
   required String assignmentStatus,
   required bool hasArrived,
   required bool hasPickedUp,
+  String assignmentJourneyState = 'assigned',
 }) {
   const startedTourStates = {
-    'driver_arrived',
     'picked_up',
     'on_tour',
     'en_route_to_spot',
@@ -17,14 +17,28 @@ bool canRequestDriverWithdrawal({
     'dropped_off',
     'completed',
   };
+  const startedJourneyStates = {
+    'boarded',
+    'en_route_stop',
+    'at_stop',
+    'stop_done',
+    'en_route_dropoff',
+    'at_dropoff',
+    'completed',
+  };
   return assignmentStatus == 'accepted' &&
       {
+        'pending',
+        'confirmed',
         'accepted',
         'waiting_for_drivers',
+        'driver_accepted',
+        'driver_en_route',
+        'driver_on_the_way',
       }.contains(bookingStatus.toLowerCase()) &&
-      !hasArrived &&
       !hasPickedUp &&
-      !startedTourStates.contains(tourStatus.toLowerCase());
+      !startedTourStates.contains(tourStatus.toLowerCase()) &&
+      !startedJourneyStates.contains(assignmentJourneyState.toLowerCase());
 }
 
 const withdrawalAfterStartMessage =

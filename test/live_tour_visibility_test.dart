@@ -16,15 +16,26 @@ ConvoyDriverSnapshot assignment(
 );
 
 void main() {
+  final scheduled = DateTime.utc(2026, 10, 10, 8);
+
   test('accepted roster controls tourist map and Share Trip together', () {
     expect(
-      LiveTourVisibility.tourist(roster: [], statuses: ['confirmed']),
+      LiveTourVisibility.tourist(
+        roster: [],
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled,
+        serverAuthorized: true,
+      ),
       false,
     );
     expect(
       LiveTourVisibility.tourist(
         roster: [assignment(ConvoyJourneyState.assigned, status: 'pending')],
         statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled,
+        serverAuthorized: true,
       ),
       false,
     );
@@ -32,6 +43,9 @@ void main() {
       LiveTourVisibility.driver(
         assignment: assignment(ConvoyJourneyState.assigned, status: 'rejected'),
         statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled,
+        serverAuthorized: true,
       ),
       false,
     );
@@ -40,7 +54,13 @@ void main() {
     )) {
       final accepted = assignment(state);
       expect(
-        LiveTourVisibility.tourist(roster: [accepted], statuses: ['confirmed']),
+        LiveTourVisibility.tourist(
+          roster: [accepted],
+          statuses: ['confirmed'],
+          scheduledStartAt: scheduled,
+          now: scheduled,
+          serverAuthorized: true,
+        ),
         true,
         reason: state.name,
       );
@@ -48,6 +68,9 @@ void main() {
         LiveTourVisibility.driver(
           assignment: accepted,
           statuses: ['confirmed'],
+          scheduledStartAt: scheduled,
+          now: scheduled,
+          serverAuthorized: true,
         ),
         true,
         reason: state.name,
@@ -61,6 +84,9 @@ void main() {
       LiveTourVisibility.tourist(
         roster: [assignment(ConvoyJourneyState.completed, status: 'completed')],
         statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled,
+        serverAuthorized: true,
       ),
       false,
     );
@@ -71,6 +97,9 @@ void main() {
           status: 'completed',
         ),
         statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled,
+        serverAuthorized: true,
       ),
       false,
     );
@@ -84,15 +113,73 @@ void main() {
       'closed',
     ]) {
       expect(
-        LiveTourVisibility.tourist(roster: [accepted], statuses: [terminal]),
+        LiveTourVisibility.tourist(
+          roster: [accepted],
+          statuses: [terminal],
+          scheduledStartAt: scheduled,
+          now: scheduled,
+          serverAuthorized: true,
+        ),
         false,
         reason: terminal,
       );
       expect(
-        LiveTourVisibility.driver(assignment: accepted, statuses: [terminal]),
+        LiveTourVisibility.driver(
+          assignment: accepted,
+          statuses: [terminal],
+          scheduledStartAt: scheduled,
+          now: scheduled,
+          serverAuthorized: true,
+        ),
         false,
         reason: terminal,
       );
     }
+  });
+
+  test('scheduled start is an inclusive live tracking boundary', () {
+    final accepted = assignment(ConvoyJourneyState.assigned);
+    final oneMinuteEarly = scheduled.subtract(const Duration(minutes: 1));
+    for (final visible in [
+      LiveTourVisibility.tourist(
+        roster: [accepted],
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: oneMinuteEarly,
+        serverAuthorized: true,
+      ),
+      LiveTourVisibility.driver(
+        assignment: accepted,
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: oneMinuteEarly,
+        serverAuthorized: true,
+      ),
+    ]) {
+      expect(visible, isFalse);
+    }
+    expect(
+      LiveTourVisibility.tourist(
+        roster: [accepted],
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled,
+        serverAuthorized: true,
+      ),
+      isTrue,
+    );
+  });
+
+  test('server denial fails closed even after scheduled start', () {
+    expect(
+      LiveTourVisibility.driver(
+        assignment: assignment(ConvoyJourneyState.assigned),
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: scheduled.add(const Duration(minutes: 1)),
+        serverAuthorized: false,
+      ),
+      isFalse,
+    );
   });
 }

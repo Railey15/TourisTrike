@@ -409,6 +409,8 @@ class PackageBooking extends TourisTrikeRow {
       dbString(row['additional_tricycle_reason']);
   String get additionalTricycleExplanation =>
       dbString(row['additional_tricycle_explanation']);
+  String get additionalTricycleRequestStatus =>
+      dbString(row['additional_tricycle_request_status'], fallback: 'none');
   int get acceptedDriversCount =>
       dbInt(row['accepted_drivers_count'], fallback: 0);
   double? get driverLatitude => row['driver_latitude'] is num
@@ -456,6 +458,55 @@ class PackageBooking extends TourisTrikeRow {
       : null;
   Json? get driverRow =>
       row['driver'] is Map ? Json.from(row['driver'] as Map) : null;
+}
+
+class LiveTourTrackingEligibility {
+  const LiveTourTrackingEligibility({
+    required this.canAccess,
+    required this.reasonCode,
+    required this.serverNow,
+    required this.scheduledStartAt,
+    required this.deviceReceivedAt,
+  });
+
+  factory LiveTourTrackingEligibility.fromJson(Json json) =>
+      LiveTourTrackingEligibility(
+        canAccess: dbBool(json['can_access']),
+        reasonCode: dbString(json['reason_code']),
+        serverNow: dbDate(json['server_now']),
+        scheduledStartAt: dbDate(json['scheduled_start_at']),
+        deviceReceivedAt: DateTime.now().toUtc(),
+      );
+
+  static const locked = LiveTourTrackingEligibility(
+    canAccess: false,
+    reasonCode: 'NOT_CHECKED',
+    serverNow: null,
+    scheduledStartAt: null,
+    deviceReceivedAt: null,
+  );
+
+  final bool canAccess;
+  final String reasonCode;
+  final DateTime? serverNow;
+  final DateTime? scheduledStartAt;
+  final DateTime? deviceReceivedAt;
+
+  DateTime authoritativeNow([DateTime? deviceNow]) {
+    final current = (deviceNow ?? DateTime.now()).toUtc();
+    final server = serverNow;
+    final received = deviceReceivedAt;
+    if (server == null || received == null) return current;
+    return server.add(current.difference(received));
+  }
+
+  bool get isBeforeScheduledStart {
+    final scheduled = scheduledStartAt;
+    return !canAccess &&
+        reasonCode == 'BEFORE_SCHEDULED_START' &&
+        scheduled != null &&
+        authoritativeNow().isBefore(scheduled);
+  }
 }
 
 // PayMongo-backed package payment records; raw card data is never persisted.

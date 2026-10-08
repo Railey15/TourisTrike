@@ -36,6 +36,7 @@ import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:touristrike/widgets/convoy/convoy_roster_error_card.dart';
 import 'package:touristrike/widgets/convoy/convoy_roster_strip.dart';
 import 'package:touristrike/widgets/convoy/convoy_waiting_card.dart';
+import 'package:touristrike/widgets/live_tracking_locked_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ============================================================================
@@ -291,6 +292,8 @@ class _DriverPackageTrackingScreenState
 
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
+  LiveTourTrackingEligibility _liveTrackingEligibility =
+      LiveTourTrackingEligibility.locked;
   final LiveMarkerMotion _markerMotion = LiveMarkerMotion();
   final Map<String, LatLng> _liveMarkerPositions = <String, LatLng>{};
   final Map<String, double> _liveMarkerHeadings = <String, double>{};
@@ -335,7 +338,14 @@ class _DriverPackageTrackingScreenState
       _activity?.status,
       _activity?.tourStatus,
     ],
+    scheduledStartAt:
+        _liveTrackingEligibility.scheduledStartAt ?? _booking?.scheduledStartAt,
+    now: _liveTrackingEligibility.authoritativeNow(),
+    serverAuthorized: _liveTrackingEligibility.canAccess,
   );
+
+  bool get _isLiveTrackingScheduleLocked =>
+      _liveTrackingEligibility.isBeforeScheduledStart;
 
   bool get _shouldShareDriverLocation => _canShowLiveTourMap;
 
@@ -381,13 +391,49 @@ class _DriverPackageTrackingScreenState
 
   void _syncScheduleGateTimer() {
     _scheduleGateTimer?.cancel();
-    final scheduled = _booking?.scheduledStartAt;
+    _scheduleGateTimer = null;
+    if (!_isLiveTrackingScheduleLocked) return;
+    final scheduled = _liveTrackingEligibility.scheduledStartAt;
     if (scheduled == null) return;
-    final delay = scheduled.difference(DateTime.now());
-    if (delay.isNegative) return;
-    _scheduleGateTimer = Timer(delay + const Duration(seconds: 1), () {
-      if (mounted) setState(() {});
-    });
+    final delay = scheduled.difference(
+      _liveTrackingEligibility.authoritativeNow(),
+    );
+    _scheduleGateTimer = Timer(
+      (delay.isNegative ? Duration.zero : delay) +
+          const Duration(milliseconds: 750),
+      () => unawaited(
+        _refreshLiveTrackingEligibility(refreshLocationsOnUnlock: true),
+      ),
+    );
+  }
+
+  Future<void> _refreshLiveTrackingEligibility({
+    bool refreshLocationsOnUnlock = false,
+  }) async {
+    if (_bookingId.isEmpty) return;
+    final wasAllowed = _canShowLiveTourMap;
+    try {
+      final eligibility = await _repo.fetchLiveTourTrackingEligibility(
+        _bookingId,
+      );
+      if (!mounted) return;
+      setState(() => _liveTrackingEligibility = eligibility);
+      _syncScheduleGateTimer();
+      _syncDriverLocationSubscriptions();
+      _buildMarkers();
+      if (!wasAllowed && _canShowLiveTourMap && refreshLocationsOnUnlock) {
+        await _loadConvoy();
+        if (mounted) unawaited(_fetchCurrentRoute());
+      }
+    } catch (error) {
+      debugPrint('[DriverTracking:eligibility] $error');
+      if (!mounted) return;
+      setState(
+        () => _liveTrackingEligibility = LiveTourTrackingEligibility.locked,
+      );
+      _syncDriverLocationSubscriptions();
+      _buildMarkers();
+    }
   }
 
   // =========================================================================
@@ -517,6 +563,8 @@ class _DriverPackageTrackingScreenState
       }
 
       final booking = results[0] as PackageBooking?;
+      final liveTrackingEligibility = await _repo
+          .fetchLiveTourTrackingEligibility(bookingId);
 
       var spots = results[1] as List<BookingItineraryItem>;
 
@@ -559,6 +607,7 @@ class _DriverPackageTrackingScreenState
         _paymentAllocations = paymentAllocations;
         _dropoffPaymentGate = dropoffPaymentGate;
         _testSessionAuthorized = testSessionAuthorized;
+        _liveTrackingEligibility = liveTrackingEligibility;
         _loading = false;
       });
 
@@ -658,12 +707,17 @@ class _DriverPackageTrackingScreenState
 
       if (!mounted || loadGeneration != _convoyLoadGeneration) return;
 
-      for (final driver in roster) {
-        if (driver.latitude == null || driver.longitude == null) continue;
-        final point = LatLng(driver.latitude!, driver.longitude!);
-        _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
-        _liveMarkerPositions[driver.driverId] = point;
-        _liveMarkerHeadings[driver.driverId] = driver.heading;
+      if (_liveTrackingEligibility.canAccess) {
+        for (final driver in roster) {
+          if (driver.latitude == null || driver.longitude == null) continue;
+          final point = LatLng(driver.latitude!, driver.longitude!);
+          _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
+          _liveMarkerPositions[driver.driverId] = point;
+          _liveMarkerHeadings[driver.driverId] = driver.heading;
+        }
+      } else {
+        _liveMarkerPositions.clear();
+        _liveMarkerHeadings.clear();
       }
 
       setState(() {
@@ -762,6 +816,10 @@ class _DriverPackageTrackingScreenState
       _participantLocationChannel?.unsubscribe();
       _participantLocationChannel = null;
       _touristLivePosition = null;
+      _liveMarkerPositions.clear();
+      _liveMarkerHeadings.clear();
+      _polylines = {};
+      _eta = null;
       return;
     }
     final bookingId = _bookingId;
@@ -930,6 +988,13 @@ class _DriverPackageTrackingScreenState
     _paymentRecords = const [];
     _paymentAllocations = const [];
     _convoy = const [];
+    _touristLivePosition = null;
+    _currentPosition = null;
+    _liveMarkerPositions.clear();
+    _liveMarkerHeadings.clear();
+    _markers = {};
+    _polylines = {};
+    _eta = null;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const DriverPackageJobsScreen()),
       (route) => false,
@@ -1726,6 +1791,7 @@ class _DriverPackageTrackingScreenState
       _repo.fetchPackageBookingDetails(bookingId),
       _repo.fetchBookingItinerary(bookingId),
       _repo.fetchMyBookingDriverAssignment(bookingId),
+      _repo.fetchLiveTourTrackingEligibility(bookingId),
     ]);
 
     if (!_isActiveAssignment(results[3] as BookingDriver?)) {
@@ -1771,9 +1837,11 @@ class _DriverPackageTrackingScreenState
       _paymentRecords = paymentRecords;
       _paymentAllocations = paymentAllocations;
       _dropoffPaymentGate = dropoffPaymentGate;
+      _liveTrackingEligibility = results[4] as LiveTourTrackingEligibility;
     });
 
     _debugTourState(logTag);
+    _syncScheduleGateTimer();
 
     _syncDriverLocationSubscriptions();
 
@@ -1928,7 +1996,7 @@ class _DriverPackageTrackingScreenState
 
     final markers = <Marker>{};
 
-    if (_touristLivePosition != null) {
+    if (_canShowLiveTourMap && _touristLivePosition != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('tourist_live'),
@@ -2019,17 +2087,19 @@ class _DriverPackageTrackingScreenState
       );
     }
 
-    markers.addAll(
-      buildBookingDriverMarkers(
-        drivers: _convoy,
-        icon:
-            _tricycleMarker ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        positions: _liveMarkerPositions,
-        headings: _liveMarkerHeadings,
-        viewerId: _repo.currentUserId,
-      ),
-    );
+    if (_canShowLiveTourMap) {
+      markers.addAll(
+        buildBookingDriverMarkers(
+          drivers: _convoy,
+          icon:
+              _tricycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          positions: _liveMarkerPositions,
+          headings: _liveMarkerHeadings,
+          viewerId: _repo.currentUserId,
+        ),
+      );
+    }
 
     if (!mounted) return;
 
@@ -3057,6 +3127,7 @@ class _DriverPackageTrackingScreenState
       assignmentStatus: _myConvoyStatus?.assignmentStatus ?? '',
       hasArrived: booking.arrivedAt != null,
       hasPickedUp: booking.pickedUpAt != null,
+      assignmentJourneyState: _myConvoyStatus?.journeyState.dbValue ?? '',
     );
   }
 
@@ -3228,7 +3299,9 @@ class _DriverPackageTrackingScreenState
               ),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
               children: [
-                if (_booking != null && !_isBookingClosed)
+                if (_canShowLiveTourMap &&
+                    _booking != null &&
+                    !_isBookingClosed)
                   LiveItineraryEstimates(
                     showCard: false,
                     booking: _booking!,
@@ -3247,7 +3320,7 @@ class _DriverPackageTrackingScreenState
                   TextButton.icon(
                     onPressed: _requestWithdrawal,
                     icon: const Icon(Icons.person_remove_outlined),
-                    label: const Text('Request to withdraw'),
+                    label: const Text('Withdraw from Tour'),
                   ),
                 ],
                 if (!_actionBusy && _canReportTouristNoShow) ...[
@@ -3391,7 +3464,14 @@ class _DriverPackageTrackingScreenState
                     },
                     onConvoyTap: _fitConvoyBounds,
                   ),
-                if (_canShowLiveTourMap) const SizedBox(height: 14),
+                if (_isLiveTrackingScheduleLocked &&
+                    _liveTrackingEligibility.scheduledStartAt != null)
+                  LiveTrackingLockedCard(
+                    scheduledStartAt:
+                        _liveTrackingEligibility.scheduledStartAt!,
+                  ),
+                if (_canShowLiveTourMap || _isLiveTrackingScheduleLocked)
+                  const SizedBox(height: 14),
                 if (!assignmentCompleted && _spots.isNotEmpty)
                   DriverTourDestinationCard(
                     bookingId: _bookingId,

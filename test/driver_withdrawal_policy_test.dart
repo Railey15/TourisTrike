@@ -8,22 +8,26 @@ void main() {
     String assignment = 'accepted',
     bool arrived = false,
     bool pickedUp = false,
+    String journey = 'assigned',
   }) => canRequestDriverWithdrawal(
     bookingStatus: booking,
     tourStatus: tour,
     assignmentStatus: assignment,
     hasArrived: arrived,
     hasPickedUp: pickedUp,
+    assignmentJourneyState: journey,
   );
 
   test('only accepted pre-start assignments may withdraw', () {
     expect(allowed(), isTrue);
     expect(allowed(booking: 'waiting_for_drivers'), isTrue);
+    expect(allowed(booking: 'confirmed'), isTrue);
+    expect(allowed(tour: 'driver_arrived', arrived: true), isTrue);
     expect(allowed(booking: 'on_tour'), isFalse);
-    expect(allowed(tour: 'driver_arrived'), isFalse);
     expect(allowed(tour: 'on_tour'), isFalse);
-    expect(allowed(arrived: true), isFalse);
     expect(allowed(pickedUp: true), isFalse);
+    expect(allowed(journey: 'boarded'), isFalse);
+    expect(allowed(journey: 'en_route_stop'), isFalse);
     expect(allowed(assignment: 'rejected'), isFalse);
   });
 

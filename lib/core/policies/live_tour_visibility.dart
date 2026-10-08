@@ -22,8 +22,16 @@ class LiveTourVisibility {
   static bool tourist({
     required List<ConvoyDriverSnapshot> roster,
     required Iterable<String?> statuses,
+    required DateTime? scheduledStartAt,
+    required DateTime now,
+    required bool serverAuthorized,
   }) {
-    if (_isTerminal(statuses)) return false;
+    if (!serverAuthorized ||
+        scheduledStartAt == null ||
+        now.isBefore(scheduledStartAt) ||
+        _isTerminal(statuses)) {
+      return false;
+    }
     return roster.any(
       (driver) =>
           driver.assignmentStatus == 'accepted' &&
@@ -34,8 +42,14 @@ class LiveTourVisibility {
   static bool driver({
     required ConvoyDriverSnapshot? assignment,
     required Iterable<String?> statuses,
+    required DateTime? scheduledStartAt,
+    required DateTime now,
+    required bool serverAuthorized,
   }) {
-    return !_isTerminal(statuses) &&
+    return serverAuthorized &&
+        scheduledStartAt != null &&
+        !now.isBefore(scheduledStartAt) &&
+        !_isTerminal(statuses) &&
         assignment?.assignmentStatus == 'accepted' &&
         assignment?.journeyState != ConvoyJourneyState.completed;
   }

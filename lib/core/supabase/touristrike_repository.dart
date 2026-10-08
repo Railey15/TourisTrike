@@ -2201,6 +2201,16 @@ class TourisTrikeRepository {
 
   // ── LIVE LOCATION ────────────────────────────────────────────
 
+  Future<LiveTourTrackingEligibility> fetchLiveTourTrackingEligibility(
+    String bookingId,
+  ) async {
+    final result = await _client.rpc(
+      'get_live_tour_tracking_eligibility',
+      params: {'p_booking_id': bookingId},
+    );
+    return LiveTourTrackingEligibility.fromJson(Json.from(result as Map));
+  }
+
   Future<void> upsertDriverLiveLocation({
     required String activityId,
     required double latitude,

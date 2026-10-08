@@ -35,6 +35,7 @@ import 'package:touristrike/screens/tourist/booking_cancellation_result_screen.d
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
 import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
 import 'package:touristrike/widgets/package_booking_cancellation_flow.dart';
+import 'package:touristrike/widgets/live_tracking_locked_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ============================================================================
@@ -136,6 +137,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   StreamSubscription<Position>? _touristGpsSub;
   Timer? _routeRefreshTimer;
+  Timer? _scheduleGateTimer;
   final _convoyRoutes = ConvoyRouteState();
   bool _hadConvoyRouteRoster = false;
 
@@ -150,6 +152,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
+  LiveTourTrackingEligibility _liveTrackingEligibility =
+      LiveTourTrackingEligibility.locked;
 
   static const LatLng _defaultCenter = LatLng(14.9597, 120.9206);
 
@@ -174,27 +178,38 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('The municipal tourism office reviews this request. Your agreed total stays the same; new drivers must accept open slots.'),
+                  const Text(
+                    'The municipal tourism office reviews this request. Your agreed total stays the same; new drivers must accept open slots.',
+                  ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
                     initialValue: count,
-                    decoration: const InputDecoration(labelText: 'Extra tricycles'),
-                    items: List.generate(3, (index) => DropdownMenuItem(
-                      value: index + 1,
-                      child: Text('${index + 1}'),
-                    )),
+                    decoration: const InputDecoration(
+                      labelText: 'Extra tricycles',
+                    ),
+                    items: List.generate(
+                      3,
+                      (index) => DropdownMenuItem(
+                        value: index + 1,
+                        child: Text('${index + 1}'),
+                      ),
+                    ),
                     onChanged: (value) => update(() => count = value ?? 1),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: reason,
                     decoration: const InputDecoration(labelText: 'Reason'),
-                    items: AdditionalTricycleReasons.labels.entries.map(
-                      (entry) => DropdownMenuItem(
-                        value: entry.key, child: Text(entry.value),
-                      ),
-                    ).toList(),
-                    onChanged: (value) => update(() => reason = value ?? reason),
+                    items: AdditionalTricycleReasons.labels.entries
+                        .map(
+                          (entry) => DropdownMenuItem(
+                            value: entry.key,
+                            child: Text(entry.value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        update(() => reason = value ?? reason),
                   ),
                   if (reason == AdditionalTricycleReasons.other) ...[
                     const SizedBox(height: 12),
@@ -221,7 +236,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     count: count,
                     reason: reason,
                     explanation: reason == AdditionalTricycleReasons.other
-                        ? explanation.text.trim() : null,
+                        ? explanation.text.trim()
+                        : null,
                   );
                   try {
                     value.validate();
@@ -240,23 +256,28 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       );
       if (request == null || !mounted) return;
       setState(() => _additionalRequestBusy = true);
-      await _supabase.rpc('request_additional_tricycles', params: {
-        'p_booking_id': widget.bookingId,
-        'p_count': request.count,
-        'p_reason': request.reason,
-        'p_explanation': request.explanation,
-      });
+      await _supabase.rpc(
+        'request_additional_tricycles',
+        params: {
+          'p_booking_id': widget.bookingId,
+          'p_count': request.count,
+          'p_reason': request.reason,
+          'p_explanation': request.explanation,
+        },
+      );
       await _load();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Request sent to the municipal tourism office.'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Request sent to the municipal tourism office.'),
+          ),
+        );
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Unable to request tricycles: $error'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to request tricycles: $error')),
+        );
       }
     } finally {
       explanation.dispose();
@@ -275,7 +296,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _activity?.status,
       _activity?.tourStatus,
     ],
+    scheduledStartAt:
+        _liveTrackingEligibility.scheduledStartAt ?? _booking?.scheduledStartAt,
+    now: _liveTrackingEligibility.authoritativeNow(),
+    serverAuthorized: _liveTrackingEligibility.canAccess,
   );
+
+  bool get _isLiveTrackingScheduleLocked =>
+      _liveTrackingEligibility.isBeforeScheduledStart;
 
   // =========================================================================
   // PAYMENT HELPERS
@@ -831,6 +859,52 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // LIFECYCLE
   // =========================================================================
 
+  void _syncScheduleGateTimer() {
+    _scheduleGateTimer?.cancel();
+    _scheduleGateTimer = null;
+    if (!_isLiveTrackingScheduleLocked) return;
+    final scheduled = _liveTrackingEligibility.scheduledStartAt;
+    if (scheduled == null) return;
+    final delay = scheduled.difference(
+      _liveTrackingEligibility.authoritativeNow(),
+    );
+    _scheduleGateTimer = Timer(
+      (delay.isNegative ? Duration.zero : delay) +
+          const Duration(milliseconds: 750),
+      () => unawaited(
+        _refreshLiveTrackingEligibility(refreshLocationsOnUnlock: true),
+      ),
+    );
+  }
+
+  Future<void> _refreshLiveTrackingEligibility({
+    bool refreshLocationsOnUnlock = false,
+  }) async {
+    final wasAllowed = _canShowLiveTourMap;
+    try {
+      final eligibility = await _repo.fetchLiveTourTrackingEligibility(
+        widget.bookingId,
+      );
+      if (!mounted) return;
+      setState(() => _liveTrackingEligibility = eligibility);
+      _syncScheduleGateTimer();
+      _syncLiveTracking();
+      _buildMarkers();
+      if (!wasAllowed && _canShowLiveTourMap && refreshLocationsOnUnlock) {
+        await _refreshConvoyRoster();
+        if (mounted) unawaited(_fetchCurrentRoute());
+      }
+    } catch (error) {
+      debugPrint('[TouristTracking:eligibility] $error');
+      if (!mounted) return;
+      setState(
+        () => _liveTrackingEligibility = LiveTourTrackingEligibility.locked,
+      );
+      _syncLiveTracking();
+      _buildMarkers();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -847,6 +921,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       unawaited(_refreshPaymentPromptState());
       _refreshPayments();
       _refreshTestAuthorization();
+      unawaited(
+        _refreshLiveTrackingEligibility(refreshLocationsOnUnlock: true),
+      );
     }
   }
 
@@ -880,6 +957,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     _touristGpsSub?.cancel();
     _routeRefreshTimer?.cancel();
+    _scheduleGateTimer?.cancel();
     _markerMotion.dispose();
     _paymentPrompt.dispose();
     _remainingPrompt.dispose();
@@ -940,6 +1018,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
       final emergencyContacts = await _repo.fetchEmergencyContacts();
       final convoy = await _repo.fetchConvoyRoster(widget.bookingId);
+      final liveTrackingEligibility = await _repo
+          .fetchLiveTourTrackingEligibility(widget.bookingId);
 
       var testSessionAuthorized = false;
       try {
@@ -983,9 +1063,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _driverInfo = driverInfo;
         _convoy = convoy;
         _selectedDriverId ??= convoy.firstOrNull?.driverId;
-        _convoyPositions
-          ..clear()
-          ..addEntries(
+        _convoyPositions.clear();
+        _convoyHeadings.clear();
+        if (liveTrackingEligibility.canAccess) {
+          _convoyPositions.addEntries(
             convoy
                 .where(
                   (driver) =>
@@ -998,22 +1079,23 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   ),
                 ),
           );
-        _convoyHeadings
-          ..clear()
-          ..addEntries(
+          _convoyHeadings.addEntries(
             convoy.map((driver) => MapEntry(driver.driverId, driver.heading)),
           );
+        }
 
         _spots = spots;
         _emergencyContacts = emergencyContacts;
         _paymentRecords = paymentRecords;
         _paymentAllocations = paymentAllocations;
         _testSessionAuthorized = testSessionAuthorized;
+        _liveTrackingEligibility = liveTrackingEligibility;
 
         _loading = false;
       });
 
       _debugTourState('load');
+      _syncScheduleGateTimer();
 
       _buildMarkers();
       if (_canShowLiveTourMap) _fetchCurrentRoute();
@@ -1069,13 +1151,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       if (!convoy.any((driver) => driver.driverId == _selectedDriverId)) {
         _selectedDriverId = convoy.firstOrNull?.driverId;
       }
-      for (final driver in convoy) {
-        if (driver.latitude != null && driver.longitude != null) {
-          final point = LatLng(driver.latitude!, driver.longitude!);
-          _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
-          _convoyPositions[driver.driverId] = point;
-          _convoyHeadings[driver.driverId] = driver.heading;
+      if (_liveTrackingEligibility.canAccess) {
+        for (final driver in convoy) {
+          if (driver.latitude != null && driver.longitude != null) {
+            final point = LatLng(driver.latitude!, driver.longitude!);
+            _markerMotion.seedIfAbsent(driver.driverId, point, driver.heading);
+            _convoyPositions[driver.driverId] = point;
+            _convoyHeadings[driver.driverId] = driver.heading;
+          }
         }
+      } else {
+        _convoyPositions.clear();
+        _convoyHeadings.clear();
       }
     });
     _buildMarkers();
@@ -1180,6 +1267,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _touristGpsSub?.cancel();
       _touristGpsSub = null;
       _routeRefreshTimer?.cancel();
+      _convoyPositions.clear();
+      _convoyHeadings.clear();
+      _touristPosition = null;
+      _polylines = {};
+      _eta = null;
       return;
     }
     if (_touristGpsSub == null && !_touristGpsStarting) {
@@ -1400,6 +1492,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final paymentAllocations = await _repo.fetchPaymentAllocationsForBooking(
       widget.bookingId,
     );
+    final liveTrackingEligibility = await _repo
+        .fetchLiveTourTrackingEligibility(widget.bookingId);
 
     final driverId = booking?.assignedDriverId ?? activity?.driverId ?? '';
 
@@ -1417,9 +1511,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _spots = spots;
       _paymentRecords = paymentRecords;
       _paymentAllocations = paymentAllocations;
+      _liveTrackingEligibility = liveTrackingEligibility;
     });
 
     _debugTourState(logTag);
+    _syncScheduleGateTimer();
 
     _buildMarkers();
     _syncLiveTracking();
@@ -1567,7 +1663,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     final booking = _booking;
 
-    if (_touristPosition != null) {
+    if (_canShowLiveTourMap && _touristPosition != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('tourist_live'),
@@ -1649,21 +1745,23 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       );
     }
 
-    markers.addAll(
-      buildBookingDriverMarkers(
-        drivers: _convoy,
-        icon:
-            _tricycleMarker ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        positions: _convoyPositions,
-        headings: _convoyHeadings,
-        selectedDriverId: _selectedDriverId,
-        onSelect: (id) {
-          setState(() => _selectedDriverId = id);
-          _scheduleRouteRefresh();
-        },
-      ),
-    );
+    if (_canShowLiveTourMap) {
+      markers.addAll(
+        buildBookingDriverMarkers(
+          drivers: _convoy,
+          icon:
+              _tricycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          positions: _convoyPositions,
+          headings: _convoyHeadings,
+          selectedDriverId: _selectedDriverId,
+          onSelect: (id) {
+            setState(() => _selectedDriverId = id);
+            _scheduleRouteRefresh();
+          },
+        ),
+      );
+    }
 
     if (mounted) {
       setState(() {
@@ -2561,7 +2659,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     },
                   ),
 
-                if (_canShowLiveTourMap) const SizedBox(height: 14),
+                if (_isLiveTrackingScheduleLocked &&
+                    _liveTrackingEligibility.scheduledStartAt != null)
+                  LiveTrackingLockedCard(
+                    scheduledStartAt:
+                        _liveTrackingEligibility.scheduledStartAt!,
+                  ),
+
+                if (_canShowLiveTourMap || _isLiveTrackingScheduleLocked)
+                  const SizedBox(height: 14),
 
                 if (enRouteStatusCard != null) ...[
                   enRouteStatusCard,
@@ -2579,7 +2685,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   const SizedBox(height: 14),
                 ],
 
-                if (booking != null && !completed && _convoy.isNotEmpty)
+                if (_canShowLiveTourMap &&
+                    booking != null &&
+                    !completed &&
+                    _convoy.isNotEmpty)
                   LiveItineraryEstimates(
                     showCard: false,
                     booking: booking,
@@ -2759,21 +2868,32 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 ],
                 if (booking != null &&
                     booking.totalPassengers > 1 &&
-                    const ['none', 'rejected'].contains(
-                      booking.additionalTricycleRequestStatus,
-                    ) &&
-                    const ['pending', 'waiting_for_drivers', 'accepted',
-                      'confirmed'].contains(bookingStatus.toLowerCase()) &&
-                    !const ['driver_arrived', 'picked_up', 'on_tour',
-                      'en_route_to_spot', 'at_spot', 'en_route_to_dropoff',
-                      'ready_to_complete', 'completed'].contains(
-                        activity?.tourStatus,
-                      )) ...[
+                    const [
+                      'none',
+                      'rejected',
+                    ].contains(booking.additionalTricycleRequestStatus) &&
+                    const [
+                      'pending',
+                      'waiting_for_drivers',
+                      'accepted',
+                      'confirmed',
+                    ].contains(bookingStatus.toLowerCase()) &&
+                    !const [
+                      'driver_arrived',
+                      'picked_up',
+                      'on_tour',
+                      'en_route_to_spot',
+                      'at_spot',
+                      'en_route_to_dropoff',
+                      'ready_to_complete',
+                      'completed',
+                    ].contains(activity?.tourStatus)) ...[
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: _additionalRequestBusy
-                          ? null : _requestAdditionalTricycles,
+                          ? null
+                          : _requestAdditionalTricycles,
                       icon: const Icon(Icons.add_circle_outline),
                       label: const Text('Request additional tricycles'),
                     ),
@@ -5138,8 +5258,13 @@ class _BookingSummaryCard extends StatelessWidget {
             _BookingDetailRow(
               icon: Icons.electric_rickshaw_outlined,
               label: 'Extra tricycles',
-              value: '$additionalRequestCount requested • '
-                  '${additionalRequestStatus == 'approved' ? 'approved' : additionalRequestStatus == 'rejected' ? 'declined' : 'awaiting MTO review'}',
+              value:
+                  '$additionalRequestCount requested • '
+                  '${additionalRequestStatus == 'approved'
+                      ? 'approved'
+                      : additionalRequestStatus == 'rejected'
+                      ? 'declined'
+                      : 'awaiting MTO review'}',
             ),
           ],
         ],
