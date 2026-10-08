@@ -41,6 +41,36 @@ void main() {
     bypassScheduledStart: false,
   );
 
+  AdministratorDeveloperTestBooking activeBooking() =>
+      AdministratorDeveloperTestBooking(
+        id: booking.id,
+        reference: booking.reference,
+        touristId: booking.touristId,
+        touristName: booking.touristName,
+        packageId: booking.packageId,
+        packageName: booking.packageName,
+        municipality: booking.municipality,
+        bookingStatus: booking.bookingStatus,
+        tourStatus: booking.tourStatus,
+        drivers: booking.drivers,
+        requiredDrivers: booking.requiredDrivers,
+        assignedDriverCount: booking.assignedDriverCount,
+        downpaymentReady: booking.downpaymentReady,
+        remainingPaymentReady: booking.remainingPaymentReady,
+        validTourist: true,
+        driversReady: true,
+        bookingStateValid: true,
+        eligible: true,
+        eligibilityReason: '',
+        testSessionId: 'session-id',
+        testSessionActive: true,
+        activatedByName: 'System Admin',
+        activatedAt: DateTime.utc(2026, 10, 1, 1),
+        expiresAt: DateTime.utc(2026, 10, 1, 4),
+        reason: 'Early start regression test',
+        bypassScheduledStart: true,
+      );
+
   AdministratorDeveloperToolsData dataFor(
     AdministratorDeveloperToolsQuery query, {
     bool enabled = true,
@@ -253,59 +283,28 @@ void main() {
   });
 
   testWidgets('resets and deactivates an active test session', (tester) async {
-    final active = AdministratorDeveloperTestBooking(
-      id: booking.id,
-      reference: booking.reference,
-      touristId: booking.touristId,
-      touristName: booking.touristName,
-      packageId: booking.packageId,
-      packageName: booking.packageName,
-      municipality: booking.municipality,
-      bookingStatus: booking.bookingStatus,
-      tourStatus: booking.tourStatus,
-      drivers: booking.drivers,
-      requiredDrivers: booking.requiredDrivers,
-      assignedDriverCount: booking.assignedDriverCount,
-      downpaymentReady: booking.downpaymentReady,
-      remainingPaymentReady: booking.remainingPaymentReady,
-      validTourist: true,
-      driversReady: true,
-      bookingStateValid: true,
-      eligible: true,
-      eligibilityReason: '',
-      testSessionId: 'session-id',
-      testSessionActive: true,
-      activatedByName: 'System Admin',
-      activatedAt: DateTime.utc(2026, 10, 1, 1),
-      expiresAt: DateTime.utc(2026, 10, 1, 4),
-      reason: 'Early start regression test',
-      bypassScheduledStart: true,
-    );
+    final active = activeBooking();
     var reset = false;
     var deactivated = false;
-    var deleted = false;
-    var loads = 0;
     await tester.pumpWidget(
       testHarness(
         AdministratorDeveloperToolsScreen(
           loadData: (query) async {
-            loads++;
             return AdministratorDeveloperToolsData(
-            overview: const AdministratorDeveloperTestingOverview(
-              enabled: true,
-              eligibleBookings: 1,
-              activeSessions: 1,
-              upcomingBookings: 1,
-              expiringSoon: 1,
-            ),
-            bookings: deleted ? [] : [active],
-            totalCount: deleted ? 0 : 1,
-            query: query,
+              overview: const AdministratorDeveloperTestingOverview(
+                enabled: true,
+                eligibleBookings: 1,
+                activeSessions: 1,
+                upcomingBookings: 1,
+                expiringSoon: 1,
+              ),
+              bookings: [active],
+              totalCount: 1,
+              query: query,
             );
           },
           reset: (_) async => reset = true,
           deactivate: (_) async => deactivated = true,
-          deleteBooking: (_) async => deleted = true,
           bookingTourGateway: _BookingTourGateway(),
         ),
       ),
@@ -323,9 +322,7 @@ void main() {
     );
     expect(find.text('Early start regression test'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const Key('developer-booking-tour-testing')),
-    );
+    await tester.tap(find.byKey(const Key('developer-booking-tour-testing')));
     await tester.pumpAndSettle();
     expect(find.text('Booking / Tour Testing'), findsWidgets);
     expect(find.text('DEVELOPER / TESTING TOOLS'), findsOneWidget);
@@ -358,29 +355,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(deactivated, isTrue);
-
-    final deleteAction = find.byKey(Key('developer-booking-delete-${booking.id}'));
-    await tester.ensureVisible(deleteAction);
-    expect(find.byTooltip('Delete booking'), findsOneWidget);
-    await tester.tap(deleteAction);
-    await tester.pumpAndSettle();
-    expect(find.text('Delete booking?'), findsOneWidget);
-    expect(find.textContaining('This action cannot be undone'), findsOneWidget);
-    await tester.tap(find.text('Cancel').last);
-    await tester.pumpAndSettle();
-    expect(deleted, isFalse);
-
-    await tester.tap(deleteAction);
-    await tester.pumpAndSettle();
-    final beforeDeleteLoads = loads;
-    await tester.tap(find.byKey(const Key('developer-booking-confirm-delete')));
-    await tester.pumpAndSettle();
-    expect(deleted, isTrue);
-    expect(loads, beforeDeleteLoads + 1);
-    expect(find.text('No bookings found'), findsOneWidget);
   });
 
-  testWidgets('inactive row exposes adjacent trash action with guarded progress', (
+  testWidgets('active test row exposes guarded deletion progress', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1600, 950));
@@ -389,34 +366,51 @@ void main() {
     var attempts = 0;
     var loads = 0;
     var deleted = false;
-    await tester.pumpWidget(testHarness(AdministratorDeveloperToolsScreen(
-      loadData: (query) async {
-        loads++;
-        if (!deleted) return dataFor(query);
-        return AdministratorDeveloperToolsData(
-          overview: const AdministratorDeveloperTestingOverview(
-            enabled: true,
-            eligibleBookings: 0,
-            activeSessions: 0,
-            upcomingBookings: 0,
-            expiringSoon: 0,
-          ),
-          bookings: const [],
-          totalCount: 0,
-          query: query,
-        );
-      },
-      deleteBooking: (_) async {
-        attempts++;
-        if (attempts == 1) {
-          throw StateError(
-            'PostgrestException(message: BOOKING_HAS_LIVE_PROVIDER_PAYMENT, code: P0001)',
-          );
-        }
-        await pending.future;
-        deleted = true;
-      },
-    )));
+    await tester.pumpWidget(
+      testHarness(
+        AdministratorDeveloperToolsScreen(
+          loadData: (query) async {
+            loads++;
+            if (!deleted) {
+              return AdministratorDeveloperToolsData(
+                overview: const AdministratorDeveloperTestingOverview(
+                  enabled: true,
+                  eligibleBookings: 1,
+                  activeSessions: 1,
+                  upcomingBookings: 0,
+                  expiringSoon: 0,
+                ),
+                bookings: [activeBooking()],
+                totalCount: 1,
+                query: query,
+              );
+            }
+            return AdministratorDeveloperToolsData(
+              overview: const AdministratorDeveloperTestingOverview(
+                enabled: true,
+                eligibleBookings: 0,
+                activeSessions: 0,
+                upcomingBookings: 0,
+                expiringSoon: 0,
+              ),
+              bookings: const [],
+              totalCount: 0,
+              query: query,
+            );
+          },
+          deleteBooking: (_) async {
+            attempts++;
+            if (attempts == 1) {
+              throw StateError(
+                'PostgrestException(message: BOOKING_HAS_LIVE_PROVIDER_PAYMENT, code: P0001)',
+              );
+            }
+            await pending.future;
+            deleted = true;
+          },
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final open = find.byKey(Key('developer-booking-${booking.id}'));
@@ -435,7 +429,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(attempts, 1);
     expect(find.text('Unable to delete booking'), findsOneWidget);
-    expect(find.text('This booking contains a live provider payment that must be retained.'), findsOneWidget);
+    expect(
+      find.text(
+        'This booking contains a live provider payment that must be retained.',
+      ),
+      findsOneWidget,
+    );
     expect(find.textContaining('PostgrestException'), findsNothing);
     expect(find.textContaining('P0001'), findsNothing);
 
@@ -451,6 +450,28 @@ void main() {
     expect(loads, 2);
     expect(find.text('No bookings found'), findsOneWidget);
     expect(find.text('Booking deleted successfully.'), findsOneWidget);
+  });
+
+  testWidgets('booking without an active test session cannot be deleted', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1600, 950));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      testHarness(
+        AdministratorDeveloperToolsScreen(
+          loadData: (query) async => dataFor(query),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final trash = find.byKey(Key('developer-booking-delete-${booking.id}'));
+    await tester.ensureVisible(trash);
+    expect(tester.widget<IconButton>(trash).onPressed, isNull);
+    expect(
+      find.byTooltip('Activate a test session before deleting this booking'),
+      findsOneWidget,
+    );
   });
 }
 
@@ -479,6 +500,7 @@ class _BookingTourGateway implements BookingDeveloperToolsGateway {
     'additional_fee': 0,
     'booking_total': 1200,
     'override_active': false,
+    'active_stop_waiting_ledger': true,
     'recent_test_actions': const <Map<String, dynamic>>[],
   };
 
@@ -497,6 +519,8 @@ class _BookingTourGateway implements BookingDeveloperToolsGateway {
   Future<Map<String, dynamic>> progress({
     required dynamic bookingId,
     required String action,
+    required String expectedState,
+    required int expectedStopIndex,
   }) async => _state;
 
   @override

@@ -30,6 +30,8 @@ abstract class BookingDeveloperToolsGateway {
   Future<Map<String, dynamic>> progress({
     required dynamic bookingId,
     required String action,
+    required String expectedState,
+    required int expectedStopIndex,
   });
 }
 
@@ -43,7 +45,7 @@ class SupabaseBookingDeveloperToolsGateway
   @override
   Future<Map<String, dynamic>> load(dynamic bookingId) async {
     final result = await _client.rpc(
-      'administrator_get_booking_developer_state',
+      'administrator_get_booking_developer_state_v2',
       params: {'p_booking_id': bookingId},
     );
     return Map<String, dynamic>.from(result as Map);
@@ -84,10 +86,17 @@ class SupabaseBookingDeveloperToolsGateway
   Future<Map<String, dynamic>> progress({
     required dynamic bookingId,
     required String action,
+    required String expectedState,
+    required int expectedStopIndex,
   }) async {
     final result = await _client.rpc(
-      'administrator_progress_booking_test',
-      params: {'p_booking_id': bookingId, 'p_action': action},
+      'administrator_progress_booking_test_v2',
+      params: {
+        'p_booking_id': bookingId,
+        'p_action': action,
+        'p_expected_state': expectedState,
+        'p_expected_stop_index': expectedStopIndex,
+      },
     );
     return Map<String, dynamic>.from(result as Map);
   }
@@ -136,6 +145,97 @@ class BookingDeveloperState {
 
   bool get controlsEnabled => boolean('controls_enabled');
   bool get overrideActive => boolean('override_active');
+  bool get terminal =>
+      boolean('booking_completed') ||
+      const {
+        'completed',
+        'done',
+        'cancelled',
+        'rejected',
+        'expired',
+      }.contains(text('booking_status'));
+  bool get activeStopLedger => boolean('active_stop_waiting_ledger');
+  String? actionBlocker(String action) {
+    if (!controlsEnabled) {
+      return 'Enable testing and activate this booking session.';
+    }
+    if (terminal) return 'A terminal booking cannot be changed.';
+    if (raw.containsKey('accepted_driver_count') &&
+        integer('accepted_driver_count') < integer('required_driver_count')) {
+      return 'All required Driver slots must be accepted.';
+    }
+    if (raw.containsKey('convoy_aligned') && !boolean('convoy_aligned')) {
+      return 'Driver tour states must align before testing can continue.';
+    }
+    final journey = text('journey_state');
+    switch (action) {
+      case 'force_start':
+        if (!const {
+          'assigned',
+          'en_route_pickup',
+          'at_pickup',
+          'boarded',
+        }.contains(journey)) {
+          return 'Tour start is unavailable from $journey.';
+        }
+        if (!boolean('downpayment_ready')) {
+          return 'Confirmed downpayment is required.';
+        }
+      case 'simulate_arrival':
+        if (journey != 'en_route_stop' && journey != 'en_route_dropoff') {
+          return 'The tour must be en route to a destination.';
+        }
+        if (journey == 'en_route_dropoff' &&
+            !boolean('dropoff_payment_ready')) {
+          return 'Remaining payment must be settled before drop-off.';
+        }
+      case 'complete_stop':
+        if (journey != 'at_stop' || text('arrival_status') != 'arrived') {
+          return 'Arrive at the current stop first.';
+        }
+        if (boolean('current_stop_completed')) {
+          return 'This stop is already complete.';
+        }
+      case 'simulate_departure':
+        if (journey != 'at_stop') return 'Arrive at the current stop first.';
+        if (!boolean('current_stop_completed')) {
+          return 'Complete the current stop first.';
+        }
+      case 'next_stop':
+        if (journey != 'stop_done' || !boolean('current_stop_departed')) {
+          return 'Complete and depart from the current stop first.';
+        }
+        if (integer('current_stop_index') + 1 >= integer('stop_count') &&
+            (!boolean('dropoff_payment_ready') ||
+                !boolean('remaining_payment_ready'))) {
+          return 'Settle remaining payment before the drop-off leg.';
+        }
+      case 'previous_stop':
+        if (integer('current_stop_index') == 0) {
+          return 'Already at the first stop.';
+        }
+        if (journey != 'en_route_stop') {
+          return 'Return is available only before arriving at this stop.';
+        }
+        if (!boolean('previous_stop_available')) {
+          return 'The previous stop has a charge or settled payment history.';
+        }
+      case 'force_complete':
+        if (journey != 'at_dropoff') return 'Arrive at drop-off first.';
+        if (!boolean('all_stops_completed')) {
+          return 'Complete every itinerary stop first.';
+        }
+        if (boolean('active_waiting_charge')) {
+          return 'Finalize the waiting charge first.';
+        }
+        if (!boolean('remaining_payment_ready') ||
+            !boolean('dropoff_payment_ready')) {
+          return 'Settle remaining payment first.';
+        }
+    }
+    return null;
+  }
+
   int get intervalMinutes => math.max(1, integer('interval_minutes'));
   double get configuredRate => number('configured_rate');
   double? get customRate =>
@@ -240,6 +340,7 @@ class _AdministratorBookingTourTestingState
     } catch (error) {
       if (!mounted) return;
       setState(() {
+        _state = null;
         _loading = false;
         _error = _friendlyError(error);
       });
@@ -270,26 +371,49 @@ class _AdministratorBookingTourTestingState
     try {
       final map = await operation();
       if (!mounted) return;
-      final next = BookingDeveloperState.fromMap(map);
+      // The mutation response is authoritative for this transaction. Follow it
+      // with a fresh read so payment and action eligibility cannot stay stale.
+      Map<String, dynamic> refreshed;
+      var refreshFailed = false;
+      const refreshMessage =
+          'Change saved, but the latest tour and payment state could not be refreshed. Close and reopen this booking.';
+      try {
+        refreshed = await _gateway.load(widget.bookingId);
+      } catch (_) {
+        refreshed = map;
+        refreshFailed = true;
+      }
+      if (!mounted) return;
+      final next = BookingDeveloperState.fromMap(refreshed);
       _serverClock
         ..reset()
         ..start();
       setState(() {
         _state = next;
-        _error = null;
+        _error = refreshFailed ? refreshMessage : null;
         _customRate = next.customRate != null;
         _rateController.text = next.customRate?.toStringAsFixed(2) ?? '';
       });
       await widget.onChanged?.call();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(success)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(refreshFailed ? refreshMessage : success)),
+      );
     } catch (error) {
       if (!mounted) return;
+      final message = _friendlyError(error);
+      await _load(silent: true);
+      if (!mounted) return;
+      try {
+        await widget.onChanged?.call();
+      } catch (_) {
+        // The modal's own authoritative refresh still determines eligibility.
+      }
+      if (!mounted) return;
+      if (_state != null) setState(() => _error = message);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -343,6 +467,13 @@ class _AdministratorBookingTourTestingState
   }
 
   Future<void> _progress(String action, String label) async {
+    final snapshot = _state;
+    if (snapshot == null) return;
+    final blocker = snapshot.actionBlocker(action);
+    if (blocker != null) {
+      _showMessage(blocker);
+      return;
+    }
     final irreversible = action == 'force_complete';
     if (irreversible) {
       final confirmed = await _confirm(
@@ -353,10 +484,37 @@ class _AdministratorBookingTourTestingState
       );
       if (!confirmed) return;
     }
-    await _run(
-      () => _gateway.progress(bookingId: widget.bookingId, action: action),
-      success: '$label applied.',
-    );
+    await _run(() async {
+      final fresh = BookingDeveloperState.fromMap(
+        await _gateway.load(widget.bookingId),
+      );
+      if (!mounted) throw StateError('Tour testing screen closed.');
+      setState(() => _state = fresh);
+      final freshBlocker = fresh.actionBlocker(action);
+      if (freshBlocker != null) throw StateError(freshBlocker);
+      if (fresh.text('journey_state') != snapshot.text('journey_state') ||
+          fresh.integer('current_stop_index') !=
+              snapshot.integer('current_stop_index')) {
+        throw StateError('Tour state changed. Refresh and try again.');
+      }
+      final result = await _gateway.progress(
+        bookingId: widget.bookingId,
+        action: action,
+        expectedState: snapshot.text('journey_state'),
+        expectedStopIndex: snapshot.integer('current_stop_index'),
+      );
+      final after = BookingDeveloperState.fromMap(result);
+      if (after.text('journey_state') == snapshot.text('journey_state') &&
+          after.integer('current_stop_index') ==
+              snapshot.integer('current_stop_index') &&
+          after.boolean('current_stop_completed') ==
+              snapshot.boolean('current_stop_completed')) {
+        throw StateError(
+          'The tour state did not change. Refresh and try again.',
+        );
+      }
+      return result;
+    }, success: '$label completed.');
   }
 
   Future<int?> _customMinutes(String title) async {
@@ -426,6 +584,7 @@ class _AdministratorBookingTourTestingState
   }
 
   String _friendlyError(Object error) {
+    if (error is StateError) return error.message;
     final source = '$error';
     const messages = <String, String>{
       'SYSTEM_ADMINISTRATOR_REQUIRED':
@@ -440,6 +599,27 @@ class _AdministratorBookingTourTestingState
           'The tour must be at the current stop before departure can be simulated.',
       'NEXT_STOP_REQUIRES_COMPLETED_STOP':
           'Complete the current stop before moving to the next stop.',
+      'DRIVER_SLOTS_NOT_FILLED': 'All required Driver slots must be accepted.',
+      'CONVOY_STATE_NOT_ALIGNED':
+          'Driver tour states must align before testing can continue.',
+      'DEPARTURE_REQUIRES_COMPLETED_STOP':
+          'Complete the current stop before simulating departure.',
+      'COMPLETE_REQUIRES_ARRIVAL': 'Arrive at the current stop first.',
+      'FORCE_COMPLETE_REQUIRES_NO_ACTIVE_WAITING_LEDGER':
+          'Finalize the current waiting charge before completion.',
+      'STALE_BOOKING_TEST_STATE': 'Tour state changed. Refresh and try again.',
+      'TERMINAL_BOOKING_CANNOT_BE_TESTED':
+          'This booking was cancelled or completed and cannot be force started.',
+      'DOWNPAYMENT_NOT_CONFIRMED':
+          'Confirm the downpayment before starting the tour.',
+      'REMAINING_BALANCE_NOT_CONFIRMED':
+          'Settle remaining payment before drop-off.',
+      'DROPOFF_REQUIRED_BEFORE_COMPLETION':
+          'Arrive at drop-off before completing the tour.',
+      'BOOKING_HAS_PRODUCTION_FINANCIAL_HISTORY':
+          'This booking has production financial history and cannot be overridden.',
+      'PGRST202':
+          'Developer Tools RPC is missing remotely. Apply the pending migration.',
       'FORCE_COMPLETE_REQUIRES_SETTLED_PAYMENT':
           'Force completion is blocked until payment is settled.',
       'FORCE_COMPLETE_REQUIRES_COMPLETED_ITINERARY':
@@ -463,7 +643,8 @@ class _AdministratorBookingTourTestingState
       );
     }
     final state = _state!;
-    final enabled = state.controlsEnabled && !_busy;
+    final enabled = state.controlsEnabled && !state.terminal && !_busy;
+    final timingEnabled = enabled && state.activeStopLedger;
     final interval = state.intervalMinutes;
     final persistedOvertime = _overtimeMinutes;
     final persistedFee = state.number('additional_fee');
@@ -484,9 +665,22 @@ class _AdministratorBookingTourTestingState
         _DeveloperWarning(active: state.overrideActive),
         if (!state.controlsEnabled) ...[
           const SizedBox(height: 12),
+          _DeveloperNotice(
+            text: state.raw['financially_safe'] == false
+                ? 'Controls are locked because this booking has live payment or irreversible financial history.'
+                : 'Controls are locked. A System Administrator must enable Developer Testing and activate this booking session.',
+          ),
+        ],
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          _DeveloperNotice(text: _error!),
+        ],
+        if (state.controlsEnabled &&
+            !state.activeStopLedger &&
+            !state.terminal) ...[
+          const SizedBox(height: 12),
           const _DeveloperNotice(
-            text:
-                'Controls are locked. A System Administrator must enable Developer Testing and activate this booking session.',
+            text: 'Arrive at the current stop to enable Time of Stay controls.',
           ),
         ],
         const SizedBox(height: 14),
@@ -501,6 +695,20 @@ class _AdministratorBookingTourTestingState
               ('Stop Index', '${state.integer('current_stop_index') + 1}'),
               ('Arrival', state.text('arrival_status')),
               ('Departure', state.text('departure_status')),
+              (
+                'Stops',
+                '${state.integer('current_stop_index') + 1} / ${state.integer('stop_count')}',
+              ),
+              (
+                'Downpayment',
+                state.boolean('downpayment_ready') ? 'Confirmed' : 'Required',
+              ),
+              (
+                'Remaining Payment',
+                state.boolean('remaining_payment_ready')
+                    ? 'Satisfied'
+                    : 'Required',
+              ),
             ],
           ),
         ),
@@ -534,11 +742,13 @@ class _AdministratorBookingTourTestingState
                   for (final minutes in const [1, 5, 10])
                     OutlinedButton(
                       key: Key('developer-remaining-$minutes'),
-                      onPressed: enabled ? () => _setRemaining(minutes) : null,
+                      onPressed: timingEnabled
+                          ? () => _setRemaining(minutes)
+                          : null,
                       child: Text('$minutes min'),
                     ),
                   OutlinedButton(
-                    onPressed: enabled
+                    onPressed: timingEnabled
                         ? () async {
                             final value = await _customMinutes(
                               'Set Remaining Time',
@@ -550,7 +760,7 @@ class _AdministratorBookingTourTestingState
                   ),
                   FilledButton.tonalIcon(
                     key: const Key('developer-trigger-overtime'),
-                    onPressed: enabled
+                    onPressed: timingEnabled
                         ? () => _run(
                             () => _gateway.applyTiming(
                               bookingId: widget.bookingId,
@@ -567,7 +777,7 @@ class _AdministratorBookingTourTestingState
               ),
               const SizedBox(height: 8),
               TextButton(
-                onPressed: enabled ? () => _reset('stay') : null,
+                onPressed: timingEnabled ? () => _reset('stay') : null,
                 child: const Text('Reset Stay Timer Override'),
               ),
             ],
@@ -600,14 +810,14 @@ class _AdministratorBookingTourTestingState
                     ChoiceChip(
                       label: Text('$minutes min'),
                       selected: _testOvertimeMinutes == minutes,
-                      onSelected: enabled
+                      onSelected: timingEnabled
                           ? (_) =>
                                 setState(() => _testOvertimeMinutes = minutes)
                           : null,
                     ),
                   ActionChip(
                     label: const Text('Custom'),
-                    onPressed: enabled
+                    onPressed: timingEnabled
                         ? () async {
                             final value = await _customMinutes(
                               'Set Overtime Duration',
@@ -633,14 +843,14 @@ class _AdministratorBookingTourTestingState
                   ChoiceChip(
                     label: const Text('Use Configured Fare'),
                     selected: !_customRate,
-                    onSelected: enabled
+                    onSelected: timingEnabled
                         ? (_) => setState(() => _customRate = false)
                         : null,
                   ),
                   ChoiceChip(
                     label: const Text('Custom Test Rate'),
                     selected: _customRate,
-                    onSelected: enabled
+                    onSelected: timingEnabled
                         ? (_) => setState(() => _customRate = true)
                         : null,
                   ),
@@ -652,7 +862,7 @@ class _AdministratorBookingTourTestingState
                   width: 260,
                   child: TextField(
                     controller: _rateController,
-                    enabled: enabled,
+                    enabled: timingEnabled,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -691,12 +901,12 @@ class _AdministratorBookingTourTestingState
                 children: [
                   FilledButton.icon(
                     key: const Key('developer-apply-overtime'),
-                    onPressed: enabled ? _applyOvertime : null,
+                    onPressed: timingEnabled ? _applyOvertime : null,
                     icon: const Icon(Icons.science_outlined),
                     label: const Text('Apply Overtime Test'),
                   ),
                   OutlinedButton(
-                    onPressed: enabled ? () => _reset('overtime') : null,
+                    onPressed: timingEnabled ? () => _reset('overtime') : null,
                     child: const Text('Reset Overtime Test'),
                   ),
                 ],
@@ -709,11 +919,24 @@ class _AdministratorBookingTourTestingState
           title: 'Tour Progression',
           icon: Icons.route_outlined,
           enabled: enabled,
+          blocker: state.actionBlocker,
           actions: [
-            ('Simulate Arrival', 'simulate_arrival'),
+            (
+              state.text('journey_state') == 'en_route_dropoff'
+                  ? 'Simulate Drop-off Arrival'
+                  : 'Simulate Arrival',
+              'simulate_arrival',
+            ),
             ('Simulate Departure', 'simulate_departure'),
             ('Move to Previous Stop', 'previous_stop'),
-            ('Move to Next Stop', 'next_stop'),
+            (
+              state.text('journey_state') == 'stop_done' &&
+                      state.integer('current_stop_index') + 1 >=
+                          state.integer('stop_count')
+                  ? 'Proceed to Drop-off'
+                  : 'Move to Next Stop',
+              'next_stop',
+            ),
             ('Complete Current Stop', 'complete_stop'),
           ],
           onAction: _progress,
@@ -723,6 +946,7 @@ class _AdministratorBookingTourTestingState
           title: 'Booking State',
           icon: Icons.flag_outlined,
           enabled: enabled,
+          blocker: state.actionBlocker,
           actions: const [
             ('Force Start Tour', 'force_start'),
             ('Force Complete Tour', 'force_complete'),
@@ -989,6 +1213,7 @@ class _ActionSection extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.enabled,
+    required this.blocker,
     required this.actions,
     required this.onAction,
   });
@@ -996,6 +1221,7 @@ class _ActionSection extends StatelessWidget {
   final String title;
   final IconData icon;
   final bool enabled;
+  final String? Function(String action) blocker;
   final List<(String, String)> actions;
   final Future<void> Function(String action, String label) onAction;
 
@@ -1003,16 +1229,38 @@ class _ActionSection extends StatelessWidget {
   Widget build(BuildContext context) => _DeveloperSection(
     title: title,
     icon: icon,
-    child: Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final action in actions)
+              Tooltip(
+                message: blocker(action.$2) ?? action.$1,
+                child: OutlinedButton(
+                  key: Key('developer-action-${action.$2}'),
+                  onPressed: enabled && blocker(action.$2) == null
+                      ? () => onAction(action.$2, action.$1)
+                      : null,
+                  child: Text(action.$1),
+                ),
+              ),
+          ],
+        ),
         for (final action in actions)
-          OutlinedButton(
-            key: Key('developer-action-${action.$2}'),
-            onPressed: enabled ? () => onAction(action.$2, action.$1) : null,
-            child: Text(action.$1),
-          ),
+          if (blocker(action.$2) case final reason?)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${action.$1}: $reason',
+                style: const TextStyle(
+                  color: AdministratorColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+            ),
       ],
     ),
   );

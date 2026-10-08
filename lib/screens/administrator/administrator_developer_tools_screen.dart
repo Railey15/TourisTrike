@@ -177,7 +177,7 @@ class _AdministratorDeveloperToolsScreenState
 
           enabled
 
-              ? 'Existing eligible booking sessions can become effective. All normal payment, Driver, GPS, convoy, and journey-state rules remain enforced.'
+              ? 'Eligible booking test sessions become effective. Payment and settlement gates remain enforced. Administrator tour simulations are booking-scoped and audited.'
 
               : 'All sessions immediately become ineffective. Their records and expiry times are preserved.',
 
@@ -217,7 +217,7 @@ class _AdministratorDeveloperToolsScreenState
 
           _activeService.setDeveloperTestingEnabled(enabled));
 
-    });
+    }, success: enabled ? 'Developer testing enabled.' : 'Developer testing disabled.');
 
   }
 
@@ -353,6 +353,7 @@ class _AdministratorDeveloperToolsScreenState
         builder: (context) => _BookingTourTestingDialog(
           booking: booking,
           gateway: widget.bookingTourGateway,
+          onChanged: _reload,
         ),
       );
       if (mounted) _reload();
@@ -371,7 +372,7 @@ class _AdministratorDeveloperToolsScreenState
 
             _activeService.activateDeveloperTestSession(booking, activation));
 
-      });
+      }, success: 'Test session activated.');
 
       return;
 
@@ -429,7 +430,7 @@ class _AdministratorDeveloperToolsScreenState
 
             _activeService.resetDeveloperTestTrip(booking));
 
-      });
+      }, success: 'Test trip reset.');
 
       return;
 
@@ -491,7 +492,7 @@ class _AdministratorDeveloperToolsScreenState
 
           _activeService.deactivateDeveloperTestSession(booking));
 
-    });
+    }, success: 'Test session deactivated.');
 
   }
 
@@ -515,7 +516,7 @@ class _AdministratorDeveloperToolsScreenState
 
 
 
-  Future<void> _mutate(Future<void> Function() operation) async {
+  Future<void> _mutate(Future<void> Function() operation, {required String success}) async {
 
     if (_mutating) return;
 
@@ -529,7 +530,7 @@ class _AdministratorDeveloperToolsScreenState
 
       ScaffoldMessenger.of(context).showSnackBar(
 
-        const SnackBar(content: Text('Developer testing settings updated.')),
+        SnackBar(content: Text(success)),
 
       );
 
@@ -558,6 +559,15 @@ class _AdministratorDeveloperToolsScreenState
   String _friendlyError(Object error) {
 
     final text = error.toString();
+    if (text.contains('BOOKING_HAS_PRODUCTION_FINANCIAL_HISTORY')) {
+      return 'This booking has live payment or irreversible financial history and cannot enter a test session.';
+    }
+    if (text.contains('ACTIVE_DEVELOPER_TEST_SESSION_REQUIRED')) {
+      return 'Activate a test session for this booking, then refresh and try again.';
+    }
+    if (text.contains('SYSTEM_ADMINISTRATOR_REQUIRED')) {
+      return 'Only a System Administrator can use Developer Tools.';
+    }
     if (text.contains('BOOKING_HAS_LIVE_PROVIDER_PAYMENT')) {
       return 'This booking contains a live provider payment that must be retained.';
     }
@@ -1285,9 +1295,13 @@ class _DeveloperBookingsTable extends StatelessWidget {
                               ),
                               IconButton(
                                 key: Key('developer-booking-delete-${booking.id}'),
-                                tooltip: 'Delete booking',
+                                tooltip: booking.testSessionActive && globalEnabled
+                                    ? 'Delete booking'
+                                    : 'Activate a test session before deleting this booking',
                                 color: AdministratorColors.red,
-                                onPressed: () => onDelete(booking),
+                                onPressed: booking.testSessionActive && globalEnabled
+                                    ? () => onDelete(booking)
+                                    : null,
                                 icon: const Icon(Icons.delete_outline_rounded),
                               ),
                             ],
@@ -1437,9 +1451,13 @@ class _DeveloperBookingCards extends StatelessWidget {
                       ),
                       IconButton(
                         key: Key('developer-booking-delete-${booking.id}'),
-                        tooltip: 'Delete booking',
+                        tooltip: booking.testSessionActive && globalEnabled
+                            ? 'Delete booking'
+                            : 'Activate a test session before deleting this booking',
                         color: AdministratorColors.red,
-                        onPressed: () => onDelete(booking),
+                        onPressed: booking.testSessionActive && globalEnabled
+                            ? () => onDelete(booking)
+                            : null,
                         icon: const Icon(Icons.delete_outline_rounded),
                       ),
                     ],
@@ -2302,10 +2320,11 @@ class _PaginationBar extends StatelessWidget {
 
 
 class _BookingTourTestingDialog extends StatelessWidget {
-  const _BookingTourTestingDialog({required this.booking, this.gateway});
+  const _BookingTourTestingDialog({required this.booking, this.gateway, required this.onChanged});
 
   final AdministratorDeveloperTestBooking booking;
   final BookingDeveloperToolsGateway? gateway;
+  final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2363,8 +2382,10 @@ class _BookingTourTestingDialog extends StatelessWidget {
             const Divider(height: 1),
             Expanded(
               child: AdministratorBookingTourTesting(
+                key: ValueKey(booking.id),
                 bookingId: booking.id,
                 gateway: gateway,
+                onChanged: onChanged,
               ),
             ),
           ],

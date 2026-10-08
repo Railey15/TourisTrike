@@ -25,7 +25,7 @@ try {
       ('${id(2)}','${id(1)}','pending','waiting_for_drivers',0,2,null);
   `);
   const migration = readFileSync(new URL(
-    '../migrations/20261008040000_transactional_email_outbox.sql',
+    '../migrations/20261009050000_transactional_email_outbox.sql',
     import.meta.url), 'utf8');
   await db.exec(migration);
   await db.exec(`

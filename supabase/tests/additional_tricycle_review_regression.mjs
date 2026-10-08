@@ -26,7 +26,8 @@ try {
       adults integer, children integer, total_passengers integer,
       travel_date date, scheduled_start_at timestamptz,
       estimated_end_at timestamptz, arrived_at timestamptz,
-      picked_up_at timestamptz, status text, booking_status text,
+      picked_up_at timestamptz, cancelled_at timestamptz,
+      completed_at timestamptz, status text, booking_status text,
       total_amount numeric default 700, downpayment_amount numeric default 0,
       remaining_balance numeric default 700, updated_at timestamptz);
     create table booking_drivers (booking_id uuid, driver_id uuid,
@@ -72,9 +73,14 @@ try {
       now() + interval '2 days', now() + interval '2 days 3 hours',
       'pending', 'waiting_for_drivers'
     );
+    insert into package_bookings (
+      id, tourist_id, additional_tricycle_count, status, booking_status
+    ) values (
+      '${id(10)}', '${id(2)}', 2, 'cancelled', 'cancelled'
+    );
   `);
   const migration = readFileSync(
-    new URL('../migrations/20261008020000_additional_tricycle_review.sql',
+    new URL('../migrations/20261009030000_additional_tricycle_review.sql',
       import.meta.url), 'utf8');
   await db.exec(migration);
   await db.exec(`
@@ -88,6 +94,8 @@ try {
   `);
   assert.equal((await db.query(`select additional_tricycle_request_status as s
     from package_bookings where id = $1`, [id(5)])).rows[0].s, 'pending');
+  assert.equal((await db.query(`select additional_tricycle_request_status as s
+    from package_bookings where id = $1`, [id(10)])).rows[0].s, 'none');
   await db.query(`select set_config('test.uid', $1, false)`, [id(4)]);
   await assert.rejects(() => db.query(
     `select review_additional_tricycle_request($1, true)`, [id(5)]

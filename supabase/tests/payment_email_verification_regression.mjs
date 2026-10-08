@@ -9,7 +9,7 @@ const other = id(2);
 const booking = id(3);
 const hash = (character) => character.repeat(64);
 const migration = readFileSync(
-  new URL('../migrations/20261008000000_payment_email_verification.sql', import.meta.url),
+  new URL('../migrations/20261008005000_payment_email_verification.sql', import.meta.url),
   'utf8',
 ).replaceAll('\r\n', '\n');
 const paymentSql = migration.slice(

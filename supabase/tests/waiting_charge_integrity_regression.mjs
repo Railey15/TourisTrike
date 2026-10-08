@@ -106,7 +106,7 @@ try {
         now() - interval '75 minutes', now() - interval '45 minutes', 15, 50);
   `);
   const migration = readFileSync(
-    new URL('../migrations/20261008015000_waiting_charge_integrity.sql',
+    new URL('../migrations/20261009020000_waiting_charge_integrity.sql',
       import.meta.url), 'utf8');
   await db.exec(migration);
   await db.exec(`

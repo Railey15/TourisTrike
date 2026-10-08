@@ -117,7 +117,7 @@ void main() {
 
   test('server migration stamps version and time and enforces cutoff', () {
     final sql = File(
-      'supabase/migrations/20260930020000_booking_notices_cancellation_policy.sql',
+      'supabase/migration_hold/20260930020000_booking_notices_cancellation_policy.sql',
     ).readAsStringSync();
     expect(sql, contains('new.terms_accepted_at := now()'));
     expect(sql, contains('new.privacy_notice_acknowledged_at := now()'));

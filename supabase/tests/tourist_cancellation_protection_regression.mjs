@@ -50,7 +50,7 @@ try {
       ('${id(13)}','${id(1)}');
   `);
   const migration = readFileSync(new URL(
-    '../migrations/20261008030000_tourist_late_cancellation_protection.sql',
+    '../migrations/20261009040000_tourist_late_cancellation_protection.sql',
     import.meta.url), 'utf8');
   await db.exec(migration);
   await db.query(`select set_config('test.uid',$1,false)`, [id(1)]);

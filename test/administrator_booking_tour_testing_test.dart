@@ -163,7 +163,7 @@ void main() {
   });
 
   test('state response includes recent System Administrator test actions', () {
-    final sql = _migrationSql();
+    final sql = _progressionMigrationSql();
     expect(sql, contains("'recent_test_actions'"));
     expect(sql, contains("log.table_name = 'package_bookings'"));
     expect(sql, contains('log.actor_id'));
@@ -289,17 +289,122 @@ void main() {
     );
   });
 
+  testWidgets('Next Stop refreshes the selected stop and blocks a repeat tap', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final gateway = _ProgressGateway();
+    var parentRefreshes = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AdministratorBookingTourTesting(
+            bookingId: 'booking-1',
+            gateway: gateway,
+            onChanged: () => parentRefreshes++,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final nextStop = find.byKey(const Key('developer-action-next_stop'));
+    await tester.scrollUntilVisible(nextStop, 300);
+    await tester.tap(nextStop);
+    await tester.pumpAndSettle();
+    expect(gateway.calls, 1);
+    expect(gateway.index, 1);
+    expect(gateway.journey, 'en_route_stop');
+    expect(parentRefreshes, 1);
+    await tester.scrollUntilVisible(find.text('Second stop'), -300);
+    expect(find.text('Second stop'), findsWidgets);
+    await tester.scrollUntilVisible(nextStop, 300);
+    expect(tester.widget<OutlinedButton>(nextStop).onPressed, isNull);
+    expect(
+      find.textContaining('Complete and depart from the current stop first.'),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('Force Start uses fresh state and advances an eligible tour', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final gateway = _ForceStartGateway();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AdministratorBookingTourTesting(
+            bookingId: 'booking-1',
+            gateway: gateway,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final start = find.byKey(const Key('developer-action-force_start'));
+    await tester.scrollUntilVisible(start, 300);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    expect(gateway.progressCalls, 1);
+    expect(gateway.reads, greaterThanOrEqualTo(3));
+    expect(gateway.journey, 'en_route_stop');
+    await tester.drag(find.byType(ListView).first, const Offset(0, 800));
+    await tester.pumpAndSettle();
+    expect(find.text('en_route_stop'), findsWidgets);
+  });
+
+  testWidgets('Force Start rejects a booking cancelled after modal load', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final gateway = _ForceStartGateway(cancelAfterFirstRead: true);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AdministratorBookingTourTesting(
+            bookingId: 'booking-1',
+            gateway: gateway,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final start = find.byKey(const Key('developer-action-force_start'));
+    await tester.scrollUntilVisible(start, 300);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    expect(gateway.progressCalls, 0);
+    expect(tester.widget<OutlinedButton>(start).onPressed, isNull);
+    expect(
+      find.textContaining('terminal booking cannot be changed'),
+      findsWidgets,
+    );
+    await tester.drag(find.byType(ListView).first, const Offset(0, 800));
+    await tester.pumpAndSettle();
+    expect(find.text('cancelled'), findsWidgets);
+  });
+
   test('migration enforces scope, audit, realtime and financial contracts', () {
     final sql = File(
       'supabase/migrations/20261008010000_booking_tour_developer_overrides.sql',
     ).readAsStringSync();
+    final progression = _progressionMigrationSql();
     final stayWidget = File(
       'lib/widgets/tour_stay_status_card.dart',
     ).readAsStringSync();
 
     expect(sql, contains('public.is_system_administrator()'));
     expect(sql, contains('ACTIVE_DEVELOPER_TEST_SESSION_REQUIRED'));
-    expect(sql, contains('SYSTEM_ADMINISTRATOR_REQUIRED'));
+    expect(progression, contains('SYSTEM_ADMINISTRATOR_REQUIRED'));
     expect(
       sql,
       contains(
@@ -327,13 +432,17 @@ String _migrationSql() => File(
   'supabase/migrations/20261008010000_booking_tour_developer_overrides.sql',
 ).readAsStringSync();
 
+String _progressionMigrationSql() => File(
+  'supabase/migrations/20261009060000_administrator_tour_testing_progression.sql',
+).readAsStringSync();
+
 String _authorizationBlock() {
-  final sql = _migrationSql();
+  final sql = _progressionMigrationSql();
   final start = sql.indexOf(
-    'create or replace function public.system_administrator_booking_test_authorized',
+    'create or replace function public.booking_test_admin_authorized',
   );
   final end = sql.indexOf(
-    'create or replace function public.booking_test_session_active',
+    'create function public.administrator_get_booking_developer_state_v2',
   );
   return sql.substring(start, end);
 }
@@ -376,6 +485,7 @@ class _FakeGateway implements BookingDeveloperToolsGateway {
     'booking_total': 1200,
     'override_active': lastMode != null,
     'override_kind': lastMode,
+    'active_stop_waiting_ledger': true,
   };
 
   @override
@@ -398,6 +508,8 @@ class _FakeGateway implements BookingDeveloperToolsGateway {
   Future<Map<String, dynamic>> progress({
     required dynamic bookingId,
     required String action,
+    required String expectedState,
+    required int expectedStopIndex,
   }) async => state;
 
   @override
@@ -406,6 +518,86 @@ class _FakeGateway implements BookingDeveloperToolsGateway {
     required String scope,
   }) async {
     lastMode = null;
+    return state;
+  }
+}
+
+class _ProgressGateway extends _FakeGateway {
+  int calls = 0;
+  int index = 0;
+  String journey = 'stop_done';
+
+  @override
+  Map<String, dynamic> get state => {
+    ...super.state,
+    'journey_state': journey,
+    'current_stop_index': index,
+    'current_stop_id': index == 0 ? 'stop-1' : 'stop-2',
+    'current_stop_name': index == 0 ? 'First stop' : 'Second stop',
+    'stop_count': 2,
+    'current_stop_completed': index == 0,
+    'current_stop_departed': index == 0,
+    'downpayment_ready': true,
+    'remaining_payment_ready': true,
+    'dropoff_payment_ready': true,
+  };
+
+  @override
+  Future<Map<String, dynamic>> progress({
+    required dynamic bookingId,
+    required String action,
+    required String expectedState,
+    required int expectedStopIndex,
+  }) async {
+    expect(action, 'next_stop');
+    expect(expectedState, 'stop_done');
+    expect(expectedStopIndex, 0);
+    calls++;
+    index = 1;
+    journey = 'en_route_stop';
+    return state;
+  }
+}
+
+class _ForceStartGateway extends _FakeGateway {
+  _ForceStartGateway({this.cancelAfterFirstRead = false});
+
+  final bool cancelAfterFirstRead;
+  int reads = 0;
+  int progressCalls = 0;
+  String journey = 'assigned';
+
+  @override
+  Map<String, dynamic> get state => {
+    ...super.state,
+    'booking_status': cancelAfterFirstRead && reads > 1
+        ? 'cancelled'
+        : 'confirmed',
+    'journey_state': journey,
+    'accepted_driver_count': 1,
+    'required_driver_count': 1,
+    'convoy_aligned': true,
+    'downpayment_ready': true,
+    'stop_count': 2,
+  };
+
+  @override
+  Future<Map<String, dynamic>> load(dynamic bookingId) async {
+    reads++;
+    return state;
+  }
+
+  @override
+  Future<Map<String, dynamic>> progress({
+    required dynamic bookingId,
+    required String action,
+    required String expectedState,
+    required int expectedStopIndex,
+  }) async {
+    expect(action, 'force_start');
+    expect(expectedState, 'assigned');
+    progressCalls++;
+    journey = 'en_route_stop';
     return state;
   }
 }
