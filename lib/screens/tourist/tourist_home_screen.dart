@@ -220,6 +220,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             'id, title, subtitle, city, price_text, duration_text, '
             'image_url, cover_image_url, status, visibility_status',
           )
+          .isFilter('archived_at', null)
           .eq('status', 'published')
           .eq('visibility_status', 'visible')
           .order('created_at', ascending: false)

@@ -6,6 +6,7 @@ import 'package:touristrike/screens/main_tenant/layouts/main_tenant_shell.dart';
 import 'package:touristrike/screens/main_tenant/main_tenant_models.dart';
 import 'package:touristrike/screens/main_tenant/main_tenant_nav.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
+import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 
 const _viewports = <Size>[
   Size(360, 800),
@@ -109,6 +110,102 @@ void main() {
         reason:
             'Subtenant portal overflowed at ${viewport.width}x${viewport.height}',
       );
+    }
+  });
+
+  testWidgets('all eight subtenant headers keep desktop controls aligned', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1440, 900);
+
+    _SubTenantHeaderGeometry? baseline;
+    for (var index = 0; index < 8; index++) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SubTenantPortalScreen(
+            key: ValueKey<int>(index),
+            initialIndex: index,
+            pageBuilder: (pageIndex) => _SubTenantHeaderProbe(index: pageIndex),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final geometry = _subtenantHeaderGeometry(tester);
+      expect(geometry.header.height, 92);
+      expect(geometry.search.width, 260);
+      expect(geometry.actionSlot.width, 190);
+      expect(geometry.search.center.dy, geometry.actionSlot.center.dy);
+      expect(geometry.search.center.dy, geometry.notifications.center.dy);
+      expect(geometry.search.center.dy, geometry.administrator.center.dy);
+      expect(tester.takeException(), isNull);
+
+      final previous = baseline;
+      if (previous != null) {
+        expect(geometry.header, previous.header);
+        expect(geometry.search, previous.search);
+        expect(geometry.actionSlot, previous.actionSlot);
+        expect(geometry.notifications, previous.notifications);
+        expect(geometry.administrator, previous.administrator);
+      } else {
+        baseline = geometry;
+      }
+
+      expect(find.text('Add Spot'), index == 1 ? findsOneWidget : findsNothing);
+      expect(
+        find.text('Create Package'),
+        index == 2 ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.byTooltip('Refresh settings'),
+        index == 6 ? findsOneWidget : findsNothing,
+      );
+    }
+  });
+
+  testWidgets('all eight subtenant headers adapt consistently on tablet', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(820, 1180);
+
+    _SubTenantHeaderGeometry? baseline;
+    for (var index = 0; index < 8; index++) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SubTenantPortalScreen(
+            key: ValueKey<int>(index),
+            initialIndex: index,
+            pageBuilder: (pageIndex) => _SubTenantHeaderProbe(index: pageIndex),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final geometry = _subtenantHeaderGeometry(tester);
+      expect(geometry.header.height, 146);
+      expect(geometry.search.width, 260);
+      expect(geometry.actionSlot.width, 190);
+      expect(geometry.search.center.dy, geometry.actionSlot.center.dy);
+      expect(tester.takeException(), isNull);
+
+      final previous = baseline;
+      if (previous != null) {
+        expect(geometry.header, previous.header);
+        expect(geometry.search, previous.search);
+        expect(geometry.actionSlot, previous.actionSlot);
+        expect(geometry.notifications, previous.notifications);
+        expect(geometry.administrator, previous.administrator);
+      } else {
+        baseline = geometry;
+      }
     }
   });
 
@@ -228,4 +325,87 @@ class _SubTenantResponsiveProbe extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SubTenantHeaderProbe extends StatelessWidget {
+  const _SubTenantHeaderProbe({required this.index});
+
+  final int index;
+
+  static const _titles = <String>[
+    'Dashboard',
+    'Tourist Spots',
+    'Packages',
+    'Bookings',
+    'Drivers & Guides',
+    'Municipality Reports',
+    'Settings',
+    'Disputes & Cases',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = switch (index) {
+      1 => <Widget>[
+        SubTenantHeaderAction(
+          onPressed: () {},
+          icon: Icons.add_location_alt_rounded,
+          label: 'Add Spot',
+        ),
+      ],
+      2 => <Widget>[
+        SubTenantHeaderAction(
+          onPressed: () {},
+          icon: Icons.add_box_rounded,
+          label: 'Create Package',
+        ),
+      ],
+      6 => <Widget>[
+        IconButton(
+          onPressed: () {},
+          tooltip: 'Refresh settings',
+          icon: const Icon(Icons.refresh_rounded),
+        ),
+      ],
+      _ => const <Widget>[],
+    };
+
+    return SubTenantAdminShell(
+      currentIndex: index,
+      title: _titles[index],
+      subtitle: 'Municipality-scoped portal information and operations.',
+      actions: actions,
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _SubTenantHeaderGeometry {
+  const _SubTenantHeaderGeometry({
+    required this.header,
+    required this.search,
+    required this.actionSlot,
+    required this.notifications,
+    required this.administrator,
+  });
+
+  final Rect header;
+  final Rect search;
+  final Rect actionSlot;
+  final Rect notifications;
+  final Rect administrator;
+}
+
+_SubTenantHeaderGeometry _subtenantHeaderGeometry(WidgetTester tester) {
+  return _SubTenantHeaderGeometry(
+    header: tester.getRect(find.byKey(SubTenantHeaderKeys.header)),
+    search: tester.getRect(find.byKey(SubTenantHeaderKeys.search)),
+    actionSlot: tester.getRect(find.byKey(SubTenantHeaderKeys.actionSlot)),
+    notifications: tester.getRect(
+      find.byKey(SubTenantHeaderKeys.notifications),
+    ),
+    administrator: tester.getRect(
+      find.byKey(SubTenantHeaderKeys.administrator),
+    ),
+  );
 }

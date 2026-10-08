@@ -15,6 +15,20 @@ import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.da
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_sidebar.dart';
 
+@visibleForTesting
+abstract final class SubTenantHeaderKeys {
+  static const header = ValueKey<String>('subtenant-header');
+  static const title = ValueKey<String>('subtenant-header-title');
+  static const search = ValueKey<String>('subtenant-header-search');
+  static const actionSlot = ValueKey<String>('subtenant-header-action-slot');
+  static const notifications = ValueKey<String>(
+    'subtenant-header-notifications',
+  );
+  static const administrator = ValueKey<String>(
+    'subtenant-header-administrator',
+  );
+}
+
 class SubTenantPortalScreen extends StatefulWidget {
   const SubTenantPortalScreen({
     super.key,
@@ -588,22 +602,29 @@ class _DesktopHeader extends StatelessWidget {
   final String? subtitle;
   final List<Widget> actions;
 
+  static const double _singleRowMinWidth = 880;
+  static const double _searchWidth = 260;
+  static const double _actionSlotWidth = 190;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final twoRows = constraints.maxWidth < 840;
+        final twoRows = constraints.maxWidth < _singleRowMinWidth;
         final showFullBadge = constraints.maxWidth >= 1060;
         final titleBar = PageTitleBar(
+          key: SubTenantHeaderKeys.title,
           title: title,
           subtitle: subtitle,
           actions: const [],
         );
-        final actionCluster = actions.isEmpty
-            ? null
-            : _HeaderActionCluster(actions: actions);
+        final actionSlot = _HeaderActionSlot(
+          width: _actionSlotWidth,
+          actions: actions,
+        );
 
         return Container(
+          key: SubTenantHeaderKeys.header,
           height: twoRows ? 146 : 92,
           padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
           decoration: BoxDecoration(
@@ -626,25 +647,32 @@ class _DesktopHeader extends StatelessWidget {
                         children: [
                           Expanded(child: titleBar),
                           const SizedBox(width: 12),
-                          const _NotificationButton(),
+                          const KeyedSubtree(
+                            key: SubTenantHeaderKeys.notifications,
+                            child: _NotificationButton(),
+                          ),
                           const SizedBox(width: 10),
-                          const _AdminBadge(compact: true),
+                          const KeyedSubtree(
+                            key: SubTenantHeaderKeys.administrator,
+                            child: _AdminBadge(compact: true),
+                          ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(
+                        SizedBox(
+                          width: _searchWidth,
                           child: _HeaderSearch(
+                            key: SubTenantHeaderKeys.search,
                             scope: currentIndex,
                             fillWidth: true,
                           ),
                         ),
-                        if (actionCluster != null) ...[
-                          const SizedBox(width: 10),
-                          Flexible(child: actionCluster),
-                        ],
+                        const Spacer(),
+                        const SizedBox(width: 10),
+                        actionSlot,
                       ],
                     ),
                   ],
@@ -655,26 +683,51 @@ class _DesktopHeader extends StatelessWidget {
                     Expanded(child: titleBar),
                     const SizedBox(width: 14),
                     SizedBox(
-                      width: (constraints.maxWidth * .22)
-                          .clamp(230.0, 340.0)
-                          .toDouble(),
+                      width: _searchWidth,
                       child: _HeaderSearch(
+                        key: SubTenantHeaderKeys.search,
                         scope: currentIndex,
                         fillWidth: true,
                       ),
                     ),
                     const SizedBox(width: 12),
-                    if (actionCluster != null) ...[
-                      Flexible(child: actionCluster),
-                      const SizedBox(width: 10),
-                    ],
-                    const _NotificationButton(),
+                    actionSlot,
                     const SizedBox(width: 10),
-                    _AdminBadge(compact: !showFullBadge),
+                    const KeyedSubtree(
+                      key: SubTenantHeaderKeys.notifications,
+                      child: _NotificationButton(),
+                    ),
+                    const SizedBox(width: 10),
+                    KeyedSubtree(
+                      key: SubTenantHeaderKeys.administrator,
+                      child: _AdminBadge(compact: !showFullBadge),
+                    ),
                   ],
                 ),
         );
       },
+    );
+  }
+}
+
+class _HeaderActionSlot extends StatelessWidget {
+  const _HeaderActionSlot({required this.width, required this.actions});
+
+  final double width;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: SubTenantHeaderKeys.actionSlot,
+      width: width,
+      height: 46,
+      child: actions.isEmpty
+          ? null
+          : Align(
+              alignment: Alignment.centerRight,
+              child: _HeaderActionCluster(actions: actions),
+            ),
     );
   }
 }
@@ -704,7 +757,7 @@ class _HeaderActionCluster extends StatelessWidget {
 }
 
 class _HeaderSearch extends StatefulWidget {
-  const _HeaderSearch({required this.scope, this.fillWidth = false});
+  const _HeaderSearch({super.key, required this.scope, this.fillWidth = false});
 
   final int scope;
   final bool fillWidth;

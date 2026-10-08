@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/package_builder_ai_service.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
+import 'package:touristrike/screens/subtenant/subtenant_package_itinerary_ordering.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
@@ -108,6 +109,7 @@ class _SubTenantPackageFormScreenState
   bool _uploadingCover = false;
   bool _spotsInitialized = false;
   bool _itineraryLoading = false;
+  bool _itineraryReordering = false;
   bool _aiMode = true;
   bool _aiGenerating = false;
   bool _aiGenerated = false;
@@ -134,6 +136,7 @@ class _SubTenantPackageFormScreenState
       _uploadingImage ||
       _uploadingCover ||
       _itineraryLoading ||
+      _itineraryReordering ||
       _aiGenerating;
 
   @override
@@ -274,20 +277,22 @@ class _SubTenantPackageFormScreenState
 
   void _moveSpotUp(int index) {
     if (index <= 0) return;
+    final reordered = moveSelectedPackageStop(_selectedSpots, index, index - 1);
     setState(() {
-      final item = _selectedSpots.removeAt(index);
-      _selectedSpots.insert(index - 1, item);
-      _normalizeSelectedSpots();
+      _selectedSpots
+        ..clear()
+        ..addAll(reordered);
     });
     _recalcDistance();
   }
 
   void _moveSpotDown(int index) {
     if (index >= _selectedSpots.length - 1) return;
+    final reordered = moveSelectedPackageStop(_selectedSpots, index, index + 1);
     setState(() {
-      final item = _selectedSpots.removeAt(index);
-      _selectedSpots.insert(index + 1, item);
-      _normalizeSelectedSpots();
+      _selectedSpots
+        ..clear()
+        ..addAll(reordered);
     });
     _recalcDistance();
   }
@@ -1076,24 +1081,6 @@ class _SubTenantPackageFormScreenState
     SubTenantAdminShell.navigateTo(context, 2, currentIndex: 2);
   }
 
-  Future<void> _reloadItinerary(SubTenantProfile profile) async {
-    if (_workingPackageId == null) return;
-
-    setState(() => _itineraryLoading = true);
-    try {
-      final days = await _service.fetchItinerary(profile, _workingPackageId);
-      if (!mounted) return;
-      setState(() => _itineraryDays = days);
-    } catch (error) {
-      if (!mounted) return;
-      showSubTenantSnack(context, 'Failed to load itinerary: $error');
-    } finally {
-      if (mounted) {
-        setState(() => _itineraryLoading = false);
-      }
-    }
-  }
-
   Future<void> _addDay(SubTenantProfile profile) async {
     if (_workingPackageId == null || _itineraryLoading) return;
     setState(() => _itineraryLoading = true);
@@ -1107,24 +1094,22 @@ class _SubTenantPackageFormScreenState
       );
     } catch (error) {
       if (!mounted) return;
-      setState(() => _itineraryLoading = false);
       showSubTenantSnack(context, 'Failed to add day: $error');
+    } finally {
+      if (mounted) setState(() => _itineraryLoading = false);
     }
   }
 
   Future<void> _syncGeneratedItinerary(SubTenantProfile profile) async {
     if (_workingPackageId == null) return;
 
-    await _service.savePackageSelectedSpots(
-      packageId: _workingPackageId,
-      selectedSpots: _selectedSpots,
-    );
-    await _service.syncPackageItineraryFromSelectedSpots(
+    final days = await _service.persistPackageItineraryOrder(
       profile: profile,
       packageId: _workingPackageId,
       selectedSpots: _selectedSpots,
     );
-    await _reloadItinerary(profile);
+    if (!mounted) return;
+    setState(() => _itineraryDays = days);
   }
 
   Future<void> _openItemForm(
@@ -1162,28 +1147,58 @@ class _SubTenantPackageFormScreenState
     int newIndex,
   ) async {
     if (_workingPackageId == null ||
+        _itineraryReordering ||
+        oldIndex < 0 ||
+        oldIndex >= day.items.length ||
         newIndex < 0 ||
         newIndex >= day.items.length) {
       return;
     }
 
-    final movedSpotId = stId(day.items[oldIndex].spotId);
-    final sourceIndex = _selectedSpots.indexWhere(
-      (selectedSpot) => stId(selectedSpot.spot.id) == movedSpotId,
+    final result = reorderPackageItineraryStops(
+      selectedSpots: _selectedSpots,
+      day: day,
+      oldIndex: oldIndex,
+      newIndex: newIndex,
     );
-    if (sourceIndex < 0) return;
+    if (!result.changed) return;
+
+    final previousSpots = List<SelectedPackageSpot>.from(_selectedSpots);
+    final previousDays = List<PackageItineraryDay>.from(_itineraryDays);
 
     setState(() {
-      final moved = _selectedSpots.removeAt(sourceIndex);
-      _selectedSpots.insert(newIndex, moved);
-      _normalizeSelectedSpots();
+      _selectedSpots
+        ..clear()
+        ..addAll(result.selectedSpots);
+      _itineraryDays = [
+        for (final itineraryDay in _itineraryDays)
+          if (stId(itineraryDay.id) == stId(day.id))
+            result.day
+          else
+            itineraryDay,
+      ];
+      _itineraryReordering = true;
     });
 
     try {
-      await _syncGeneratedItinerary(profile);
+      final days = await _service.persistPackageItineraryOrder(
+        profile: profile,
+        packageId: _workingPackageId,
+        selectedSpots: result.selectedSpots,
+      );
+      if (!mounted) return;
+      setState(() => _itineraryDays = days);
     } catch (error) {
       if (!mounted) return;
+      setState(() {
+        _selectedSpots
+          ..clear()
+          ..addAll(previousSpots);
+        _itineraryDays = previousDays;
+      });
       showSubTenantSnack(context, 'Failed to reorder item: $error');
+    } finally {
+      if (mounted) setState(() => _itineraryReordering = false);
     }
   }
 
@@ -2573,6 +2588,7 @@ class _SubTenantPackageFormScreenState
                 child: _WizardDayCard(
                   day: day,
                   selectedSpots: _selectedSpots,
+                  reordering: _itineraryReordering,
                   onEditItem: (item) => _openItemForm(data, item),
                   onMoveItem: (oldIndex, newIndex) =>
                       _moveItem(data.profile, day, oldIndex, newIndex),
@@ -3494,17 +3510,20 @@ class _WizardDayCard extends StatelessWidget {
   const _WizardDayCard({
     required this.day,
     required this.selectedSpots,
+    required this.reordering,
     required this.onEditItem,
     required this.onMoveItem,
   });
 
   final PackageItineraryDay day;
   final List<SelectedPackageSpot> selectedSpots;
+  final bool reordering;
   final ValueChanged<PackageItineraryItem> onEditItem;
   final void Function(int oldIndex, int newIndex) onMoveItem;
 
   @override
   Widget build(BuildContext context) {
+    final items = packageItineraryItemsInSequence(day.items);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -3525,7 +3544,7 @@ class _WizardDayCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          if (day.items.isEmpty)
+          if (items.isEmpty)
             const SubTenantEmptyState(
               icon: Icons.route_outlined,
               title: 'No stops for this day tour',
@@ -3533,7 +3552,7 @@ class _WizardDayCard extends StatelessWidget {
                   'Return to the Spots step to configure destinations, then generate the itinerary again.',
             )
           else
-            ...day.items.asMap().entries.map(
+            ...items.asMap().entries.map(
               (entry) => _WizardItineraryTile(
                 item: entry.value,
                 selectedSpot: selectedSpots
@@ -3543,10 +3562,14 @@ class _WizardDayCard extends StatelessWidget {
                       orElse: () => null,
                     ),
                 index: entry.key,
-                total: day.items.length,
+                total: items.length,
                 onEdit: () => onEditItem(entry.value),
-                onMoveUp: () => onMoveItem(entry.key, entry.key - 1),
-                onMoveDown: () => onMoveItem(entry.key, entry.key + 1),
+                onMoveUp: reordering
+                    ? null
+                    : () => onMoveItem(entry.key, entry.key - 1),
+                onMoveDown: reordering
+                    ? null
+                    : () => onMoveItem(entry.key, entry.key + 1),
               ),
             ),
         ],
@@ -3571,8 +3594,8 @@ class _WizardItineraryTile extends StatelessWidget {
   final int index;
   final int total;
   final VoidCallback onEdit;
-  final VoidCallback onMoveUp;
-  final VoidCallback onMoveDown;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
 
   @override
   Widget build(BuildContext context) {
@@ -3987,6 +4010,7 @@ class _PackagePreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final previewSpots = packageSelectedSpotsInSequence(selectedSpots);
     return SubTenantDashboardCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4114,7 +4138,7 @@ class _PackagePreviewCard extends StatelessWidget {
                                 ),
                             ],
                           ),
-                          if (selectedSpots.isNotEmpty) ...[
+                          if (previewSpots.isNotEmpty) ...[
                             const SizedBox(height: 14),
                             const Text(
                               'Stops',
@@ -4125,7 +4149,7 @@ class _PackagePreviewCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 6),
-                            for (final entry in selectedSpots.asMap().entries)
+                            for (final entry in previewSpots.asMap().entries)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 5),
                                 child: Row(

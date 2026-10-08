@@ -665,6 +665,7 @@ class SubTenantPackage {
     required this.submittedBy,
     required this.submittedByName,
     required this.createdAt,
+    this.archivedAt,
   });
 
   final dynamic id;
@@ -684,6 +685,32 @@ class SubTenantPackage {
   final String submittedBy;
   final String submittedByName;
   final DateTime? createdAt;
+  final DateTime? archivedAt;
+
+  bool get isArchived => archivedAt != null;
+
+  SubTenantPackage withArchivedAt(DateTime? value) {
+    return SubTenantPackage(
+      id: id,
+      title: title,
+      subtitle: subtitle,
+      description: description,
+      city: city,
+      priceText: priceText,
+      durationText: durationText,
+      estimatedBudget: estimatedBudget,
+      groupSize: groupSize,
+      routeDistanceKm: routeDistanceKm,
+      imageUrl: imageUrl,
+      coverImageUrl: coverImageUrl,
+      status: status,
+      visibilityStatus: visibilityStatus,
+      submittedBy: submittedBy,
+      submittedByName: submittedByName,
+      createdAt: createdAt,
+      archivedAt: value,
+    );
+  }
 
   factory SubTenantPackage.fromMap(Map<String, dynamic> map) {
     return SubTenantPackage(
@@ -706,6 +733,7 @@ class SubTenantPackage {
       submittedBy: stString(map, const ['submitted_by']),
       submittedByName: stString(map, const ['submitted_by_name']),
       createdAt: stDate(map['created_at']),
+      archivedAt: stDate(map['archived_at']),
     );
   }
 }

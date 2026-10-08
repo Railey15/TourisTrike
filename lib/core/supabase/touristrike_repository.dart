@@ -429,6 +429,7 @@ class TourisTrikeRepository {
     dynamic query = _client.from(TourisTrikeTables.tourPackages).select('*');
     if (publishedOnly) {
       query = query
+          .isFilter('archived_at', null)
           .eq('status', 'published')
           .eq('visibility_status', 'visible');
     }
@@ -2873,6 +2874,7 @@ class TourisTrikeRepository {
       final rows = await _client
           .from(TourisTrikeTables.tourPackages)
           .select('city')
+          .isFilter('archived_at', null)
           .eq('status', 'published')
           .eq('visibility_status', 'visible');
       return {

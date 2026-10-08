@@ -52,6 +52,10 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
 
   late Future<_PackageListLoad> _future;
 
+  _PackageListLoad? _currentLoad;
+
+  final Set<String> _archiveBusyIds = <String>{};
+
   String _status = 'all';
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -116,6 +120,7 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
     final packages =
         await _service.fetchPackages(
       profile,
+      includeArchived: true,
     );
 
     return _PackageListLoad(
@@ -128,6 +133,7 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
     late Future<_PackageListLoad> nextFuture;
 
     setState(() {
+      _currentLoad = null;
       nextFuture = _load();
       _future = nextFuture;
     });
@@ -228,6 +234,95 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
     }
   }
 
+  Future<void> _setArchived(
+    _PackageListLoad load,
+    SubTenantPackage package,
+    bool archived,
+  ) async {
+    final packageKey = stId(package.id);
+    if (_archiveBusyIds.isNotEmpty) {
+      return;
+    }
+
+    if (archived) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Archive Package?'),
+            content: const Text(
+              'This package will be removed from the active package library but can be restored later.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Archive'),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirmed != true || !mounted) {
+        return;
+      }
+    }
+
+    final previousLoad = load;
+    final updatedPackage = package.withArchivedAt(
+      archived ? DateTime.now().toUtc() : null,
+    );
+    final updatedLoad = _PackageListLoad(
+      profile: load.profile,
+      packages: load.packages
+          .map(
+            (item) => stId(item.id) == packageKey ? updatedPackage : item,
+          )
+          .toList(growable: false),
+    );
+
+    setState(() {
+      _archiveBusyIds.add(packageKey);
+      _currentLoad = updatedLoad;
+    });
+
+    try {
+      await _service.setPackageArchived(
+        load.profile,
+        package,
+        archived,
+      );
+      if (!mounted) {
+        return;
+      }
+      showSubTenantSnack(
+        context,
+        archived ? 'Package archived.' : 'Package restored.',
+        error: false,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _currentLoad = previousLoad;
+      });
+      showSubTenantSnack(
+        context,
+        'Failed to ${archived ? 'archive' : 'restore'} package: $error',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _archiveBusyIds.remove(packageKey);
+        });
+      }
+    }
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Filtering
   // ───────────────────────────────────────────────────────────────────────────
@@ -235,16 +330,25 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   String _publicationState(
     SubTenantPackage package,
   ) {
-    return package.status
-                    .trim()
-                    .toLowerCase() ==
-                'published' &&
-            package.visibilityStatus
-                    .trim()
-                    .toLowerCase() ==
-                'visible'
+    return package.status.trim().toLowerCase() == 'published'
         ? 'published'
         : 'unpublished';
+  }
+
+  bool _matchesSelectedView(SubTenantPackage package) {
+    if (_status == 'archived') {
+      return package.isArchived;
+    }
+    if (package.isArchived) {
+      return false;
+    }
+    return _status == 'all' || _publicationState(package) == _status;
+  }
+
+  List<SubTenantPackage> _packagesInSelectedView(
+    List<SubTenantPackage> packages,
+  ) {
+    return packages.where(_matchesSelectedView).toList(growable: false);
   }
 
   List<SubTenantPackage> _filtered(
@@ -285,12 +389,7 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
                 .toLowerCase()
                 .contains(query);
 
-        final matchesStatus =
-            _status == 'all' ||
-            publication == _status;
-
-        return matchesSearch &&
-            matchesStatus;
+        return matchesSearch && _matchesSelectedView(item);
       },
     ).toList(
       growable: false,
@@ -314,11 +413,12 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
         return _PackageFilterSheet(
           status: _status,
           total:
-              allPackages.length,
+              allPackages.where((item) => !item.isArchived).length,
           published:
               allPackages.where(
             (item) {
-              return _publicationState(
+              return !item.isArchived &&
+                  _publicationState(
                     item,
                   ) ==
                   'published';
@@ -327,12 +427,15 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
           unpublished:
               allPackages.where(
             (item) {
-              return _publicationState(
+              return !item.isArchived &&
+                  _publicationState(
                     item,
                   ) ==
                   'unpublished';
             },
           ).length,
+          archived:
+              allPackages.where((item) => item.isArchived).length,
         );
       },
     );
@@ -411,7 +514,7 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
           }
 
           final load =
-              snapshot.data!;
+              _currentLoad ?? snapshot.data!;
 
           final packages =
               _filtered(
@@ -463,7 +566,7 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
                       resultCount:
                           packages.length,
                       totalCount:
-                          load.packages.length,
+                          _packagesInSelectedView(load.packages).length,
                       filterStatus:
                           _status,
                     ),
@@ -514,6 +617,19 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
                             published,
                           );
                         },
+                        onArchivedChanged:
+                            (
+                          package,
+                          archived,
+                        ) {
+                          _setArchived(
+                            load,
+                            package,
+                            archived,
+                          );
+                        },
+                        archiveBusyIds:
+                            _archiveBusyIds,
                       ),
                   ],
                 ),
@@ -551,10 +667,13 @@ class _PackageToolbar extends StatelessWidget {
         return 'Published';
 
       case 'unpublished':
-        return 'Unpublished';
+        return 'Draft / Unpublished';
+
+      case 'archived':
+        return 'Archived';
 
       default:
-        return 'Filters';
+        return 'All Packages';
     }
   }
 
@@ -836,7 +955,9 @@ class _PackageSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filterText =
-        filterStatus == 'all'
+        filterStatus == 'archived'
+            ? ' - Archived'
+            : filterStatus == 'all'
             ? ''
             : filterStatus == 'published'
                 ? ' • Published'
@@ -901,6 +1022,8 @@ class _PackageGrid extends StatelessWidget {
     required this.onEdit,
     required this.onItinerary,
     required this.onPublishedChanged,
+    required this.onArchivedChanged,
+    required this.archiveBusyIds,
   });
 
   final List<SubTenantPackage>
@@ -916,6 +1039,13 @@ class _PackageGrid extends StatelessWidget {
     SubTenantPackage package,
     bool published,
   ) onPublishedChanged;
+
+  final void Function(
+    SubTenantPackage package,
+    bool archived,
+  ) onArchivedChanged;
+
+  final Set<String> archiveBusyIds;
 
   @override
   Widget build(BuildContext context) {
@@ -990,6 +1120,20 @@ class _PackageGrid extends StatelessWidget {
                   false,
                 );
               },
+              onArchive: () {
+                onArchivedChanged(
+                  package,
+                  true,
+                );
+              },
+              onRestore: () {
+                onArchivedChanged(
+                  package,
+                  false,
+                );
+              },
+              archiveBusy:
+                  archiveBusyIds.isNotEmpty,
             );
           },
         );
@@ -1009,6 +1153,9 @@ class _PackageGridCard extends StatelessWidget {
     required this.onItinerary,
     required this.onPublish,
     required this.onUnpublish,
+    required this.onArchive,
+    required this.onRestore,
+    required this.archiveBusy,
   });
 
   final SubTenantPackage package;
@@ -1017,16 +1164,12 @@ class _PackageGridCard extends StatelessWidget {
   final VoidCallback onItinerary;
   final VoidCallback onPublish;
   final VoidCallback onUnpublish;
+  final VoidCallback onArchive;
+  final VoidCallback onRestore;
+  final bool archiveBusy;
 
   bool get _published {
-    return package.status
-                    .trim()
-                    .toLowerCase() ==
-                'published' &&
-            package.visibilityStatus
-                    .trim()
-                    .toLowerCase() ==
-                'visible';
+    return package.status.trim().toLowerCase() == 'published';
   }
 
   bool get _visible {
@@ -1050,6 +1193,8 @@ class _PackageGridCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final published =
         _published;
+    final archived =
+        package.isArchived;
 
     final price =
         package.priceText
@@ -1190,6 +1335,10 @@ class _PackageGridCard extends StatelessWidget {
                   _PackageActionsButton(
                     published:
                         published,
+                    archived:
+                        archived,
+                    busy:
+                        archiveBusy,
                     onSelected:
                         (value) {
                       switch (value) {
@@ -1207,6 +1356,14 @@ class _PackageGridCard extends StatelessWidget {
 
                         case 'unpublish':
                           onUnpublish();
+                          break;
+
+                        case 'archive':
+                          onArchive();
+                          break;
+
+                        case 'restore':
+                          onRestore();
                           break;
                       }
                     },
@@ -1226,14 +1383,18 @@ class _PackageGridCard extends StatelessWidget {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  _PackageStatusBadge(
-                    published:
-                        published,
-                  ),
-                  _VisibilityBadge(
-                    visible:
-                        _visible,
-                  ),
+                  if (archived)
+                    const _ArchivedBadge()
+                  else ...[
+                    _PackageStatusBadge(
+                      published:
+                          published,
+                    ),
+                    _VisibilityBadge(
+                      visible:
+                          _visible,
+                    ),
+                  ],
                 ],
               ),
 
@@ -1419,14 +1580,17 @@ class _PackageGridCard extends StatelessWidget {
                   _PublicationSwitch(
                     value:
                         published,
-                    onChanged:
-                        (value) {
-                      if (value) {
-                        onPublish();
-                      } else {
-                        onUnpublish();
-                      }
-                    },
+                    onChanged: archived
+                        ? null
+                        : (value) {
+                            if (value) {
+                              onPublish();
+                            } else {
+                              onUnpublish();
+                            }
+                          },
+                    archived:
+                        archived,
                   ),
                 ],
               ),
@@ -1619,6 +1783,20 @@ class _VisibilityBadge extends StatelessWidget {
   }
 }
 
+class _ArchivedBadge extends StatelessWidget {
+  const _ArchivedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _SmallBadge(
+      icon: Icons.archive_outlined,
+      label: 'Archived',
+      foreground: SubTenantColors.muted,
+      background: Color(0xFFF3F6FA),
+    );
+  }
+}
+
 class _SmallBadge extends StatelessWidget {
   const _SmallBadge({
     required this.icon,
@@ -1793,19 +1971,24 @@ class _PublicationSwitch extends StatelessWidget {
   const _PublicationSwitch({
     required this.value,
     required this.onChanged,
+    required this.archived,
   });
 
   final bool value;
 
-  final ValueChanged<bool>
+  final ValueChanged<bool>?
       onChanged;
+
+  final bool archived;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: value
-          ? 'Unpublish package'
-          : 'Publish package',
+      message: archived
+          ? 'Restore package before publishing'
+          : value
+              ? 'Unpublish package'
+              : 'Publish package',
       child: Container(
         height: 40,
         padding:
@@ -1814,22 +1997,26 @@ class _PublicationSwitch extends StatelessWidget {
           right: 2,
         ),
         decoration: BoxDecoration(
-          color: value
-              ? _softGreen
-              : const Color(
-                  0xFFF5F7FA,
-                ),
+          color: archived
+              ? const Color(0xFFF5F7FA)
+              : value
+                  ? _softGreen
+                  : const Color(
+                      0xFFF5F7FA,
+                    ),
           borderRadius:
               BorderRadius.circular(
             10,
           ),
           border: Border.all(
-            color: value
-                ? _green.withValues(
-                    alpha: .15,
-                  )
-                : SubTenantColors
-                    .line,
+            color: archived
+                ? SubTenantColors.line
+                : value
+                    ? _green.withValues(
+                        alpha: .15,
+                      )
+                    : SubTenantColors
+                        .line,
           ),
         ),
         child: Row(
@@ -1837,14 +2024,18 @@ class _PublicationSwitch extends StatelessWidget {
               MainAxisSize.min,
           children: [
             Text(
-              value
-                  ? 'Published'
-                  : 'Draft',
+              archived
+                  ? 'Archived'
+                  : value
+                      ? 'Published'
+                      : 'Draft',
               style: TextStyle(
-                color: value
-                    ? _green
-                    : SubTenantColors
-                        .muted,
+                color: archived
+                    ? SubTenantColors.muted
+                    : value
+                        ? _green
+                        : SubTenantColors
+                            .muted,
                 fontSize: 8.5,
                 fontWeight:
                     FontWeight.w800,
@@ -1885,12 +2076,16 @@ class _PackageActionsButton extends StatelessWidget {
   const _PackageActionsButton({
     required this.onSelected,
     required this.published,
+    required this.archived,
+    required this.busy,
   });
 
   final ValueChanged<String>
       onSelected;
 
   final bool published;
+  final bool archived;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -1900,7 +2095,7 @@ class _PackageActionsButton extends StatelessWidget {
       padding:
           EdgeInsets.zero,
       onSelected:
-          onSelected,
+          busy ? null : onSelected,
       shape:
           RoundedRectangleBorder(
         borderRadius:
@@ -1936,7 +2131,7 @@ class _PackageActionsButton extends StatelessWidget {
 
           const PopupMenuDivider(),
 
-          if (published)
+          if (!archived && published)
             const PopupMenuItem(
               value:
                   'unpublish',
@@ -1950,7 +2145,7 @@ class _PackageActionsButton extends StatelessWidget {
                     _amber,
               ),
             )
-          else
+          else if (!archived)
             const PopupMenuItem(
               value:
                   'publish',
@@ -1964,6 +2159,26 @@ class _PackageActionsButton extends StatelessWidget {
                     _green,
               ),
             ),
+
+          if (!archived)
+            const PopupMenuDivider(),
+
+          PopupMenuItem(
+            value: archived
+                ? 'restore'
+                : 'archive',
+            child: _PackageMenuItem(
+              icon: archived
+                  ? Icons.unarchive_outlined
+                  : Icons.archive_outlined,
+              label: archived
+                  ? 'Restore Package'
+                  : 'Archive Package',
+              color: archived
+                  ? _green
+                  : _red,
+            ),
+          ),
         ];
       },
       child: Container(
@@ -2201,6 +2416,7 @@ class _PackageFilterSheet extends StatefulWidget {
     required this.total,
     required this.published,
     required this.unpublished,
+    required this.archived,
   });
 
   final String status;
@@ -2208,6 +2424,7 @@ class _PackageFilterSheet extends StatefulWidget {
   final int total;
   final int published;
   final int unpublished;
+  final int archived;
 
   @override
   State<_PackageFilterSheet> createState() =>
@@ -2370,7 +2587,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                         ),
 
                         Text(
-                          'Filter your tour package library by publication state.',
+                          'Filter your tour package library by publication or archive state.',
                           style:
                               TextStyle(
                             color:
@@ -2430,7 +2647,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                       CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Publication State',
+                      'Package View',
                       style:
                           TextStyle(
                         color:
@@ -2452,7 +2669,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                       children: [
                         _FilterChipButton(
                           label:
-                              'All',
+                              'All Packages',
                           count:
                               widget.total,
                           selected:
@@ -2486,7 +2703,7 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
 
                         _FilterChipButton(
                           label:
-                              'Unpublished',
+                              'Draft / Unpublished',
                           count:
                               widget.unpublished,
                           selected:
@@ -2497,6 +2714,23 @@ class _PackageFilterSheetState extends State<_PackageFilterSheet> {
                             setState(() {
                               _status =
                                   'unpublished';
+                            });
+                          },
+                        ),
+
+                        _FilterChipButton(
+                          label:
+                              'Archived',
+                          count:
+                              widget.archived,
+                          selected:
+                              _status ==
+                                  'archived',
+                          onTap:
+                              () {
+                            setState(() {
+                              _status =
+                                  'archived';
                             });
                           },
                         ),

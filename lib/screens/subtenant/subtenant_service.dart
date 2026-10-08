@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_media_url.dart';
+import 'package:touristrike/screens/subtenant/subtenant_package_itinerary_ordering.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 
 const _singleDayTourTitle = 'Day Tour';
@@ -289,7 +290,8 @@ class SubTenantService {
     final packageRows = await _supabase
         .from('tour_packages')
         .select('id')
-        .eq('city', city);
+        .eq('city', city)
+        .isFilter('archived_at', null);
     final driverRows = await _supabase
         .from('profiles')
         .select('id')
@@ -519,12 +521,20 @@ class SubTenantService {
     );
   }
 
-  Future<List<SubTenantPackage>> fetchPackages(SubTenantProfile profile) async {
-    final rows = await _supabase
+  Future<List<SubTenantPackage>> fetchPackages(
+    SubTenantProfile profile, {
+    bool includeArchived = false,
+  }) async {
+    dynamic query = _supabase
         .from('tour_packages')
         .select('*')
-        .eq('city', profile.assignedCity)
-        .order('created_at', ascending: false);
+        .eq('city', profile.assignedCity);
+
+    if (!includeArchived) {
+      query = query.isFilter('archived_at', null);
+    }
+
+    final rows = await query.order('created_at', ascending: false);
 
     return (rows as List)
         .map((row) => SubTenantPackage.fromMap(Map<String, dynamic>.from(row)))
@@ -778,7 +788,8 @@ class SubTenantService {
     final packageRows = await _supabase
         .from('tour_packages')
         .select('id, title')
-        .eq('city', profile.assignedCity);
+        .eq('city', profile.assignedCity)
+        .isFilter('archived_at', null);
 
     final packageMaps = (packageRows as List)
         .map((row) => Map<String, dynamic>.from(row as Map))
@@ -923,6 +934,30 @@ class SubTenantService {
     );
   }
 
+  Future<void> setPackageArchived(
+    SubTenantProfile profile,
+    SubTenantPackage package,
+    bool archived,
+  ) async {
+    await _supabase
+        .from('tour_packages')
+        .update({
+          'archived_at': archived
+              ? DateTime.now().toUtc().toIso8601String()
+              : null,
+        })
+        .eq('id', package.id)
+        .eq('city', profile.assignedCity);
+    await _logAudit(
+      actorId: profile.id,
+      action: archived ? 'archive_package' : 'restore_package',
+      tableName: 'tour_packages',
+      recordId: stId(package.id),
+      description:
+          '${archived ? 'Archived' : 'Restored'} package ${package.title}.',
+    );
+  }
+
   Future<void> updatePackageVisibility(
     SubTenantProfile profile,
     SubTenantPackage package,
@@ -948,6 +983,9 @@ class SubTenantService {
     SubTenantPackage package,
     bool published,
   ) async {
+    if (package.isArchived) {
+      throw StateError('Archived packages must be restored before publishing.');
+    }
     final status = published ? 'published' : 'draft';
     final visibility = published ? 'visible' : 'hidden';
     await _supabase
@@ -988,7 +1026,8 @@ class SubTenantService {
         .from('tour_package_day_items')
         .select('*')
         .inFilter('day_id', dayIds)
-        .order('sort_order');
+        .order('sort_order')
+        .order('created_at');
 
     final items = (itemRows as List)
         .map((row) => Map<String, dynamic>.from(row))
@@ -1021,12 +1060,14 @@ class SubTenantService {
     }
 
     return days
-        .map(
-          (day) => PackageItineraryDay.fromMap(
+        .map((day) {
+          final dayItems =
+              itemsByDay[stId(day['id'])] ?? const <PackageItineraryItem>[];
+          return PackageItineraryDay.fromMap(
             day,
-            itemsByDay[stId(day['id'])] ?? const [],
-          ),
-        )
+            packageItineraryItemsInSequence(dayItems),
+          );
+        })
         .toList(growable: false);
   }
 
@@ -1086,6 +1127,23 @@ class SubTenantService {
     }
 
     await _supabase.from('tour_package_day_items').insert(payload);
+  }
+
+  Future<List<PackageItineraryDay>> persistPackageItineraryOrder({
+    required SubTenantProfile profile,
+    required dynamic packageId,
+    required List<SelectedPackageSpot> selectedSpots,
+  }) async {
+    await savePackageSelectedSpots(
+      packageId: packageId,
+      selectedSpots: selectedSpots,
+    );
+    await syncPackageItineraryFromSelectedSpots(
+      profile: profile,
+      packageId: packageId,
+      selectedSpots: selectedSpots,
+    );
+    return fetchItinerary(profile, packageId);
   }
 
   Future<void> updatePackageDayTitle(
@@ -1640,7 +1698,7 @@ class SubTenantService {
   }) async {
     final reportRange = range ?? SubTenantReportRange.currentMonth();
     final spots = await fetchSpots(profile);
-    final packages = await fetchPackages(profile);
+    final packages = await fetchPackages(profile, includeArchived: true);
     final drivers = await fetchDrivers(profile);
 
     final packageIds = packages.map((item) => item.id).toList(growable: false);
@@ -2031,7 +2089,8 @@ class SubTenantService {
       final pkgRows = await _supabase
           .from('tour_packages')
           .select('id')
-          .eq('city', city);
+          .eq('city', city)
+          .isFilter('archived_at', null);
 
       final pkgIds = (pkgRows as List).map((r) => (r as Map)['id']).toList();
       if (pkgIds.isEmpty) return const {};
@@ -2068,7 +2127,8 @@ class SubTenantService {
             'recommended_visit_duration_minutes',
           )
           .eq('package_id', packageId)
-          .order('sort_order');
+          .order('sort_order')
+          .order('created_at');
 
       if ((linkRows as List).isEmpty) return const [];
 
@@ -2085,7 +2145,7 @@ class SubTenantService {
         spotsById[stId(spot.id)] = spot;
       }
 
-      return linkRows
+      final selectedSpots = linkRows
           .map((r) {
             final row = Map<String, dynamic>.from(r as Map);
             final spot = spotsById[stId(row['spot_id'])];
@@ -2108,6 +2168,7 @@ class SubTenantService {
           })
           .whereType<SelectedPackageSpot>()
           .toList(growable: false);
+      return packageSelectedSpotsInSequence(selectedSpots);
     } on PostgrestException {
       return const [];
     }

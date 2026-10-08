@@ -366,6 +366,7 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
           .select(
             'id, title, subtitle, city, price_text, duration_text, image_url, cover_image_url, description, estimated_budget, group_size, route_distance_km, status, visibility_status',
           )
+          .isFilter('archived_at', null)
           .eq('status', 'published')
           .eq('visibility_status', 'visible')
           .order('created_at', ascending: false)

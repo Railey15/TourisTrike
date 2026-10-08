@@ -472,6 +472,7 @@ class GeminiService {
             'estimated_budget, image_url, cover_image_url, '
             'status, visibility_status',
           )
+          .isFilter('archived_at', null)
           .eq('visibility_status', 'visible')
           .neq('status', 'draft')
           .neq('status', 'archived')
