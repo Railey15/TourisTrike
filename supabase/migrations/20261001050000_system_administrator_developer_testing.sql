@@ -326,8 +326,10 @@ begin
       session_info.expires_at as row_expires_at,
       session_info.reason as row_reason,
       coalesce(session_info.bypass_scheduled_start, false) as row_bypass_scheduled_start,
-      concat_ws(' ', b.id::text, t.full_name, t.first_name, t.last_name,
-        tp.title, b.municipality, tp.city, driver_info.search_names) as search_text
+      concat_ws(' ', b.id::text, '#' || upper(substr(b.id::text, 1, 8)),
+        t.full_name, t.first_name, t.last_name, tp.title, b.municipality,
+        tp.city, b.booking_status, b.status, activity.tour_status,
+        driver_info.search_names) as search_text
     from public.package_bookings b
     left join public.profiles t on t.id = b.tourist_id
     left join public.tour_packages tp on tp.id = b.package_id

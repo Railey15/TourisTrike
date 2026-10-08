@@ -23,7 +23,7 @@ void main() {
       'lib/screens/administrator/administrator_developer_tools_screen.dart',
     );
     migration = source(
-      'supabase/migrations/20260930060000_final_developer_tools_cutover.sql',
+    'supabase/migrations/20261001060000_final_developer_tools_cutover.sql',
     );
   });
 

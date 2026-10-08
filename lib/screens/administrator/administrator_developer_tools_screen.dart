@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 
 
 
+import 'administrator_booking_tour_testing.dart';
 import 'administrator_models.dart';
 
 import 'administrator_service.dart';
@@ -64,6 +65,7 @@ class AdministratorDeveloperToolsScreen extends StatefulWidget {
 
     @visibleForTesting this.reset,
     @visibleForTesting this.deleteBooking,
+    @visibleForTesting this.bookingTourGateway,
 
   });
 
@@ -79,6 +81,7 @@ class AdministratorDeveloperToolsScreen extends StatefulWidget {
 
   final AdministratorDeveloperTestResetter? reset;
   final Future<void> Function(AdministratorDeveloperTestBooking)? deleteBooking;
+  final BookingDeveloperToolsGateway? bookingTourGateway;
 
 
 
@@ -344,6 +347,18 @@ class _AdministratorDeveloperToolsScreenState
 
     if (!mounted || action == null) return;
 
+    if (action == _DeveloperBookingAction.bookingTourTesting) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _BookingTourTestingDialog(
+          booking: booking,
+          gateway: widget.bookingTourGateway,
+        ),
+      );
+      if (mounted) _reload();
+      return;
+    }
+
     if (action == _DeveloperBookingAction.activate) {
 
       final activation = await _requestActivation(booking);
@@ -432,7 +447,7 @@ class _AdministratorDeveloperToolsScreenState
 
         content: const Text(
 
-          'The scheduled-start override will stop working immediately. The audit history is retained.',
+          'All booking and tour testing controls will stop working immediately. The audit history is retained.',
 
         ),
 
@@ -725,11 +740,11 @@ class _AdministratorDeveloperToolsScreenState
 
               AdministratorPanel(
 
-                title: 'Booking test authorizations',
+                title: 'Booking / Tour Testing',
 
                 subtitle:
 
-                    'Sessions allow only an early assigned → en route to pickup transition. They never simulate payment, GPS, or journey progress.',
+                    'Select any booking, activate a time-limited test session, then use controlled server-side timer, overtime, progression, and state tools.',
 
                 child: Column(
 
@@ -1083,7 +1098,7 @@ class _GlobalDeveloperTestingCard extends StatelessWidget {
 
               const Text(
 
-                'High-risk control. An active session can bypass only the scheduled start time for an eligible booking. Disabling this switch preserves sessions but makes every one ineffective.',
+                'High-risk control. Active sessions authorize booking-scoped test mutations for System Administrators only. Disabling this switch preserves sessions but makes every one ineffective.',
 
                 style: TextStyle(color: AdministratorColors.muted),
 
@@ -1642,7 +1657,7 @@ class _DeveloperBookingDialog extends StatelessWidget {
 
                 const Text(
 
-                  'Authorized override: scheduled start only',
+                  'Authorized: booking-scoped Developer Tools',
 
                   style: TextStyle(
 
@@ -1678,7 +1693,7 @@ class _DeveloperBookingDialog extends StatelessWidget {
 
                 const Text(
 
-                  'This booking is eligible for a time-limited scheduled-start override.',
+                  'This booking is eligible for a time-limited Developer Tools session.',
 
                 ),
 
@@ -1701,6 +1716,28 @@ class _DeveloperBookingDialog extends StatelessWidget {
         ),
 
         if (booking.testSessionActive) ...[
+
+          FilledButton.icon(
+
+            key: const Key('developer-booking-tour-testing'),
+
+            onPressed: globalEnabled
+
+                ? () => Navigator.pop(
+
+                    context,
+
+                    _DeveloperBookingAction.bookingTourTesting,
+
+                  )
+
+                : null,
+
+            icon: const Icon(Icons.route_outlined),
+
+            label: const Text('Booking / Tour Testing'),
+
+          ),
 
           OutlinedButton.icon(
 
@@ -1830,7 +1867,7 @@ class _DeveloperActivationDialogState
 
             const Text(
 
-              'This creates authorization only. It does not alter booking status, payments, GPS data, Drivers, or notifications.',
+              'This creates authorization only. It does not alter booking status, payments, GPS data, Drivers, or notifications until a specific test action is selected.',
 
             ),
 
@@ -2264,7 +2301,85 @@ class _PaginationBar extends StatelessWidget {
 
 
 
-enum _DeveloperBookingAction { activate, reset, deactivate }
+class _BookingTourTestingDialog extends StatelessWidget {
+  const _BookingTourTestingDialog({required this.booking, this.gateway});
+
+  final AdministratorDeveloperTestBooking booking;
+  final BookingDeveloperToolsGateway? gateway;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 1120,
+          maxHeight: size.height - 40,
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 14),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.science_outlined,
+                    color: AdministratorColors.blue,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Booking / Tour Testing',
+                          style: TextStyle(
+                            color: AdministratorColors.ink,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${booking.reference} · ${booking.touristName} · '
+                          '${booking.packageName} · ${booking.municipality}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AdministratorColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: AdministratorBookingTourTesting(
+                bookingId: booking.id,
+                gateway: gateway,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _DeveloperBookingAction {
+  activate,
+  bookingTourTesting,
+  reset,
+  deactivate,
+}
 
 
 
