@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/config/app_config.dart';
 
 import '../../theme/app_theme.dart';
 import 'verify_email_otp_screen.dart';
@@ -216,6 +217,10 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _loading = true);
 
     try {
+      assert(() {
+        debugPrint('[Signup] request project=${AppConfig.supabaseProjectRef} email=$email');
+        return true;
+      }());
       final response = await supabase.auth.signUp(
         email: email,
         password: password,
@@ -225,6 +230,16 @@ class _SignupScreenState extends State<SignupScreen> {
             'privacy_notice_version': privacyNoticeVersion,
         },
       );
+      assert(() {
+        debugPrint('[Signup] response userReturned=${response.user != null} '
+            'emailConfirmed=${response.user?.emailConfirmedAt != null} '
+            'sessionReturned=${response.session != null}');
+        return true;
+      }());
+      if (response.user == null) {
+        _showSnack('We could not create your account right now. Please try again.');
+        return;
+      }
       // Supabase returns a session immediately when Confirm email is disabled.
       // Keep the registration flow closed until the dashboard is configured.
       if (response.session != null) {
@@ -243,9 +258,16 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
       );
     } on AuthException catch (e) {
-      _showSnack(e.statusCode == '429' || e.message.toLowerCase().contains('rate limit')
-          ? 'Please wait before requesting another verification code.'
-          : 'We could not create your account right now. Please try again.');
+      assert(() {
+        debugPrint('[Signup] rejected code=${e.code} status=${e.statusCode}');
+        return true;
+      }());
+      final code = e.code ?? '';
+      _showSnack(e.statusCode == '429' || code.contains('rate_limit')
+          ? 'Email sending limit reached. Please wait and try again.'
+          : code == 'email_address_not_authorized'
+              ? 'Email delivery is unavailable for this address. Please contact support.'
+              : 'We could not create your account right now. Please try again.');
     } catch (_) {
       _showSnack('We could not create your account right now. Please try again.');
     } finally {

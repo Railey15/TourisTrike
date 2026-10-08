@@ -129,15 +129,6 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
     }
 
     try {
-<<<<<<< HEAD
-      final currentUser = client.auth.currentUser;
-
-      if (currentUser == null) {
-        return const LoginScreen();
-      }
-
-      final profile = await client
-=======
       final auth = Supabase.instance.client.auth;
       final verifiedUser = (await auth.getUser()).user;
       if (verifiedUser == null || verifiedUser.emailConfirmedAt == null) {
@@ -148,7 +139,6 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
       final userId = verifiedUser.id;
 
       var profile = await Supabase.instance.client
->>>>>>> 088045a (improved booking)
           .from('profiles')
           .select('role')
           .eq('id', currentUser.id)

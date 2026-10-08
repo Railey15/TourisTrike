@@ -9,12 +9,13 @@ String maskVerificationEmail(String email) {
   return '$visible••••@${parts.last}';
 }
 
-/// A single text input supports paste and keyboard autofill while drawing six
+/// A single text input supports paste and keyboard autofill while drawing
 /// separate cells. The controller remains in memory only and is never logged.
 class EmailOtpInput extends StatelessWidget {
-  const EmailOtpInput({super.key, required this.controller});
+  const EmailOtpInput({super.key, required this.controller, this.length = 6});
 
   final TextEditingController controller;
+  final int length;
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +25,9 @@ class EmailOtpInput extends StatelessWidget {
       child: Stack(
         children: [
           Row(
-            children: List.generate(6, (index) => Expanded(
+            children: List.generate(length, (index) => Expanded(
               child: Container(
-                margin: EdgeInsets.only(right: index == 5 ? 0 : 7),
+                margin: EdgeInsets.only(right: index == length - 1 ? 0 : 7),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
@@ -48,9 +49,9 @@ class EmailOtpInput extends StatelessWidget {
               autofillHints: const [AutofillHints.oneTimeCode],
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(6),
+                LengthLimitingTextInputFormatter(length),
               ],
-              maxLength: 6,
+              maxLength: length,
               style: const TextStyle(color: Colors.transparent),
               cursorColor: Colors.transparent,
               showCursor: false,

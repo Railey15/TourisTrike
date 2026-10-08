@@ -24,11 +24,12 @@ class VerifyEmailOtpScreen extends StatefulWidget {
 class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
   final supabase = Supabase.instance.client;
 
-  static const int _otpLen = 6;
+  // Matches the linked project's hosted Auth mailer_otp_length setting.
+  static const int _otpLen = 8;
 
   final _otpCtrl = TextEditingController();
   bool _loading = false;
-  int _resendSeconds = 30;
+  int _resendSeconds = 60;
   Timer? _resendTimer;
 
   @override
@@ -42,7 +43,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
 
   void _startCooldown() {
     _resendTimer?.cancel();
-    _resendSeconds = 30;
+    _resendSeconds = 60;
     _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() => _resendSeconds--);
@@ -94,6 +95,11 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         email: widget.email,
         token: otp,
       );
+      assert(() {
+        debugPrint('[Signup OTP] verify response userReturned=${response.user != null} '
+            'sessionReturned=${response.session != null}');
+        return true;
+      }());
 
       final user = (await supabase.auth.getUser()).user;
       if (response.session == null || user == null ||
@@ -130,6 +136,10 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         );
       }
     } on AuthException catch (e) {
+      assert(() {
+        debugPrint('[Signup OTP] verify rejected code=${e.code} status=${e.statusCode}');
+        return true;
+      }());
       final message = e.message.toLowerCase();
       _showSnack(e.statusCode == '429' || message.contains('rate limit')
           ? 'Please wait before requesting another verification code.'
@@ -150,13 +160,25 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
     setState(() => _loading = true);
 
     try {
+      assert(() {
+        debugPrint('[Signup OTP] resend requested');
+        return true;
+      }());
       await supabase.auth.resend(
         type: OtpType.signup,
         email: widget.email,
       );
+      assert(() {
+        debugPrint('[Signup OTP] resend accepted');
+        return true;
+      }());
       if (mounted) setState(_startCooldown);
       _showSnack('OTP sent again. Check your email.', isError: false);
     } on AuthException catch (e) {
+      assert(() {
+        debugPrint('[Signup OTP] resend rejected code=${e.code} status=${e.statusCode}');
+        return true;
+      }());
       _showSnack(e.statusCode == '429'
           ? 'Please wait before requesting another verification code.'
           : "We couldn't send a new code right now. Please try again.");
@@ -447,7 +469,7 @@ class _VerifyCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          EmailOtpInput(controller: otpCtrl),
+          EmailOtpInput(controller: otpCtrl, length: otpLength),
           const SizedBox(height: 18),
           SizedBox(
             height: 58,

@@ -24,4 +24,22 @@ void main() {
     }
     expect(controller.text, '123456');
   });
+
+  testWidgets('signup accepts the hosted eight digit Auth code', (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body:
+      ValueListenableBuilder<TextEditingValue>(
+        valueListenable: controller,
+        builder: (context, value, child) =>
+            EmailOtpInput(controller: controller, length: 8),
+      ),
+    )));
+    await tester.enterText(find.byType(TextField), '12345678');
+    await tester.pump();
+    expect(controller.text, '12345678');
+    for (final digit in '12345678'.split('')) {
+      expect(find.text(digit), findsOneWidget);
+    }
+  });
 }
