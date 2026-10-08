@@ -30,6 +30,7 @@ class TourisTrikeTables {
   static const paymentAllocationSummaries = 'payment_allocation_summaries';
   static const paymentDisputes = 'payment_disputes';
   static const refundRequests = 'refund_requests';
+  static const bookingNoShowReports = 'booking_no_show_reports';
   static const rides = 'rides';
   static const rideFeedback = 'ride_feedback';
   static const rideReviews = 'ride_reviews';
@@ -875,6 +876,40 @@ class TourisTrikeRepository {
     return _rows(rows).map(RefundRequest.new).toList(growable: false);
   }
 
+  Future<BookingNoShowReport> reportBookingNoShow({
+    required String bookingId,
+    required String reportedParty,
+    String? note,
+  }) async {
+    final result = await _client.rpc(
+      'report_booking_no_show',
+      params: {
+        'p_booking_id': bookingId,
+        'p_reported_party': reportedParty,
+        'p_note': note,
+      },
+    );
+    return BookingNoShowReport(Json.from(result as Map));
+  }
+
+  Future<BookingNoShowReport> resolveBookingNoShowReport({
+    required String reportId,
+    required bool verified,
+    String? resolutionNote,
+    bool attemptReplacement = true,
+  }) async {
+    final result = await _client.rpc(
+      'resolve_booking_no_show_report',
+      params: {
+        'p_report_id': reportId,
+        'p_verified': verified,
+        'p_resolution_note': resolutionNote,
+        'p_attempt_replacement': attemptReplacement,
+      },
+    );
+    return BookingNoShowReport(Json.from(result as Map));
+  }
+
   Future<RefundRequest> resolvePackageRefundRequest({
     required String refundRequestId,
     required String status,
@@ -964,7 +999,7 @@ class TourisTrikeRepository {
     return counts;
   }
 
-  // TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+  // PayMongo-backed package payment records; no raw card data is accepted.
   // The current user is always the payer here; the payee confirms receipt separately via confirmPaymentRecord.
   Future<PaymentRecord> createPaymentRecord({
     dynamic rideId,
@@ -1036,6 +1071,51 @@ class TourisTrikeRepository {
     return rows.map(PaymentRecord.new).toList(growable: false);
   }
 
+  /// Returns the tourist's outgoing payments and their linked refunds as one
+  /// chronological ledger. Refunds remain separate `refund_requests` rows and
+  /// retain their authoritative `payment_record_id` relationship.
+  Future<List<PaymentHistoryEntry>> fetchTouristPaymentHistory({
+    int limit = 200,
+  }) async {
+    final touristId = requireUserId();
+    final results = await Future.wait([
+      _client
+          .from(TourisTrikeTables.paymentRecords)
+          .select('*, package_bookings(id, tour_packages(title))')
+          .eq('payer_id', touristId)
+          .order('created_at', ascending: false)
+          .limit(limit),
+      _client
+          .from(TourisTrikeTables.refundRequests)
+          .select(
+            '*, payment_records!inner(*, package_bookings(id, tour_packages(title)))',
+          )
+          .eq('payment_records.payer_id', touristId)
+          .order('created_at', ascending: false)
+          .limit(limit),
+    ]);
+
+    final entries = <PaymentHistoryEntry>[
+      for (final row in _rows(results[0]))
+        PaymentHistoryEntry.payment(PaymentRecord(row)),
+      for (final row in _rows(results[1]))
+        if (row['payment_records'] is Map)
+          PaymentHistoryEntry.refund(
+            payment: PaymentRecord(Json.from(row['payment_records'] as Map)),
+            refund: RefundRequest(row),
+          ),
+    ];
+    entries.sort((a, b) {
+      final left = a.occurredAt;
+      final right = b.occurredAt;
+      if (left == null && right == null) return 0;
+      if (left == null) return 1;
+      if (right == null) return -1;
+      return right.compareTo(left);
+    });
+    return entries;
+  }
+
   /// All payment records for a booking/ride, regardless of payer/payee — used by
   /// booking-detail and dispute screens where either participant may be viewing.
   Future<List<PaymentRecord>> fetchPaymentRecordsFor({
@@ -1104,20 +1184,25 @@ class TourisTrikeRepository {
   Future<PayMongoCheckout> createPayMongoCheckout({
     required String bookingId,
     required String paymentStage,
+    required String paymentMethod,
     String? customerName,
     String? customerEmail,
   }) async {
-    final idempotencyKey = _paymentAttemptKey(bookingId, paymentStage);
+    final idempotencyKey = _paymentAttemptKey(
+      bookingId,
+      '${paymentStage}_$paymentMethod',
+    );
     try {
       debugPrint(
         '[PayMongo] invoking paymongo-create-payment '
-        'booking=$bookingId stage=$paymentStage',
+        'booking=$bookingId stage=$paymentStage method=$paymentMethod',
       );
       final response = await _client.functions.invoke(
         'paymongo-create-payment',
         body: {
           'booking_id': bookingId,
           'payment_stage': paymentStage,
+          'payment_method': paymentMethod,
           'idempotency_key': idempotencyKey,
           'customer_name': ?customerName,
           'customer_email': ?customerEmail,
@@ -2385,6 +2470,21 @@ class TourisTrikeRepository {
       orderBy: 'accepted_at',
     );
     return rows.map(BookingDriver.new).toList(growable: false);
+  }
+
+  /// Returns this driver's authoritative assignment row, including withdrawn
+  /// and cancelled history. A non-active row must never be treated as a live
+  /// booking after refresh or relogin.
+  Future<BookingDriver?> fetchMyBookingDriverAssignment(
+    String bookingId,
+  ) async {
+    final row = await _client
+        .from(TourisTrikeTables.bookingDrivers)
+        .select()
+        .eq('booking_id', bookingId)
+        .eq('driver_id', requireUserId())
+        .maybeSingle();
+    return row == null ? null : BookingDriver(Json.from(row));
   }
 
   Future<List<ConvoyDriverSnapshot>> fetchConvoyRoster(String bookingId) async {

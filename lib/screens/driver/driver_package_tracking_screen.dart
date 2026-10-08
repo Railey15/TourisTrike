@@ -29,6 +29,7 @@ import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/services/live_marker_motion.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/screens/driver/driver_package_jobs_screen.dart';
 import 'package:touristrike/screens/shared/payment_dispute_screen.dart'
     show paymentDisputeReasons;
 import 'package:touristrike/screens/tourist/tourist_messages_screen.dart';
@@ -261,6 +262,7 @@ class _DriverPackageTrackingScreenState
   bool _loading = true;
   bool _actionBusy = false;
   bool _testSessionAuthorized = false;
+  bool _assignmentRedirected = false;
 
   String? _error;
   String? _eta;
@@ -486,6 +488,12 @@ class _DriverPackageTrackingScreenState
           _loading = false;
         });
 
+        return;
+      }
+
+      final assignment = await _repo.fetchMyBookingDriverAssignment(bookingId);
+      if (!_isActiveAssignment(assignment)) {
+        _redirectToPackageJobs();
         return;
       }
 
@@ -742,7 +750,7 @@ class _DriverPackageTrackingScreenState
 
     _convoyPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (!_isBookingClosed) {
-        _loadConvoy();
+        _refreshLifecycleAndConvoy('convoy-poll');
       }
     });
   }
@@ -892,6 +900,39 @@ class _DriverPackageTrackingScreenState
   void _refreshLifecycleAndConvoy(String logTag) {
     unawaited(
       Future.wait([_refreshTrackingState(logTag: logTag), _loadConvoy()]),
+    );
+  }
+
+  bool _isActiveAssignment(BookingDriver? assignment) =>
+      assignment != null &&
+      const {'accepted', 'completed'}.contains(assignment.status.toLowerCase());
+
+  void _redirectToPackageJobs() {
+    if (!mounted || _assignmentRedirected) return;
+    _assignmentRedirected = true;
+    _journeyTicker?.cancel();
+    _gpsRecoveryTimer?.cancel();
+    _convoyPollTimer?.cancel();
+    _convoyTicker?.cancel();
+    _scheduleGateTimer?.cancel();
+    _routeRefreshTimer?.cancel();
+    unawaited(_gpsSub?.cancel());
+    _activityChannel?.unsubscribe();
+    _bookingChannel?.unsubscribe();
+    _itineraryChannel?.unsubscribe();
+    _paymentChannel?.unsubscribe();
+    _bookingDriversChannel?.unsubscribe();
+    _driverLocationsChannel?.unsubscribe();
+    _participantLocationChannel?.unsubscribe();
+    _activity = null;
+    _booking = null;
+    _spots = const [];
+    _paymentRecords = const [];
+    _paymentAllocations = const [];
+    _convoy = const [];
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const DriverPackageJobsScreen()),
+      (route) => false,
     );
   }
 
@@ -1684,7 +1725,13 @@ class _DriverPackageTrackingScreenState
       _repo.fetchPackageActivityById(widget.activityId),
       _repo.fetchPackageBookingDetails(bookingId),
       _repo.fetchBookingItinerary(bookingId),
+      _repo.fetchMyBookingDriverAssignment(bookingId),
     ]);
+
+    if (!_isActiveAssignment(results[3] as BookingDriver?)) {
+      _redirectToPackageJobs();
+      return;
+    }
 
     var refreshedSpots = results[2] as List<BookingItineraryItem>;
 
@@ -2992,7 +3039,7 @@ class _DriverPackageTrackingScreenState
       _showSnack(
         'Withdrawal recorded. The Tourist booking remains open for reassignment.',
       );
-      Navigator.of(context).pop();
+      _redirectToPackageJobs();
     } catch (error) {
       if (mounted) _showSnack(withdrawalErrorMessage(error), error: true);
     } finally {
@@ -3011,6 +3058,71 @@ class _DriverPackageTrackingScreenState
       hasArrived: booking.arrivedAt != null,
       hasPickedUp: booking.pickedUpAt != null,
     );
+  }
+
+  bool get _canReportTouristNoShow {
+    final booking = _booking;
+    final activity = _activity;
+    final scheduled = booking?.scheduledStartAt;
+    if (booking == null || activity == null || scheduled == null) return false;
+    if (DateTime.now().isBefore(scheduled.add(const Duration(minutes: 15)))) {
+      return false;
+    }
+    final tourStatus = activity.tourStatus.toLowerCase();
+    final hasArrivalEvidence =
+        booking.arrivedAt != null || {'driver_arrived'}.contains(tourStatus);
+    return hasArrivalEvidence &&
+        booking.pickedUpAt == null &&
+        !{
+          'picked_up',
+          'on_tour',
+          'completed',
+          'cancelled',
+        }.contains(tourStatus) &&
+        _myConvoyStatus?.assignmentStatus == 'accepted';
+  }
+
+  Future<void> _reportTouristNoShow() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Report tourist no-show?'),
+        content: const Text(
+          'Your verified arrival/location evidence and the configured grace '
+          'period will be reviewed before payout eligibility changes.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Submit Report'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _actionBusy = true);
+    try {
+      await _repo.reportBookingNoShow(
+        bookingId: _bookingId,
+        reportedParty: 'tourist',
+      );
+      if (!mounted) return;
+      _showSnack('Tourist no-show submitted for evidence review.');
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().contains('NO_SHOW_GRACE_PERIOD_ACTIVE')
+          ? 'The no-show grace period is still active.'
+          : error.toString().contains('DRIVER_ARRIVAL_EVIDENCE_REQUIRED')
+          ? 'Verified driver arrival evidence is required.'
+          : 'Unable to submit the no-show report right now.';
+      _showSnack(message, error: true);
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
+    }
   }
 
   Widget _buildContent() {
@@ -3136,6 +3248,14 @@ class _DriverPackageTrackingScreenState
                     onPressed: _requestWithdrawal,
                     icon: const Icon(Icons.person_remove_outlined),
                     label: const Text('Request to withdraw'),
+                  ),
+                ],
+                if (!_actionBusy && _canReportTouristNoShow) ...[
+                  const SizedBox(height: 4),
+                  OutlinedButton.icon(
+                    onPressed: _reportTouristNoShow,
+                    icon: const Icon(Icons.person_off_outlined),
+                    label: const Text('Report Tourist No-Show'),
                   ),
                 ],
                 if (bookingCompleted && !_touristReviewed) ...[

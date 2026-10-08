@@ -12,8 +12,9 @@ import 'package:touristrike/widgets/driver_page_header.dart';
 // TourisTrike does NOT custody funds — GCash-to-GCash direct.
 // Outside AMLA covered-person scope (RA 9160).
 //
-// This screen is a read-only transaction record.
-// Actual money goes directly to the driver's GCash account.
+// This screen is a read-only transaction and payout-status record. A tourist
+// payment is not represented as money received by the driver until the linked
+// payout allocation reaches `paid`.
 class DriverEarningsScreen extends StatefulWidget {
   const DriverEarningsScreen({super.key});
 
@@ -160,10 +161,9 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     final directPayments = _records
         .where((record) => record.isConfirmed)
         .fold<double>(0, (sum, record) => sum + record.amount);
-    final packageShares = _allocations.fold<double>(
-      0,
-      (sum, allocation) => sum + allocation.driverAmount,
-    );
+    final packageShares = _allocations
+        .where((allocation) => allocation.isPaidOut)
+        .fold<double>(0, (sum, allocation) => sum + allocation.driverAmount);
     return directPayments + packageShares;
   }
 
@@ -185,17 +185,23 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
   int get _confirmedCount {
     return _records.where((record) => record.isConfirmed).length +
-        _allocations.length;
+        _allocations.where((allocation) => allocation.isPaidOut).length;
   }
 
   int get _pendingCount {
     return _records.where((record) {
-      final status = record.status.toLowerCase();
+          final status = record.status.toLowerCase();
 
-      return status != 'confirmed' &&
-          status != 'disputed' &&
-          status != 'cancelled';
-    }).length;
+          return status != 'confirmed' &&
+              status != 'disputed' &&
+              status != 'cancelled';
+        }).length +
+        _allocations
+            .where(
+              (allocation) =>
+                  allocation.isPayoutPending || allocation.isPayoutEligible,
+            )
+            .length;
   }
 
   double get _todayEarnings {
@@ -217,7 +223,8 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     final packageShares = _allocations
         .where((allocation) {
           final date = allocation.confirmedAt?.toLocal();
-          return date != null &&
+          return allocation.isPaidOut &&
+              date != null &&
               date.year == now.year &&
               date.month == now.month &&
               date.day == now.day;
@@ -343,7 +350,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     return DriverPageHeader(
       icon: Icons.account_balance_wallet_outlined,
       title: 'Earnings',
-      subtitle: 'Your confirmed payment records',
+      subtitle: 'Your payment and payout status records',
       action: const DriverHeaderBadge(
         icon: Icons.verified_user_outlined,
         label: 'RECORDED',
@@ -393,8 +400,8 @@ class _EarningsRecordNotice extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Confirmed package shares appear here as earnings. Transfer and '
-              'payout status are tracked separately.',
+              'Tourist payment and Driver payout are tracked separately. A '
+              'pending payout is not money already received.',
               style: TextStyle(
                 color: Color(0xFF57739A),
                 fontWeight: FontWeight.w600,
@@ -709,6 +716,24 @@ class _AllocationEarningTile extends StatelessWidget {
         ? '-'
         : DateFormat('MMM d, yyyy • h:mm a').format(paidAt);
     final stage = _titleCase(allocation.paymentStage.replaceAll('_', ' '));
+    final (
+      statusLabel,
+      statusColor,
+      statusBackground,
+    ) = switch (allocation.status) {
+      'paid' => ('PAID', const Color(0xFF15803D), const Color(0xFFECFDF3)),
+      'eligible' => (
+        'PAYOUT ELIGIBLE',
+        const Color(0xFF1D4ED8),
+        const Color(0xFFEFF6FF),
+      ),
+      'processing' => (
+        'PROCESSING',
+        const Color(0xFF7C3AED),
+        const Color(0xFFF5F3FF),
+      ),
+      _ => ('PENDING PAYOUT', const Color(0xFFB45309), const Color(0xFFFFF7E8)),
+    };
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -790,13 +815,13 @@ class _AllocationEarningTile extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF3),
+                  color: statusBackground,
                   borderRadius: BorderRadius.circular(999),
                 ),
-                child: const Text(
-                  'CONFIRMED',
+                child: Text(
+                  statusLabel,
                   style: TextStyle(
-                    color: Color(0xFF15803D),
+                    color: statusColor,
                     fontWeight: FontWeight.w900,
                     fontSize: 8.8,
                   ),

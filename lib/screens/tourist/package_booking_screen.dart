@@ -517,7 +517,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   double _downpaymentAmount(TourPackage package) {
-    if (_isSameDay) return 0;
     return (_totalPrice(package) * 50).roundToDouble() / 100;
   }
 
@@ -1551,7 +1550,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
 
     parts.add(
-      'Booking type: ${_isSameDay ? 'Same-day Booking' : 'Advanced Booking (50% DP)'}',
+      'Booking type: ${_isSameDay ? 'Same-day Booking (50% DP)' : 'Advanced Booking (50% DP)'}',
     );
 
     parts.add(
@@ -1735,7 +1734,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               label: 'Remaining Balance',
               value: _money(_remainingBalance(package)),
             ),
-            (label: 'Payment Method', value: 'GCash via PayMongo'),
+            (
+              label: 'Payment Method',
+              value: 'GCash, Maya, QR Ph, or Card via PayMongo',
+            ),
             (
               label: 'Included Driver Waiting',
               value: 'Your selected Time of Stay at each destination',
@@ -2496,10 +2498,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             selected: _payment == _PaymentMethod.gcash,
                             enabled: _selectedDate != null,
                             icon: Icons.qr_code_2_rounded,
-                            title: 'GCash',
+                            title: 'PayMongo',
                             subtitle: _selectedDate == null
                                 ? 'Choose your travel date first.'
-                                : 'Pay the 50% down payment after the driver roster is filled, then pay the remaining balance after the tour.',
+                                : 'Choose GCash, Maya, QR Ph, or Credit / Debit Card after the driver roster is filled. Pay 50% or the full amount.',
                             onTap: () {
                               if (_selectedDate != null) {
                                 setState(() {

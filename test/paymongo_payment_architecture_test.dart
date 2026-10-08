@@ -208,7 +208,7 @@ void main() {
     expect(integrity, contains('ensure_booking_payment_requirements'));
     expect(workflow, contains("raise exception 'DOWNPAYMENT_NOT_CONFIRMED'"));
     expect(touristTracking, contains('downPaymentConfirmed &&'));
-    expect(touristTracking, contains('Choose GCash or Cash'));
+    expect(touristTracking, contains('Choose payment method'));
   });
 
   test('Flutter calls the Edge Function and opens its checkout URL', () {
@@ -218,6 +218,7 @@ void main() {
     expect(checkoutMethod, contains("'paymongo-create-payment'"));
     expect(checkoutMethod, contains("'booking_id': bookingId"));
     expect(checkoutMethod, contains("'payment_stage': paymentStage"));
+    expect(checkoutMethod, contains("'payment_method': paymentMethod"));
     expect(checkoutMethod, isNot(contains("'amount'")));
     expect(touristTracking, contains('createPayMongoCheckout'));
     expect(touristTracking, contains('LaunchMode.externalApplication'));

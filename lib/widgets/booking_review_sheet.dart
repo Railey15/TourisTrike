@@ -106,7 +106,7 @@ class _BookingReviewSheetState extends State<BookingReviewSheet> {
             const SizedBox(height: 8),
             Text(
               widget.isSameDay
-                  ? 'Submit your request, then wait for all required drivers to accept. Same-day bookings do not require a downpayment.'
+                  ? 'Submit your request, then wait for all required drivers to accept before paying the 50% down payment.'
                   : 'Submit your request, then wait for all required drivers to accept. Your downpayment is due after your drivers are confirmed.',
               style: const TextStyle(color: Color(0xFF64748B), height: 1.4),
             ),

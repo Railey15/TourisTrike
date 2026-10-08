@@ -5,6 +5,11 @@ import {
   basicAuth,
   checkoutHasOnlyFailedPayments,
 } from "../_shared/paymongo.ts";
+import {
+  configuredPayMongoPaymentMethods,
+  isPayMongoPaymentMethod,
+  paymentFlow,
+} from "../_shared/paymongo_payment_methods.ts";
 import { resolveCheckoutBilling } from "./customer_billing.ts";
 
 type Allocation = {
@@ -55,8 +60,11 @@ serve(async (request) => {
   const environment = (Deno.env.get("PAYMONGO_ENVIRONMENT") ?? "test")
     .trim()
     .toLowerCase();
-  const livemode = environment === "live";
+  const livemode = false;
   const splitEnabled = enabled("PAYMONGO_SPLIT_PAYMENTS_ENABLED");
+  const enabledPaymentMethods = configuredPayMongoPaymentMethods(
+    Deno.env.get("PAYMONGO_PAYMENT_METHOD_TYPES"),
+  );
   const checkoutEndpoint = "https://api.paymongo.com/v1/checkout_sessions";
 
   if (!enabled("PAYMONGO_ENABLED") || !payMongoKey) {
@@ -65,13 +73,13 @@ serve(async (request) => {
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({ error: "PAYMENT_BACKEND_NOT_CONFIGURED" }, 503);
   }
-  if (environment !== "test" && environment !== "live") {
-    return jsonResponse({ error: "INVALID_PAYMONGO_ENVIRONMENT" }, 503);
+  // TourisTrike's current payment lifecycle is intentionally TEST-only. A
+  // live key must never be accepted by this endpoint until a separately
+  // reviewed production settlement design is introduced.
+  if (environment !== "test") {
+    return jsonResponse({ error: "PAYMONGO_TEST_MODE_REQUIRED" }, 503);
   }
-  if (
-    (livemode && !payMongoKey.startsWith("sk_live_")) ||
-    (!livemode && !payMongoKey.startsWith("sk_test_"))
-  ) {
+  if (!payMongoKey.startsWith("sk_test_")) {
     return jsonResponse({ error: "PAYMONGO_KEY_ENVIRONMENT_MISMATCH" }, 503);
   }
   const authorization = request.headers.get("Authorization") ?? "";
@@ -99,16 +107,26 @@ serve(async (request) => {
   const paymentStage = typeof body.payment_stage === "string"
     ? body.payment_stage
     : "";
+  const paymentMethod = typeof body.payment_method === "string"
+    ? body.payment_method.trim().toLowerCase()
+    : "";
   const idempotencyKey = request.headers.get("Idempotency-Key") ??
     (typeof body.idempotency_key === "string" ? body.idempotency_key : "");
-  if (!bookingId || !paymentStage || idempotencyKey.length < 16) {
+  if (!bookingId || !paymentStage || !paymentMethod || idempotencyKey.length < 16) {
     return jsonResponse(
       { error: "BOOKING_STAGE_AND_IDEMPOTENCY_REQUIRED" },
       400,
     );
   }
+  if (!isPayMongoPaymentMethod(paymentMethod)) {
+    return jsonResponse({ error: "INVALID_PAYMENT_METHOD" }, 400);
+  }
+  if (!enabledPaymentMethods.has(paymentMethod)) {
+    return jsonResponse({ error: "PAYMENT_METHOD_NOT_ENABLED" }, 409);
+  }
   console.info(
-    `[PayMongo] checkout requested booking=${bookingId} stage=${paymentStage}`,
+    `[PayMongo] checkout requested booking=${bookingId} stage=${paymentStage} ` +
+      `method=${paymentMethod}`,
   );
 
   const { data: booking, error: bookingError } = await userClient
@@ -133,13 +151,15 @@ serve(async (request) => {
   const verificationClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
   });
-  const { data: authorized, error: verificationError } = await verificationClient.rpc(
-    "consume_payment_email_verification", {
-      p_tourist_id: userData.user.id,
-      p_booking_id: bookingId,
-      p_payment_stage: paymentStage,
-    },
-  );
+  const { data: authorized, error: verificationError } =
+    await verificationClient.rpc(
+      "consume_payment_email_verification",
+      {
+        p_tourist_id: userData.user.id,
+        p_booking_id: bookingId,
+        p_payment_stage: paymentStage,
+      },
+    );
   if (verificationError || authorized !== true) {
     return jsonResponse({ error: "PAYMENT_EMAIL_VERIFICATION_REQUIRED" }, 403);
   }
@@ -181,6 +201,7 @@ serve(async (request) => {
       p_idempotency_key: idempotencyKey,
       p_tourist_id: userData.user.id,
       p_provider_livemode: livemode,
+      p_payment_method: paymentMethod,
     },
   );
   if (prepareError || !prepared?.payment) {
@@ -242,6 +263,14 @@ serve(async (request) => {
         checkout_url: payment.checkout_url,
         reused: true,
         livemode,
+        payment_method: paymentMethod,
+        payment_flow: paymentFlow(paymentMethod),
+        qr_payment: paymentMethod === "qrph"
+          ? {
+            checkout_url: payment.checkout_url,
+            presentation: "paymongo_hosted_checkout",
+          }
+          : null,
       });
     }
     if (attributes?.status !== "expired") {
@@ -269,6 +298,7 @@ serve(async (request) => {
           `touristrike-retry:${bookingId}:${crypto.randomUUID()}`,
         p_tourist_id: userData.user.id,
         p_provider_livemode: livemode,
+        p_payment_method: paymentMethod,
       },
     );
     if (retryError || !retried?.payment) {
@@ -308,7 +338,7 @@ serve(async (request) => {
       currency: "PHP",
       quantity: 1,
     }],
-    payment_method_types: ["gcash"],
+    payment_method_types: [paymentMethod],
     success_url: contextualSuccessUrl,
     cancel_url: contextualCancelUrl,
     reference_number: payment.provider_reference ?? payment.id,
@@ -320,6 +350,7 @@ serve(async (request) => {
       payment_record_id: payment.id,
       booking_id: bookingId,
       payment_stage: payment.payment_stage,
+      payment_method: paymentMethod,
     },
   };
 
@@ -421,5 +452,13 @@ serve(async (request) => {
     checkout_url: checkoutUrl,
     reused: false,
     livemode,
+    payment_method: paymentMethod,
+    payment_flow: paymentFlow(paymentMethod),
+    qr_payment: paymentMethod === "qrph"
+      ? {
+        checkout_url: checkoutUrl,
+        presentation: "paymongo_hosted_checkout",
+      }
+      : null,
   });
 });

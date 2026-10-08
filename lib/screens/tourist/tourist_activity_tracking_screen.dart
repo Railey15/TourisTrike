@@ -493,7 +493,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         if (remaining) {
           await _chooseRemainingPayment();
         } else {
-          await _openPayMongoCheckout(stage: 'down_payment');
+          await _chooseInitialPayment();
         }
       }
     } finally {
@@ -502,11 +502,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
   }
 
-  Future<void> _openPayMongoCheckout({required String stage}) async {
+  Future<void> _openPayMongoCheckout({
+    required String stage,
+    required String paymentMethod,
+  }) async {
     if (_busyPaymentStages.contains(stage)) return;
+    final methodLabel = paymentMethodLabel(paymentMethod);
     debugPrint(
-      '[PayMongo] Pay with GCash pressed '
-      'booking=${widget.bookingId} stage=$stage',
+      '[PayMongo] Pay with $methodLabel pressed '
+      'booking=${widget.bookingId} stage=$stage method=$paymentMethod',
     );
     final touristId = _booking?.touristId;
     final currentUserId = _repo.currentUserId;
@@ -572,11 +576,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       final checkout = await _repo.createPayMongoCheckout(
         bookingId: widget.bookingId,
         paymentStage: stage,
+        paymentMethod: paymentMethod,
         customerName: contact.name,
         customerEmail: contact.email,
       );
       final uri = Uri.tryParse(checkout.checkoutUrl);
       if (uri == null || uri.scheme.toLowerCase() != 'https') {
+        throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+      }
+      if (checkout.isHostedQr &&
+          checkout.qrPaymentUrl != checkout.checkoutUrl) {
         throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
       }
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -585,7 +594,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         throw const PaymentProviderException('CHECKOUT_COULD_NOT_OPEN');
       }
       _showSnack(
-        'Complete the secure GCash checkout. Payment updates automatically after confirmation.',
+        checkout.isHostedQr
+            ? 'PayMongo will display your secure QR Ph code. Payment updates automatically after confirmation.'
+            : 'Complete the secure $methodLabel checkout. Payment updates automatically after confirmation.',
       );
       await _refreshPayments();
     } on PaymentProviderException catch (error) {
@@ -601,6 +612,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         'PAYMONGO_KEY_ENVIRONMENT_MISMATCH',
         'INVALID_PAYMONGO_ENVIRONMENT',
         'INVALID_PAYMONGO_CHECKOUT_API_VERSION',
+        'PAYMENT_METHOD_NOT_ENABLED',
       };
       debugPrint('[PayMongo] checkout failed: ${error.code}');
       if (const {
@@ -616,16 +628,103 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       }
       _showSnack(
         configurationErrors.contains(error.code)
-            ? 'GCash payment is temporarily unavailable.'
-            : 'Unable to open secure GCash payment. Please try again.',
+            ? '$methodLabel payment is temporarily unavailable.'
+            : 'Unable to open secure $methodLabel payment. Please try again.',
       );
     } catch (error) {
       debugPrint('[PayMongo] checkout launch failed: $error');
-      _showSnack('Unable to open secure GCash payment. Please try again.');
+      _showSnack(
+        'Unable to open secure $methodLabel payment. Please try again.',
+      );
     } finally {
       if (mounted) setState(() => _busyPaymentStages.remove(stage));
     }
   }
+
+  Future<void> _chooseInitialPayment() async {
+    final stage = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Choose payment type',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.pie_chart_outline_rounded),
+                title: const Text('Down Payment'),
+                subtitle: const Text(
+                  'Pay the required 50% now and settle the balance later',
+                ),
+                onTap: () => Navigator.pop(context, 'down_payment'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.check_circle_outline_rounded),
+                title: const Text('Full Payment'),
+                subtitle: const Text('Pay the full booking amount now'),
+                onTap: () => Navigator.pop(context, 'full_payment'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || stage == null) return;
+    final method = await _choosePayMongoMethod(
+      title: stage == 'full_payment' ? 'Full Payment' : 'Down Payment',
+    );
+    if (!mounted || method == null) return;
+    await _openPayMongoCheckout(stage: stage, paymentMethod: method);
+  }
+
+  Future<String?> _choosePayMongoMethod({required String title}) =>
+      showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '$title method',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                for (final method in payMongoPaymentMethods)
+                  ListTile(
+                    leading: Icon(
+                      method == 'card'
+                          ? Icons.credit_card_rounded
+                          : method == 'qrph'
+                          ? Icons.qr_code_2_rounded
+                          : Icons.account_balance_wallet_outlined,
+                    ),
+                    title: Text(paymentMethodLabel(method)),
+                    subtitle: Text(
+                      method == 'qrph'
+                          ? 'Scan the dynamic QR securely on PayMongo'
+                          : 'Secure payment powered by PayMongo',
+                    ),
+                    onTap: () => Navigator.pop(context, method),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
 
   Future<void> _chooseRemainingPayment() async {
     if (_busyPaymentStages.contains('remaining_balance')) return;
@@ -644,12 +743,23 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.account_balance_wallet_outlined),
-                title: const Text('GCash'),
-                subtitle: const Text('Secure payment powered by PayMongo'),
-                onTap: () => Navigator.pop(context, 'gcash'),
-              ),
+              for (final method in payMongoPaymentMethods)
+                ListTile(
+                  leading: Icon(
+                    method == 'card'
+                        ? Icons.credit_card_rounded
+                        : method == 'qrph'
+                        ? Icons.qr_code_2_rounded
+                        : Icons.account_balance_wallet_outlined,
+                  ),
+                  title: Text(paymentMethodLabel(method)),
+                  subtitle: Text(
+                    method == 'qrph'
+                        ? 'Scan the dynamic QR securely on PayMongo'
+                        : 'Secure payment powered by PayMongo',
+                  ),
+                  onTap: () => Navigator.pop(context, method),
+                ),
               ListTile(
                 leading: const Icon(Icons.payments_outlined),
                 title: const Text('Cash'),
@@ -664,8 +774,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       ),
     );
     if (!mounted || method == null) return;
-    if (method == 'gcash') {
-      await _openPayMongoCheckout(stage: 'remaining_balance');
+    if (payMongoPaymentMethods.contains(method)) {
+      await _openPayMongoCheckout(
+        stage: 'remaining_balance',
+        paymentMethod: method,
+      );
       return;
     }
     setState(() => _busyPaymentStages.add('remaining_balance'));
@@ -2015,6 +2128,71 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         }.contains(tourStatus);
   }
 
+  bool get _canReportDriverNoShow {
+    final booking = _booking;
+    if (booking == null || _isCancelled || booking.pickedUpAt != null) {
+      return false;
+    }
+    final scheduled = booking.scheduledStartAt;
+    if (scheduled == null ||
+        DateTime.now().isBefore(scheduled.add(const Duration(minutes: 15)))) {
+      return false;
+    }
+    final tourStatus = _activity?.tourStatus.toLowerCase() ?? '';
+    return booking.arrivedAt == null &&
+        !{
+          'driver_arrived',
+          'picked_up',
+          'on_tour',
+          'completed',
+        }.contains(tourStatus) &&
+        (booking.acceptedDriversCount > 0 || _convoy.isNotEmpty);
+  }
+
+  Future<void> _reportDriverNoShow() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Report driver no-show?'),
+        content: const Text(
+          'TourisTrike will review the scheduled time, driver location, and '
+          'arrival/progression records before applying a refund or replacement.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Submit Report'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _repo.reportBookingNoShow(
+        bookingId: widget.bookingId,
+        reportedParty: 'driver',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Driver no-show submitted for evidence review.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().contains('NO_SHOW_GRACE_PERIOD_ACTIVE')
+          ? 'The no-show grace period is still active.'
+          : 'Unable to submit the no-show report right now.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
   Future<void> _manageCancellation() async {
     final booking = _booking;
     if (booking == null) return;
@@ -2155,6 +2333,28 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final completed = _isTourCompleted();
     final fullyAssigned = _paymentPrompt.value?.rosterComplete == true;
     final downPaymentRecord = _paymentRecordForStage('down_payment');
+    final downPaymentAllocations = downPaymentRecord == null
+        ? const <PaymentAllocation>[]
+        : _paymentAllocations
+              .where(
+                (allocation) =>
+                    allocation.paymentRecordId ==
+                    downPaymentRecord.id?.toString(),
+              )
+              .toList(growable: false);
+    final downPaymentPayoutLabel =
+        downPaymentAllocations.isNotEmpty &&
+            downPaymentAllocations.every((allocation) => allocation.isPaidOut)
+        ? 'Driver Payout Paid'
+        : downPaymentAllocations.any(
+            (allocation) => allocation.status == 'processing',
+          )
+        ? 'Driver Payout Processing'
+        : downPaymentAllocations.any(
+            (allocation) => allocation.isPayoutEligible,
+          )
+        ? 'Driver Payout Eligible'
+        : 'Driver Payout Pending';
     final downPaymentConfirmed =
         _paymentPrompt.value?.confirmed == true ||
         (booking?.downpaymentAmount ?? 0) <= 0;
@@ -2173,6 +2373,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           onBack: () => Navigator.pop(context),
           onRefresh: _load,
           onManage: _canOfferCancellation ? _manageCancellation : null,
+          onReportDriverNoShow: _canReportDriverNoShow
+              ? _reportDriverNoShow
+              : null,
         ),
 
         ValueListenableBuilder<BookingPaymentPrompt?>(
@@ -2204,19 +2407,35 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           builder: (context, prompt, _) {
             _maybeShowPaymentPrompt();
             if (prompt?.confirmed == true) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle, color: _success, size: 20),
-                    SizedBox(width: 8),
+                    const Icon(Icons.check_circle, color: _success, size: 20),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        'Downpayment confirmed',
-                        style: TextStyle(
-                          color: _success,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Downpayment Paid',
+                            style: TextStyle(
+                              color: _success,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            downPaymentPayoutLabel,
+                            style: const TextStyle(
+                              color: _muted,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -2265,6 +2484,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     completed: 0,
                     total: 0,
                   ),
+                  const SizedBox(height: 14),
+                ],
+
+                if (booking?.isSearchingForReplacement == true) ...[
+                  const _ReplacementDriverNotice(searching: true),
+                  const SizedBox(height: 14),
+                ] else if (booking?.hasReplacementDriver == true) ...[
+                  const _ReplacementDriverNotice(searching: false),
                   const SizedBox(height: 14),
                 ],
 
@@ -2487,10 +2714,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 if (fullyAssigned && (booking?.downpaymentAmount ?? 0) > 0) ...[
                   _PaymentStageCard(
-                    title: 'Down Payment',
+                    title: 'Downpayment',
                     amount: booking!.downpaymentAmount,
                     record: downPaymentRecord,
-                    actionLabel: 'Pay with GCash',
+                    cashAllocations: _paymentAllocations,
+                    actionLabel: 'Choose payment',
                     busy: _busyPaymentStages.contains('down_payment'),
                     onPay: _showPaymentPrompt,
                     onViewReceipt: _openReceipt,
@@ -2510,7 +2738,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     record: remainingPaymentRecord,
                     cashAllocations: _paymentAllocations,
                     convoy: _convoy,
-                    actionLabel: 'Choose GCash or Cash',
+                    actionLabel: 'Choose payment method',
                     busy: _busyPaymentStages.contains('remaining_balance'),
                     onPay: () => _showPaymentPrompt(remaining: true),
                     onViewReceipt: _openReceipt,
@@ -2581,6 +2809,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         .fold<double>(0, (total, record) => total + record.amount);
     final refundText = paid <= 0
         ? 'No payment was made'
+        : booking?.refundStatus == 'processing'
+        ? 'Test refund processing'
+        : booking?.refundStatus == 'refunded'
+        ? 'Test refund completed'
+        : booking?.refundStatus == 'not_eligible'
+        ? 'Refund not eligible'
         : refund > 0
         ? '${NumberFormat.currency(locale: 'en_PH', symbol: '₱').format(refund)} refund pending'
         : 'Non-refundable';
@@ -2593,6 +2827,28 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           onRefresh: _load,
           onManage: null,
         ),
+        if (booking?.cancellationReasonCode == 'no_replacement_driver')
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: _ModernCard(
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: _warning, size: 20),
+                  SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      'No replacement driver was found. Your test refund is being processed.',
+                      style: TextStyle(
+                        color: _warning,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Expanded(
           child: RefreshIndicator(
             color: _primary,
@@ -2718,6 +2974,7 @@ class _TrackingTopBar extends StatelessWidget {
     required this.onBack,
     required this.onRefresh,
     this.onManage,
+    this.onReportDriverNoShow,
   });
 
   final String? eta;
@@ -2725,6 +2982,7 @@ class _TrackingTopBar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onRefresh;
   final VoidCallback? onManage;
+  final VoidCallback? onReportDriverNoShow;
 
   @override
   Widget build(BuildContext context) {
@@ -2794,22 +3052,47 @@ class _TrackingTopBar extends StatelessWidget {
 
           _TopIconButton(icon: Icons.refresh_rounded, onTap: onRefresh),
 
-          if (onManage != null) ...[
+          if (onManage != null || onReportDriverNoShow != null) ...[
             const SizedBox(width: 6),
             PopupMenuButton<String>(
               tooltip: 'Manage booking',
-              onSelected: (_) => onManage!(),
-              itemBuilder: (_) => const [
-                PopupMenuItem<String>(
-                  value: 'cancel',
-                  child: Row(
-                    children: [
-                      Icon(Icons.event_busy_outlined, color: _danger, size: 20),
-                      SizedBox(width: 9),
-                      Text('Cancel Booking'),
-                    ],
+              onSelected: (value) {
+                if (value == 'cancel') onManage?.call();
+                if (value == 'driver_no_show') {
+                  onReportDriverNoShow?.call();
+                }
+              },
+              itemBuilder: (_) => [
+                if (onReportDriverNoShow != null)
+                  const PopupMenuItem<String>(
+                    value: 'driver_no_show',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.person_off_outlined,
+                          color: _warning,
+                          size: 20,
+                        ),
+                        SizedBox(width: 9),
+                        Text('Report Driver No-Show'),
+                      ],
+                    ),
                   ),
-                ),
+                if (onManage != null)
+                  const PopupMenuItem<String>(
+                    value: 'cancel',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.event_busy_outlined,
+                          color: _danger,
+                          size: 20,
+                        ),
+                        SizedBox(width: 9),
+                        Text('Cancel Booking'),
+                      ],
+                    ),
+                  ),
               ],
               child: const SizedBox(
                 width: 38,
@@ -4362,6 +4645,42 @@ class _LocationTimelineRow extends StatelessWidget {
 // PAYMENT CARD
 // ============================================================================
 
+class _ReplacementDriverNotice extends StatelessWidget {
+  const _ReplacementDriverNotice({required this.searching});
+
+  final bool searching;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ModernCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            searching ? Icons.person_search_rounded : Icons.person_add_alt_1,
+            color: searching ? _warning : _success,
+            size: 21,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              searching
+                  ? 'Driver cancelled. Searching for replacement...'
+                  : 'Replacement driver assigned. No additional downpayment required.',
+              style: TextStyle(
+                color: searching ? _warning : _success,
+                fontWeight: FontWeight.w800,
+                fontSize: 11.5,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PaymentStageCard extends StatelessWidget {
   const _PaymentStageCard({
     required this.title,
@@ -4406,6 +4725,22 @@ class _PaymentStageCard extends StatelessWidget {
     final confirmedCashCount = allocations
         .where((allocation) => allocation.isCashConfirmed)
         .length;
+    final showDriverPayout =
+        payment?.isPayMongo == true && status == 'confirmed';
+    final driverPayoutLabel =
+        allocations.isNotEmpty &&
+            allocations.every((allocation) => allocation.isPaidOut)
+        ? 'Driver Payout Paid'
+        : allocations.any((allocation) => allocation.status == 'processing')
+        ? 'Driver Payout Processing'
+        : allocations.any((allocation) => allocation.isPayoutEligible)
+        ? 'Driver Payout Eligible'
+        : 'Driver Payout Pending';
+    final driverPayoutColor = driverPayoutLabel == 'Driver Payout Paid'
+        ? _success
+        : driverPayoutLabel == 'Driver Payout Eligible'
+        ? _primary
+        : _warning;
 
     Color statusColor = _muted;
     Color statusBackground = const Color(0xFFF1F5F9);
@@ -4497,6 +4832,32 @@ class _PaymentStageCard extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
+
+          if (showDriverPayout) ...[
+            Row(
+              children: [
+                Icon(
+                  driverPayoutLabel == 'Driver Payout Paid'
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.schedule_rounded,
+                  color: driverPayoutColor,
+                  size: 16,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    driverPayoutLabel,
+                    style: TextStyle(
+                      color: driverPayoutColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
 
           if (payment?.isGroupCash == true && allocations.isNotEmpty) ...[
             Text(
@@ -4631,7 +4992,7 @@ class _PaymentStageCard extends StatelessWidget {
                     label: Text(
                       status == 'pending_confirmation' &&
                               payment?.isPayMongo == true
-                          ? 'Continue GCash payment'
+                          ? 'Continue ${paymentMethodLabel(payment!.paymentMethod)} payment'
                           : actionLabel,
                     ),
                     style: ElevatedButton.styleFrom(

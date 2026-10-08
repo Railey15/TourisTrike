@@ -105,7 +105,7 @@ void main() {
         isFalse,
       );
       expect(
-        find.textContaining('Same-day bookings do not require a downpayment'),
+        find.textContaining('wait for all required drivers to accept'),
         findsOneWidget,
       );
       await tester.ensureVisible(find.byType(CheckboxListTile));

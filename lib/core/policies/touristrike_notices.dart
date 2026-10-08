@@ -73,7 +73,7 @@ const bookingTermsSections = <({String heading, String body})>[
 ];
 
 const cancellationPolicySummary =
-    'More than 24 hours before the scheduled tour: standard cancellation is allowed; confirmed payments may be eligible for refund processing.\n\nWithin 24 hours, including exactly 24 hours: late cancellation applies and confirmed payments are normally non-refundable, subject to exceptional review.\n\nOnce the tour has started: standard cancellation is unavailable; use support or emergency assistance.\n\nSame-day bookings follow the existing no-downpayment rule.';
+    'More than 12 hours before the scheduled tour: standard cancellation is allowed; confirmed test payments are eligible for full refund processing.\n\nWithin 12 hours, including exactly 12 hours: late cancellation applies, the payment is non-refundable, and the assigned Driver payout may become eligible.\n\nOnce the tour has started: standard cancellation is unavailable; use Report Problem or Emergency Termination.\n\nAll package bookings, including same-day bookings, require the 50% down payment only after all required Drivers accept.';
 
 const privacyNoticeSections = <({String heading, String body})>[
   (

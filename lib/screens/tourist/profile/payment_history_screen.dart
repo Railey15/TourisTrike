@@ -8,7 +8,7 @@ import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/screens/shared/payment_dispute_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 
-// TourisTrike does NOT custody funds — GCash-to-GCash direct.
+// PayMongo remains the payment processor; TourisTrike does not store card data.
 // Outside AMLA covered-person scope (RA 9160).
 class PaymentHistoryScreen extends StatefulWidget {
   const PaymentHistoryScreen({super.key});
@@ -22,18 +22,14 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
 
   bool _loading = true;
-  List<PaymentRecord> _items = const [];
+  List<PaymentHistoryEntry> _items = const [];
   RealtimeChannel? _paymentsChannel;
+  RealtimeChannel? _refundsChannel;
 
   User? get _user => _supabase.auth.currentUser;
 
   static const _bg = Color(0xFFF6F8FC);
   static const _blue = Color(0xFF2563EB);
-  static const _blueLight = Color(0xFFEAF2FF);
-  static const _textDark = Color(0xFF111827);
-  static const _textMid = Color(0xFF667085);
-  static const _textSoft = Color(0xFF98A2B3);
-  static const _border = Color(0xFFE8EDF5);
 
   @override
   void initState() {
@@ -45,6 +41,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   @override
   void dispose() {
     _paymentsChannel?.unsubscribe();
+    _refundsChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -63,10 +60,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     }
 
     try {
-      final items = await _repo.fetchPaymentRecords(
-        role: 'payer',
-        limit: 200,
-      );
+      final items = await _repo.fetchTouristPaymentHistory(limit: 200);
 
       if (!mounted) return;
 
@@ -105,6 +99,19 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
           callback: (_) => _loadData(),
         )
         .subscribe();
+
+    // Refund RLS only exposes rows involving this tourist (including rows
+    // linked through the original payment), so the refresh remains scoped.
+    _refundsChannel?.unsubscribe();
+    _refundsChannel = _supabase
+        .channel('tourist_refund_requests_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'refund_requests',
+          callback: (_) => _loadData(),
+        )
+        .subscribe();
   }
 
   void _showError(String message) {
@@ -116,17 +123,12 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
         SnackBar(
           content: Row(
             children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                color: Colors.white,
-              ),
+              const Icon(Icons.error_outline_rounded, color: Colors.white),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   message,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -143,23 +145,47 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   double get _totalPaid {
     return _items
-        .where((item) => item.isConfirmed)
-        .fold<double>(
-          0,
-          (sum, item) => sum + item.amount,
-        );
+        .where((item) => !item.isRefund && item.payment.isConfirmed)
+        .fold<double>(0, (sum, item) => sum + item.amount);
   }
 
+  double get _totalRefunded => _items
+      .where(
+        (item) =>
+            item.isRefund &&
+            const {
+              'completed',
+              'refunded',
+            }.contains(item.refund!.status.toLowerCase()),
+      )
+      .fold<double>(0, (sum, item) => sum + item.amount);
+
   int get _confirmedCount {
-    return _items.where((item) => item.isConfirmed).length;
+    return _items.where((item) {
+      if (item.isRefund) {
+        return const {
+          'completed',
+          'refunded',
+        }.contains(item.refund!.status.toLowerCase());
+      }
+      return item.payment.isConfirmed;
+    }).length;
   }
 
   int get _pendingCount {
     return _items.where((item) {
-      final status = item.status.toLowerCase();
-      return status != 'confirmed' &&
-          status != 'cancelled' &&
-          status != 'disputed';
+      final status = item.isRefund
+          ? item.refund!.status.toLowerCase()
+          : item.payment.status.toLowerCase();
+      return !const {
+        'confirmed',
+        'completed',
+        'refunded',
+        'cancelled',
+        'rejected',
+        'failed',
+        'disputed',
+      }.contains(status);
     }).length;
   }
 
@@ -169,12 +195,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       backgroundColor: _bg,
       bottomNavigationBar: const SafeArea(
         top: false,
-        child: SizedBox(
-          height: 86,
-          child: AppBottomNav(
-            selectedIndex: 2,
-          ),
-        ),
+        child: SizedBox(height: 86, child: AppBottomNav(selectedIndex: 2)),
       ),
       body: SafeArea(
         child: RefreshIndicator(
@@ -184,12 +205,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
             physics: const AlwaysScrollableScrollPhysics(
               parent: BouncingScrollPhysics(),
             ),
-            padding: const EdgeInsets.fromLTRB(
-              18,
-              14,
-              18,
-              28,
-            ),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
             children: [
               const _PageHeader(),
 
@@ -197,6 +213,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
               _PaymentSummaryCard(
                 totalPaid: _totalPaid,
+                totalRefunded: _totalRefunded,
                 entryCount: _items.length,
                 confirmedCount: _confirmedCount,
                 pendingCount: _pendingCount,
@@ -204,9 +221,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
               const SizedBox(height: 28),
 
-              _SectionHeader(
-                count: _items.length,
-              ),
+              _SectionHeader(count: _items.length),
 
               const SizedBox(height: 12),
 
@@ -220,33 +235,31 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _TransactionCard(
                       item: item,
-                      onViewReceipt: item.isConfirmed
+                      onViewReceipt: item.isRefund || item.payment.isConfirmed
                           ? () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      AcknowledgementReceiptScreen(
-                                    record: item,
+                                  builder: (_) => AcknowledgementReceiptScreen(
+                                    record: item.payment,
+                                    historyEntry: item,
                                   ),
                                 ),
                               );
                             }
                           : null,
-                      onReportProblem: item.status == 'cancelled'
+                      onReportProblem:
+                          item.isRefund || item.payment.status == 'cancelled'
                           ? null
                           : () {
                               Navigator.of(context)
                                   .push(
                                     MaterialPageRoute(
-                                      builder: (_) =>
-                                          PaymentDisputeScreen(
-                                        record: item,
+                                      builder: (_) => PaymentDisputeScreen(
+                                        record: item.payment,
                                       ),
                                     ),
                                   )
-                                  .then(
-                                    (_) => _loadData(),
-                                  );
+                                  .then((_) => _loadData());
                             },
                     ),
                   ),
@@ -303,12 +316,14 @@ class _PageHeader extends StatelessWidget {
 class _PaymentSummaryCard extends StatelessWidget {
   const _PaymentSummaryCard({
     required this.totalPaid,
+    required this.totalRefunded,
     required this.entryCount,
     required this.confirmedCount,
     required this.pendingCount,
   });
 
   final double totalPaid;
+  final double totalRefunded;
   final int entryCount;
   final int confirmedCount;
   final int pendingCount;
@@ -316,30 +331,18 @@ class _PaymentSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        18,
-        18,
-        18,
-        17,
-      ),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 17),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFFFFFF),
-            Color(0xFFF8FBFF),
-          ],
+          colors: [Color(0xFFFFFFFF), Color(0xFFF8FBFF)],
         ),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: const Color(0xFFE6EDF7),
-        ),
+        border: Border.all(color: const Color(0xFFE6EDF7)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF23395D).withValues(
-              alpha: 0.07,
-            ),
+            color: const Color(0xFF23395D).withValues(alpha: 0.07),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -358,10 +361,7 @@ class _PaymentSummaryCard extends StatelessWidget {
                   gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFFE9F2FF),
-                      Color(0xFFDDEBFF),
-                    ],
+                    colors: [Color(0xFFE9F2FF), Color(0xFFDDEBFF)],
                   ),
                   borderRadius: BorderRadius.circular(15),
                 ),
@@ -433,6 +433,18 @@ class _PaymentSummaryCard extends StatelessWidget {
             ),
           ),
 
+          if (totalRefunded > 0) ...[
+            const SizedBox(height: 7),
+            Text(
+              'Total Refunded: PHP ${totalRefunded.toStringAsFixed(2)}',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF16A34A),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+
           const SizedBox(height: 7),
 
           const Text(
@@ -448,16 +460,11 @@ class _PaymentSummaryCard extends StatelessWidget {
           const SizedBox(height: 18),
 
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 11,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               color: const Color(0xFFF7F9FC),
               borderRadius: BorderRadius.circular(15),
-              border: Border.all(
-                color: const Color(0xFFEAF0F6),
-              ),
+              border: Border.all(color: const Color(0xFFEAF0F6)),
             ),
             child: Row(
               children: [
@@ -469,11 +476,7 @@ class _PaymentSummaryCard extends StatelessWidget {
                     iconColor: const Color(0xFF16A34A),
                   ),
                 ),
-                Container(
-                  width: 1,
-                  height: 31,
-                  color: const Color(0xFFE4EAF1),
-                ),
+                Container(width: 1, height: 31, color: const Color(0xFFE4EAF1)),
                 Expanded(
                   child: _SummaryStat(
                     icon: Icons.schedule_rounded,
@@ -509,11 +512,7 @@ class _SummaryStat extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(
-          icon,
-          size: 17,
-          color: iconColor,
-        ),
+        Icon(icon, size: 17, color: iconColor),
         const SizedBox(width: 7),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -546,9 +545,7 @@ class _SummaryStat extends StatelessWidget {
 // ============================================================================
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.count,
-  });
+  const _SectionHeader({required this.count});
 
   final int count;
 
@@ -583,10 +580,7 @@ class _SectionHeader extends StatelessWidget {
         ),
         if (count > 0)
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 5,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
             decoration: BoxDecoration(
               color: const Color(0xFFEAF2FF),
               borderRadius: BorderRadius.circular(100),
@@ -616,7 +610,7 @@ class _TransactionCard extends StatelessWidget {
     this.onReportProblem,
   });
 
-  final PaymentRecord item;
+  final PaymentHistoryEntry item;
   final VoidCallback? onViewReceipt;
   final VoidCallback? onReportProblem;
 
@@ -629,67 +623,67 @@ class _TransactionCard extends StatelessWidget {
     const textDark = Color(0xFF111827);
     const textMid = Color(0xFF667085);
 
-    final normalizedStatus = item.status.toLowerCase();
+    final payment = item.payment;
+    final normalizedStatus = item.isRefund
+        ? item.refund!.status.toLowerCase()
+        : payment.status.toLowerCase();
+    final isSuccessful = item.isRefund
+        ? const {'completed', 'refunded'}.contains(normalizedStatus)
+        : normalizedStatus == 'confirmed';
 
-    final statusColor = normalizedStatus == 'confirmed'
+    final statusColor = isSuccessful
         ? green
         : normalizedStatus == 'disputed'
-            ? red
-            : normalizedStatus == 'cancelled'
-                ? textMid
-                : amber;
+        ? red
+        : normalizedStatus == 'cancelled'
+        ? textMid
+        : amber;
 
-    final statusBg = normalizedStatus == 'confirmed'
+    final statusBg = isSuccessful
         ? const Color(0xFFECFDF3)
         : normalizedStatus == 'disputed'
-            ? const Color(0xFFFEF2F2)
-            : normalizedStatus == 'cancelled'
-                ? const Color(0xFFF2F4F7)
-                : const Color(0xFFFFF7E6);
+        ? const Color(0xFFFEF2F2)
+        : normalizedStatus == 'cancelled'
+        ? const Color(0xFFF2F4F7)
+        : const Color(0xFFFFF7E6);
 
-    final statusIcon = normalizedStatus == 'confirmed'
+    final statusIcon = isSuccessful
         ? Icons.check_circle_rounded
         : normalizedStatus == 'disputed'
-            ? Icons.report_problem_rounded
-            : normalizedStatus == 'cancelled'
-                ? Icons.cancel_outlined
-                : Icons.schedule_rounded;
+        ? Icons.report_problem_rounded
+        : normalizedStatus == 'cancelled'
+        ? Icons.cancel_outlined
+        : Icons.schedule_rounded;
 
-    final createdLabel = item.createdAt != null
+    final createdLabel =
+        payment.payerSubmittedAt != null || payment.createdAt != null
         ? DateFormat(
             'MMM d, yyyy • h:mm a',
-          ).format(
-            item.createdAt!.toLocal(),
-          )
+          ).format((payment.payerSubmittedAt ?? payment.createdAt!).toLocal())
         : '-';
 
-    final paidLabel = item.payeeConfirmedAt != null
+    final paidLabel = payment.payeeConfirmedAt != null || payment.paidAt != null
         ? DateFormat(
             'MMM d, yyyy • h:mm a',
-          ).format(
-            item.payeeConfirmedAt!.toLocal(),
-          )
+          ).format((payment.payeeConfirmedAt ?? payment.paidAt!).toLocal())
         : 'Not confirmed yet';
 
-    final description = item.serviceDescription.isEmpty
-        ? _toTitleCase(
-            item.paymentStage.replaceAll('_', ' '),
-          )
-        : item.serviceDescription;
+    final occurredLabel = item.occurredAt == null
+        ? '-'
+        : DateFormat(
+            'MMM d, yyyy â€¢ h:mm a',
+          ).format(item.occurredAt!.toLocal());
+    final providerReference = item.providerReference;
 
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFE7EDF5),
-        ),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF23395D).withValues(
-              alpha: 0.045,
-            ),
+            color: const Color(0xFF23395D).withValues(alpha: 0.045),
             blurRadius: 16,
             offset: const Offset(0, 7),
           ),
@@ -722,7 +716,7 @@ class _TransactionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      description,
+                      item.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -734,7 +728,7 @@ class _TransactionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      createdLabel,
+                      occurredLabel,
                       style: const TextStyle(
                         color: Color(0xFF98A2B3),
                         fontSize: 10.5,
@@ -751,10 +745,10 @@ class _TransactionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    'PHP ${item.amount.toStringAsFixed(2)}',
-                    style: const TextStyle(
+                    '${item.amountPrefix} PHP ${item.amount.toStringAsFixed(2)}',
+                    style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: textDark,
+                      color: item.isRefund ? green : textDark,
                       fontSize: 14.5,
                     ),
                   ),
@@ -771,16 +765,10 @@ class _TransactionCard extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          statusIcon,
-                          size: 12,
-                          color: statusColor,
-                        ),
+                        Icon(statusIcon, size: 12, color: statusColor),
                         const SizedBox(width: 4),
                         Text(
-                          item.status
-                              .replaceAll('_', ' ')
-                              .toUpperCase(),
+                          item.statusLabel.toUpperCase(),
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             color: statusColor,
@@ -804,34 +792,82 @@ class _TransactionCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: const Color(0xFFEDF1F6),
-              ),
+              border: Border.all(color: const Color(0xFFEDF1F6)),
             ),
             child: Column(
               children: [
                 _DetailRow(
+                  icon: Icons.map_outlined,
+                  label: 'Package',
+                  value: item.packageName,
+                ),
+                _DetailRow(
+                  icon: Icons.swap_horiz_rounded,
+                  label: 'Transaction',
+                  value: item.transactionType,
+                ),
+                _DetailRow(
+                  icon: Icons.payments_outlined,
+                  label: 'Amount',
+                  value:
+                      '${item.amountPrefix} PHP ${item.amount.toStringAsFixed(2)}',
+                ),
+                _DetailRow(
+                  icon: Icons.confirmation_number_outlined,
+                  label: 'Booking',
+                  value: item.bookingReference,
+                ),
+                _DetailRow(
                   icon: Icons.account_balance_wallet_outlined,
                   label: 'Method',
-                  value: item.paymentMethod.toUpperCase(),
+                  value: paymentMethodLabel(payment.paymentMethod),
                 ),
-                if (item.externalReferenceNo.isNotEmpty)
+                _DetailRow(
+                  icon: Icons.info_outline_rounded,
+                  label: 'Status',
+                  value: item.statusLabel,
+                ),
+                if (providerReference.isNotEmpty)
                   _DetailRow(
                     icon: Icons.tag_rounded,
-                    label: 'Reference',
-                    value: item.externalReferenceNo,
+                    label: 'Provider Ref.',
+                    value: providerReference,
                   ),
                 _DetailRow(
                   icon: Icons.schedule_rounded,
                   label: 'Submitted',
                   value: createdLabel,
                 ),
-                _DetailRow(
-                  icon: Icons.verified_outlined,
-                  label: 'Confirmed',
-                  value: paidLabel,
-                  isLast: true,
-                ),
+                if (item.isRefund) ...[
+                  _DetailRow(
+                    icon: Icons.link_rounded,
+                    label: 'Original',
+                    value: item.originalPaymentReference,
+                  ),
+                  _DetailRow(
+                    icon: Icons.notes_rounded,
+                    label: 'Reason',
+                    value: item.refund!.reason.isEmpty
+                        ? 'Not specified'
+                        : _toTitleCase(
+                            item.refund!.reason.replaceAll('_', ' '),
+                          ),
+                  ),
+                  _DetailRow(
+                    icon: Icons.currency_exchange_rounded,
+                    label: 'Refunded',
+                    value: item.refund!.completedAt == null
+                        ? 'Pending'
+                        : occurredLabel,
+                    isLast: true,
+                  ),
+                ] else
+                  _DetailRow(
+                    icon: Icons.verified_outlined,
+                    label: 'Confirmed',
+                    value: paidLabel,
+                    isLast: true,
+                  ),
               ],
             ),
           ),
@@ -844,15 +880,10 @@ class _TransactionCard extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: onReportProblem,
-                      icon: const Icon(
-                        Icons.report_problem_outlined,
-                        size: 16,
-                      ),
+                      icon: const Icon(Icons.report_problem_outlined, size: 16),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: red,
-                        side: const BorderSide(
-                          color: Color(0xFFF3C7C7),
-                        ),
+                        side: const BorderSide(color: Color(0xFFF3C7C7)),
                         minimumSize: const Size.fromHeight(44),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(13),
@@ -873,10 +904,7 @@ class _TransactionCard extends StatelessWidget {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: onViewReceipt,
-                      icon: const Icon(
-                        Icons.receipt_rounded,
-                        size: 16,
-                      ),
+                      icon: const Icon(Icons.receipt_rounded, size: 16),
                       style: FilledButton.styleFrom(
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
@@ -905,7 +933,8 @@ class _TransactionCard extends StatelessWidget {
         .split(' ')
         .where((word) => word.isNotEmpty)
         .map(
-          (word) => '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+          (word) =>
+              '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
         )
         .join(' ');
   }
@@ -931,9 +960,7 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: isLast ? 0 : 10,
-      ),
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -944,11 +971,7 @@ class _DetailRow extends StatelessWidget {
               color: const Color(0xFFEAF2FF),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(
-              icon,
-              size: 14,
-              color: const Color(0xFF2563EB),
-            ),
+            child: Icon(icon, size: 14, color: const Color(0xFF2563EB)),
           ),
 
           const SizedBox(width: 10),
@@ -1002,18 +1025,11 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(
-        22,
-        32,
-        22,
-        30,
-      ),
+      padding: const EdgeInsets.fromLTRB(22, 32, 22, 30),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFE7EDF5),
-        ),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
       ),
       child: Column(
         children: [
@@ -1072,15 +1088,11 @@ class _LoadingPaymentsState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        vertical: 34,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 34),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFE7EDF5),
-        ),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
       ),
       child: const Column(
         children: [

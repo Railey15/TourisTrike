@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/driver/driver_package_tracking_screen.dart';
+import 'package:touristrike/screens/driver/driver_package_jobs_screen.dart';
 
 // ============================================================================
 // UI CONSTANTS
@@ -65,6 +66,16 @@ class _DriverPackageBookingDetailsScreenState
   bool _accepting = false;
 
   String? _error;
+  bool _redirected = false;
+
+  void _redirectToPackageJobs() {
+    if (!mounted || _redirected) return;
+    _redirected = true;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const DriverPackageJobsScreen()),
+      (route) => false,
+    );
+  }
 
   // =========================================================================
   // LIFECYCLE
@@ -92,33 +103,37 @@ class _DriverPackageBookingDetailsScreenState
     }
 
     try {
-      final activity = await _repo.fetchPackageActivityById(
-        widget.activityId,
-      );
+      final activity = await _repo.fetchPackageActivityById(widget.activityId);
 
       final bookingId = activity?.bookingId ?? widget.initialJob.bookingId;
 
+      if (bookingId.isNotEmpty) {
+        final priorAssignment = await _repo.fetchMyBookingDriverAssignment(
+          bookingId,
+        );
+        if (priorAssignment != null &&
+            !const {
+              'accepted',
+              'completed',
+            }.contains(priorAssignment.status.toLowerCase())) {
+          _redirectToPackageJobs();
+          return;
+        }
+      }
+
       final booking = bookingId.isEmpty
           ? null
-          : await _repo.fetchPackageBookingDetails(
-              bookingId,
-            );
+          : await _repo.fetchPackageBookingDetails(bookingId);
 
       var spots = bookingId.isEmpty
           ? const <BookingItineraryItem>[]
-          : await _repo.fetchBookingItinerary(
-              bookingId,
-            );
+          : await _repo.fetchBookingItinerary(bookingId);
 
       if (bookingId.isNotEmpty && spots.isEmpty) {
         try {
-          await _repo.ensureBookingItinerary(
-            bookingId,
-          );
+          await _repo.ensureBookingItinerary(bookingId);
 
-          spots = await _repo.fetchBookingItinerary(
-            bookingId,
-          );
+          spots = await _repo.fetchBookingItinerary(bookingId);
         } catch (_) {
           // Non-fatal. The placeholder itinerary UI will still work.
         }
@@ -190,9 +205,7 @@ class _DriverPackageBookingDetailsScreenState
           SnackBar(
             content: Text(
               message,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: const Color(0xFF1E293B),
@@ -205,9 +218,8 @@ class _DriverPackageBookingDetailsScreenState
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => DriverPackageTrackingScreen(
-            activityId: _job.id.toString(),
-          ),
+          builder: (_) =>
+              DriverPackageTrackingScreen(activityId: _job.id.toString()),
         ),
       );
     } catch (e) {
@@ -221,9 +233,7 @@ class _DriverPackageBookingDetailsScreenState
           SnackBar(
             content: Text(
               _humanizeError(e.toString()),
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             backgroundColor: _danger,
             behavior: SnackBarBehavior.floating,
@@ -248,9 +258,7 @@ class _DriverPackageBookingDetailsScreenState
 
   String _humanizeError(String raw) {
     if (raw.contains('MUNICIPALITY_MISMATCH')) {
-      final match = RegExp(
-        r'Booking is for (.+?) only',
-      ).firstMatch(raw);
+      final match = RegExp(r'Booking is for (.+?) only').firstMatch(raw);
 
       final area = match?.group(1) ?? 'your area';
 
@@ -302,9 +310,7 @@ class _DriverPackageBookingDetailsScreenState
       return 'Tourist';
     }
 
-    final full = dbString(
-      tourist['full_name'],
-    );
+    final full = dbString(tourist['full_name']);
 
     if (full.isNotEmpty) {
       return full;
@@ -332,74 +338,54 @@ class _DriverPackageBookingDetailsScreenState
 
     final tourist = _job.touristRow ?? booking?.touristRow;
 
-    final packageTitle = dbString(
-      package?['title'],
-      fallback: 'Package Tour',
-    );
+    final packageTitle = dbString(package?['title'], fallback: 'Package Tour');
 
-    final municipality = dbString(
-      booking?.row['municipality'],
-    );
+    final municipality = dbString(booking?.row['municipality']);
 
-    final province = dbString(
-      booking?.row['province'],
-      fallback: 'Bulacan',
-    );
+    final province = dbString(booking?.row['province'], fallback: 'Bulacan');
 
-    final area = municipality.isNotEmpty ? '$municipality, $province' : province;
+    final area = municipality.isNotEmpty
+        ? '$municipality, $province'
+        : province;
 
     final travelDate = booking?.travelDate;
 
-    final rawTravelDate = dbString(
-      booking?.row['travel_date'],
-    );
+    final rawTravelDate = dbString(booking?.row['travel_date']);
 
     final travelDateText = travelDate != null
         ? DateFormat('MMMM d, yyyy').format(travelDate)
         : rawTravelDate.isNotEmpty
-            ? rawTravelDate
-            : 'Date pending';
+        ? rawTravelDate
+        : 'Date pending';
 
     final adults = booking?.adults ?? 1;
 
     final children = booking?.children ?? 0;
 
-    final passengerText = dbString(
-      booking?.row['total_passengers'],
-    );
+    final passengerText = dbString(booking?.row['total_passengers']);
 
     final passengers = passengerText.isNotEmpty
         ? passengerText
         : '$adults adult${adults == 1 ? '' : 's'}'
-            '${children > 0 ? ' • $children child${children == 1 ? '' : 'ren'}' : ''}';
+              '${children > 0 ? ' • $children child${children == 1 ? '' : 'ren'}' : ''}';
 
     final totalAmount = booking?.totalAmount ?? _job.price;
 
-    final pickupAddress = dbString(
-      booking?.row['pickup_address'],
-    );
+    final pickupAddress = dbString(booking?.row['pickup_address']);
 
-    final dropoffAddress = dbString(
-      booking?.row['dropoff_address'],
-    );
+    final dropoffAddress = dbString(booking?.row['dropoff_address']);
 
-    final touristPhone = dbString(
-      tourist?['mobile'],
-    );
+    final touristPhone = dbString(tourist?['mobile']);
 
-    final touristImage = dbString(
-      tourist?['profile_image_url'],
-    );
+    final touristImage = dbString(tourist?['profile_image_url']);
 
     final notes = booking?.notes ?? '';
 
-    final money = NumberFormat.currency(
-      symbol: '₱',
-      decimalDigits: 2,
-    );
+    final money = NumberFormat.currency(symbol: '₱', decimalDigits: 2);
 
-    final itineraryCount =
-        _spots.isNotEmpty ? _spots.length : widget.initialItineraryCount;
+    final itineraryCount = _spots.isNotEmpty
+        ? _spots.length
+        : widget.initialItineraryCount;
 
     final requiredDrivers = booking?.requiredDrivers ?? 1;
 
@@ -410,140 +396,121 @@ class _DriverPackageBookingDetailsScreenState
         child: _loading
             ? const _LoadingState()
             : _error != null
-                ? Column(
-                    children: [
-                      _BookingDetailsTopBar(
-                        onBack: () => Navigator.of(context).pop(),
-                      ),
-                      Expanded(
-                        child: _ErrorState(
-                          message: _error!,
-                          onRetry: _load,
-                        ),
-                      ),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      // =====================================================
-                      // CONSISTENT TOP BAR
-                      // =====================================================
-
-                      _BookingDetailsTopBar(
-                        onBack: () => Navigator.of(context).pop(),
-                      ),
-
-                      // =====================================================
-                      // CONTENT
-                      // =====================================================
-
-                      Expanded(
-                        child: RefreshIndicator(
-                          onRefresh: _load,
-                          color: _primary,
-                          child: ListView(
-                            physics: const AlwaysScrollableScrollPhysics(
-                              parent: BouncingScrollPhysics(),
-                            ),
-                            padding: const EdgeInsets.fromLTRB(
-                              16,
-                              8,
-                              16,
-                              22,
-                            ),
-                            children: [
-                              // =============================================
-                              // HERO
-                              // =============================================
-
-                              _BookingHeroCard(
-                                packageTitle: packageTitle,
-                                area: area,
-                                tourDate: travelDateText,
-                                participants: passengers,
-                                totalAmount: money.format(totalAmount),
-                                itineraryCount: itineraryCount,
-                                requiredDrivers: requiredDrivers,
-                              ),
-
-                              const SizedBox(height: 14),
-
-                              // =============================================
-                              // TOURIST
-                              // =============================================
-
-                              _TouristSummaryCard(
-                                name: _touristName(tourist),
-                                phone: touristPhone,
-                                imageUrl: touristImage,
-                              ),
-
-                              const SizedBox(height: 14),
-
-                              // =============================================
-                              // ROUTE
-                              // =============================================
-
-                              _RouteDetailsCard(
-                                pickupAddress: pickupAddress,
-                                dropoffAddress: dropoffAddress,
-                                area: area,
-                              ),
-
-                              const SizedBox(height: 14),
-
-                              // =============================================
-                              // BOOKING SUMMARY
-                              // =============================================
-
-                              _BookingSummaryCard(
-                                travelDate: travelDateText,
-                                participants: passengers,
-                                totalAmount: money.format(totalAmount),
-                                itineraryCount: itineraryCount,
-                                requiredDrivers: requiredDrivers,
-                              ),
-
-                              // =============================================
-                              // NOTE
-                              // =============================================
-
-                              if (notes.trim().isNotEmpty) ...[
-                                const SizedBox(height: 14),
-                                _TouristNoteCard(
-                                  notes: notes,
-                                ),
-                              ],
-
-                              const SizedBox(height: 14),
-
-                              // =============================================
-                              // ITINERARY
-                              // =============================================
-
-                              _ItineraryCard(
-                                spots: _spots,
-                                itineraryCount: itineraryCount,
-                              ),
-
-                              // Space above sticky button
-                              const SizedBox(height: 8),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // =====================================================
-                      // PERSISTENT ACCEPT BUTTON
-                      // =====================================================
-
-                      _AcceptBookingBar(
-                        accepting: _accepting,
-                        disabledReason: widget.disabledReason,
-                        onAccept: _accept,
-                      ),
-                    ],
+            ? Column(
+                children: [
+                  _BookingDetailsTopBar(
+                    onBack: () => Navigator.of(context).pop(),
                   ),
+                  Expanded(
+                    child: _ErrorState(message: _error!, onRetry: _load),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  // =====================================================
+                  // CONSISTENT TOP BAR
+                  // =====================================================
+                  _BookingDetailsTopBar(
+                    onBack: () => Navigator.of(context).pop(),
+                  ),
+
+                  // =====================================================
+                  // CONTENT
+                  // =====================================================
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _load,
+                      color: _primary,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
+                        children: [
+                          // =============================================
+                          // HERO
+                          // =============================================
+                          _BookingHeroCard(
+                            packageTitle: packageTitle,
+                            area: area,
+                            tourDate: travelDateText,
+                            participants: passengers,
+                            totalAmount: money.format(totalAmount),
+                            itineraryCount: itineraryCount,
+                            requiredDrivers: requiredDrivers,
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // =============================================
+                          // TOURIST
+                          // =============================================
+                          _TouristSummaryCard(
+                            name: _touristName(tourist),
+                            phone: touristPhone,
+                            imageUrl: touristImage,
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // =============================================
+                          // ROUTE
+                          // =============================================
+                          _RouteDetailsCard(
+                            pickupAddress: pickupAddress,
+                            dropoffAddress: dropoffAddress,
+                            area: area,
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // =============================================
+                          // BOOKING SUMMARY
+                          // =============================================
+                          _BookingSummaryCard(
+                            travelDate: travelDateText,
+                            participants: passengers,
+                            totalAmount: money.format(totalAmount),
+                            itineraryCount: itineraryCount,
+                            requiredDrivers: requiredDrivers,
+                          ),
+
+                          // =============================================
+                          // NOTE
+                          // =============================================
+                          if (notes.trim().isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            _TouristNoteCard(notes: notes),
+                          ],
+
+                          const SizedBox(height: 14),
+
+                          // =============================================
+                          // ITINERARY
+                          // =============================================
+                          _ItineraryCard(
+                            spots: _spots,
+                            itineraryCount: itineraryCount,
+                          ),
+
+                          // Space above sticky button
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // =====================================================
+                  // PERSISTENT ACCEPT BUTTON
+                  // =====================================================
+                  _AcceptBookingBar(
+                    accepting: _accepting,
+                    disabledReason: widget.disabledReason,
+                    onAccept: _accept,
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -554,9 +521,7 @@ class _DriverPackageBookingDetailsScreenState
 // ============================================================================
 
 class _BookingDetailsTopBar extends StatelessWidget {
-  const _BookingDetailsTopBar({
-    required this.onBack,
-  });
+  const _BookingDetailsTopBar({required this.onBack});
 
   final VoidCallback onBack;
 
@@ -564,9 +529,7 @@ class _BookingDetailsTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 62,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       color: _background,
       child: Row(
         children: [
@@ -580,9 +543,7 @@ class _BookingDetailsTopBar extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  border: Border.all(
-                    color: _border,
-                  ),
+                  border: Border.all(color: _border),
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: const Icon(
@@ -621,10 +582,7 @@ class _BookingDetailsTopBar extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 6,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
             decoration: BoxDecoration(
               color: _softBlue,
               borderRadius: BorderRadius.circular(999),
@@ -677,10 +635,7 @@ class _BookingHeroCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            _primary,
-            _primaryLight,
-          ],
+          colors: [_primary, _primaryLight],
         ),
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
@@ -819,8 +774,7 @@ class _BookingHeroCard extends StatelessWidget {
             children: [
               _HeroMiniPill(
                 icon: Icons.route_outlined,
-                text:
-                    '$itineraryCount stop${itineraryCount == 1 ? '' : 's'}',
+                text: '$itineraryCount stop${itineraryCount == 1 ? '' : 's'}',
               ),
               const SizedBox(width: 7),
               _HeroMiniPill(
@@ -850,19 +804,13 @@ class _HeroStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 7,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 7),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                icon,
-                color: Colors.white70,
-                size: 12,
-              ),
+              Icon(icon, color: Colors.white70, size: 12),
               const SizedBox(width: 4),
               Text(
                 label,
@@ -893,10 +841,7 @@ class _HeroStat extends StatelessWidget {
 }
 
 class _HeroMiniPill extends StatelessWidget {
-  const _HeroMiniPill({
-    required this.icon,
-    required this.text,
-  });
+  const _HeroMiniPill({required this.icon, required this.text});
 
   final IconData icon;
   final String text;
@@ -904,10 +849,7 @@ class _HeroMiniPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 6,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
@@ -915,11 +857,7 @@ class _HeroMiniPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            color: Colors.white,
-            size: 12,
-          ),
+          Icon(icon, color: Colors.white, size: 12),
           const SizedBox(width: 5),
           Text(
             text,
@@ -962,9 +900,7 @@ class _TouristSummaryCard extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _softBlue,
-              border: Border.all(
-                color: const Color(0xFFD3E4FF),
-              ),
+              border: Border.all(color: const Color(0xFFD3E4FF)),
             ),
             child: ClipOval(
               child: imageUrl.isNotEmpty
@@ -1004,11 +940,7 @@ class _TouristSummaryCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(
-                      Icons.phone_outlined,
-                      color: _muted,
-                      size: 13,
-                    ),
+                    const Icon(Icons.phone_outlined, color: _muted, size: 13),
                     const SizedBox(width: 5),
                     Expanded(
                       child: Text(
@@ -1028,10 +960,7 @@ class _TouristSummaryCard extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 6,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
             decoration: BoxDecoration(
               color: _successSoft,
               borderRadius: BorderRadius.circular(999),
@@ -1060,11 +989,7 @@ class _AvatarFallback extends StatelessWidget {
     return Container(
       color: _softBlue,
       alignment: Alignment.center,
-      child: const Icon(
-        Icons.person_rounded,
-        color: _primary,
-        size: 26,
-      ),
+      child: const Icon(Icons.person_rounded, color: _primary, size: 26),
     );
   }
 }
@@ -1125,10 +1050,7 @@ class _RouteDetailsCard extends StatelessWidget {
 
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 11,
-              vertical: 9,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             decoration: BoxDecoration(
               color: const Color(0xFFF7F9FC),
               borderRadius: BorderRadius.circular(13),
@@ -1204,27 +1126,17 @@ class _RoutePoint extends StatelessWidget {
                   color: color.withValues(alpha: 0.10),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 15,
-                ),
+                child: Icon(icon, color: color, size: 15),
               ),
               if (hasLine)
-                Container(
-                  width: 2,
-                  height: 39,
-                  color: const Color(0xFFDCE5F0),
-                ),
+                Container(width: 2, height: 39, color: const Color(0xFFDCE5F0)),
             ],
           ),
         ),
         const SizedBox(width: 9),
         Expanded(
           child: Padding(
-            padding: EdgeInsets.only(
-              bottom: hasLine ? 13 : 0,
-            ),
+            padding: EdgeInsets.only(bottom: hasLine ? 13 : 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1320,10 +1232,7 @@ class _BookingSummaryCard extends StatelessWidget {
 
           const SizedBox(height: 13),
 
-          const Divider(
-            height: 1,
-            color: Color(0xFFEDF1F6),
-          ),
+          const Divider(height: 1, color: Color(0xFFEDF1F6)),
 
           const SizedBox(height: 12),
 
@@ -1361,9 +1270,7 @@ class _SummaryMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(
-        minHeight: 78,
-      ),
+      constraints: const BoxConstraints(minHeight: 78),
       padding: const EdgeInsets.all(9),
       decoration: BoxDecoration(
         color: const Color(0xFFF7F9FC),
@@ -1372,11 +1279,7 @@ class _SummaryMetric extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            icon,
-            color: _primary,
-            size: 16,
-          ),
+          Icon(icon, color: _primary, size: 16),
           const SizedBox(height: 5),
           Text(
             value,
@@ -1431,11 +1334,7 @@ class _BookingInfoLine extends StatelessWidget {
             color: _softBlue,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            icon,
-            color: _primary,
-            size: 14,
-          ),
+          child: Icon(icon, color: _primary, size: 14),
         ),
         const SizedBox(width: 9),
         Expanded(
@@ -1473,9 +1372,7 @@ class _BookingInfoLine extends StatelessWidget {
 // ============================================================================
 
 class _TouristNoteCard extends StatelessWidget {
-  const _TouristNoteCard({
-    required this.notes,
-  });
+  const _TouristNoteCard({required this.notes});
 
   final String notes;
 
@@ -1486,9 +1383,7 @@ class _TouristNoteCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFFDE7A8),
-        ),
+        border: Border.all(color: const Color(0xFFFDE7A8)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1544,10 +1439,7 @@ class _TouristNoteCard extends StatelessWidget {
 // ============================================================================
 
 class _ItineraryCard extends StatelessWidget {
-  const _ItineraryCard({
-    required this.spots,
-    required this.itineraryCount,
-  });
+  const _ItineraryCard({required this.spots, required this.itineraryCount});
 
   final List<BookingItineraryItem> spots;
   final int itineraryCount;
@@ -1610,16 +1502,15 @@ class _ItineraryTimelineRow extends StatelessWidget {
       item.formattedDepartureTime,
     ].where((part) => part.isNotEmpty).join(' – ');
 
-    final stopOrder =
-        item.orderNumber > 0 ? item.orderNumber : item.destinationOrder;
+    final stopOrder = item.orderNumber > 0
+        ? item.orderNumber
+        : item.destinationOrder;
 
     final completed = item.spotStatus == 'completed';
 
     final markerColor = completed ? _success : _primary;
 
-    final sourceLabel = item.sourceType
-        .replaceAll('_', ' ')
-        .trim();
+    final sourceLabel = item.sourceType.replaceAll('_', ' ').trim();
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1635,17 +1526,10 @@ class _ItineraryTimelineRow extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: completed ? _successSoft : _softBlue,
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: markerColor,
-                    width: 1.5,
-                  ),
+                  border: Border.all(color: markerColor, width: 1.5),
                 ),
                 child: completed
-                    ? const Icon(
-                        Icons.check_rounded,
-                        color: _success,
-                        size: 15,
-                      )
+                    ? const Icon(Icons.check_rounded, color: _success, size: 15)
                     : Text(
                         '$index',
                         style: const TextStyle(
@@ -1669,15 +1553,8 @@ class _ItineraryTimelineRow extends StatelessWidget {
 
         Expanded(
           child: Container(
-            margin: EdgeInsets.only(
-              bottom: isLast ? 0 : 9,
-            ),
-            padding: const EdgeInsets.fromLTRB(
-              10,
-              8,
-              10,
-              9,
-            ),
+            margin: EdgeInsets.only(bottom: isLast ? 0 : 9),
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
             decoration: BoxDecoration(
               color: const Color(0xFFF9FAFC),
               borderRadius: BorderRadius.circular(14),
@@ -1705,8 +1582,7 @@ class _ItineraryTimelineRow extends StatelessWidget {
                   children: [
                     _ItineraryChip(
                       icon: Icons.flag_outlined,
-                      label:
-                          'Stop ${stopOrder > 0 ? stopOrder : index}',
+                      label: 'Stop ${stopOrder > 0 ? stopOrder : index}',
                       color: _primary,
                     ),
                     if (sourceLabel.isNotEmpty)
@@ -1801,10 +1677,7 @@ class _ItineraryChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 7,
-        vertical: 4,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(999),
@@ -1812,11 +1685,7 @@ class _ItineraryChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            color: color,
-            size: 10,
-          ),
+          Icon(icon, color: color, size: 10),
           const SizedBox(width: 4),
           Text(
             label,
@@ -1833,10 +1702,7 @@ class _ItineraryChip extends StatelessWidget {
 }
 
 class _ItineraryRowPlaceholder extends StatelessWidget {
-  const _ItineraryRowPlaceholder({
-    required this.index,
-    required this.isLast,
-  });
+  const _ItineraryRowPlaceholder({required this.index, required this.isLast});
 
   final int index;
   final bool isLast;
@@ -1868,21 +1734,14 @@ class _ItineraryRowPlaceholder extends StatelessWidget {
                 ),
               ),
               if (!isLast)
-                Container(
-                  width: 2,
-                  height: 40,
-                  color: const Color(0xFFDCE5F0),
-                ),
+                Container(width: 2, height: 40, color: const Color(0xFFDCE5F0)),
             ],
           ),
         ),
         const SizedBox(width: 9),
         const Expanded(
           child: Padding(
-            padding: EdgeInsets.only(
-              top: 7,
-              bottom: 20,
-            ),
+            padding: EdgeInsets.only(top: 7, bottom: 20),
             child: Row(
               children: [
                 SizedBox(
@@ -1928,11 +1787,7 @@ class _EmptyItinerary extends StatelessWidget {
           CircleAvatar(
             radius: 19,
             backgroundColor: _softBlue,
-            child: Icon(
-              Icons.map_outlined,
-              color: _primary,
-              size: 18,
-            ),
+            child: Icon(Icons.map_outlined, color: _primary, size: 18),
           ),
           SizedBox(width: 10),
           Expanded(
@@ -1976,19 +1831,10 @@ class _AcceptBookingBar extends StatelessWidget {
         disabledReason != null && disabledReason!.trim().isNotEmpty;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        10,
-        16,
-        10 + bottomInset,
-      ),
+      padding: EdgeInsets.fromLTRB(16, 10, 16, 10 + bottomInset),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(
-          top: BorderSide(
-            color: _border,
-          ),
-        ),
+        border: const Border(top: BorderSide(color: _border)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.055),
@@ -2003,13 +1849,8 @@ class _AcceptBookingBar extends StatelessWidget {
           if (disabled) ...[
             Container(
               width: double.infinity,
-              margin: const EdgeInsets.only(
-                bottom: 8,
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 8,
-              ),
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: _warningSoft,
                 borderRadius: BorderRadius.circular(12),
@@ -2046,12 +1887,7 @@ class _AcceptBookingBar extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: disabled
                     ? null
-                    : const LinearGradient(
-                        colors: [
-                          _primary,
-                          _primaryLight,
-                        ],
-                      ),
+                    : const LinearGradient(colors: [_primary, _primaryLight]),
                 color: disabled ? const Color(0xFFCBD5E1) : null,
                 borderRadius: BorderRadius.circular(15),
                 boxShadow: disabled
@@ -2120,10 +1956,7 @@ class _AcceptBookingBar extends StatelessWidget {
                           ),
                           if (!disabled) ...[
                             const SizedBox(width: 6),
-                            const Icon(
-                              Icons.arrow_forward_rounded,
-                              size: 16,
-                            ),
+                            const Icon(Icons.arrow_forward_rounded, size: 16),
                           ],
                         ],
                       ),
@@ -2163,11 +1996,7 @@ class _SectionHeader extends StatelessWidget {
             color: _softBlue,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(
-            icon,
-            color: _primary,
-            size: 17,
-          ),
+          child: Icon(icon, color: _primary, size: 17),
         ),
         const SizedBox(width: 9),
         Expanded(
@@ -2204,9 +2033,7 @@ class _SectionHeader extends StatelessWidget {
 // ============================================================================
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.child,
-  });
+  const _SectionCard({required this.child});
 
   final Widget child;
 
@@ -2218,9 +2045,7 @@ class _SectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _border,
-        ),
+        border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.035),
@@ -2250,10 +2075,7 @@ class _LoadingState extends StatelessWidget {
           SizedBox(
             width: 31,
             height: 31,
-            child: CircularProgressIndicator(
-              color: _primary,
-              strokeWidth: 3,
-            ),
+            child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
           ),
           SizedBox(height: 13),
           Text(
@@ -2275,10 +2097,7 @@ class _LoadingState extends StatelessWidget {
 // ============================================================================
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorState({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -2294,9 +2113,7 @@ class _ErrorState extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: _border,
-            ),
+            border: Border.all(color: _border),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2348,15 +2165,10 @@ class _ErrorState extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  icon: const Icon(
-                    Icons.refresh_rounded,
-                    size: 17,
-                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 17),
                   label: const Text(
                     'Try Again',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
               ),

@@ -154,10 +154,10 @@ begin
     pickup_latitude,pickup_longitude,dropoff_latitude,dropoff_longitude)
   values(v_package,v_tourist,((now()+interval '6 hours') at time zone 'Asia/Manila')::date,
     now()+interval '6 hours',now()+interval '12 hours',
-    1000,0,1000,'same_day','gcash','Baliwag','Bulacan',
+    1000,500,500,'same_day','gcash','Baliwag','Bulacan',
     14.9599615,120.8898492,14.9599615,120.8898492) returning id into v_same_day;
-  if not public.is_booking_downpayment_confirmed(v_same_day) then
-    raise exception 'SAME_DAY_DOWNPAYMENT_GATE_FAILED';
+  if public.is_booking_downpayment_confirmed(v_same_day) then
+    raise exception 'SAME_DAY_DOWNPAYMENT_BYPASS_REMAINED';
   end if;
   perform public.cancel_package_booking(v_same_day,'change_of_plans');
   if exists(select 1 from public.refund_requests where booking_id=v_same_day) then

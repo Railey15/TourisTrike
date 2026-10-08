@@ -27,8 +27,8 @@ PackageBooking booking({
       status ?? (accepted >= required ? 'accepted' : 'waiting_for_drivers'),
   'status': status ?? (accepted >= required ? 'confirmed' : 'pending'),
   'total_amount': 7200,
-  'downpayment_amount': type == 'same_day' ? 0 : 3600,
-  'remaining_balance': type == 'same_day' ? 7200 : 3600,
+  'downpayment_amount': 3600,
+  'remaining_balance': 3600,
   'tour_packages': {'title': 'Baliwag & Pulilan Tour'},
 });
 
@@ -43,10 +43,7 @@ BookingPaymentPrompt prompt({
 }) => BookingPaymentPrompt.fromRecords(
   booking(required: required, accepted: accepted, type: type, status: status),
   payments,
-  requirement:
-      type == 'advanced' &&
-          accepted >= required &&
-          status != 'waiting_for_drivers'
+  requirement: accepted >= required && status != 'waiting_for_drivers'
       ? {'status': requirementStatus, 'amount': requirementAmount}
       : null,
 );
@@ -97,8 +94,8 @@ void main() {
           );
         }
         final ready = prompt(required: count, accepted: count, type: type);
-        expect(ready.paymentRequired, type == 'advanced');
-        expect(gate.shouldPresent(ready), type == 'advanced');
+        expect(ready.paymentRequired, isTrue);
+        expect(gate.shouldPresent(ready), isTrue);
         for (var refresh = 0; refresh < 5; refresh++) {
           expect(gate.shouldPresent(ready), isFalse);
         }
@@ -108,7 +105,7 @@ void main() {
           ),
           isFalse,
         );
-        expect(gate.shouldPresent(ready), type == 'advanced');
+        expect(gate.shouldPresent(ready), isTrue);
       });
     }
   }
@@ -162,7 +159,7 @@ void main() {
   });
 
   test('backend requirement controls the downpayment prompt and amount', () {
-    expect(prompt(type: 'same_day').paymentRequired, isFalse);
+    expect(prompt(type: 'same_day').paymentRequired, isTrue);
     expect(prompt(requirementStatus: 'waived').paymentRequired, isFalse);
     expect(prompt(requirementStatus: 'satisfied').paymentRequired, isFalse);
     expect(prompt(requirementAmount: 3500).paymentRequired, isFalse);

@@ -79,6 +79,8 @@ void main() {
               'checkout_url': 'https://checkout.example.test',
               'reused': false,
               'livemode': false,
+              'payment_method': 'paymaya',
+              'payment_flow': 'redirect',
             }),
             200,
             headers: {'content-type': 'application/json'},
@@ -90,6 +92,7 @@ void main() {
           .createPayMongoCheckout(
             bookingId: 'booking-1',
             paymentStage: 'remaining_balance',
+            paymentMethod: 'paymaya',
             customerName: 'Maria Dela Cruz',
             customerEmail: 'maria@example.com',
           );
@@ -99,6 +102,7 @@ void main() {
       final body = jsonDecode(requests.single.body) as Map<String, dynamic>;
       expect(body['customer_name'], 'Maria Dela Cruz');
       expect(body['customer_email'], 'maria@example.com');
+      expect(body['payment_method'], 'paymaya');
       expect(body.containsKey('amount'), false);
       expect(requests.single.url.path.contains('profiles'), false);
       expect(requests.single.url.path.contains('auth'), false);

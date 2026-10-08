@@ -3,6 +3,26 @@ import 'package:touristrike/core/auth/app_role.dart';
 
 typedef Json = Map<String, dynamic>;
 
+const payMongoPaymentMethods = <String>['gcash', 'paymaya', 'qrph', 'card'];
+
+String paymentMethodLabel(String value) => switch (value.toLowerCase()) {
+  'gcash' => 'GCash',
+  'paymaya' || 'maya' => 'Maya',
+  'qrph' => 'QR Ph',
+  'card' => 'Credit / Debit Card',
+  'cash' => 'Cash',
+  final method =>
+    method
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((word) => word.isNotEmpty)
+        .map(
+          (word) =>
+              '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+        )
+        .join(' '),
+};
+
 String dbString(dynamic value, {String fallback = ''}) {
   if (value == null) return fallback;
   final text = value.toString().trim();
@@ -383,10 +403,6 @@ class PackageBooking extends TourisTrikeRow {
   int get currentSpotIndex => dbInt(row['current_spot_index'], fallback: 0);
   int get requiredDrivers => dbInt(row['required_drivers'], fallback: 1);
   int get additionalTricycleCount => dbInt(row['additional_tricycle_count']);
-  int get additionalTricycleApprovedCount =>
-      dbInt(row['additional_tricycle_approved_count']);
-  String get additionalTricycleRequestStatus =>
-      dbString(row['additional_tricycle_request_status'], fallback: 'none');
   String get additionalTricycleReason =>
       dbString(row['additional_tricycle_reason']);
   String get additionalTricycleExplanation =>
@@ -410,6 +426,19 @@ class PackageBooking extends TourisTrikeRow {
   String get cancellationNote => dbString(row['cancellation_note']);
   String get cancellationCategory => dbString(row['cancellation_category']);
   String get cancellationType => dbString(row['cancellation_type']);
+  String get cancellationParty => dbString(row['cancellation_party']);
+  String get cancellationReasonCode =>
+      dbString(row['cancellation_reason_code']);
+  String get replacementStatus =>
+      dbString(row['replacement_status'], fallback: 'none');
+  DateTime? get replacementSearchStartedAt =>
+      dbDate(row['replacement_search_started_at']);
+  DateTime? get replacementDeadlineAt => dbDate(row['replacement_deadline_at']);
+  String get payoutEligibilityReason =>
+      dbString(row['payout_eligibility_reason']);
+  bool get isSearchingForReplacement =>
+      replacementStatus == 'awaiting_replacement';
+  bool get hasReplacementDriver => replacementStatus == 'replacement_assigned';
   double get cancellationFee => dbDouble(row['cancellation_fee']);
   double get refundableAmount => dbDouble(row['refundable_amount']);
   String get refundStatus =>
@@ -427,7 +456,7 @@ class PackageBooking extends TourisTrikeRow {
       row['driver'] is Map ? Json.from(row['driver'] as Map) : null;
 }
 
-// TourisTrike does NOT custody funds — GCash-to-GCash direct. Outside AMLA covered-person scope (RA 9160).
+// PayMongo-backed package payment records; raw card data is never persisted.
 class CancellationEligibility {
   const CancellationEligibility({
     required this.canCancel,
@@ -538,6 +567,29 @@ class RefundRequest extends TourisTrikeRow {
   DateTime? get requestedAt => dbDate(row['requested_at']);
   DateTime? get completedAt => dbDate(row['completed_at']);
   String get referenceNo => dbString(row['reference_no']);
+  String get providerRefundId => dbString(row['provider_refund_id']);
+  String get providerRefundStatus => dbString(row['provider_refund_status']);
+  DateTime? get createdAt => dbDate(row['created_at']) ?? requestedAt;
+}
+
+class BookingNoShowReport extends TourisTrikeRow {
+  const BookingNoShowReport(super.row);
+
+  String get bookingId => dbString(row['booking_id']);
+  String get bookingDriverId => dbString(row['booking_driver_id']);
+  String get reportedBy => dbString(row['reported_by']);
+  String get reportedParty => dbString(row['reported_party']);
+  String get status => dbString(row['status'], fallback: 'pending');
+  String get reportNote => dbString(row['report_note']);
+  Json get arrivalEvidence => row['arrival_evidence'] is Map
+      ? Json.from(row['arrival_evidence'] as Map)
+      : <String, dynamic>{};
+  Json get progressionEvidence => row['progression_evidence'] is Map
+      ? Json.from(row['progression_evidence'] as Map)
+      : <String, dynamic>{};
+  DateTime? get reportedAt => dbDate(row['reported_at']);
+  DateTime? get resolvedAt => dbDate(row['resolved_at']);
+  String get resolutionNote => dbString(row['resolution_note']);
 }
 
 class PaymentRecord extends TourisTrikeRow {
@@ -561,6 +613,8 @@ class PaymentRecord extends TourisTrikeRow {
   String get notes => dbString(row['notes']);
   String get provider => dbString(row['provider'], fallback: 'manual');
   String get providerStatus => dbString(row['provider_status']);
+  String get providerPaymentId => dbString(row['provider_payment_id']);
+  String get providerReference => dbString(row['provider_reference']);
   String get checkoutUrl => dbString(row['checkout_url']);
   DateTime? get paidAt => dbDate(row['paid_at']);
   DateTime? get createdAt => dbDate(row['created_at']);
@@ -574,6 +628,135 @@ class PaymentRecord extends TourisTrikeRow {
   bool get isPending => status == 'pending_confirmation';
   bool get isDisputed => status == 'disputed';
   bool get isCancelled => status == 'cancelled';
+
+  Json get bookingRow {
+    final value = row['package_bookings'];
+    if (value is Map) return Json.from(value);
+    if (value is List && value.isNotEmpty && value.first is Map) {
+      return Json.from(value.first as Map);
+    }
+    return <String, dynamic>{};
+  }
+
+  String get packageName {
+    final value = bookingRow['tour_packages'];
+    if (value is Map) return dbString(value['title']);
+    if (value is List && value.isNotEmpty && value.first is Map) {
+      return dbString((value.first as Map)['title']);
+    }
+    return '';
+  }
+}
+
+/// A tourist-facing ledger entry. Refunds remain linked to their immutable
+/// original [payment] through `refund_requests.payment_record_id`; they are not
+/// represented as synthetic payments or as a stored-value balance.
+class PaymentHistoryEntry {
+  const PaymentHistoryEntry.payment(this.payment) : refund = null;
+
+  const PaymentHistoryEntry.refund({
+    required this.payment,
+    required this.refund,
+  });
+
+  final PaymentRecord payment;
+  final RefundRequest? refund;
+
+  bool get isRefund => refund != null;
+  double get amount => refund?.amount ?? payment.amount;
+  DateTime? get occurredAt => isRefund
+      ? refund!.completedAt ?? refund!.requestedAt ?? refund!.createdAt
+      : payment.paidAt ??
+            payment.payeeConfirmedAt ??
+            payment.payerSubmittedAt ??
+            payment.createdAt;
+
+  String get packageName =>
+      payment.packageName.isEmpty ? 'Tour Package' : payment.packageName;
+
+  String get transactionType {
+    if (isRefund) {
+      final reason = refund!.reason.toLowerCase();
+      if (reason.contains('cancel') ||
+          reason.contains('no replacement') ||
+          reason.contains('no_replacement')) {
+        return 'Cancellation Refund';
+      }
+      if (payment.paymentStage == 'down_payment') {
+        return 'Down Payment Refund';
+      }
+      return 'Payment Refund';
+    }
+    return switch (payment.paymentStage) {
+      'down_payment' => 'Down Payment',
+      'remaining_balance' => 'Remaining Balance',
+      'full' || 'full_payment' => 'Full Payment',
+      'waiting_charge' || 'additional_charge' => 'Waiting Charge',
+      final value => _titleCase(value.replaceAll('_', ' ')),
+    };
+  }
+
+  String get title => '$packageName - $transactionType';
+  String get amountPrefix => isRefund ? '+' : '-';
+
+  String get bookingReference {
+    for (final key in const [
+      'booking_reference',
+      'reference_no',
+      'booking_code',
+    ]) {
+      final value = dbString(payment.bookingRow[key]);
+      if (value.isNotEmpty) return value;
+    }
+    final id = payment.bookingId?.toString() ?? '';
+    return id.isEmpty
+        ? 'Not available'
+        : '#${id.substring(0, id.length.clamp(0, 8)).toUpperCase()}';
+  }
+
+  String get statusLabel {
+    if (isRefund) {
+      return switch (refund!.status.toLowerCase()) {
+        'completed' || 'refunded' => 'Refunded',
+        'rejected' || 'failed' => 'Refund Failed',
+        _ => 'Refund Pending',
+      };
+    }
+    return switch (payment.status.toLowerCase()) {
+      'confirmed' => 'Paid',
+      'cancelled' => 'Cancelled',
+      'disputed' => 'Disputed',
+      'failed' => 'Failed',
+      _ => 'Pending',
+    };
+  }
+
+  String get originalPaymentReference {
+    if (payment.receiptNo.isNotEmpty) return payment.receiptNo;
+    if (payment.providerReference.isNotEmpty) return payment.providerReference;
+    if (payment.externalReferenceNo.isNotEmpty) {
+      return payment.externalReferenceNo;
+    }
+    return '$bookingReference - ${_titleCase(payment.paymentStage.replaceAll('_', ' '))}';
+  }
+
+  String get providerReference {
+    if (isRefund) {
+      if (refund!.providerRefundId.isNotEmpty) return refund!.providerRefundId;
+      if (refund!.referenceNo.isNotEmpty) return refund!.referenceNo;
+    }
+    if (payment.providerReference.isNotEmpty) return payment.providerReference;
+    if (payment.providerPaymentId.isNotEmpty) return payment.providerPaymentId;
+    return payment.externalReferenceNo;
+  }
+
+  static String _titleCase(String value) => value
+      .split(' ')
+      .where((word) => word.isNotEmpty)
+      .map(
+        (word) => '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+      )
+      .join(' ');
 }
 
 class PaymentAllocation extends TourisTrikeRow {
@@ -600,6 +783,19 @@ class PaymentAllocation extends TourisTrikeRow {
 
   bool get isAwaitingCash => status == 'awaiting_cash';
   bool get isCashConfirmed => status == 'cash_confirmed';
+  bool get isPayoutPending => status == 'pending' || status == 'held';
+  bool get isPayoutEligible => status == 'eligible';
+  bool get isPaidOut => status == 'paid';
+  String get payoutStatusLabel => switch (status) {
+    'pending' || 'held' => 'Pending payout',
+    'eligible' => 'Eligible after tour completion',
+    'processing' => 'Payout processing',
+    'paid' => 'Payout paid',
+    'cancelled' => 'Payout cancelled',
+    'manual_review' => 'Payout under review',
+    'failed' => 'Payout retry needed',
+    _ => status.replaceAll('_', ' '),
+  };
   bool get isConfirmedEarning =>
       paymentRecordStatus == 'confirmed' &&
       status != 'cancelled' &&
@@ -612,6 +808,9 @@ class PayMongoCheckout {
     required this.checkoutUrl,
     required this.reused,
     required this.livemode,
+    required this.paymentMethod,
+    required this.paymentFlow,
+    required this.qrPaymentUrl,
   });
 
   factory PayMongoCheckout.fromJson(Json json) => PayMongoCheckout(
@@ -619,12 +818,22 @@ class PayMongoCheckout {
     checkoutUrl: dbString(json['checkout_url']),
     reused: dbBool(json['reused']),
     livemode: dbBool(json['livemode']),
+    paymentMethod: dbString(json['payment_method']),
+    paymentFlow: dbString(json['payment_flow'], fallback: 'redirect'),
+    qrPaymentUrl: json['qr_payment'] is Map
+        ? dbString((json['qr_payment'] as Map)['checkout_url'])
+        : '',
   );
 
   final String paymentRecordId;
   final String checkoutUrl;
   final bool reused;
   final bool livemode;
+  final String paymentMethod;
+  final String paymentFlow;
+  final String qrPaymentUrl;
+
+  bool get isHostedQr => paymentFlow == 'hosted_qr';
 }
 
 class PaymentDispute extends TourisTrikeRow {

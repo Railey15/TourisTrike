@@ -13,6 +13,11 @@ verify_jwt = false
 [functions.paymongo-switch-to-cash]
 verify_jwt = true
 
+# Service-role scheduler or an authenticated System Administrator starts and
+# polls provider-verified TEST refunds. The handler performs both checks.
+[functions.paymongo-process-test-refund]
+verify_jwt = false
+
 [functions.payment-email-verification]
 verify_jwt = true
 

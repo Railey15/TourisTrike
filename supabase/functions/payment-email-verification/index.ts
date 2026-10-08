@@ -35,7 +35,8 @@ serve(async (request) => {
   if ((action !== "request" && action !== "verify") ||
     typeof bookingId !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(bookingId) ||
-    (stage !== "down_payment" && stage !== "remaining_balance")) {
+    (stage !== "down_payment" && stage !== "remaining_balance" &&
+      stage !== "full_payment")) {
     return jsonResponse({ error: "INVALID_REQUEST" }, 400);
   }
   const service = createClient(url, serviceKey, { auth: { persistSession: false } });

@@ -74,7 +74,7 @@ class BookingPaymentSheet extends StatelessWidget {
                           ? value.dropoffStarted
                                 ? 'All tour destinations are completed. Please settle the outstanding remaining balance.'
                                 : 'All tour destinations are completed. Settle the remaining balance before final drop-off.'
-                          : 'Your drivers are confirmed. Pay your downpayment to prepare for your tour.'
+                          : 'Your drivers are confirmed. Choose a 50% down payment or full payment to prepare for your tour.'
                     : value.awaitingReview
                     ? 'Your existing payment is awaiting review.'
                     : value.isRemaining
@@ -129,8 +129,8 @@ class BookingPaymentSheet extends StatelessWidget {
                               value: value.isRemaining
                                   ? value.cashPending
                                         ? 'Cash — driver confirmation required'
-                                        : 'GCash via PayMongo / Cash'
-                                  : 'GCash via PayMongo',
+                                        : 'PayMongo / Cash'
+                                  : 'GCash, Maya, QR Ph, or Card via PayMongo',
                             ),
                           ]
                           .map(
@@ -180,7 +180,9 @@ class BookingPaymentSheet extends StatelessWidget {
                   ),
                   onPressed: onPay,
                   child: Text(
-                    'Pay ${money.format(value.amount)} ${value.isRemaining ? 'Remaining Balance' : 'Downpayment'}',
+                    value.isRemaining
+                        ? 'Pay ${money.format(value.amount)} Remaining Balance'
+                        : 'Choose Down Payment or Full Payment',
                   ),
                 ),
               TextButton(
