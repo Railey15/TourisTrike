@@ -1848,8 +1848,69 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       if (!mounted) {
         return;
       }
+      if (error.toString().contains('NEW_BOOKINGS_TEMPORARILY_RESTRICTED')) {
+        await _showBookingRestrictionDialog();
+      } else {
+        _snack('Unable to create booking: $error');
+      }
+    }
+  }
 
-      _snack('Unable to create booking: $error');
+  Future<void> _showBookingRestrictionDialog() async {
+    final reason = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('New bookings temporarily paused'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Repeated qualifying late cancellations have temporarily paused new bookings. Existing bookings, refunds, and support remain available.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reason,
+                  maxLines: 3,
+                  maxLength: 1000,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Appeal reason',
+                    hintText: 'Explain why this restriction should be reviewed',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'),
+              ),
+              FilledButton(
+                onPressed: reason.text.trim().length < 10
+                    ? null
+                    : () async {
+                        try {
+                          await Supabase.instance.client.rpc(
+                            'appeal_tourist_booking_restriction',
+                            params: {'p_reason': reason.text.trim()},
+                          );
+                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          if (mounted) _snack('Your appeal was submitted for review.');
+                        } catch (_) {
+                          if (mounted) _snack('Unable to submit the appeal right now.');
+                        }
+                      },
+                child: const Text('Submit appeal'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      reason.dispose();
     }
   }
 
@@ -2332,6 +2393,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                     )
                                   : 'Unavailable',
                               onStayChanged: (item, minutes) {
+                                if (!ItineraryStayOptions.minutes.contains(minutes)) {
+                                  return;
+                                }
                                 if (item.stayMinutes == minutes) return;
                                 setState(() {
                                   item.stayMinutes = minutes;

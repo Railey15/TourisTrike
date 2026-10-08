@@ -118,11 +118,9 @@ begin
   end if;
 end;
 $$;
-
 alter table public.payment_email_verifications enable row level security;
 revoke all on public.payment_email_verifications from public, anon, authenticated;
 grant select, insert, update, delete on public.payment_email_verifications to service_role;
-
 create or replace function public.request_payment_email_verification(
   p_tourist_id uuid, p_booking_id uuid, p_payment_stage text, p_code_hash text
 ) returns text language plpgsql security definer set search_path = '' as $$
@@ -165,7 +163,6 @@ begin
   return 'SENT';
 end;
 $$;
-
 create or replace function public.verify_payment_email_code(
   p_tourist_id uuid, p_booking_id uuid, p_payment_stage text, p_code_hash text
 ) returns text language plpgsql security definer set search_path = '' as $$
@@ -188,7 +185,6 @@ begin
   return 'VERIFIED';
 end;
 $$;
-
 create or replace function public.consume_payment_email_verification(
   p_tourist_id uuid, p_booking_id uuid, p_payment_stage text
 ) returns boolean language plpgsql security definer set search_path = '' as $$
@@ -206,14 +202,12 @@ begin
   return found;
 end;
 $$;
-
 revoke all on function public.request_payment_email_verification(uuid,uuid,text,text) from public, anon, authenticated;
 revoke all on function public.verify_payment_email_code(uuid,uuid,text,text) from public, anon, authenticated;
 revoke all on function public.consume_payment_email_verification(uuid,uuid,text) from public, anon, authenticated;
 grant execute on function public.request_payment_email_verification(uuid,uuid,text,text) to service_role;
 grant execute on function public.verify_payment_email_code(uuid,uuid,text,text) to service_role;
 grant execute on function public.consume_payment_email_verification(uuid,uuid,text) to service_role;
-
 -- The current registration screen records Privacy Notice 1.1. The previously
 -- deployed registration RPC and trigger accepted only 1.0, rejecting new
 -- Tourist profiles after OTP confirmation. Preserve historic 1.0 receipts.
@@ -246,7 +240,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function public.register_tourist_with_privacy_notice(p_version text)
 returns public.profiles language plpgsql security definer set search_path = '' as $$
 declare v_profile public.profiles;

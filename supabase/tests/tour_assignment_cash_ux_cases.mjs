@@ -81,7 +81,7 @@ export async function runTourUxCases({ db, check, failure, scalar, login, uuid }
   await db.query("update package_bookings set booking_status='completed' where id=$1",[original]);
   await failure('select confirm_group_cash_share($1)',[oldPayment.id],'BOOKING_NOT_ACTIVE');
 
-  await db.exec(readFileSync(new URL('../migrations/20260930000000_tour_assignment_reputation_and_cash_ux.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../migration_hold/20261001070000_tour_assignment_reputation_and_cash_ux.sql',import.meta.url),'utf8'));
   await db.exec(readFileSync(new URL('../migrations/20260930010000_repair_tour_assignment_migration.sql',import.meta.url),'utf8'));
   const before=await scalar('select to_jsonb(p) from payment_records p where id=$1',[oldPayment.id]);
   check((await confirm(oldPayment.id)).status,'confirmed','authorized completed-booking retry succeeds');

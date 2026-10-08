@@ -214,21 +214,10 @@ class _ActivityScreenState extends State<ActivityScreen>
               final all = payload.activities;
               final shown = _filtered(all);
 
-              final totalSpent = all
-                  .where(
-                    (activity) =>
-                        activity.lifecycleStatus != 'cancelled' &&
-                        activity.paymentStatus == 'paid',
-                  )
-                  .fold<double>(
-                    0,
-                    (sum, activity) =>
-                        sum +
-                        dbDouble(
-                          activity.bookingRow?['total_amount'],
-                          fallback: activity.price,
-                        ),
-                  );
+              final totalSpent = all.fold<double>(
+                0,
+                (sum, activity) => sum + activity.settledAmount,
+              );
 
               final activeCount = all
                   .where((activity) => activity.isActiveLifecycle)
@@ -1196,9 +1185,23 @@ class _PaymentStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color, background) = switch (status.toLowerCase()) {
-      'paid' => ('Paid', const Color(0xFF15803D), const Color(0xFFECFDF3)),
+      'paid' || 'fully_paid' => (
+        'Fully Paid',
+        const Color(0xFF15803D),
+        const Color(0xFFECFDF3),
+      ),
+      'partially_paid' => (
+        'Partially Paid',
+        const Color(0xFF2563EB),
+        const Color(0xFFEFF6FF),
+      ),
       'refunded' => (
         'Refunded',
+        const Color(0xFF0284C7),
+        const Color(0xFFEAF8FF),
+      ),
+      'partially_refunded' => (
+        'Partially Refunded',
         const Color(0xFF0284C7),
         const Color(0xFFEAF8FF),
       ),

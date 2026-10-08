@@ -1613,7 +1613,7 @@ class DriverAssignmentCard extends StatelessWidget {
                           ? scheduledStart == null
                                 ? DateFormat('MMMM d, yyyy').format(travelDate)
                                 : DateFormat(
-                                    'MMMM d, yyyy â€¢ h:mm a',
+                                    'MMMM d, yyyy • h:mm a',
                                   ).format(scheduledStart)
                           : 'Date pending',
                     ),

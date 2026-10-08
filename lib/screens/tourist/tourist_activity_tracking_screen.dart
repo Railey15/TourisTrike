@@ -9,6 +9,7 @@ import 'package:touristrike/widgets/tour_stay_status_card.dart';
 import 'package:touristrike/core/models/booking_feedback.dart';
 import 'package:touristrike/widgets/booking_feedback_card.dart';
 import 'package:touristrike/core/models/booking_payment_prompt.dart';
+import 'package:touristrike/core/models/additional_tricycle_request.dart';
 import 'package:touristrike/widgets/booking_payment_sheet.dart';
 
 import 'package:flutter/foundation.dart';
@@ -116,6 +117,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   String? _feedbackError;
   bool _feedbackBusy = false;
   bool _testSessionAuthorized = false;
+  bool _additionalRequestBusy = false;
 
   String? _error;
   String? _eta;
@@ -155,6 +157,112 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _spots.where((spot) => spot.spotStatus != 'completed').firstOrNull;
 
   dynamic get _bookingIdForQueries => widget.bookingId;
+
+  Future<void> _requestAdditionalTricycles() async {
+    if (_additionalRequestBusy) return;
+    var count = 1;
+    var reason = AdditionalTricycleReasons.extraLuggage;
+    final explanation = TextEditingController();
+    try {
+      final request = await showDialog<AdditionalTricycleRequest>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            title: const Text('Request additional tricycles'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('The municipal tourism office reviews this request. Your agreed total stays the same; new drivers must accept open slots.'),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<int>(
+                    initialValue: count,
+                    decoration: const InputDecoration(labelText: 'Extra tricycles'),
+                    items: List.generate(3, (index) => DropdownMenuItem(
+                      value: index + 1,
+                      child: Text('${index + 1}'),
+                    )),
+                    onChanged: (value) => update(() => count = value ?? 1),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: reason,
+                    decoration: const InputDecoration(labelText: 'Reason'),
+                    items: AdditionalTricycleReasons.labels.entries.map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key, child: Text(entry.value),
+                      ),
+                    ).toList(),
+                    onChanged: (value) => update(() => reason = value ?? reason),
+                  ),
+                  if (reason == AdditionalTricycleReasons.other) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: explanation,
+                      maxLength: 200,
+                      decoration: const InputDecoration(
+                        labelText: 'Explain your request',
+                        hintText: 'At least 5 characters',
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final value = AdditionalTricycleRequest(
+                    count: count,
+                    reason: reason,
+                    explanation: reason == AdditionalTricycleReasons.other
+                        ? explanation.text.trim() : null,
+                  );
+                  try {
+                    value.validate();
+                    Navigator.pop(dialogContext, value);
+                  } on ArgumentError catch (error) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(error.message.toString())),
+                    );
+                  }
+                },
+                child: const Text('Send request'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (request == null || !mounted) return;
+      setState(() => _additionalRequestBusy = true);
+      await _supabase.rpc('request_additional_tricycles', params: {
+        'p_booking_id': widget.bookingId,
+        'p_count': request.count,
+        'p_reason': request.reason,
+        'p_explanation': request.explanation,
+      });
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Request sent to the municipal tourism office.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Unable to request tricycles: $error'),
+        ));
+      }
+    } finally {
+      explanation.dispose();
+      if (mounted) setState(() => _additionalRequestBusy = false);
+    }
+  }
 
   int get _completedSpotCount =>
       _spots.where((spot) => spot.spotStatus == 'completed').length;
@@ -2147,17 +2255,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // LIVE TOUR STATUS
                 // ===========================================================
-                _TourStatusHero(
-                  icon: statusIcon,
-                  title: statusLabel,
-                  subtitle: statusDescription,
-                  color: statusColor,
-                  eta: _eta,
-                  completed: _completedSpotCount,
-                  total: _spots.length,
-                ),
-
-                const SizedBox(height: 14),
+                if (!waitingDrivers) ...[
+                  _TourStatusHero(
+                    icon: statusIcon,
+                    title: statusLabel,
+                    subtitle: statusDescription,
+                    color: statusColor,
+                    eta: _eta,
+                    completed: 0,
+                    total: 0,
+                  ),
+                  const SizedBox(height: 14),
+                ],
 
                 if (itineraryComplete &&
                     remainingPaymentRecord?.isConfirmed == true) ...[
@@ -2313,18 +2422,27 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // EMERGENCY
                 // ===========================================================
-                _EmergencyPanel(
-                  bookingId: widget.bookingId,
-                  activityId: _activity?.row['id']?.toString(),
-                  driverId: _booking?.assignedDriverId ?? _activity?.driverId,
-                  tripStatus: activity?.tourStatus ?? '',
-                  currentSpotName: _currentItineraryItem?.destinationName,
-                  driverName: driverName.isNotEmpty ? driverName : null,
-                  contacts: _emergencyContacts,
-                  knownPosition: _touristPosition,
-                ),
-
-                const SizedBox(height: 14),
+                if (booking?.pickedUpAt != null ||
+                    const {
+                      'picked_up',
+                      'on_tour',
+                      'en_route_to_spot',
+                      'at_spot',
+                      'en_route_to_dropoff',
+                      'ready_to_complete',
+                    }.contains(activity?.tourStatus)) ...[
+                  _EmergencyPanel(
+                    bookingId: widget.bookingId,
+                    activityId: _activity?.row['id']?.toString(),
+                    driverId: _booking?.assignedDriverId ?? _activity?.driverId,
+                    tripStatus: activity?.tourStatus ?? '',
+                    currentSpotName: _currentItineraryItem?.destinationName,
+                    driverName: driverName.isNotEmpty ? driverName : null,
+                    contacts: _emergencyContacts,
+                    knownPosition: _touristPosition,
+                  ),
+                  const SizedBox(height: 14),
+                ],
 
                 // ===========================================================
                 // ITINERARY
@@ -2411,6 +2529,29 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   ),
                   const SizedBox(height: 14),
                 ],
+                if (booking != null &&
+                    booking.totalPassengers > 1 &&
+                    const ['none', 'rejected'].contains(
+                      booking.additionalTricycleRequestStatus,
+                    ) &&
+                    const ['pending', 'waiting_for_drivers', 'accepted',
+                      'confirmed'].contains(bookingStatus.toLowerCase()) &&
+                    !const ['driver_arrived', 'picked_up', 'on_tour',
+                      'en_route_to_spot', 'at_spot', 'en_route_to_dropoff',
+                      'ready_to_complete', 'completed'].contains(
+                        activity?.tourStatus,
+                      )) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _additionalRequestBusy
+                          ? null : _requestAdditionalTricycles,
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Request additional tricycles'),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 _BookingSummaryCard(
                   date: travelDate,
                   pickupDateTime: booking?.scheduledStartAt?.toLocal(),
@@ -2418,6 +2559,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   adults: adults,
                   children: children,
                   tricycles: requiredDrivers,
+                  additionalRequestCount: booking?.additionalTricycleCount ?? 0,
+                  additionalRequestStatus:
+                      booking?.additionalTricycleRequestStatus ?? 'none',
                   totalAmount: money.format(totalAmount),
                 ),
               ],
@@ -4532,6 +4676,8 @@ class _BookingSummaryCard extends StatelessWidget {
     required this.adults,
     required this.children,
     required this.tricycles,
+    required this.additionalRequestCount,
+    required this.additionalRequestStatus,
     required this.totalAmount,
   });
 
@@ -4544,6 +4690,8 @@ class _BookingSummaryCard extends StatelessWidget {
   final int adults;
   final int children;
   final int tricycles;
+  final int additionalRequestCount;
+  final String additionalRequestStatus;
 
   final String totalAmount;
 
@@ -4624,6 +4772,15 @@ class _BookingSummaryCard extends StatelessWidget {
                 '$adults adult${adults == 1 ? '' : 's'}'
                 '${children > 0 ? ' • $children child${children == 1 ? '' : 'ren'}' : ''}',
           ),
+          if (additionalRequestCount > 0) ...[
+            const SizedBox(height: 9),
+            _BookingDetailRow(
+              icon: Icons.electric_rickshaw_outlined,
+              label: 'Extra tricycles',
+              value: '$additionalRequestCount requested • '
+                  '${additionalRequestStatus == 'approved' ? 'approved' : additionalRequestStatus == 'rejected' ? 'declined' : 'awaiting MTO review'}',
+            ),
+          ],
         ],
       ),
     );

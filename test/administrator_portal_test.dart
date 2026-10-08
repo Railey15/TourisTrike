@@ -221,6 +221,7 @@ void main() {
       AdministratorSection.configuration,
       AdministratorSection.integrations,
       AdministratorSection.security,
+      AdministratorSection.developerTools,
       AdministratorSection.audit,
     ]);
   });
@@ -283,10 +284,14 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('administrator-nav-audit')));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Platform Review').first);
+      await tester.pumpAndSettle();
       expect(
         find.textContaining('Reviewed platform account directory.'),
         findsOneWidget,
       );
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('system-admin-account-menu')));
       await tester.pumpAndSettle();

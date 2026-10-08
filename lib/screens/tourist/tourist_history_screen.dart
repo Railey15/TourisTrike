@@ -94,9 +94,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
             final bookings = snapshot.data ?? const [];
             final filtered = _filtered(bookings);
-            final totalSpent = bookings
-                .where((booking) => booking.status != 'cancelled')
-                .fold<double>(0, (sum, booking) => sum + booking.totalAmount);
+            final totalSpent = bookings.fold<double>(
+              0,
+              (sum, booking) => sum + booking.settledAmount,
+            );
 
             return RefreshIndicator(
               onRefresh: () async => _reload(),

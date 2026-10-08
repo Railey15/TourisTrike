@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 
 String maskVerificationEmail(String email) {
   final parts = email.split('@');
-  if (parts.length != 2) return '••••';
+  if (parts.length != 2 || parts.first.isEmpty || parts.last.isEmpty) {
+    return '••••';
+  }
   final local = parts.first;
   final visible = local.length <= 2 ? local.substring(0, 1) : local.substring(0, 2);
   return '$visible••••@${parts.last}';
@@ -41,24 +43,29 @@ class EmailOtpInput extends StatelessWidget {
             )),
           ),
           Positioned.fill(
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.oneTimeCode],
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(length),
-              ],
-              maxLength: length,
-              style: const TextStyle(color: Colors.transparent),
-              cursorColor: Colors.transparent,
-              showCursor: false,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                counterText: '',
-                contentPadding: EdgeInsets.zero,
+            child: Semantics(
+              label: '$length-digit verification code',
+              child: TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                enableSuggestions: false,
+                autocorrect: false,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(length),
+                ],
+                maxLength: length,
+                style: const TextStyle(color: Colors.transparent),
+                cursorColor: Colors.transparent,
+                showCursor: false,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  counterText: '',
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
             ),
           ),

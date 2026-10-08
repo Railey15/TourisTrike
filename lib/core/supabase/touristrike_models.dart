@@ -369,6 +369,7 @@ class PackageBooking extends TourisTrikeRow {
   String get paymentMethod => dbString(row['payment_method'], fallback: 'cash');
   String get notes => dbString(row['notes']);
   double get totalAmount => dbDouble(row['total_amount']);
+  double get settledAmount => dbDouble(row['_settled_amount']);
   String get status => dbString(row['status'], fallback: 'pending');
   DateTime? get createdAt => dbDate(row['created_at']);
   DateTime? get updatedAt => dbDate(row['updated_at']);
@@ -381,8 +382,11 @@ class PackageBooking extends TourisTrikeRow {
       dbInt(row['total_passengers'], fallback: adults + children);
   int get currentSpotIndex => dbInt(row['current_spot_index'], fallback: 0);
   int get requiredDrivers => dbInt(row['required_drivers'], fallback: 1);
-  int get additionalTricycleCount =>
-      dbInt(row['additional_tricycle_count']);
+  int get additionalTricycleCount => dbInt(row['additional_tricycle_count']);
+  int get additionalTricycleApprovedCount =>
+      dbInt(row['additional_tricycle_approved_count']);
+  String get additionalTricycleRequestStatus =>
+      dbString(row['additional_tricycle_request_status'], fallback: 'none');
   String get additionalTricycleReason =>
       dbString(row['additional_tricycle_reason']);
   String get additionalTricycleExplanation =>
@@ -946,6 +950,7 @@ class PackageActivity extends TourisTrikeRow {
   double get price => dbDouble(row['price']);
   String get paymentStatus =>
       dbString(row['payment_status'], fallback: 'unpaid');
+  double get settledAmount => dbDouble(row['_settled_amount']);
   // Tour tracking
   String get tourStatus =>
       dbString(row['tour_status'], fallback: 'waiting_driver');
@@ -1091,6 +1096,11 @@ PackageActivity packageActivityFromPersistedBooking(
     'updated_at': relatedActivity?['updated_at'] ?? booking['updated_at'],
     'status': relatedActivity?['status'] ?? booking['status'] ?? 'pending',
     'tour_status': relatedActivity?['tour_status'] ?? 'waiting_driver',
+    'payment_status':
+        bookingCopy['_derived_payment_status'] ??
+        relatedActivity?['payment_status'] ??
+        'unpaid',
+    '_settled_amount': bookingCopy['_settled_amount'] ?? 0,
     'package_bookings': bookingCopy,
     ...package is Map
         ? {'tour_packages': Json.from(package)}

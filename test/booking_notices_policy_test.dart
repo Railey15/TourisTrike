@@ -67,7 +67,7 @@ void main() {
       expect(find.byType(ListView), findsOneWidget);
       await tester.scrollUntilVisible(find.text('13. Acceptance'), 500);
       expect(find.text('13. Acceptance'), findsOneWidget);
-      expect(bookingTermsVersion, '1.0');
+      expect(bookingTermsVersion, '1.1');
     },
   );
 
@@ -77,7 +77,7 @@ void main() {
     expect(find.text('1. Information We Process'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('8. Acknowledgment'), 500);
     expect(find.text('8. Acknowledgment'), findsOneWidget);
-    expect(privacyNoticeVersion, '1.0');
+    expect(privacyNoticeVersion, '1.1');
   });
 
   testWidgets(

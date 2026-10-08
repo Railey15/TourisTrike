@@ -1,7 +1,6 @@
 -- Booking-scoped tour Developer Tools. Package itinerary and municipal fare
 -- configuration remain immutable; only the active booking stop is overridden.
 begin;
-
 alter table public.booking_stop_waiting_charges
   add column if not exists test_deadline_override timestamptz,
   add column if not exists test_rate_per_interval_override numeric(14,2)
@@ -13,7 +12,6 @@ alter table public.booking_stop_waiting_charges
   add column if not exists test_override_updated_by uuid
     references public.profiles(id) on delete set null,
   add column if not exists test_override_updated_at timestamptz;
-
 do $constraints$
 declare item record;
 begin
@@ -30,7 +28,6 @@ begin
   end loop;
 end
 $constraints$;
-
 alter table public.booking_stop_waiting_charges
   add constraint booking_stop_waiting_effective_amount_check
   check (
@@ -46,8 +43,7 @@ alter table public.booking_stop_waiting_charges
       )
     end
   );
-
-create or replace function public.system_administrator_booking_test_authorized(
+create or replace function public.booking_test_admin_authorized(
   p_booking_id uuid
 )
 returns boolean
@@ -56,17 +52,30 @@ stable
 security definer
 set search_path = ''
 as $$
-  select auth.uid() is not null
-    and public.is_system_administrator()
-    and exists (
-      select 1 from public.package_bookings booking
-      where booking.id = p_booking_id
-    );
+  select auth.uid() is not null and exists (
+    select 1
+    from public.package_bookings booking
+    join public.profiles actor on actor.id = auth.uid()
+    left join public.subtenant_details office on office.id = actor.id
+    where booking.id = p_booking_id
+      and (
+        public.is_system_administrator()
+        or (
+          actor.role = 'subtenant'
+          and office.is_active
+          and public.cities_match(booking.municipality, office.city)
+          and public.cities_match(booking.province, office.province)
+        )
+        or (
+          actor.role = 'main_tenant'
+          and nullif(trim(actor.province), '') is not null
+          and public.cities_match(booking.province, actor.province)
+        )
+      )
+  );
 $$;
-
-revoke all on function public.system_administrator_booking_test_authorized(uuid)
+revoke all on function public.booking_test_admin_authorized(uuid)
   from public, anon, authenticated;
-
 create or replace function public.booking_test_session_active(
   p_booking_id uuid
 )
@@ -88,10 +97,8 @@ as $$
       and session.expires_at > now()
   );
 $$;
-
 revoke all on function public.booking_test_session_active(uuid)
   from public, anon, authenticated;
-
 create or replace function public.administrator_get_booking_developer_state(
   p_booking_id uuid
 )
@@ -116,8 +123,8 @@ declare
   v_fee numeric := 0;
   v_finalized numeric := 0;
 begin
-  if not public.system_administrator_booking_test_authorized(p_booking_id) then
-    raise exception 'SYSTEM_ADMINISTRATOR_REQUIRED' using errcode = '42501';
+  if not public.booking_test_admin_authorized(p_booking_id) then
+    raise exception 'BOOKING_TEST_ADMIN_REQUIRED' using errcode = '42501';
   end if;
 
   select * into v_booking
@@ -219,28 +226,6 @@ begin
     'additional_fee', v_fee,
     'booking_total', coalesce(v_booking.total_amount, 0) + v_finalized +
       case when v_charge.status = 'active' then v_fee else 0 end,
-    'recent_test_actions', coalesce((
-      select jsonb_agg(to_jsonb(recent_action) order by recent_action.created_at desc)
-      from (
-        select log.id, log.action, log.actor_id,
-          coalesce(nullif(trim(actor.full_name), ''), actor.email, log.actor_id::text)
-            as actor_name,
-          log.description, log.created_at
-        from public.audit_logs log
-        left join public.profiles actor on actor.id = log.actor_id
-        where log.table_name = 'package_bookings'
-          and log.record_id = p_booking_id::text
-          and log.action in (
-            'remaining_time_override', 'overtime_triggered',
-            'overtime_duration_override', 'overtime_rate_override',
-            'arrival_simulated', 'departure_simulated', 'stop_completed',
-            'previous_stop', 'next_stop', 'force_start', 'force_complete',
-            'reset_stay_timer_override', 'reset_overtime_test'
-          )
-        order by log.created_at desc
-        limit 12
-      ) recent_action
-    ), '[]'::jsonb),
     'override_active', v_charge.test_deadline_override is not null
       or v_charge.test_rate_per_interval_override is not null,
     'override_kind', v_charge.test_override_kind,
@@ -249,12 +234,10 @@ begin
   );
 end;
 $$;
-
 revoke all on function public.administrator_get_booking_developer_state(uuid)
   from public, anon;
 grant execute on function public.administrator_get_booking_developer_state(uuid)
   to authenticated;
-
 create or replace function public.administrator_apply_booking_timing_test(
   p_booking_id uuid,
   p_mode text,
@@ -277,8 +260,8 @@ declare
   v_amount numeric(14,2);
   v_previous jsonb;
 begin
-  if not public.system_administrator_booking_test_authorized(p_booking_id) then
-    raise exception 'SYSTEM_ADMINISTRATOR_REQUIRED' using errcode = '42501';
+  if not public.booking_test_admin_authorized(p_booking_id) then
+    raise exception 'BOOKING_TEST_ADMIN_REQUIRED' using errcode = '42501';
   end if;
   if not public.booking_test_session_active(p_booking_id) then
     raise exception 'ACTIVE_DEVELOPER_TEST_SESSION_REQUIRED';
@@ -399,14 +382,9 @@ begin
       jsonb_build_object(
         'booking_id', p_booking_id,
         'itinerary_item_id', v_charge.itinerary_item_id,
-        'previous', jsonb_build_object(
-          'configured_rate', v_charge.rate_per_interval,
-          'test_rate', v_charge.test_rate_per_interval_override
-        ),
-        'new', jsonb_build_object(
-          'custom_rate', p_custom_rate,
-          'interval_minutes', v_charge.interval_minutes
-        )
+        'configured_rate', v_charge.rate_per_interval,
+        'custom_rate', p_custom_rate,
+        'interval_minutes', v_charge.interval_minutes
       )::text
     );
   end if;
@@ -414,14 +392,12 @@ begin
   return public.administrator_get_booking_developer_state(p_booking_id);
 end;
 $$;
-
 revoke all on function public.administrator_apply_booking_timing_test(
   uuid, text, integer, numeric
 ) from public, anon;
 grant execute on function public.administrator_apply_booking_timing_test(
   uuid, text, integer, numeric
 ) to authenticated;
-
 create or replace function public.administrator_reset_booking_timing_test(
   p_booking_id uuid,
   p_scope text default 'all'
@@ -441,8 +417,8 @@ declare
   v_amount numeric(14,2);
   v_previous jsonb;
 begin
-  if not public.system_administrator_booking_test_authorized(p_booking_id) then
-    raise exception 'SYSTEM_ADMINISTRATOR_REQUIRED' using errcode = '42501';
+  if not public.booking_test_admin_authorized(p_booking_id) then
+    raise exception 'BOOKING_TEST_ADMIN_REQUIRED' using errcode = '42501';
   end if;
   if not public.booking_test_session_active(p_booking_id) then
     raise exception 'ACTIVE_DEVELOPER_TEST_SESSION_REQUIRED';
@@ -507,22 +483,18 @@ begin
       'itinerary_item_id', v_charge.itinerary_item_id,
       'scope', p_scope,
       'previous', v_previous,
-      'new', jsonb_build_object(
-        'restored_deadline', v_charge.paid_until,
-        'restored_rate', v_charge.rate_per_interval
-      )
+      'restored_deadline', v_charge.paid_until,
+      'restored_rate', v_charge.rate_per_interval
     )::text
   );
 
   return public.administrator_get_booking_developer_state(p_booking_id);
 end;
 $$;
-
 revoke all on function public.administrator_reset_booking_timing_test(uuid, text)
   from public, anon;
 grant execute on function public.administrator_reset_booking_timing_test(uuid, text)
   to authenticated;
-
 -- All progression writes are booking scoped, session gated and audited. The
 -- action still follows the canonical milestone tables so existing realtime,
 -- waiting-charge and completion triggers continue to run.
@@ -547,8 +519,8 @@ declare
   v_new_index integer;
   v_finalization jsonb;
 begin
-  if not public.system_administrator_booking_test_authorized(p_booking_id) then
-    raise exception 'SYSTEM_ADMINISTRATOR_REQUIRED' using errcode = '42501';
+  if not public.booking_test_admin_authorized(p_booking_id) then
+    raise exception 'BOOKING_TEST_ADMIN_REQUIRED' using errcode = '42501';
   end if;
   if not public.booking_test_session_active(p_booking_id) then
     raise exception 'ACTIVE_DEVELOPER_TEST_SESSION_REQUIRED';
@@ -779,12 +751,10 @@ begin
   return public.administrator_get_booking_developer_state(p_booking_id);
 end;
 $$;
-
 revoke all on function public.administrator_progress_booking_test(uuid, text)
   from public, anon;
 grant execute on function public.administrator_progress_booking_test(uuid, text)
   to authenticated;
-
 -- Production waiting logic reads the booking-stop override when present. The
 -- original paid_until, included_minutes and fare snapshots are never changed.
 create or replace function public.finalize_booking_stop_waiting_charge()
@@ -835,7 +805,6 @@ begin
     clock_timestamp());
   return new;
 end $$;
-
 create or replace function public.refresh_active_tour_waiting()
 returns integer language plpgsql security definer set search_path = '' as $$
 declare c public.booking_stop_waiting_charges; v_now timestamptz := clock_timestamp();
@@ -915,7 +884,6 @@ begin
 end $$;
 revoke all on function public.refresh_active_tour_waiting()
   from public,anon,authenticated;
-
 create or replace function public.get_booking_waiting_summary(p_booking_id uuid)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare b public.package_bookings; v_rate numeric; v_subtenant uuid;
@@ -962,5 +930,4 @@ begin
       where c.booking_id=b.id),'[]'::jsonb)
   );
 end $$;
-
 commit;

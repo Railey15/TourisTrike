@@ -701,7 +701,94 @@ class TourisTrikeRepository {
         .eq('tourist_id', requireUserId())
         .order('created_at', ascending: false)
         .range(offset, offset + limit - 1);
-    return _rows(rows).map(PackageBooking.new).toList(growable: false);
+    final enriched = await _withSettledBookingPayments(_rows(rows));
+    return enriched.map(PackageBooking.new).toList(growable: false);
+  }
+
+  /// A booking's cached activity payment_status is not maintained by all
+  /// PayMongo and group cash settlement paths. Read confirmed ledger rows.
+  Future<List<Json>> _withSettledBookingPayments(List<Json> bookings) async {
+    if (bookings.isEmpty) return bookings;
+    final bookingIds = bookings.map((row) => dbString(row['id'])).toList();
+    final results = await Future.wait<dynamic>([
+      _client
+          .from(TourisTrikeTables.paymentRecords)
+          .select('booking_id, payer_id, status, amount')
+          .inFilter('booking_id', bookingIds)
+          .eq('status', 'confirmed'),
+      _client
+          .from('booking_payment_requirements')
+          .select('booking_id, payment_stage, status')
+          .inFilter('booking_id', bookingIds),
+      _client
+          .from(TourisTrikeTables.refundRequests)
+          .select('booking_id, amount, status')
+          .inFilter('booking_id', bookingIds)
+          .eq('status', 'completed'),
+    ]);
+    final settled = <String, double>{};
+    final touristIds = {
+      for (final booking in bookings)
+        dbString(booking['id']): dbString(booking['tourist_id']),
+    };
+    for (final record in _rows(results[0])) {
+      final bookingId = dbString(record['booking_id']);
+      if (dbString(record['payer_id']) != touristIds[bookingId]) continue;
+      settled.update(
+        bookingId,
+        (amount) => amount + dbDouble(record['amount']),
+        ifAbsent: () => dbDouble(record['amount']),
+      );
+    }
+    final required = <String, Set<String>>{};
+    final satisfied = <String, Set<String>>{};
+    final refunded = <String, double>{};
+    for (final refund in _rows(results[2])) {
+      final bookingId = dbString(refund['booking_id']);
+      refunded.update(
+        bookingId,
+        (amount) => amount + dbDouble(refund['amount']),
+        ifAbsent: () => dbDouble(refund['amount']),
+      );
+    }
+    for (final requirement in _rows(results[1])) {
+      final bookingId = dbString(requirement['booking_id']);
+      final stage = dbString(requirement['payment_stage']);
+      required.putIfAbsent(bookingId, () => {}).add(stage);
+      if (dbString(requirement['status']) == 'satisfied') {
+        satisfied.putIfAbsent(bookingId, () => {}).add(stage);
+      }
+    }
+    return bookings
+        .map((booking) {
+          final id = dbString(booking['id']);
+          final grossPaid = settled[id] ?? 0;
+          final refundedAmount = refunded[id] ?? 0;
+          final paid = (grossPaid - refundedAmount).clamp(
+            0,
+            double.infinity,
+          );
+          final stages = required[id] ?? const <String>{};
+          final cleared = satisfied[id] ?? const <String>{};
+          final fullyPaid =
+              paid > 0 &&
+              dbDouble(booking['remaining_balance']) <= 0.005 &&
+              ((stages.isNotEmpty && cleared.containsAll(stages)) ||
+                  (stages.isEmpty &&
+                      paid + 0.005 >= dbDouble(booking['total_amount'])));
+          return Json.from(booking)
+            ..['_settled_amount'] = paid
+            ..['_derived_payment_status'] = grossPaid > 0 && paid <= 0
+                ? 'refunded'
+                : refundedAmount > 0
+                ? 'partially_refunded'
+                : fullyPaid
+                ? 'fully_paid'
+                : paid > 0
+                ? 'partially_paid'
+                : 'unpaid';
+        })
+        .toList(growable: false);
   }
 
   Future<PackageBooking?> fetchPackageBooking(dynamic bookingId) async {
@@ -1554,7 +1641,9 @@ class TourisTrikeRepository {
         .eq('tourist_id', requireUserId())
         .order('created_at', ascending: false)
         .limit(limit);
-    final activities = await _withActivityParticipantIdentities(_rows(rows));
+    final activities = await _withActivityParticipantIdentities(
+      await _withSettledBookingPayments(_rows(rows)),
+    );
     return activities
         .map(packageActivityFromPersistedBooking)
         .toList(growable: false);

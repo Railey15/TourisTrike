@@ -48,7 +48,7 @@ void main() {
   const migration =
       'supabase/migrations/20260930000000_subtenant_disputes_cases.sql';
   const repairMigration =
-      'supabase/migrations/20260930040000_repair_dispute_case_mutation_results.sql';
+      'supabase/migration_hold/20261001100000_repair_dispute_case_mutation_results.sql';
   const screen = 'lib/screens/subtenant/subtenant_payment_disputes_screen.dart';
   const service = 'lib/screens/subtenant/subtenant_service.dart';
   late String sql;

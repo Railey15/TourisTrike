@@ -214,7 +214,7 @@ void main() {
 
   test('database migration secures, enforces, and audits maintenance', () {
     final sql = File(
-      'supabase/migrations/20260930010000_system_maintenance.sql',
+      'supabase/migration_hold/20261001080000_system_maintenance.sql',
     ).readAsStringSync();
 
     expect(sql, contains('public.is_system_administrator()'));

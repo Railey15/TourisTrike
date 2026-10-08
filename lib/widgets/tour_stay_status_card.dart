@@ -33,6 +33,7 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
   Map<String, dynamic>? _summary;
   RealtimeChannel? _channel;
   Timer? _ticker;
+  Timer? _refreshTimer;
   final Stopwatch _serverClock = Stopwatch();
   DateTime? _serverTime;
   String? _error;
@@ -45,6 +46,7 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _summary != null) setState(() {});
     });
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
   }
 
   @override
@@ -63,6 +65,7 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _refreshTimer?.cancel();
     _channel?.unsubscribe();
     _serverClock.stop();
     super.dispose();
@@ -250,7 +253,8 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
               if (hasFinancialSummary)
                 TourPaymentSummary(
                   packageBalance: _number(summary['package_remaining']),
-                  additionalWaiting: _number(summary['finalized_waiting']),
+                  additionalWaiting: _number(summary['finalized_waiting']) +
+                      _number(summary['accrued_waiting']),
                   totalRemaining: _number(summary['total_remaining']),
                 ),
             ],

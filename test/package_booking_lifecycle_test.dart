@@ -81,6 +81,12 @@ void main() {
             ),
           );
         }
+        if (request.url.path.endsWith('/rpc/tricycle_passenger_capacity')) {
+          return Future.value(http.Response(
+            '3', 200, request: request,
+            headers: {'content-type': 'application/json'},
+          ));
+        }
         requests++;
         return handle(request);
       }),
@@ -192,9 +198,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         await page(3);
-        await tester.ensureVisible(find.text('Customize Schedule'));
-        await tester.tap(find.text('Customize Schedule'));
-        await tester.pumpAndSettle();
+        expect(type('_EditableItineraryCard'), findsOneWidget);
         expect(card().items[0].arrivalTime, '08:10:00');
         expect(card().items[1].arrivalTime, '08:50:00');
         final callsBeforeStay = directionsCalls;
@@ -246,12 +250,13 @@ void main() {
         expect(directionsCalls, greaterThan(beforeRemoval));
 
         final callsBeforeLateStay = directionsCalls;
+        final previousStay = card().items[0].stayMinutes;
+        final previousDeparture = card().items[0].departureTime;
         card().onStayChanged(card().items[0], 500);
         await tester.pumpAndSettle();
-        expect(card().items[0].departureTime, '17:40:00');
-        expect(card().items[1].arrivalTime, '18:00:00');
+        expect(card().items[0].stayMinutes, previousStay);
+        expect(card().items[0].departureTime, previousDeparture);
         expect(directionsCalls, callsBeforeLateStay);
-        expect(find.textContaining('5:00 PM'), findsWidgets);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
       }, () => maps);

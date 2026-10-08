@@ -310,14 +310,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Confirm Pickup'), findsNothing);
         expect(find.text('Proceed to Next Stop'), findsNothing);
-        final readsBeforeEmergency = repository.refreshes;
-        await tester.ensureVisible(find.text('Emergency Assistance'));
-        await tester.tap(find.text('Emergency Assistance'));
-        await tester.pumpAndSettle();
-        expect(find.textContaining('Call 911'), findsOneWidget);
-        await tester.tap(find.text('Cancel'));
-        await tester.pumpAndSettle();
-        expect(repository.refreshes, readsBeforeEmergency);
+        expect(find.text('Emergency Assistance'), findsNothing);
+        expect(find.textContaining('Call 911'), findsNothing);
         payload = {'error': 'invalid_or_expired', 'message': 'Revoked'};
         await tester.pump(const Duration(seconds: 5));
         await tester.pumpAndSettle();

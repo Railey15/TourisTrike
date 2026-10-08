@@ -11,7 +11,6 @@ import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/route_polyline_service.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:touristrike/widgets/convoy/convoy_tourist_driver_list.dart';
 import 'package:touristrike/widgets/live_itinerary_estimates.dart';
 import 'package:touristrike/core/services/itinerary_schedule_service.dart';
@@ -397,19 +396,6 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
 
   // ── Emergency ─────────────────────────────────────────────────────────────
 
-  Future<void> _callEmergency() async {
-    final uri = Uri.parse('tel:911');
-    if (await canLaunchUrl(uri)) await launchUrl(uri);
-  }
-
-  void _showEmergencySheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _EmergencySheet(onCall: _callEmergency),
-    );
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
 
   static const _defaultCenter = LatLng(14.9597, 120.9206);
@@ -461,6 +447,45 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
                   iconColor: Color(0xFF16A34A),
                   title: 'This trip has ended.',
                   subtitle: 'Live location sharing has ended.',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_details.isLiveTrackingAvailable) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FB),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _GuestStatusCard(
+                      tourStatus: _details.tourStatus,
+                      eta: null,
+                      driverCount: _details.drivers.length,
+                    ),
+                    if (_details.itineraryItems.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _SectionLabel(
+                        'Tour Itinerary (${_details.itineraryItems.length} stops)',
+                      ),
+                      const SizedBox(height: 8),
+                      _GuestItineraryCard(items: _details.itineraryItems),
+                    ],
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Live map tracking begins when the tour is underway.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Color(0xFF64748B)),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -629,26 +654,6 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
                     const SizedBox(height: 12),
                   ],
                   const SizedBox(height: 4),
-                  OutlinedButton.icon(
-                    onPressed: _showEmergencySheet,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    icon: const Icon(Icons.emergency_rounded, size: 18),
-                    label: const Text(
-                      'Emergency Assistance',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   const Text(
                     'Contact details, full addresses, and payment information are not shown in guest view.',
                     textAlign: TextAlign.center,
@@ -1352,92 +1357,6 @@ class _FullScreenMessage extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _EmergencySheet extends StatelessWidget {
-  const _EmergencySheet({required this.onCall});
-
-  final VoidCallback onCall;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        24,
-        20,
-        24,
-        24 + MediaQuery.of(context).padding.bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Emergency',
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              fontSize: 20,
-              color: Colors.red,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'If you or someone is in danger, call emergency services immediately.',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF64748B),
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              onCall();
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.call_rounded, size: 20),
-            label: const Text(
-              'Call 911 — Emergency',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-            ),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(context),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Cancel'),
-          ),
-        ],
       ),
     );
   }

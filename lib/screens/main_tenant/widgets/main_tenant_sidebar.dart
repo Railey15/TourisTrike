@@ -40,7 +40,8 @@ class MainTenantSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
+      // Width and compact child layout must switch in the same frame.
+      duration: Duration.zero,
       width: compact ? 88 : 270,
       margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
       decoration: BoxDecoration(
@@ -181,7 +182,7 @@ class _SidebarTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+      duration: Duration.zero,
       height: 52,
       margin: const EdgeInsets.only(bottom: 7),
       padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 14),

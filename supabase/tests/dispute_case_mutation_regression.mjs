@@ -4,7 +4,7 @@ import { PGlite } from '../../build/sql-validation/node_modules/@electric-sql/pg
 
 const db = new PGlite();
 const migration = await readFile(
-  new URL('../migrations/20260930040000_repair_dispute_case_mutation_results.sql', import.meta.url),
+  new URL('../migration_hold/20261001100000_repair_dispute_case_mutation_results.sql', import.meta.url),
   'utf8',
 );
 const id = value => `40000000-0000-0000-0000-${String(value).padStart(12, '0')}`;

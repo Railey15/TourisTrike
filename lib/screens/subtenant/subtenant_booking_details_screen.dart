@@ -24,6 +24,7 @@ class _SubTenantBookingDetailsScreenState
   final List<RealtimeChannel> _channels = <RealtimeChannel>[];
 
   bool _loading = true;
+  bool _reviewingAdditional = false;
   String? _errorMessage;
 
   _BookingDetailsData? _details;
@@ -35,6 +36,68 @@ class _SubTenantBookingDetailsScreenState
 
   User? get _user => _supabase.auth.currentUser;
   String get _bookingIdText => stId(widget.bookingId);
+
+  Future<void> _reviewAdditionalTricycles(bool approve) async {
+    if (_reviewingAdditional) return;
+    final decision = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(approve ? 'Approve extra tricycles?' : 'Decline request?'),
+        content: Text(approve
+            ? 'This opens the requested driver slots. New drivers must accept the tour. The agreed total and confirmed downpayment stay unchanged; the unpaid balance will be shared across the final driver roster.'
+            : 'The original driver roster remains in place.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(approve ? 'Approve' : 'Decline'),
+          ),
+        ],
+      ),
+    );
+    if (decision != true || !mounted) return;
+    setState(() => _reviewingAdditional = true);
+    try {
+      await _supabase.rpc('review_additional_tricycle_request', params: {
+        'p_booking_id': _bookingIdText,
+        'p_approve': approve,
+      });
+      await _loadBookingDetails(showLoading: false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(approve
+              ? 'Extra driver slots opened for eligible drivers.'
+              : 'Additional tricycle request declined.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        final message = error.toString().contains('SINGLE_PASSENGER_ONE_TRICYCLE_REQUIRED')
+            ? 'The current policy allows one tricycle for a single passenger.'
+            : error.toString().contains('DOWNPAYMENT_ALLOCATION_REVIEW_REQUIRED')
+                ? 'The confirmed downpayment allocation needs financial review before approval.'
+                : error.toString().contains('REMAINING_PAYMENT_ALREADY_STARTED') ||
+                    error.toString().contains('REMAINING_PAYMENT_ALREADY_SETTLED') ||
+                    error.toString().contains('SETTLED_PAYMENT_REVIEW_REQUIRED')
+                ? 'The remaining payment has started or settled. The driver roster cannot be changed safely.'
+                : error.toString().contains('NO_UNPAID_BALANCE_FOR_NEW_DRIVERS')
+                ? 'No unpaid balance remains to allocate to new drivers.'
+                : error.toString().contains('UNPAID_BALANCE_REVIEW_REQUIRED')
+                ? 'The unpaid balance does not match the agreed total. Financial review is required.'
+                : error.toString().contains('DOWNPAYMENT_STILL_PENDING')
+                ? 'Wait for the downpayment to be confirmed before approval.'
+                : 'Unable to review this request: $error';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(message),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _reviewingAdditional = false);
+    }
+  }
 
   @override
   void initState() {
@@ -1495,8 +1558,32 @@ class _SubTenantBookingDetailsScreenState
           const SizedBox(height: 14),
           _SectionCard(
             title: 'Additional Tricycles Requested: ${details.additionalTricycleCount}',
-            subtitle: 'Optional request, subject to availability.',
-            child: _NoteBox(text: details.additionalTricycleReasonLabel),
+            subtitle: 'MTO review: ${details.additionalTricycleRequestStatus}',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _NoteBox(text: details.additionalTricycleReasonLabel),
+                if (details.additionalTricycleRequestStatus == 'approved')
+                  Text('Approved extra slots: ${details.additionalTricycleApprovedCount}. '
+                      'Drivers confirm through Package Jobs.'),
+                if (details.additionalTricycleRequestStatus == 'pending')
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _reviewingAdditional
+                            ? null : () => _reviewAdditionalTricycles(false),
+                        child: const Text('Decline'),
+                      ),
+                      FilledButton(
+                        onPressed: _reviewingAdditional
+                            ? null : () => _reviewAdditionalTricycles(true),
+                        child: const Text('Approve request'),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
           ),
         ],
       ],
@@ -1927,6 +2014,10 @@ class _BookingDetailsData {
 
   int get additionalTricycleCount =>
       stInt(bookingRow['additional_tricycle_count']);
+  int get additionalTricycleApprovedCount =>
+      stInt(bookingRow['additional_tricycle_approved_count']);
+  String get additionalTricycleRequestStatus =>
+      bookingRow['additional_tricycle_request_status']?.toString() ?? 'pending';
 
   String get additionalTricycleReasonLabel {
     final reason = bookingRow['additional_tricycle_reason']?.toString();

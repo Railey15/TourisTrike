@@ -1346,7 +1346,9 @@ class _DriverPackageTrackingScreenState
     _automaticTransitionBusy = true;
     try {
       Position? nextPosition = position;
-      while (nextPosition != null && _shouldShareDriverLocation && !_actionBusy) {
+      while (nextPosition != null &&
+          _shouldShareDriverLocation &&
+          !_actionBusy) {
         final current = nextPosition;
         _pendingAutomaticPosition = null;
         try {
@@ -3128,23 +3130,12 @@ class _DriverPackageTrackingScreenState
                     completedCount: _completedItineraryItemsCount,
                     totalCount: _spots.length,
                   ),
-                if (!_actionBusy &&
-                    _myConvoyStatus?.assignmentStatus == 'accepted' &&
-                    !_isBookingClosed) ...[
+                if (!_actionBusy && _withdrawalAvailable) ...[
                   const SizedBox(height: 8),
                   TextButton.icon(
-                    onPressed: _withdrawalAvailable
-                        ? _requestWithdrawal
-                        : () => _showSnack(
-                            withdrawalAfterStartMessage,
-                            error: true,
-                          ),
+                    onPressed: _requestWithdrawal,
                     icon: const Icon(Icons.person_remove_outlined),
-                    label: Text(
-                      _withdrawalAvailable
-                          ? 'Request to withdraw from this tour'
-                          : 'Withdrawal unavailable after tour start',
-                    ),
+                    label: const Text('Request to withdraw'),
                   ),
                 ],
                 if (bookingCompleted && !_touristReviewed) ...[
