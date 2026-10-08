@@ -968,6 +968,12 @@ class TourisTrikeRepository {
     return rows.map(PaymentRecord.new).toList(growable: false);
   }
 
+  Future<List<Json>> fetchBookingPaymentRequirements(String bookingId) =>
+      fetchRows(
+        'booking_payment_requirements',
+        equals: {'booking_id': bookingId},
+      );
+
   String _paymentAttemptKey(String bookingId, String stage) {
     final rng = Random.secure();
     final nonce = List.generate(
@@ -994,7 +1000,8 @@ class TourisTrikeRepository {
         },
       );
       if (response.data is! Map ||
-          response.data['status'] != (action == 'request' ? 'SENT' : 'VERIFIED')) {
+          response.data['status'] !=
+              (action == 'request' ? 'SENT' : 'VERIFIED')) {
         throw const PaymentProviderException('VERIFICATION_UNAVAILABLE');
       }
     } on FunctionException catch (error) {

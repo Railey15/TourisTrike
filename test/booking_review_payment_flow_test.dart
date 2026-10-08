@@ -15,7 +15,7 @@ import 'package:touristrike/widgets/booking_review_sheet.dart';
 PackageBooking booking({
   int required = 2,
   int accepted = 2,
-  String type = 'same_day',
+  String type = 'advanced',
   String? status,
 }) => PackageBooking({
   'id': 'booking-1',
@@ -27,20 +27,28 @@ PackageBooking booking({
       status ?? (accepted >= required ? 'accepted' : 'waiting_for_drivers'),
   'status': status ?? (accepted >= required ? 'confirmed' : 'pending'),
   'total_amount': 7200,
-  'downpayment_amount': 3600,
-  'remaining_balance': 3600,
+  'downpayment_amount': type == 'same_day' ? 0 : 3600,
+  'remaining_balance': type == 'same_day' ? 7200 : 3600,
   'tour_packages': {'title': 'Baliwag & Pulilan Tour'},
 });
 
 BookingPaymentPrompt prompt({
   int required = 2,
   int accepted = 2,
-  String type = 'same_day',
+  String type = 'advanced',
   String? status,
   List<PaymentRecord> payments = const [],
+  String requirementStatus = 'required',
+  double requirementAmount = 3600,
 }) => BookingPaymentPrompt.fromRecords(
   booking(required: required, accepted: accepted, type: type, status: status),
   payments,
+  requirement:
+      type == 'advanced' &&
+          accepted >= required &&
+          status != 'waiting_for_drivers'
+      ? {'status': requirementStatus, 'amount': requirementAmount}
+      : null,
 );
 
 Future<void> capture(WidgetTester tester, GlobalKey key, String name) async {
@@ -89,8 +97,8 @@ void main() {
           );
         }
         final ready = prompt(required: count, accepted: count, type: type);
-        expect(ready.paymentRequired, isTrue);
-        expect(gate.shouldPresent(ready), isTrue);
+        expect(ready.paymentRequired, type == 'advanced');
+        expect(gate.shouldPresent(ready), type == 'advanced');
         for (var refresh = 0; refresh < 5; refresh++) {
           expect(gate.shouldPresent(ready), isFalse);
         }
@@ -100,7 +108,7 @@ void main() {
           ),
           isFalse,
         );
-        expect(gate.shouldPresent(ready), isTrue);
+        expect(gate.shouldPresent(ready), type == 'advanced');
       });
     }
   }
@@ -151,6 +159,14 @@ void main() {
       ).paymentRequired,
       isFalse,
     );
+  });
+
+  test('backend requirement controls the downpayment prompt and amount', () {
+    expect(prompt(type: 'same_day').paymentRequired, isFalse);
+    expect(prompt(requirementStatus: 'waived').paymentRequired, isFalse);
+    expect(prompt(requirementStatus: 'satisfied').paymentRequired, isFalse);
+    expect(prompt(requirementAmount: 3500).paymentRequired, isFalse);
+    expect(prompt(status: 'driver_on_the_way').paymentRequired, isTrue);
   });
 
   test(

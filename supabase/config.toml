@@ -47,19 +47,12 @@ verify_jwt = true
 [functions.tour-fare-quote]
 verify_jwt = true
 
-<<<<<<< HEAD
 [functions.generate-tour-package]
 enabled = true
 verify_jwt = false
 import_map = "./functions/generate-tour-package/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/generate-tour-package/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/generate-tour-package/*.html" ]
-=======
+
 # Tourist JWT is checked again in the handler; Gemini stays server-side.
 [functions.itinerary-ai-suggest]
 verify_jwt = true
->>>>>>> 088045a (improved booking)

@@ -147,15 +147,18 @@ class ResponsiveGrid extends StatelessWidget {
           desktop: desktopAspectRatio,
         );
 
-        return GridView.count(
+        return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: columns,
-          crossAxisSpacing: spacing,
-          mainAxisSpacing: runSpacing,
-          childAspectRatio: aspectRatio,
-          mainAxisExtent: mainAxisExtent,
-          children: children,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: runSpacing,
+            childAspectRatio: aspectRatio,
+            mainAxisExtent: mainAxisExtent,
+          ),
+          itemCount: children.length,
+          itemBuilder: (context, index) => children[index],
         );
       },
     );

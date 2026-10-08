@@ -36,7 +36,11 @@ void main() {
       'downpayment_amount': 0,
       'remaining_balance': 750,
     });
-    final prompt = BookingPaymentPrompt.fromRecords(booking, const []);
+    final prompt = BookingPaymentPrompt.fromRecords(
+      booking,
+      const [],
+      requirement: null,
+    );
     expect(prompt.paymentRequired, isFalse);
   });
 }

@@ -11,6 +11,10 @@ class BookingPaymentPrompt {
     this.downpaymentPaid = 0,
     this.cashPending = false,
     this.cashConfirmedCount = 0,
+    this.requirementStatus = '',
+    this.requiredAmount,
+    this.downpaymentSatisfied = false,
+    this.rosterCount,
   });
   final PackageBooking booking;
   final bool confirmed;
@@ -21,9 +25,14 @@ class BookingPaymentPrompt {
   final double downpaymentPaid;
   final bool cashPending;
   final int cashConfirmedCount;
+  final String requirementStatus;
+  final double? requiredAmount;
+  final bool downpaymentSatisfied;
+  final int? rosterCount;
   bool get isRemaining => stage == 'remaining_balance';
   double get amount =>
-      isRemaining ? booking.remainingBalance : booking.downpaymentAmount;
+      requiredAmount ??
+      (isRemaining ? booking.remainingBalance : booking.downpaymentAmount);
 
   factory BookingPaymentPrompt.fromRecords(
     PackageBooking booking,
@@ -32,7 +41,11 @@ class BookingPaymentPrompt {
     bool itineraryComplete = false,
     bool dropoffStarted = false,
     List<PaymentAllocation> allocations = const [],
+    required Map<String, dynamic>? requirement,
+    bool downpaymentSatisfied = false,
+    int? rosterCount,
   }) {
+    final requirementStatus = dbString(requirement?['status']);
     final downpayments = records.where(
       (p) => p.paymentStage == stage || p.paymentStage == 'full',
     );
@@ -41,6 +54,12 @@ class BookingPaymentPrompt {
       stage: stage,
       itineraryComplete: itineraryComplete,
       dropoffStarted: dropoffStarted,
+      requirementStatus: requirementStatus,
+      requiredAmount: requirement == null
+          ? null
+          : dbDouble(requirement['amount']),
+      downpaymentSatisfied: downpaymentSatisfied,
+      rosterCount: rosterCount,
       downpaymentPaid: records
           .where((p) => p.isConfirmed && p.paymentStage == 'down_payment')
           .fold(0.0, (sum, p) => sum + p.amount),
@@ -50,16 +69,18 @@ class BookingPaymentPrompt {
       cashConfirmedCount: allocations
           .where((a) => a.paymentStage == stage && a.isCashConfirmed)
           .length,
-      confirmed: downpayments.any(
-        (p) =>
-            p.isConfirmed &&
-            p.amount >=
-                (p.paymentStage == 'full'
-                    ? booking.totalAmount
-                    : stage == 'remaining_balance'
-                    ? booking.remainingBalance
-                    : booking.downpaymentAmount),
-      ),
+      confirmed:
+          requirementStatus == 'satisfied' ||
+          downpayments.any(
+            (p) =>
+                p.isConfirmed &&
+                p.amount >=
+                    (p.paymentStage == 'full'
+                        ? booking.totalAmount
+                        : stage == 'remaining_balance'
+                        ? booking.remainingBalance
+                        : booking.downpaymentAmount),
+          ),
       awaitingReview: downpayments.any(
         (p) =>
             p.status == 'disputed' ||
@@ -70,20 +91,24 @@ class BookingPaymentPrompt {
 
   bool get rosterComplete =>
       booking.requiredDrivers > 0 &&
-      booking.acceptedDriversCount >= booking.requiredDrivers;
+      (rosterCount ?? booking.acceptedDriversCount) == booking.requiredDrivers;
   bool get paymentRequired =>
       rosterComplete &&
+      requirementStatus == 'required' &&
       !confirmed &&
       (!awaitingReview || cashPending) &&
       amount > 0 &&
+      (amount -
+                  (isRemaining
+                      ? booking.remainingBalance
+                      : booking.downpaymentAmount))
+              .abs() <
+          0.005 &&
       (isRemaining
           // Test progression (or an older trip) may already be at drop-off.
           // Physical progress does not settle an outstanding payment.
-          ? itineraryComplete
-          : const {
-              'accepted',
-              'confirmed',
-            }.contains(booking.bookingStatus.toLowerCase())) &&
+          ? itineraryComplete && downpaymentSatisfied
+          : booking.downpaymentAmount > 0) &&
       !const {
         'cancelled',
         'completed',

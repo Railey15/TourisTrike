@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:touristrike/core/config/app_config.dart';
 
+import '../../core/auth/signup_response_policy.dart';
 import '../../theme/app_theme.dart';
 import 'verify_email_otp_screen.dart';
 import 'package:touristrike/core/policies/touristrike_notices.dart';
@@ -218,58 +218,66 @@ class _SignupScreenState extends State<SignupScreen> {
 
     try {
       assert(() {
-        debugPrint('[Signup] request project=${AppConfig.supabaseProjectRef} email=$email');
+        debugPrint(
+          '[Signup] request at=${DateTime.now().toUtc().toIso8601String()}',
+        );
         return true;
       }());
       final response = await supabase.auth.signUp(
         email: email,
         password: password,
         data: {
-          'registration_role': _role == SignupUserRole.tourist ? 'tourist' : 'driver',
+          'registration_role': _role == SignupUserRole.tourist
+              ? 'tourist'
+              : 'driver',
           if (_role == SignupUserRole.tourist)
             'privacy_notice_version': privacyNoticeVersion,
         },
       );
+      final state = classifySignupResponse(response, email);
       assert(() {
-        debugPrint('[Signup] response userReturned=${response.user != null} '
-            'emailConfirmed=${response.user?.emailConfirmedAt != null} '
-            'sessionReturned=${response.session != null}');
+        debugPrint(
+          '[Signup] response state=$state userReturned=${response.user != null} '
+          'identityCount=${response.user?.identities?.length ?? -1} '
+          'emailConfirmed=${response.user?.emailConfirmedAt != null} '
+          'confirmationSent=${response.user?.confirmationSentAt != null} '
+          'sessionReturned=${response.session != null}',
+        );
         return true;
       }());
-      if (response.user == null) {
-        _showSnack('We could not create your account right now. Please try again.');
-        return;
-      }
       // Supabase returns a session immediately when Confirm email is disabled.
       // Keep the registration flow closed until the dashboard is configured.
-      if (response.session != null) {
+      if (state == SignupResponseState.immediateSession) {
         await supabase.auth.signOut();
-        _showSnack('Email verification is temporarily unavailable. Please contact support.');
+        _showSnack(
+          'Email verification is temporarily unavailable. Please contact support.',
+        );
+        return;
+      }
+      if (state != SignupResponseState.pendingVerification) {
+        _showSnack(signupUnavailableMessage);
         return;
       }
 
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => VerifyEmailOtpScreen(
-            email: email,
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => VerifyEmailOtpScreen(email: email)),
       );
     } on AuthException catch (e) {
       assert(() {
         debugPrint('[Signup] rejected code=${e.code} status=${e.statusCode}');
         return true;
       }());
-      final code = e.code ?? '';
-      _showSnack(e.statusCode == '429' || code.contains('rate_limit')
-          ? 'Email sending limit reached. Please wait and try again.'
-          : code == 'email_address_not_authorized'
-              ? 'Email delivery is unavailable for this address. Please contact support.'
-              : 'We could not create your account right now. Please try again.');
-    } catch (_) {
-      _showSnack('We could not create your account right now. Please try again.');
+      _showSnack(signupAuthErrorMessage(e));
+    } catch (error) {
+      assert(() {
+        debugPrint('[Signup] unexpected error type=${error.runtimeType}');
+        return true;
+      }());
+      _showSnack(
+        'We could not create your account right now. Please try again.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }

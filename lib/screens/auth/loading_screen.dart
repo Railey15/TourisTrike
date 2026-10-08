@@ -129,35 +129,33 @@ class _TourisTrikeLoadingScreenState extends State<TourisTrikeLoadingScreen>
     }
 
     try {
-      final auth = Supabase.instance.client.auth;
+      final auth = client.auth;
       final verifiedUser = (await auth.getUser()).user;
       if (verifiedUser == null || verifiedUser.emailConfirmedAt == null) {
         await auth.signOut();
-        _goToLogin();
-        return;
+        return const LoginScreen();
       }
       final userId = verifiedUser.id;
 
-      var profile = await Supabase.instance.client
+      var profile = await client
           .from('profiles')
           .select('role')
-          .eq('id', currentUser.id)
+          .eq('id', userId)
           .maybeSingle()
           .timeout(
             const Duration(seconds: 10),
           );
 
-<<<<<<< HEAD
-=======
       if (profile == null) {
-        await completeConfirmedRegistration(Supabase.instance.client);
-        profile = await Supabase.instance.client.from('profiles')
-            .select('role').eq('id', userId).maybeSingle();
+        await completeConfirmedRegistration(client);
+        profile = await client
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .maybeSingle()
+            .timeout(const Duration(seconds: 10));
       }
 
-      if (!mounted) return;
-
->>>>>>> 088045a (improved booking)
       if (profile == null) {
         return const LoginScreen();
       }

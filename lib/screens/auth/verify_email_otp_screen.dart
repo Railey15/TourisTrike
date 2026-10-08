@@ -3,17 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/auth/complete_registration.dart';
+import '../../core/auth/signup_response_policy.dart';
 import '../../widgets/email_otp_input.dart';
 
 import 'complete_profile_screen.dart';
 import 'complete_profile_driver_screen.dart';
 import 'signup_screen.dart';
+import 'login_screen.dart';
 
 class VerifyEmailOtpScreen extends StatefulWidget {
-  const VerifyEmailOtpScreen({
-    super.key,
-    required this.email,
-  });
+  const VerifyEmailOtpScreen({super.key, required this.email});
 
   final String email;
 
@@ -96,27 +95,37 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         token: otp,
       );
       assert(() {
-        debugPrint('[Signup OTP] verify response userReturned=${response.user != null} '
-            'sessionReturned=${response.session != null}');
+        debugPrint(
+          '[Signup OTP] verify response userReturned=${response.user != null} '
+          'sessionReturned=${response.session != null}',
+        );
         return true;
       }());
 
       final user = (await supabase.auth.getUser()).user;
-      if (response.session == null || user == null ||
+      if (response.session == null ||
+          user == null ||
           user.emailConfirmedAt == null ||
           user.email?.toLowerCase() != widget.email.toLowerCase()) {
-        _showSnack('We could not verify your email right now. Please try again.');
+        _showSnack(
+          'We could not verify your email right now. Please try again.',
+        );
         return;
       }
       final role = await completeConfirmedRegistration(supabase);
       if (role != 'tourist' && role != 'driver') {
-        _showSnack('We could not complete registration. Please contact support.');
+        _showSnack(
+          'We could not complete registration. Please contact support.',
+        );
         return;
       }
 
       if (!mounted) return;
 
-      _showSnack('Email Verified. Your TourisTrike account has been verified.', isError: false);
+      _showSnack(
+        'Email Verified. Your TourisTrike account has been verified.',
+        isError: false,
+      );
 
       await Future.delayed(const Duration(milliseconds: 350));
 
@@ -137,17 +146,21 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
       }
     } on AuthException catch (e) {
       assert(() {
-        debugPrint('[Signup OTP] verify rejected code=${e.code} status=${e.statusCode}');
+        debugPrint(
+          '[Signup OTP] verify rejected code=${e.code} status=${e.statusCode}',
+        );
         return true;
       }());
       final message = e.message.toLowerCase();
-      _showSnack(e.statusCode == '429' || message.contains('rate limit')
-          ? 'Please wait before requesting another verification code.'
-          : message.contains('expired')
-              ? 'This verification code has expired. Request a new code to continue.'
-              : message.contains('invalid') || message.contains('incorrect')
-                  ? 'The verification code is incorrect. Please try again.'
-                  : "We couldn't verify your email right now. Please try again.");
+      _showSnack(
+        e.statusCode == '429' || message.contains('rate limit')
+            ? 'Please wait before requesting another verification code.'
+            : message.contains('expired')
+            ? 'This verification code has expired. Request a new code to continue.'
+            : message.contains('invalid') || message.contains('incorrect')
+            ? 'The verification code is incorrect. Please try again.'
+            : "We couldn't verify your email right now. Please try again.",
+      );
     } catch (_) {
       _showSnack("We couldn't verify your email right now. Please try again.");
     } finally {
@@ -164,25 +177,31 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         debugPrint('[Signup OTP] resend requested');
         return true;
       }());
-      await supabase.auth.resend(
-        type: OtpType.signup,
-        email: widget.email,
-      );
+      await supabase.auth.resend(type: OtpType.signup, email: widget.email);
       assert(() {
         debugPrint('[Signup OTP] resend accepted');
         return true;
       }());
       if (mounted) setState(_startCooldown);
-      _showSnack('OTP sent again. Check your email.', isError: false);
+      _showSnack(
+        'If this address is eligible, a new code will arrive shortly.',
+        isError: false,
+      );
     } on AuthException catch (e) {
       assert(() {
-        debugPrint('[Signup OTP] resend rejected code=${e.code} status=${e.statusCode}');
+        debugPrint(
+          '[Signup OTP] resend rejected code=${e.code} status=${e.statusCode}',
+        );
         return true;
       }());
-      _showSnack(e.statusCode == '429'
-          ? 'Please wait before requesting another verification code.'
-          : "We couldn't send a new code right now. Please try again.");
-    } catch (_) {
+      _showSnack(signupAuthErrorMessage(e));
+    } catch (error) {
+      assert(() {
+        debugPrint(
+          '[Signup OTP] resend unexpected error type=${error.runtimeType}',
+        );
+        return true;
+      }());
       _showSnack("We couldn't send a new code right now. Please try again.");
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -212,10 +231,14 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _TopBar(onBack: () => Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const SignupScreen()),
-                        )),
+                        _TopBar(
+                          onBack: () => Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SignupScreen(),
+                            ),
+                          ),
+                        ),
                         const SizedBox(height: 28),
                         const _HeroIcon(),
                         const SizedBox(height: 24),
@@ -232,7 +255,7 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          'We sent a verification code to your email.\nEnter the code below to complete your registration.',
+                          'If this is a new account, check your email for the verification code. Enter it below to complete registration.',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Color(0xFF64748B),
@@ -253,11 +276,26 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
                           onResend: _resend,
                         ),
                         TextButton(
-                          onPressed: _loading ? null : () => Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(builder: (_) => const SignupScreen()),
-                          ),
+                          onPressed: _loading
+                              ? null
+                              : () => Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const SignupScreen(),
+                                  ),
+                                ),
                           child: const Text('Wrong email? Go Back'),
+                        ),
+                        TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () => Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const LoginScreen(),
+                                  ),
+                                ),
+                          child: const Text('Already registered? Sign in'),
                         ),
                         const SizedBox(height: 18),
                         const _SecurityNote(),
@@ -477,7 +515,9 @@ class _VerifyCard extends StatelessWidget {
             child: _GradientButton(
               text: loading ? 'Verifying...' : 'Verify Email',
               loading: loading,
-              onPressed: loading || otpCtrl.text.length != otpLength ? null : onVerify,
+              onPressed: loading || otpCtrl.text.length != otpLength
+                  ? null
+                  : onVerify,
             ),
           ),
           const SizedBox(height: 14),
@@ -502,7 +542,9 @@ class _VerifyCard extends StatelessWidget {
                   foregroundColor: const Color(0xFF2A86FF),
                 ),
                 child: Text(
-                  resendSeconds > 0 ? 'Resend code in ${resendSeconds}s' : 'Resend Code',
+                  resendSeconds > 0
+                      ? 'Resend code in ${resendSeconds}s'
+                      : 'Resend Code',
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),

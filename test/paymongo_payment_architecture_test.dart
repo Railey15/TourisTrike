@@ -112,6 +112,19 @@ void main() {
     expect(authContextFix, contains('new.payer_id <> v_booking.tourist_id'));
   });
 
+  test(
+    'checkout consumes a one-use payment email proof before preparation',
+    () {
+      final consumeAt = createFunction.indexOf(
+        'consume_payment_email_verification',
+      );
+      final prepareAt = createFunction.indexOf('"prepare_paymongo_payment"');
+      expect(consumeAt, greaterThan(0));
+      expect(prepareAt, greaterThan(consumeAt));
+      expect(createFunction, contains('PAYMENT_EMAIL_VERIFICATION_REQUIRED'));
+    },
+  );
+
   test('tourist payment insert preserves JWT auth context', () {
     final preparation = createFunction
         .split('let { data: prepared, error: prepareError }')[1]

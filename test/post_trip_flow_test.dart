@@ -42,7 +42,8 @@ BookingPaymentPrompt remaining({
   bool stopsDone = true,
   bool dropoff = false,
   String bookingStatus = 'awaiting_remaining_payment',
-  String type = 'same_day',
+  String type = 'advanced',
+  bool downpaymentPaid = true,
   List<PaymentRecord> records = const [],
   List<PaymentAllocation> allocations = const [],
 }) => BookingPaymentPrompt.fromRecords(
@@ -54,12 +55,17 @@ BookingPaymentPrompt remaining({
     'booking_status': bookingStatus,
     'status': 'ongoing',
     'total_amount': 7200,
-    'remaining_balance': 3600,
-    'downpayment_amount': 3600,
+    'remaining_balance': type == 'same_day' ? 7200 : 3600,
+    'downpayment_amount': type == 'same_day' ? 0 : 3600,
     'tour_packages': {'title': 'Baliwag Tour'},
   }),
   records,
   stage: 'remaining_balance',
+  requirement: {
+    'status': 'required',
+    'amount': type == 'same_day' ? 7200 : 3600,
+  },
+  downpaymentSatisfied: downpaymentPaid,
   itineraryComplete: stopsDone,
   dropoffStarted: dropoff,
   allocations: allocations,
@@ -260,6 +266,11 @@ void main() {
       }
     });
   }
+
+  test('advanced remaining payment waits for settled downpayment', () {
+    expect(remaining(downpaymentPaid: false).paymentRequired, isFalse);
+    expect(remaining(downpaymentPaid: true).paymentRequired, isTrue);
+  });
 
   testWidgets(
     'unpaid test trip after drop-off still opens payment once and permits manual payment',

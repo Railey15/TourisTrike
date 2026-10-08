@@ -204,11 +204,22 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       do {
         _paymentPromptRefreshAgain = false;
         final results = await Future.wait<dynamic>([
-          _repo.fetchPackageBookingDetails(widget.bookingId),
+          _repo.fetchPackageBooking(widget.bookingId),
           _repo.fetchPaymentRecordsFor(bookingId: widget.bookingId),
-          _repo.fetchBookingItinerary(widget.bookingId),
-          _repo.fetchConvoyRoster(widget.bookingId),
-          _repo.fetchPaymentAllocationsForBooking(widget.bookingId),
+          _repo.fetchBookingItinerary(widget.bookingId).catchError((
+            Object error,
+          ) {
+            debugPrint('[Payments] itinerary read unavailable: $error');
+            return <BookingItineraryItem>[];
+          }),
+          _repo.fetchBookingDrivers(widget.bookingId),
+          _repo.fetchPaymentAllocationsForBooking(widget.bookingId).catchError((
+            Object error,
+          ) {
+            debugPrint('[Payments] allocation summary unavailable: $error');
+            return <PaymentAllocation>[];
+          }),
+          _repo.fetchBookingPaymentRequirements(widget.bookingId),
         ]);
         final paymentRecords = results[1] as List<PaymentRecord>;
         final now = DateTime.now();
@@ -237,32 +248,54 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         }
         if (!mounted) return;
         final booking = results[0] as PackageBooking?;
-        if (booking == null) return;
+        if (booking == null) {
+          _paymentPrompt.value = null;
+          _remainingPrompt.value = null;
+          return;
+        }
+        final roster = (results[3] as List<BookingDriver>)
+            .where(
+              (driver) =>
+                  driver.status == 'accepted' || driver.status == 'completed',
+            )
+            .toList();
+        final requirements = results[5] as List<Json>;
+        Json? requirementFor(String stage) {
+          for (final requirement in requirements) {
+            if (requirement['payment_stage'] == stage) return requirement;
+          }
+          return null;
+        }
+
+        final downRequirement = requirementFor('down_payment');
+        final downpaymentSatisfied =
+            booking.downpaymentAmount <= 0 ||
+            downRequirement?['status'] == 'satisfied' ||
+            paymentRecords.any(
+              (record) =>
+                  record.isConfirmed &&
+                  (record.paymentStage == 'down_payment' ||
+                      record.paymentStage == 'full') &&
+                  record.amount >= booking.downpaymentAmount,
+            );
         _paymentPrompt.value = BookingPaymentPrompt.fromRecords(
           booking,
           paymentRecords,
+          requirement: downRequirement,
+          rosterCount: roster.length,
         );
         _paymentPromptGate.observe(_paymentPrompt.value!);
         final itinerary = results[2] as List<BookingItineraryItem>;
-        final roster = results[3] as List<ConvoyDriverSnapshot>;
         _remainingPrompt.value = BookingPaymentPrompt.fromRecords(
           booking,
           paymentRecords,
           stage: 'remaining_balance',
+          requirement: requirementFor('remaining_balance'),
+          downpaymentSatisfied: downpaymentSatisfied,
+          rosterCount: roster.length,
           itineraryComplete:
               itinerary.isNotEmpty &&
-              itinerary.every((s) => s.spotStatus == 'completed') &&
-              roster.length >= booking.requiredDrivers &&
-              roster.every(
-                (d) =>
-                    (d.journeyState == ConvoyJourneyState.stopDone &&
-                        d.currentStopIndex >= itinerary.length - 1) ||
-                    const {
-                      ConvoyJourneyState.enRouteDropoff,
-                      ConvoyJourneyState.atDropoff,
-                      ConvoyJourneyState.completed,
-                    }.contains(d.journeyState),
-              ),
+              itinerary.every((s) => s.spotStatus == 'completed'),
           dropoffStarted: roster.any(
             (d) => const {
               ConvoyJourneyState.enRouteDropoff,
@@ -277,6 +310,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       } while (_paymentPromptRefreshAgain && mounted);
     } catch (error) {
       debugPrint('[Payments] prompt refresh failed: $error');
+      if (mounted) {
+        _paymentPrompt.value = null;
+        _remainingPrompt.value = null;
+      }
     } finally {
       _paymentPromptRefreshing = false;
     }
@@ -2008,10 +2045,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final driverReviewCount = _driverInfo?.profile?.totalReviews ?? 0;
 
     final completed = _isTourCompleted();
-    final fullyAssigned =
-        requiredDrivers > 0 && acceptedDrivers >= requiredDrivers;
+    final fullyAssigned = _paymentPrompt.value?.rosterComplete == true;
     final downPaymentRecord = _paymentRecordForStage('down_payment');
-    final downPaymentConfirmed = downPaymentRecord?.isConfirmed == true;
+    final downPaymentConfirmed =
+        _paymentPrompt.value?.confirmed == true ||
+        (booking?.downpaymentAmount ?? 0) <= 0;
     final remainingPaymentRecord = _paymentRecordForStage('remaining_balance');
     final itineraryComplete =
         _spots.isNotEmpty && _completedSpotCount == _spots.length;

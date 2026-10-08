@@ -73,8 +73,12 @@ serve(async (request) => {
           text: `Enter this verification code in TourisTrike to continue to payment: ${code}\n\nThis code expires in 10 minutes. It does not confirm a payment.`,
         }),
       });
-      if (!response.ok) return jsonResponse({ error: "VERIFICATION_UNAVAILABLE" }, 503);
-    } catch {
+      if (!response.ok) {
+        console.error(`[Payment OTP] email provider rejected request status=${response.status}`);
+        return jsonResponse({ error: "VERIFICATION_UNAVAILABLE" }, 503);
+      }
+    } catch (error) {
+      console.error(`[Payment OTP] email provider request failed type=${error instanceof Error ? error.name : "unknown"}`);
       return jsonResponse({ error: "VERIFICATION_UNAVAILABLE" }, 503);
     }
     return jsonResponse({ status: "SENT" });
