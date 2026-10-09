@@ -418,11 +418,7 @@ class _DriverCardState extends State<_DriverCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        transform: Matrix4.translationValues(
-          0.0,
-          _hovered ? -3.0 : 0.0,
-          0.0,
-        ),
+        transform: Matrix4.translationValues(0.0, _hovered ? -3.0 : 0.0, 0.0),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
@@ -556,6 +552,22 @@ class _DriverCardState extends State<_DriverCard> {
                     label: 'TODA',
                     value: toda,
                   ),
+                  const SizedBox(height: 9),
+                  _DetailRow(
+                    icon: Icons.star_outline_rounded,
+                    label: 'Verified rating',
+                    value: driver.totalReviews == 0
+                        ? 'No reviews yet'
+                        : '${driver.averageRating.toStringAsFixed(1)} / 5 · ${driver.totalReviews} review${driver.totalReviews == 1 ? '' : 's'}',
+                  ),
+                  if (driver.totalReviews > 0 &&
+                      driver.averageRating < 2.5) ...[
+                    const SizedBox(height: 7),
+                    const Text(
+                      'Low rating: review feedback and investigate before any manual restriction.',
+                      style: TextStyle(color: Color(0xFFB45309), fontSize: 11),
+                    ),
+                  ],
                   const SizedBox(height: 9),
                   _DetailRow(
                     icon: Icons.verified_user_rounded,

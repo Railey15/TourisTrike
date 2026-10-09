@@ -1,4 +1,5 @@
 import '../models/booking_capacity.dart';
+import '../models/booking_waiting_balance.dart';
 import '../models/additional_tricycle_request.dart';
 import 'dart:math';
 import 'package:touristrike/core/models/convoy_state.dart';
@@ -569,12 +570,19 @@ class TourisTrikeRepository {
     required String termsVersion,
     String? fareQuoteId,
   }) async {
-    BookingCapacity.validate(
-      adults + children,
-      requiredDrivers,
-      await fetchTricyclePassengerCapacity(),
-    );
-    additionalTricycleRequest?.validate();
+    final capacity = await fetchTricyclePassengerCapacity();
+    if (additionalTricycleRequest == null) {
+      BookingCapacity.validateSelectedTricycles(
+        adults: adults,
+        children: children,
+        tricycles: requiredDrivers,
+        capacity: capacity,
+      );
+    } else {
+      // Historical request callers retain the old MTO review path.
+      BookingCapacity.validate(adults + children, requiredDrivers, capacity);
+      additionalTricycleRequest.validate();
+    }
     final hasActive = await hasActiveTour();
     if (hasActive) {
       throw StateError(activeTourErrorMessage);
@@ -622,6 +630,8 @@ class TourisTrikeRepository {
           ? null
           : dropoffCountryCode.trim(),
       'required_drivers': requiredDrivers,
+      if (additionalTricycleRequest == null)
+        'selected_total_tricycles': requiredDrivers,
       'additional_tricycle_count': additionalTricycleRequest?.count ?? 0,
       'additional_tricycle_reason': additionalTricycleRequest?.reason,
       'additional_tricycle_explanation': additionalTricycleRequest?.explanation
@@ -765,10 +775,7 @@ class TourisTrikeRepository {
           final id = dbString(booking['id']);
           final grossPaid = settled[id] ?? 0;
           final refundedAmount = refunded[id] ?? 0;
-          final paid = (grossPaid - refundedAmount).clamp(
-            0,
-            double.infinity,
-          );
+          final paid = (grossPaid - refundedAmount).clamp(0, double.infinity);
           final stages = required[id] ?? const <String>{};
           final cleared = satisfied[id] ?? const <String>{};
           final fullyPaid =
@@ -1136,11 +1143,33 @@ class TourisTrikeRepository {
     return rows.map(PaymentRecord.new).toList(growable: false);
   }
 
+  Future<PaymentRecord?> fetchPaymentRecordById(String paymentRecordId) async {
+    final row = await _client
+        .from(TourisTrikeTables.paymentRecords)
+        .select()
+        .eq('id', paymentRecordId)
+        .maybeSingle();
+    return row == null ? null : PaymentRecord(Json.from(row));
+  }
+
   Future<List<Json>> fetchBookingPaymentRequirements(String bookingId) =>
       fetchRows(
         'booking_payment_requirements',
         equals: {'booking_id': bookingId},
       );
+
+  Future<BookingWaitingBalance> fetchBookingWaitingBalance(
+    String bookingId,
+  ) async {
+    final value = await _client.rpc(
+      'get_booking_waiting_summary',
+      params: {'p_booking_id': bookingId},
+    );
+    if (value is! Map) {
+      throw const FormatException('Missing server waiting balance.');
+    }
+    return BookingWaitingBalance.fromJson(Map<String, dynamic>.from(value));
+  }
 
   String _paymentAttemptKey(String bookingId, String stage) {
     final rng = Random.secure();

@@ -580,6 +580,12 @@ class _AdministratorDeveloperToolsScreenState
     if (text.contains('BOOKING_HAS_DISPUTE')) {
       return 'This booking contains a financial dispute that must be retained.';
     }
+    if (text.contains('BOOKING_HAS_PRODUCTION_PAYOUT')) {
+      return 'This booking has a live or in-progress payout that cannot be deleted.';
+    }
+    if (text.contains('BOOKING_HAS_PRODUCTION_TRANSFER')) {
+      return 'This booking has a live or in-progress transfer that cannot be deleted.';
+    }
     if (text.contains('BOOKING_HAS_PAYOUT') || text.contains('BOOKING_HAS_TRANSFER')) {
       return 'This booking contains a payout or transfer record that must be retained.';
     }

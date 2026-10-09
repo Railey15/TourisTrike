@@ -121,6 +121,20 @@ class _AcknowledgementReceiptScreenState
                       fontSize: 14,
                     ),
                   ),
+                  if (!entry.isRefund &&
+                      r.paymentStage == 'remaining_balance' &&
+                      r.remainingPackageComponent != null &&
+                      r.additionalWaitingComponent != null) ...[
+                    pw.Text(
+                      'Remaining Package Balance: PHP ${r.remainingPackageComponent!.toStringAsFixed(2)}',
+                    ),
+                    pw.Text(
+                      'Additional Waiting Fee: PHP ${r.additionalWaitingComponent!.toStringAsFixed(2)}',
+                    ),
+                    pw.Text(
+                      'Total Remaining Amount: PHP ${r.amount.toStringAsFixed(2)}',
+                    ),
+                  ],
                   pw.Text('Payment Method: ${r.paymentMethod.toUpperCase()}'),
                   pw.Text('Payment Status: ${entry.statusLabel}'),
                   pw.Text(
@@ -266,6 +280,25 @@ class _AcknowledgementReceiptScreenState
                         label: 'Transaction Type',
                         value: entry.transactionType,
                       ),
+                      if (!entry.isRefund &&
+                          r.paymentStage == 'remaining_balance' &&
+                          r.remainingPackageComponent != null &&
+                          r.additionalWaitingComponent != null) ...[
+                        _ReceiptRow(
+                          label: 'Remaining Package Balance',
+                          value:
+                              'PHP ${r.remainingPackageComponent!.toStringAsFixed(2)}',
+                        ),
+                        _ReceiptRow(
+                          label: 'Additional Waiting Fee',
+                          value:
+                              'PHP ${r.additionalWaitingComponent!.toStringAsFixed(2)}',
+                        ),
+                        _ReceiptRow(
+                          label: 'Total Remaining Amount',
+                          value: 'PHP ${r.amount.toStringAsFixed(2)}',
+                        ),
+                      ],
                       _ReceiptRow(
                         label: 'Received from',
                         value: _payerName ?? '-',

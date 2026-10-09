@@ -9,7 +9,10 @@ import 'package:touristrike/widgets/tour_stay_status_card.dart';
 import 'package:touristrike/core/models/booking_feedback.dart';
 import 'package:touristrike/widgets/booking_feedback_card.dart';
 import 'package:touristrike/core/models/booking_payment_prompt.dart';
+import 'package:touristrike/core/models/booking_waiting_balance.dart';
 import 'package:touristrike/widgets/booking_payment_sheet.dart';
+import 'package:touristrike/widgets/report_booking_user_sheet.dart';
+import 'package:touristrike/widgets/tour_stay_details.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -104,6 +107,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   final _paymentPrompt = ValueNotifier<BookingPaymentPrompt?>(null);
   final _paymentPromptGate = BookingPaymentPromptGate();
   final _remainingPrompt = ValueNotifier<BookingPaymentPrompt?>(null);
+  double? _lastPresentedRemainingAmount;
+  BookingWaitingBalance? _lastPresentedRemainingWaiting;
   final _remainingPromptGate = BookingPaymentPromptGate();
   bool _paymentSheetOpen = false;
   bool _paymentPromptScheduled = false;
@@ -163,6 +168,38 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   int get _completedSpotCount =>
       _spots.where((spot) => spot.spotStatus == 'completed').length;
 
+  Future<void> _reportAssignedDriver() async {
+    if (_convoy.isEmpty) return;
+    final driver = _convoy.length == 1
+        ? _convoy.first
+        : await showModalBottomSheet<ConvoyDriverSnapshot>(
+            context: context,
+            showDragHandle: true,
+            builder: (context) => SafeArea(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  const ListTile(title: Text('Select the assigned driver')),
+                  ..._convoy.map(
+                    (item) => ListTile(
+                      title: Text(item.driverName),
+                      subtitle: Text(item.plateNumber),
+                      onTap: () => Navigator.pop(context, item),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+    if (!mounted || driver == null) return;
+    await showReportBookingUserSheet(
+      context,
+      bookingId: widget.bookingId,
+      reportedUserId: driver.driverId,
+      reportedName: driver.driverName,
+    );
+  }
+
   bool get _canShowLiveTourMap => LiveTourVisibility.tourist(
     roster: _convoy,
     statuses: [
@@ -190,7 +227,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             .where(
               (payment) =>
                   payment.paymentStage == stage &&
-                  payment.status != 'cancelled',
+                  payment.status != 'cancelled' &&
+                  (stage != 'remaining_balance' ||
+                      _remainingPrompt.value?.requirementStatus != 'required' ||
+                      !payment.isConfirmed),
             )
             .toList()
           ..sort(
@@ -231,6 +271,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             return <PaymentAllocation>[];
           }),
           _repo.fetchBookingPaymentRequirements(widget.bookingId),
+          _repo.fetchBookingWaitingBalance(widget.bookingId),
         ]);
         final paymentRecords = results[1] as List<PaymentRecord>;
         final now = DateTime.now();
@@ -315,6 +356,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
             }.contains(d.journeyState),
           ),
           allocations: results[4] as List<PaymentAllocation>,
+          waitingBalance: results[6] as BookingWaitingBalance,
         );
         _remainingPromptGate.observe(_remainingPrompt.value!);
         _maybeShowPaymentPrompt();
@@ -370,6 +412,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
     _paymentSheetOpen = true;
     gate.markHandled();
+    if (remaining) {
+      _lastPresentedRemainingAmount = notifier.value?.amount;
+      _lastPresentedRemainingWaiting = notifier.value?.waitingBalance;
+    }
     try {
       final pay = await showModalBottomSheet<bool>(
         context: context,
@@ -403,6 +449,79 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _paymentSheetOpen = false;
       _maybeShowPaymentPrompt();
     }
+  }
+
+  Future<bool> _confirmCurrentRemainingTotal() async {
+    final results = await Future.wait<dynamic>([
+      _repo.fetchPackageBooking(widget.bookingId),
+      _repo.fetchBookingWaitingBalance(widget.bookingId),
+      _repo.fetchBookingPaymentRequirements(widget.bookingId),
+    ]);
+    final booking = results[0] as PackageBooking?;
+    final waiting = results[1] as BookingWaitingBalance;
+    final requirements = results[2] as List<Json>;
+    final required = requirements
+        .where((row) => row['payment_stage'] == 'remaining_balance')
+        .firstOrNull;
+    final requiredAmount = required == null
+        ? null
+        : dbDouble(required['amount']);
+    if (booking == null ||
+        waiting.accruedWaiting >= 0.005 ||
+        (waiting.finalizedTotal - booking.remainingBalance).abs() >= 0.005 ||
+        requiredAmount == null ||
+        (requiredAmount - booking.remainingBalance).abs() >= 0.005) {
+      _showSnack(
+        'The remaining balance is changing. Refresh after the current stop is finalized.',
+      );
+      return false;
+    }
+    final prior = _lastPresentedRemainingAmount;
+    final priorWaiting = _lastPresentedRemainingWaiting;
+    final componentsChanged =
+        priorWaiting != null &&
+        ((priorWaiting.packageRemaining - waiting.packageRemaining).abs() >=
+                0.005 ||
+            (priorWaiting.payableWaiting - waiting.payableWaiting).abs() >=
+                0.005);
+    if ((prior != null && (prior - requiredAmount).abs() >= 0.005) ||
+        componentsChanged) {
+      if (!mounted) return false;
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Remaining amount updated'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'The server balance changed. Review the new amount before continuing.',
+              ),
+              const SizedBox(height: 12),
+              TourPaymentSummary(
+                packageBalance: waiting.packageRemaining,
+                additionalWaiting: waiting.payableWaiting,
+                totalRemaining: waiting.finalizedTotal,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Confirm updated amount'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true) return false;
+    }
+    _lastPresentedRemainingAmount = requiredAmount;
+    _lastPresentedRemainingWaiting = waiting;
+    return true;
   }
 
   Future<void> _openPayMongoCheckout({
@@ -476,6 +595,10 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         ),
       );
       if (verified != true || !mounted) return;
+      if (stage == 'remaining_balance' &&
+          !await _confirmCurrentRemainingTotal()) {
+        return;
+      }
       final checkout = await _repo.createPayMongoCheckout(
         bookingId: widget.bookingId,
         paymentStage: stage,
@@ -483,6 +606,83 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         customerName: contact.name,
         customerEmail: contact.email,
       );
+      if (stage == 'remaining_balance') {
+        final payment = await _repo.fetchPaymentRecordById(
+          checkout.paymentRecordId,
+        );
+        if (payment == null ||
+            payment.bookingId?.toString() != widget.bookingId) {
+          throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+        }
+        final presented = _lastPresentedRemainingAmount;
+        if (presented == null) {
+          throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
+        }
+        final shownComponents = _lastPresentedRemainingWaiting;
+        final checkoutComponentsChanged =
+            shownComponents != null &&
+            payment.remainingPackageComponent != null &&
+            payment.additionalWaitingComponent != null &&
+            ((payment.remainingPackageComponent! -
+                            shownComponents.packageRemaining)
+                        .abs() >=
+                    0.005 ||
+                (payment.additionalWaitingComponent! -
+                            shownComponents.payableWaiting)
+                        .abs() >=
+                    0.005);
+        if ((payment.amount - presented).abs() >= 0.005 ||
+            checkoutComponentsChanged) {
+          if (!mounted) return;
+          final approved = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Checkout amount updated'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Review the amount saved by the payment server before opening checkout.',
+                  ),
+                  const SizedBox(height: 12),
+                  if (payment.remainingPackageComponent != null &&
+                      payment.additionalWaitingComponent != null)
+                    TourPaymentSummary(
+                      packageBalance: payment.remainingPackageComponent!,
+                      additionalWaiting: payment.additionalWaitingComponent!,
+                      totalRemaining: payment.amount,
+                    )
+                  else
+                    Text(
+                      'Total Remaining Amount: ₱${payment.amount.toStringAsFixed(2)}',
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Continue to checkout'),
+                ),
+              ],
+            ),
+          );
+          if (approved != true) return;
+          _lastPresentedRemainingAmount = payment.amount;
+          if (payment.remainingPackageComponent != null &&
+              payment.additionalWaitingComponent != null) {
+            _lastPresentedRemainingWaiting = BookingWaitingBalance(
+              packageRemaining: payment.remainingPackageComponent!,
+              finalizedWaiting: payment.additionalWaitingComponent!,
+              accruedWaiting: 0,
+              totalRemaining: payment.amount,
+            );
+          }
+        }
+      }
       final uri = Uri.tryParse(checkout.checkoutUrl);
       if (uri == null || uri.scheme.toLowerCase() != 'https') {
         throw const PaymentProviderException('INVALID_PAYMENT_RESPONSE');
@@ -631,6 +831,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Future<void> _chooseRemainingPayment() async {
     if (_busyPaymentStages.contains('remaining_balance')) return;
+    final waiting = _remainingPrompt.value?.waitingBalance;
     final method = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -646,6 +847,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 12),
+              if (waiting != null) ...[
+                TourPaymentSummary(
+                  packageBalance: waiting.packageRemaining,
+                  additionalWaiting: waiting.payableWaiting,
+                  totalRemaining: waiting.finalizedTotal,
+                ),
+                const SizedBox(height: 12),
+              ],
               for (final method in payMongoPaymentMethods)
                 ListTile(
                   leading: Icon(
@@ -686,6 +895,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     }
     setState(() => _busyPaymentStages.add('remaining_balance'));
     try {
+      if (!await _confirmCurrentRemainingTotal()) return;
       await _repo.prepareGroupCashWithCheckoutRecovery(
         bookingId: widget.bookingId,
       );
@@ -849,13 +1059,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   Future<void> _initCustomMarkers() async {
     try {
       final results = await Future.wait([
+        loadTourTricycleMarker(),
         BitmapDescriptor.asset(
-          const ImageConfiguration(size: Size(35, 35)),
-          'assets/icons/tricycle_marker.png',
-        ),
-        BitmapDescriptor.asset(
-          const ImageConfiguration(size: Size(30, 30)),
+          const ImageConfiguration(),
           'assets/icons/passenger_marker.png',
+          width: 30,
+          height: 30,
         ),
       ]);
 
@@ -2719,6 +2928,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     showAmount:
                         !(awaitingRemainingPayment || awaitingFinalPayment),
                     amount: booking!.remainingBalance,
+                    waitingBalance: _remainingPrompt.value?.waitingBalance,
                     record: remainingPaymentRecord,
                     cashAllocations: _paymentAllocations,
                     convoy: _convoy,
@@ -2750,6 +2960,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   tricycles: requiredDrivers,
                   totalAmount: money.format(totalAmount),
                 ),
+                if (_convoy.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _reportAssignedDriver,
+                    icon: const Icon(Icons.report_outlined),
+                    label: const Text('Report assigned driver'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -4651,6 +4869,7 @@ class _PaymentStageCard extends StatelessWidget {
     required this.onViewReceipt,
     this.cashAllocations = const [],
     this.convoy = const [],
+    this.waitingBalance,
   });
 
   final bool showAmount;
@@ -4665,6 +4884,7 @@ class _PaymentStageCard extends StatelessWidget {
   final ValueChanged<PaymentRecord> onViewReceipt;
   final List<PaymentAllocation> cashAllocations;
   final List<ConvoyDriverSnapshot> convoy;
+  final BookingWaitingBalance? waitingBalance;
 
   @override
   Widget build(BuildContext context) {
@@ -4790,6 +5010,19 @@ class _PaymentStageCard extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
+
+          if (waitingBalance case final waiting?) ...[
+            TourPaymentSummary(
+              packageBalance: waiting.packageRemaining,
+              additionalWaiting: waiting.payableWaiting,
+              totalRemaining: waiting.finalizedTotal,
+            ),
+            if (waiting.accruedWaiting > 0)
+              Text(
+                'Accrued waiting pending finalization: ${money.format(waiting.accruedWaiting)}',
+              ),
+            const SizedBox(height: 12),
+          ],
 
           if (showDriverPayout) ...[
             Row(

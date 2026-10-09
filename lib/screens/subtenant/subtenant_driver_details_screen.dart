@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
+import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
 import 'package:touristrike/screens/driver/profile/driver_identity_status.dart';
 
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
 import 'package:url_launcher/url_launcher.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 
 
@@ -36,6 +38,7 @@ class _SubTenantDriverDetailsScreenState
     extends State<SubTenantDriverDetailsScreen> {
 
   final SubTenantService _service = SubTenantService();
+  final GlobalKey _ratingsKey = GlobalKey();
 
 
 
@@ -199,121 +202,66 @@ class _SubTenantDriverDetailsScreenState
 
 
 
-  Future<void> _confirmSuspend(
-
-    SubTenantProfile profile,
-
-    SubTenantDriver driver,
-
-  ) async {
-
-    final reasonCtrl = TextEditingController();
-
-    final confirmed = await showDialog<String>(
-
-      context: context,
-
-      builder: (context) {
-
-        return AlertDialog(
-
-          title: const Text('Suspend Driver'),
-
-          content: Column(
-
-            mainAxisSize: MainAxisSize.min,
-
-            crossAxisAlignment: CrossAxisAlignment.start,
-
-            children: [
-
-              Text(
-
-                'Suspend ${driver.fullName} and block bookings, online mode, and new assignments until reactivated.',
-
-                style: const TextStyle(height: 1.4),
-
-              ),
-
-              const SizedBox(height: 12),
-
-              TextField(
-
-                controller: reasonCtrl,
-
-                maxLines: 3,
-
-                decoration: const InputDecoration(
-
-                  labelText: 'Suspension Reason',
-
-                  hintText: 'Enter the reason for suspension',
-
-                  border: OutlineInputBorder(),
-
-                ),
-
-              ),
-
-            ],
-
-          ),
-
-          actions: [
-
-            TextButton(
-
-              onPressed: () => Navigator.pop(context),
-
-              child: const Text('Cancel'),
-
-            ),
-
-            FilledButton(
-
-              onPressed: () {
-
-                final reason = reasonCtrl.text.trim();
-
-                if (reason.isEmpty) return;
-
-                Navigator.pop(context, reason);
-
-              },
-
-              child: const Text('Suspend'),
-
-            ),
-
-          ],
-
-        );
-
-      },
-
-    );
-
-    reasonCtrl.dispose();
-
-
-
-    if (confirmed == null || confirmed.trim().isEmpty || !mounted) return;
-
-    await _setStatus(
-
-      profile,
-
-      driver,
-
-      'suspended',
-
-      suspensionReason: confirmed.trim(),
-
-    );
-
+  void _openInvestigation() {
+    SubTenantAdminShell.navigateTo(context, 8, currentIndex: 4);
   }
 
+  void _reviewFeedback() {
+    final ratingsContext = _ratingsKey.currentContext;
+    if (ratingsContext != null) {
+      Scrollable.ensureVisible(ratingsContext,
+          duration: const Duration(milliseconds: 300));
+    }
+  }
 
+  Future<void> _openFeedbackCase(SubTenantDriverReview review) async {
+    final controller = TextEditingController();
+    String? reason;
+    try {
+      reason = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Open feedback investigation'),
+          content: TextField(
+            controller: controller,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Documented reason (at least 20 characters)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('Open case'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+    if (reason == null || !mounted) return;
+    if (reason.length < 20) {
+      showSubTenantSnack(context, 'Document a reason of at least 20 characters.');
+      return;
+    }
+    try {
+      await Supabase.instance.client.rpc('open_municipal_driver_feedback_case',
+          params: {'p_review_id': review.id, 'p_description': reason});
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Feedback case opened for municipal review.',
+          error: false);
+      _openInvestigation();
+    } catch (error) {
+      if (!mounted) return;
+      showSubTenantSnack(context, 'Unable to open feedback case: $error');
+    }
+  }
 
   @override
 
@@ -403,11 +351,8 @@ class _SubTenantDriverDetailsScreenState
 
                       : () => _setStatus(load.profile, driver, 'approved'),
 
-                  onSuspend: driver.status == 'suspended'
-
-                      ? null
-
-                      : () => _confirmSuspend(load.profile, driver),
+                  onSuspend: _openInvestigation,
+                  onReview: _reviewFeedback,
 
                 ),
 
@@ -496,9 +441,13 @@ class _SubTenantDriverDetailsScreenState
 
                 _RatingsFeedbackCard(
 
+                  key: _ratingsKey,
+
                   driver: driver,
 
                   reviews: load.reviews,
+
+                  onInvestigateReview: _openFeedbackCase,
 
                 ),
 
@@ -533,6 +482,7 @@ class _DriverHeroCard extends StatelessWidget {
     required this.onApprove,
 
     required this.onSuspend,
+    required this.onReview,
 
   });
 
@@ -547,6 +497,7 @@ class _DriverHeroCard extends StatelessWidget {
   final VoidCallback? onApprove;
 
   final VoidCallback? onSuspend;
+  final VoidCallback onReview;
 
 
 
@@ -606,7 +557,7 @@ class _DriverHeroCard extends StatelessWidget {
 
         _HeroActionButton(
 
-          label: 'Suspend Driver',
+          label: 'Investigate',
 
           icon: Icons.block_rounded,
 
@@ -615,6 +566,12 @@ class _DriverHeroCard extends StatelessWidget {
           danger: true,
 
         ),
+
+      _HeroActionButton(
+        label: 'Review Feedback',
+        icon: Icons.rate_review_outlined,
+        onPressed: onReview,
+      ),
 
     ];
 
@@ -2055,9 +2012,13 @@ class _RatingsFeedbackCard extends StatelessWidget {
 
   const _RatingsFeedbackCard({
 
+    super.key,
+
     required this.driver,
 
     required this.reviews,
+
+    required this.onInvestigateReview,
 
   });
 
@@ -2066,6 +2027,7 @@ class _RatingsFeedbackCard extends StatelessWidget {
   final SubTenantDriver driver;
 
   final List<SubTenantDriverReview> reviews;
+  final ValueChanged<SubTenantDriverReview> onInvestigateReview;
 
 
 
@@ -2193,6 +2155,22 @@ class _RatingsFeedbackCard extends StatelessWidget {
 
         const SizedBox(height: 12),
 
+        if (hasRating && averageRating < 2.5)
+
+          const Padding(
+
+            padding: EdgeInsets.only(bottom: 12),
+
+            child: Text(
+
+              'Low verified rating. Review the feedback and open an investigation before any manual restriction.',
+
+              style: TextStyle(color: Color(0xFFB45309), fontWeight: FontWeight.w700),
+
+            ),
+
+          ),
+
         if (reviews.isEmpty)
 
           const _EmptyCardBody(
@@ -2209,7 +2187,10 @@ class _RatingsFeedbackCard extends StatelessWidget {
 
         else
 
-          ...reviews.map((review) => _FeedbackTile(review: review)),
+          ...reviews.map((review) => _FeedbackTile(
+                review: review,
+                onInvestigate: () => onInvestigateReview(review),
+              )),
 
       ],
 
@@ -2223,7 +2204,8 @@ class _RatingsFeedbackCard extends StatelessWidget {
 
 class _FeedbackTile extends StatelessWidget {
 
-  const _FeedbackTile({required this.review});
+  const _FeedbackTile({required this.review, required this.onInvestigate});
+  final VoidCallback onInvestigate;
 
 
 
@@ -2335,6 +2317,16 @@ class _FeedbackTile extends StatelessWidget {
 
             style: const TextStyle(fontWeight: FontWeight.w700),
 
+          ),
+
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onInvestigate,
+              icon: const Icon(Icons.policy_outlined),
+              label: const Text('Open investigation'),
+            ),
           ),
 
         ],
@@ -2479,24 +2471,6 @@ class _InfoRow extends StatelessWidget {
     );
   }
 }
-
-class _HiddenInfoRow extends StatelessWidget {
-
-  const _HiddenInfoRow();
-
-
-
-  @override
-
-  Widget build(BuildContext context) {
-
-    return const SizedBox(height: 72);
-
-  }
-
-}
-
-
 
 class _EmptyCardBody extends StatelessWidget {
 

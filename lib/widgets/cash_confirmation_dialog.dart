@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'tour_stay_details.dart';
 
 class CashConfirmationPromptGate {
   final Set<String> _presented = {};
@@ -10,9 +11,15 @@ class CashConfirmationDialog extends StatefulWidget {
   const CashConfirmationDialog({
     super.key,
     required this.amount,
+    this.packageBalance,
+    this.additionalWaiting,
+    this.totalRemaining,
     required this.onConfirm,
   });
   final double amount;
+  final double? packageBalance;
+  final double? additionalWaiting;
+  final double? totalRemaining;
   final Future<void> Function() onConfirm;
   @override
   State<CashConfirmationDialog> createState() => _CashConfirmationDialogState();
@@ -63,6 +70,16 @@ class _CashConfirmationDialogState extends State<CashConfirmationDialog> {
               'Confirm only after receiving your allocated share.',
             ),
             const SizedBox(height: 16),
+            if (widget.packageBalance != null &&
+                widget.additionalWaiting != null &&
+                widget.totalRemaining != null) ...[
+              TourPaymentSummary(
+                packageBalance: widget.packageBalance!,
+                additionalWaiting: widget.additionalWaiting!,
+                totalRemaining: widget.totalRemaining!,
+              ),
+              const SizedBox(height: 12),
+            ],
             const Text('Amount received'),
             Text(
               '₱${NumberFormat('#,##0.00').format(widget.amount)}',

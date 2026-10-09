@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../core/models/booking_payment_prompt.dart';
 import '../core/supabase/touristrike_models.dart';
+import 'tour_stay_details.dart';
 
 class BookingPaymentSheet extends StatelessWidget {
   const BookingPaymentSheet({
@@ -120,10 +121,11 @@ class BookingPaymentSheet extends StatelessWidget {
                                     : booking.downpaymentAmount,
                               ),
                             ),
-                            (
-                              label: 'Remaining Balance',
-                              value: money.format(booking.remainingBalance),
-                            ),
+                            if (!value.isRemaining)
+                              (
+                                label: 'Remaining Balance',
+                                value: money.format(booking.remainingBalance),
+                              ),
                             (
                               label: 'Payment Method',
                               value: value.isRemaining
@@ -164,6 +166,20 @@ class BookingPaymentSheet extends StatelessWidget {
                           .toList(),
                 ),
               ),
+              if (value.isRemaining) ...[
+                if (value.waitingBalance case final waiting?) ...[
+                  const SizedBox(height: 12),
+                  TourPaymentSummary(
+                    packageBalance: waiting.packageRemaining,
+                    additionalWaiting: waiting.payableWaiting,
+                    totalRemaining: waiting.finalizedTotal,
+                  ),
+                  if (waiting.accruedWaiting > 0)
+                    Text(
+                      'Accrued waiting pending finalization: ${money.format(waiting.accruedWaiting)}',
+                    ),
+                ],
+              ],
               const SizedBox(height: 20),
               if (value.cashPending)
                 Text(

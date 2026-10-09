@@ -84,10 +84,7 @@ class _GuestTripTrackingScreenState extends State<GuestTripTrackingScreen> {
 
   Future<void> _initCustomMarkers() async {
     try {
-      _tricycleMarker = await BitmapDescriptor.asset(
-        const ImageConfiguration(size: Size(35, 35)),
-        'assets/icons/tricycle_marker.png',
-      );
+      _tricycleMarker = await loadTourTricycleMarker();
       if (!mounted) return;
       setState(() {});
       _buildMarkers();

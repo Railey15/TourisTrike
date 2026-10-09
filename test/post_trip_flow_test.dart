@@ -44,6 +44,7 @@ BookingPaymentPrompt remaining({
   String bookingStatus = 'awaiting_remaining_payment',
   String type = 'advanced',
   bool downpaymentPaid = true,
+  String requirementStatus = 'required',
   List<PaymentRecord> records = const [],
   List<PaymentAllocation> allocations = const [],
 }) => BookingPaymentPrompt.fromRecords(
@@ -61,7 +62,7 @@ BookingPaymentPrompt remaining({
   }),
   records,
   stage: 'remaining_balance',
-  requirement: {'status': 'required', 'amount': 3600},
+  requirement: {'status': requirementStatus, 'amount': 3600},
   downpaymentSatisfied: downpaymentPaid,
   itineraryComplete: stopsDone,
   dropoffStarted: dropoff,
@@ -250,6 +251,7 @@ void main() {
         expect(
           remaining(
             type: type,
+            requirementStatus: 'satisfied',
             records: [
               PaymentRecord({
                 'payment_stage': stage,
@@ -261,6 +263,19 @@ void main() {
           isFalse,
         );
       }
+      expect(
+        remaining(
+          type: type,
+          records: [
+            const PaymentRecord({
+              'payment_stage': 'remaining_balance',
+              'status': 'confirmed',
+              'amount': 7200,
+            }),
+          ],
+        ).paymentRequired,
+        isTrue,
+      );
     });
   }
 
@@ -304,6 +319,7 @@ void main() {
       state.value = remaining(
         dropoff: true,
         bookingStatus: 'awaiting_final_payment',
+        requirementStatus: 'satisfied',
         records: [
           PaymentRecord({
             'payment_stage': 'remaining_balance',
@@ -381,6 +397,7 @@ void main() {
       expect(find.textContaining('1 driver shares confirmed'), findsOneWidget);
       expect(find.byType(FilledButton), findsNothing);
       state.value = remaining(
+        requirementStatus: 'satisfied',
         records: [
           const PaymentRecord({
             'payment_stage': 'remaining_balance',

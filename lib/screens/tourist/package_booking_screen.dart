@@ -1,5 +1,5 @@
 import 'package:touristrike/core/models/booking_capacity.dart';
-import 'package:touristrike/core/models/additional_tricycle_request.dart';
+import 'package:touristrike/widgets/municipal_restriction_notice.dart';
 import 'package:touristrike/core/models/itinerary_stay_options.dart';
 import 'package:touristrike/widgets/booking_route_preview_map.dart';
 import 'dart:async';
@@ -107,7 +107,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   int _adults = 1;
   int _children = 0;
   int? _tricyclePassengerCapacity;
-  AdditionalTricycleRequest? _additionalTricycleRequest;
+  int? _selectedTricycles;
 
   _PaymentMethod _payment = _PaymentMethod.gcash;
 
@@ -186,7 +186,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     _scheduleReady = _scheduleLoading = false;
     _scheduleError = _scheduleValidationError = null;
     _currentStep = 0;
-    _additionalTricycleRequest = null;
+    _selectedTricycles = null;
     _itineraryCustomized = false;
     _future = _loadAndInitializePackage();
   }
@@ -321,148 +321,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   int get _totalParticipants => _adults + _children;
 
-  int get _requiredTricycles => BookingCapacity.requiredTricycles(
-    _totalParticipants,
-    _tricyclePassengerCapacity!,
-  );
-  int get _additionalTricycleCount => _additionalTricycleRequest?.count ?? 0;
-  int get _totalRequestedTricycles =>
-      _requiredTricycles + _additionalTricycleCount;
-
-  void _changeAdditionalTricycleCount(int change) {
-    final count = _additionalTricycleCount + change;
-    if (count < 0 || count > 3) return;
-    if (count == 0) {
-      setState(() => _additionalTricycleRequest = null);
-    } else if (_additionalTricycleRequest == null) {
-      unawaited(_requestAdditionalTricycle());
-    } else {
-      setState(
-        () => _additionalTricycleRequest = AdditionalTricycleRequest(
-          count: count,
-          reason: _additionalTricycleRequest!.reason,
-          explanation: _additionalTricycleRequest!.explanation,
-        ),
-      );
-    }
-  }
-
-  Future<void> _requestAdditionalTricycle() async {
-    String? selectedReason = _additionalTricycleRequest?.reason;
-    final explanationController = TextEditingController(
-      text: _additionalTricycleRequest?.explanation ?? '',
-    );
-    String? error;
-    final result = await showModalBottomSheet<AdditionalTricycleRequest>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, updateSheet) => SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              8,
-              20,
-              MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Why do you need another tricycle?',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: _ink,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Please choose a reason. No medical details are needed.',
-                  style: TextStyle(color: _secondaryText, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                for (final entry in AdditionalTricycleReasons.labels.entries)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: Text(entry.value),
-                    trailing: Icon(
-                      selectedReason == entry.key
-                          ? Icons.radio_button_checked_rounded
-                          : Icons.radio_button_unchecked_rounded,
-                      color: selectedReason == entry.key
-                          ? _primary
-                          : _secondaryText,
-                    ),
-                    onTap: () => updateSheet(() {
-                      selectedReason = entry.key;
-                      error = null;
-                    }),
-                  ),
-                if (selectedReason == AdditionalTricycleReasons.other)
-                  TextField(
-                    controller: explanationController,
-                    maxLength: 200,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Short explanation',
-                      hintText: 'Tell the tourism office what you need',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      error!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  ),
-                const SizedBox(height: 4),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () {
-                      final request = AdditionalTricycleRequest(
-                        count: _additionalTricycleCount == 0
-                            ? 1
-                            : _additionalTricycleCount,
-                        reason: selectedReason,
-                        explanation:
-                            selectedReason == AdditionalTricycleReasons.other
-                            ? explanationController.text.trim()
-                            : null,
-                      );
-                      try {
-                        request.validate();
-                        Navigator.pop(sheetContext, request);
-                      } on ArgumentError catch (validationError) {
-                        updateSheet(
-                          () => error = validationError.message.toString(),
-                        );
-                      }
-                    },
-                    child: const Text('Confirm Request'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    explanationController.dispose();
-    if (mounted && result != null) {
-      setState(() => _additionalTricycleRequest = result);
-    }
-  }
+  int get _requiredTricycles =>
+      BookingCapacity.minimumForAdults(_adults, _tricyclePassengerCapacity!);
+  int get _totalRequestedTricycles => (_selectedTricycles ?? _requiredTricycles)
+      .clamp(_requiredTricycles, _adults);
 
   // =============================================================================
   // BOOKING TYPE
@@ -1405,6 +1267,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return 'Please include at least 1 passenger.';
     }
 
+    if (_totalParticipants >
+        _totalRequestedTricycles * _tricyclePassengerCapacity!) {
+      return 'Select more tricycles for all passengers, or reduce the passenger count. Each tricycle has ${_tricyclePassengerCapacity!} seats.';
+    }
+
     return null;
   }
 
@@ -1555,7 +1422,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     parts.add(
       'Participants — Adults: $_adults, Children: $_children. '
-      'Required tricycles: $_requiredTricycles.',
+      'Selected tricycles and required drivers: $_totalRequestedTricycles.',
     );
 
     parts.add(
@@ -1687,29 +1554,11 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               value:
                   '$_totalParticipants ($_adults adults, $_children children)',
             ),
-            (label: 'Required Tricycles', value: '$_requiredTricycles'),
             (
-              label: 'Additional Tricycle',
-              value: _additionalTricycleCount > 0
-                  ? '$_additionalTricycleCount requested'
-                  : 'None',
+              label: 'Selected Tricycles / Drivers',
+              value: '$_totalRequestedTricycles',
             ),
-            if (_additionalTricycleCount > 0) ...[
-              (
-                label: 'Total Requested Vehicles',
-                value: '$_totalRequestedTricycles',
-              ),
-              (label: 'Reason', value: _additionalTricycleRequest!.reasonLabel),
-              if (_additionalTricycleRequest!.explanation != null)
-                (
-                  label: 'Explanation',
-                  value: _additionalTricycleRequest!.explanation!,
-                ),
-              (
-                label: 'Additional Vehicle Status',
-                value: 'Subject to availability',
-              ),
-            ],
+            (label: 'Extra Vehicle Charge', value: _money(0)),
             (
               label: 'Booking Type',
               value: _isSameDay ? 'Same-Day Booking' : 'Advance Booking',
@@ -1830,8 +1679,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
         itineraryItems: itinerary,
 
-        requiredDrivers: _requiredTricycles,
-        additionalTricycleRequest: _additionalTricycleRequest,
+        requiredDrivers: _totalRequestedTricycles,
 
         municipality: package.city,
         province: _packageProvince(package),
@@ -1852,6 +1700,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       }
       if (error.toString().contains('NEW_BOOKINGS_TEMPORARILY_RESTRICTED')) {
         await _showBookingRestrictionDialog();
+      } else if (error.toString().contains(
+        'MUNICIPAL_TOURIST_BOOKING_RESTRICTED',
+      )) {
+        _snack(
+          'A municipal restriction currently prevents new bookings here. Review the notice on Trip Details to appeal.',
+        );
       } else {
         _snack('Unable to create booking: $error');
       }
@@ -1899,10 +1753,16 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                             'appeal_tourist_booking_restriction',
                             params: {'p_reason': reason.text.trim()},
                           );
-                          if (dialogContext.mounted) Navigator.pop(dialogContext);
-                          if (mounted) _snack('Your appeal was submitted for review.');
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                          if (mounted) {
+                            _snack('Your appeal was submitted for review.');
+                          }
                         } catch (_) {
-                          if (mounted) _snack('Unable to submit the appeal right now.');
+                          if (mounted) {
+                            _snack('Unable to submit the appeal right now.');
+                          }
                         }
                       },
                 child: const Text('Submit appeal'),
@@ -2016,6 +1876,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                       // ======================================================
                       _StepScrollView(
                         children: [
+                          const MunicipalRestrictionNotice(),
                           const _StepIntro(
                             icon: Icons.calendar_month_outlined,
                             step: 'Step 1 of 6',
@@ -2097,17 +1958,22 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 12),
 
                           _TransportRequirementCard(
-                            participants: _totalParticipants,
+                            participants: _adults,
                             requiredTricycles: _requiredTricycles,
                           ),
                           const SizedBox(height: 10),
-                          _AdditionalTricycleRequestCard(
-                            requiredTricycles: _requiredTricycles,
-                            request: _additionalTricycleRequest,
-                            onIncrease: () => _changeAdditionalTricycleCount(1),
-                            onDecrease: () =>
-                                _changeAdditionalTricycleCount(-1),
-                            onEditReason: _requestAdditionalTricycle,
+                          _TricycleQuantityCard(
+                            minimum: _requiredTricycles,
+                            maximum: _adults,
+                            selected: _totalRequestedTricycles,
+                            onIncrease: () => setState(
+                              () => _selectedTricycles =
+                                  _totalRequestedTricycles + 1,
+                            ),
+                            onDecrease: () => setState(
+                              () => _selectedTricycles =
+                                  _totalRequestedTricycles - 1,
+                            ),
                           ),
                         ],
                       ),
@@ -2395,7 +2261,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                     )
                                   : 'Unavailable',
                               onStayChanged: (item, minutes) {
-                                if (!ItineraryStayOptions.minutes.contains(minutes)) {
+                                if (!ItineraryStayOptions.minutes.contains(
+                                  minutes,
+                                )) {
                                   return;
                                 }
                                 if (item.stayMinutes == minutes) return;
@@ -2574,37 +2442,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                                 value: '$_totalParticipants',
                               ),
                               _ReviewRow(
-                                label: 'Required Tricycles',
-                                value: '$_requiredTricycles',
+                                label: 'Selected Tricycles / Drivers',
+                                value: '$_totalRequestedTricycles',
                               ),
-                              _ReviewRow(
-                                label: 'Additional Tricycle',
-                                value: _additionalTricycleCount > 0
-                                    ? '$_additionalTricycleCount requested'
-                                    : 'None',
+                              const _ReviewRow(
+                                label: 'Extra Vehicle Charge',
+                                value: 'PHP 0.00',
                               ),
-                              if (_additionalTricycleCount > 0) ...[
-                                _ReviewRow(
-                                  label: 'Total Requested Vehicles',
-                                  value: '$_totalRequestedTricycles',
-                                ),
-                                _ReviewRow(
-                                  label: 'Reason',
-                                  value:
-                                      _additionalTricycleRequest!.reasonLabel,
-                                ),
-                                if (_additionalTricycleRequest!.explanation !=
-                                    null)
-                                  _ReviewRow(
-                                    label: 'Explanation',
-                                    value: _additionalTricycleRequest!
-                                        .explanation!,
-                                  ),
-                                const _ReviewRow(
-                                  label: 'Additional Vehicle Status',
-                                  value: 'Subject to availability',
-                                ),
-                              ],
                             ],
                           ),
 
@@ -3734,8 +3578,8 @@ class _TransportRequirementCard extends StatelessWidget {
 
           Expanded(
             child: Text(
-              '$requiredTricycles Tricycle${requiredTricycles == 1 ? '' : 's'} Required\n'
-              'Based on $participants passenger${participants == 1 ? '' : 's'} and vehicle capacity',
+              '$requiredTricycles Minimum Tricycle${requiredTricycles == 1 ? '' : 's'}\n'
+              'Based on $participants adult${participants == 1 ? '' : 's'} and vehicle capacity',
               style: const TextStyle(
                 color: Color(0xFF4D6686),
                 fontWeight: FontWeight.w700,
@@ -3749,114 +3593,73 @@ class _TransportRequirementCard extends StatelessWidget {
   }
 }
 
-class _AdditionalTricycleRequestCard extends StatelessWidget {
-  const _AdditionalTricycleRequestCard({
-    required this.requiredTricycles,
-    required this.request,
+class _TricycleQuantityCard extends StatelessWidget {
+  const _TricycleQuantityCard({
+    required this.minimum,
+    required this.maximum,
+    required this.selected,
     required this.onIncrease,
     required this.onDecrease,
-    required this.onEditReason,
   });
 
-  final int requiredTricycles;
-  final AdditionalTricycleRequest? request;
+  final int minimum;
+  final int maximum;
+  final int selected;
   final VoidCallback onIncrease;
   final VoidCallback onDecrease;
-  final VoidCallback onEditReason;
 
   @override
-  Widget build(BuildContext context) {
-    final count = request?.count ?? 0;
-    final requested = count > 0;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: _border),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (requested) ...[
-                const Icon(
-                  Icons.check_circle_rounded,
-                  color: Color(0xFF16A34A),
-                  size: 17,
-                ),
-                const SizedBox(width: 6),
-              ],
-              Expanded(
-                child: Text(
-                  'Need additional tricycles?',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: _ink,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          Text(
-            requested
-                ? '$requiredTricycles required + $count requested = '
-                      '${requiredTricycles + count} total tricycles\n'
-                      '${request!.reasonLabel}'
-                      '${request!.explanation == null ? '' : ': ${request!.explanation}'}\n'
-                      'Additional tricycles are subject to availability.'
-                : 'For luggage, accessibility, additional space, or other special needs.',
-            style: const TextStyle(
-              color: _secondaryText,
-              fontSize: 11.5,
-              height: 1.4,
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: _border),
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Tricycles for your tour',
+          style: TextStyle(fontWeight: FontWeight.w800, color: _ink),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'Choose $minimum to $maximum tricycle${maximum == 1 ? '' : 's'} for your adult group. Each selected tricycle opens one real driver slot.',
+          style: const TextStyle(color: _secondaryText, fontSize: 11.5),
+        ),
+        Row(
+          children: [
+            const Text(
+              'Total tricycles',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text(
-                'Additional Tricycles',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const Spacer(),
-              IconButton(
-                onPressed: count > 0 ? onDecrease : null,
-                icon: const Icon(Icons.remove_circle_outline),
-                tooltip: 'Remove one',
-              ),
-              Text(
-                '$count',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              IconButton(
-                onPressed: count < 3 ? onIncrease : null,
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: 'Add one',
-              ),
-            ],
-          ),
-          Text(
-            count == 3
-                ? 'Maximum of 3 additional tricycles reached'
-                : 'Maximum of 3 additional tricycles. Subject to availability.',
-            style: const TextStyle(color: _secondaryText, fontSize: 11),
-          ),
-          if (requested)
-            TextButton(
-              onPressed: onEditReason,
-              child: const Text('Change reason'),
+            const Spacer(),
+            IconButton(
+              onPressed: selected > minimum ? onDecrease : null,
+              icon: const Icon(Icons.remove_circle_outline),
+              tooltip: 'Remove one tricycle',
             ),
-        ],
-      ),
-    );
-  }
+            Text(
+              '$selected',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            IconButton(
+              onPressed: selected < maximum ? onIncrease : null,
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: 'Add one tricycle',
+            ),
+          ],
+        ),
+        const Text(
+          'Extra vehicle charge: PHP 0.00. Your fare is based on passengers.',
+          style: TextStyle(color: _secondaryText, fontSize: 11),
+        ),
+      ],
+    ),
+  );
 }
-
 // =============================================================================
 // SPOT SELECTION
 // =============================================================================

@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/core/models/additional_tricycle_request.dart';
+import 'package:touristrike/core/models/booking_waiting_balance.dart';
+import 'package:touristrike/widgets/tour_stay_details.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/widgets/subtenant_components.dart';
 
@@ -33,6 +35,8 @@ class _SubTenantBookingDetailsScreenState
   List<_CustomizedPlaceView> _customizedPlaces = const <_CustomizedPlaceView>[];
   List<_ItineraryStopView> _itinerary = const <_ItineraryStopView>[];
   List<_PaymentView> _payments = const <_PaymentView>[];
+  BookingWaitingBalance? _waitingBalance;
+  String? _waitingBalanceError;
 
   User? get _user => _supabase.auth.currentUser;
   String get _bookingIdText => stId(widget.bookingId);
@@ -155,6 +159,18 @@ class _SubTenantBookingDetailsScreenState
       final customizedPlaces = await customizedPlacesFuture;
       final itinerary = await itineraryFuture;
       final payments = await paymentsFuture;
+      BookingWaitingBalance? waitingBalance;
+      String? waitingBalanceError;
+      try {
+        final value = await _supabase.rpc('get_booking_waiting_summary',
+          params: {'p_booking_id': _bookingIdText});
+        if (value is! Map) throw const FormatException('Invalid waiting balance');
+        waitingBalance = BookingWaitingBalance.fromJson(
+          Map<String, dynamic>.from(value));
+      } catch (error) {
+        waitingBalanceError = 'Waiting-fee breakdown is temporarily unavailable.';
+        debugPrint('MTO waiting balance unavailable: $error');
+      }
 
       if (!mounted) return;
 
@@ -169,6 +185,8 @@ class _SubTenantBookingDetailsScreenState
         _customizedPlaces = customizedPlaces;
         _itinerary = itinerary;
         _payments = payments;
+        _waitingBalance = waitingBalance;
+        _waitingBalanceError = waitingBalanceError;
         _loading = false;
         _errorMessage = null;
       });
@@ -1515,6 +1533,27 @@ class _SubTenantBookingDetailsScreenState
         const SizedBox(
           height: 14,
         ),
+        _SectionCard(
+          title: 'Remaining payment breakdown',
+          subtitle: 'Current server-calculated booking and waiting charges.',
+          child: _waitingBalance == null
+              ? Text(_waitingBalanceError ?? 'Loading payment breakdown…')
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TourPaymentSummary(
+                      packageBalance: _waitingBalance!.packageRemaining,
+                      additionalWaiting: _waitingBalance!.payableWaiting,
+                      totalRemaining: _waitingBalance!.finalizedTotal,
+                    ),
+                    if (_waitingBalance!.accruedWaiting > 0)
+                      Text(
+                        'Accrued waiting pending finalization: PHP ${_waitingBalance!.accruedWaiting.toStringAsFixed(2)}',
+                      ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 14),
         _SectionCard(
           title:
               'Pickup and Drop-off',
@@ -2946,6 +2985,8 @@ class _PaymentView {
   const _PaymentView({
     required this.id,
     required this.amount,
+    required this.packageComponent,
+    required this.waitingComponent,
     required this.paymentMethod,
     required this.paymentStatus,
     required this.paymentType,
@@ -2957,6 +2998,8 @@ class _PaymentView {
 
   final String id;
   final double amount;
+  final double? packageComponent;
+  final double? waitingComponent;
   final String paymentMethod;
   final String paymentStatus;
   final String paymentType;
@@ -2978,6 +3021,12 @@ class _PaymentView {
           stDouble(
         row['amount'],
       ),
+      packageComponent: row['remaining_package_component'] == null
+          ? null
+          : stDouble(row['remaining_package_component']),
+      waitingComponent: row['additional_waiting_component'] == null
+          ? null
+          : stDouble(row['additional_waiting_component']),
       paymentMethod:
           stString(
         row,
@@ -4975,6 +5024,16 @@ class _PaymentTile
             height:
                 14,
           ),
+          if (payment.isRemainingBalance &&
+              payment.packageComponent != null &&
+              payment.waitingComponent != null) ...[
+            TourPaymentSummary(
+              packageBalance: payment.packageComponent!,
+              additionalWaiting: payment.waitingComponent!,
+              totalRemaining: payment.amount,
+            ),
+            const SizedBox(height: 14),
+          ],
           _PaymentStatWrap(
             items: [
               _PaymentStatItem(

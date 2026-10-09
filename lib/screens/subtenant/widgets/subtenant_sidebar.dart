@@ -66,6 +66,11 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       icon: Icons.report_problem_rounded,
       index: 7,
     ),
+    _SidebarDestination(
+      label: 'Complaints',
+      icon: Icons.gavel_outlined,
+      index: 8,
+    ),
   ];
 
   bool get _effectiveExpanded {

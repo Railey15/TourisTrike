@@ -651,6 +651,14 @@ class PaymentRecord extends TourisTrikeRow {
   String get payerId => dbString(row['payer_id']);
   String get payeeId => dbString(row['payee_id']);
   double get amount => dbDouble(row['amount']);
+  double? get remainingPackageComponent =>
+      row['remaining_package_component'] == null
+      ? null
+      : dbDouble(row['remaining_package_component']);
+  double? get additionalWaitingComponent =>
+      row['additional_waiting_component'] == null
+      ? null
+      : dbDouble(row['additional_waiting_component']);
   String get paymentMethod => dbString(row['payment_method']);
   String get paymentStage => dbString(row['payment_stage'], fallback: 'full');
   String get externalReferenceNo => dbString(row['external_reference_no']);

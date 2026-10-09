@@ -2,6 +2,7 @@ import 'package:touristrike/widgets/tourist_reputation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:touristrike/widgets/municipal_restriction_notice.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -343,6 +344,9 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
   // =========================================================================
 
   String _humanizeError(String raw) {
+    if (raw.contains('MUNICIPAL_DRIVER_JOBS_RESTRICTED')) {
+      return 'A municipal restriction currently prevents accepting new jobs here. You can review and appeal it above.';
+    }
     if (raw.contains('MUNICIPALITY_MISMATCH')) {
       final match = RegExp(r'Booking is for (.+?) only').firstMatch(raw);
 
@@ -670,6 +674,7 @@ class _DriverPackageJobsScreenState extends State<DriverPackageJobsScreen> {
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 26),
 
         children: [
+          const MunicipalRestrictionNotice(),
           _JobsSectionHeader(
             count: _jobs.length,
             municipality: _driverMunicipality,

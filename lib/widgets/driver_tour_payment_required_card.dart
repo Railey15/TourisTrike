@@ -35,7 +35,7 @@ class DriverTourPaymentRequiredCard extends StatelessWidget {
           if (gate case final summary?) ...[
             TourPaymentSummary(
               packageBalance: summary.packageRemaining,
-              additionalWaiting: summary.finalizedWaiting,
+              additionalWaiting: summary.payableWaiting,
               totalRemaining: summary.totalRemaining,
             ),
           ],

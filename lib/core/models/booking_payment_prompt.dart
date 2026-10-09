@@ -1,4 +1,5 @@
 import '../supabase/touristrike_models.dart';
+import 'booking_waiting_balance.dart';
 
 class BookingPaymentPrompt {
   const BookingPaymentPrompt({
@@ -15,6 +16,7 @@ class BookingPaymentPrompt {
     this.requiredAmount,
     this.downpaymentSatisfied = false,
     this.rosterCount,
+    this.waitingBalance,
   });
   final PackageBooking booking;
   final bool confirmed;
@@ -29,6 +31,7 @@ class BookingPaymentPrompt {
   final double? requiredAmount;
   final bool downpaymentSatisfied;
   final int? rosterCount;
+  final BookingWaitingBalance? waitingBalance;
   bool get isRemaining => stage == 'remaining_balance';
   double get amount =>
       requiredAmount ??
@@ -44,6 +47,7 @@ class BookingPaymentPrompt {
     required Map<String, dynamic>? requirement,
     bool downpaymentSatisfied = false,
     int? rosterCount,
+    BookingWaitingBalance? waitingBalance,
   }) {
     final requirementStatus = dbString(requirement?['status']);
     final downpayments = records.where(
@@ -60,6 +64,7 @@ class BookingPaymentPrompt {
           : dbDouble(requirement['amount']),
       downpaymentSatisfied: downpaymentSatisfied,
       rosterCount: rosterCount,
+      waitingBalance: waitingBalance,
       downpaymentPaid: records
           .where((p) => p.isConfirmed && p.paymentStage == 'down_payment')
           .fold(0.0, (sum, p) => sum + p.amount),
@@ -71,16 +76,15 @@ class BookingPaymentPrompt {
           .length,
       confirmed:
           requirementStatus == 'satisfied' ||
-          downpayments.any(
-            (p) =>
-                p.isConfirmed &&
-                p.amount >=
-                    (p.paymentStage == 'full'
-                        ? booking.totalAmount
-                        : stage == 'remaining_balance'
-                        ? booking.remainingBalance
-                        : booking.downpaymentAmount),
-          ),
+          (stage != 'remaining_balance' &&
+              downpayments.any(
+                (p) =>
+                    p.isConfirmed &&
+                    p.amount >=
+                        (p.paymentStage == 'full'
+                            ? booking.totalAmount
+                            : booking.downpaymentAmount),
+              )),
       awaitingReview: downpayments.any(
         (p) =>
             p.status == 'disputed' ||
@@ -98,6 +102,10 @@ class BookingPaymentPrompt {
       !confirmed &&
       (!awaitingReview || cashPending) &&
       amount > 0 &&
+      (!isRemaining ||
+          waitingBalance == null ||
+          (waitingBalance!.accruedWaiting < 0.005 &&
+              (waitingBalance!.finalizedTotal - amount).abs() < 0.005)) &&
       (amount -
                   (isRemaining
                       ? booking.remainingBalance

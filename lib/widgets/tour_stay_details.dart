@@ -105,10 +105,10 @@ class TourPaymentSummary extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        row('Package balance', packageBalance),
-        row('Additional waiting', additionalWaiting),
+        row('Remaining Package Balance', packageBalance),
+        row('Additional Waiting Fee', additionalWaiting),
         const Divider(),
-        row('Total remaining', totalRemaining, total: true),
+        row('Total Remaining Amount', totalRemaining, total: true),
       ],
     );
   }

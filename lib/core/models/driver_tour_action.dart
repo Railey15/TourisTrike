@@ -42,6 +42,14 @@ class DriverTourPaymentGate {
   final bool paymentSatisfied;
 
   bool get canDropOff => paymentSatisfied && totalRemaining == 0;
+  double get payableWaiting {
+    final currentDue = totalRemaining - packageRemaining;
+    return currentDue <= 0
+        ? 0
+        : currentDue < finalizedWaiting
+        ? currentDue
+        : finalizedWaiting;
+  }
 
   factory DriverTourPaymentGate.fromMap(Map<String, dynamic> data) {
     double amount(String key) {

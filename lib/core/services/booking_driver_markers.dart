@@ -2,6 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/convoy_state.dart';
 
+/// The source artwork is a left-facing 512 px tricycle. Explicit dimensions
+/// are required by AssetMapBitmap; ImageConfiguration.size does not size it.
+Future<BitmapDescriptor> loadTourTricycleMarker() => BitmapDescriptor.asset(
+  const ImageConfiguration(),
+  'assets/icons/tricycle_marker.png',
+  width: 44,
+  height: 44,
+);
+
+double tricycleMarkerRotation(double heading) =>
+    heading.isFinite ? (heading + 90) % 360 : 90;
+
 /// Every viewer renders the same assignment collection. Viewer identity only
 /// changes the label, never membership, coordinates, or vehicle artwork.
 Set<Marker> buildBookingDriverMarkers({
@@ -32,7 +44,7 @@ Set<Marker> buildBookingDriverMarkers({
       markerId: MarkerId('driver_${driver.driverId}'),
       position: point,
       icon: icon,
-      rotation: heading.isFinite ? heading % 360 : 0,
+      rotation: tricycleMarkerRotation(heading),
       anchor: const Offset(.5, .5),
       flat: true,
       zIndexInt: driver.driverId == selectedDriverId ? 4 : 3,

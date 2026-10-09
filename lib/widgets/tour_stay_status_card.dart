@@ -253,8 +253,10 @@ class _TourStayStatusCardState extends State<TourStayStatusCard> {
               if (hasFinancialSummary)
                 TourPaymentSummary(
                   packageBalance: _number(summary['package_remaining']),
-                  additionalWaiting: _number(summary['finalized_waiting']) +
-                      _number(summary['accrued_waiting']),
+                  additionalWaiting:
+                      (_number(summary['total_remaining']) -
+                              _number(summary['package_remaining']))
+                          .clamp(0, double.infinity),
                   totalRemaining: _number(summary['total_remaining']),
                 ),
             ],

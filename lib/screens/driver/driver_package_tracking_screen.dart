@@ -16,6 +16,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:touristrike/widgets/report_booking_user_sheet.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -492,10 +493,7 @@ class _DriverPackageTrackingScreenState
 
   Future<void> _initCustomMarkers() async {
     try {
-      _tricycleMarker = await BitmapDescriptor.asset(
-        const ImageConfiguration(size: Size(35, 35)),
-        'assets/icons/tricycle_marker.png',
-      );
+      _tricycleMarker = await loadTourTricycleMarker();
 
       if (!mounted) return;
 
@@ -2510,12 +2508,27 @@ class _DriverPackageTrackingScreenState
   Future<void> _showCashModal(_PendingCashShare item) async {
     if (_cashModalOpen) return;
     _cashModalOpen = true;
+    final currentGate = _dropoffPaymentGate;
+    final currentMatchesRecord =
+        currentGate != null &&
+        (currentGate.totalRemaining - item.record.amount).abs() < 0.005;
+    final packageComponent =
+        item.record.remainingPackageComponent ??
+        (currentMatchesRecord ? currentGate.packageRemaining : null);
+    final waitingComponent =
+        item.record.additionalWaitingComponent ??
+        (currentMatchesRecord ? currentGate.payableWaiting : null);
     try {
       await showDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (_) => CashConfirmationDialog(
           amount: item.allocation.driverAmount,
+          packageBalance: packageComponent,
+          additionalWaiting: waitingComponent,
+          totalRemaining: packageComponent != null && waitingComponent != null
+              ? item.record.amount
+              : null,
           onConfirm: () => _confirmCashShare(item),
         ),
       );
@@ -3496,6 +3509,19 @@ class _DriverPackageTrackingScreenState
                   onMessage: _openTouristChat,
                   onCall: _callTourist,
                 ),
+                if (activity.touristId.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => showReportBookingUserSheet(
+                      context,
+                      bookingId: _bookingId,
+                      reportedUserId: activity.touristId,
+                      reportedName: 'Tourist',
+                    ),
+                    icon: const Icon(Icons.report_outlined),
+                    label: const Text('Report booking tourist'),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _ModernLocationsCard(
                   booking: _booking,

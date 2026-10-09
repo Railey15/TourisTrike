@@ -812,6 +812,28 @@ class _TransactionCard extends StatelessWidget {
                   value:
                       '${item.amountPrefix} PHP ${item.amount.toStringAsFixed(2)}',
                 ),
+                if (!item.isRefund &&
+                    payment.paymentStage == 'remaining_balance' &&
+                    payment.remainingPackageComponent != null &&
+                    payment.additionalWaitingComponent != null) ...[
+                  _DetailRow(
+                    icon: Icons.receipt_outlined,
+                    label: 'Remaining Package Balance',
+                    value:
+                        'PHP ${payment.remainingPackageComponent!.toStringAsFixed(2)}',
+                  ),
+                  _DetailRow(
+                    icon: Icons.timer_outlined,
+                    label: 'Additional Waiting Fee',
+                    value:
+                        'PHP ${payment.additionalWaitingComponent!.toStringAsFixed(2)}',
+                  ),
+                  _DetailRow(
+                    icon: Icons.summarize_outlined,
+                    label: 'Total Remaining Amount',
+                    value: 'PHP ${payment.amount.toStringAsFixed(2)}',
+                  ),
+                ],
                 _DetailRow(
                   icon: Icons.confirmation_number_outlined,
                   label: 'Booking',

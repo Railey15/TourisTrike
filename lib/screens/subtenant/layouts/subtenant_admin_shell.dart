@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/responsive/responsive.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_bookings_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_complaints_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_dashboard_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_drivers_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_packages_screen.dart';
@@ -48,6 +49,7 @@ class SubTenantPortalScreen extends StatefulWidget {
       5 => const SubTenantReportsScreen(),
       6 => const SubTenantProfileScreen(),
       7 => const SubTenantPaymentDisputesScreen(),
+      8 => const SubTenantComplaintsScreen(),
       _ => const SubTenantDashboardScreen(),
     };
   }
@@ -57,7 +59,7 @@ class SubTenantPortalScreen extends StatefulWidget {
 }
 
 class _SubTenantPortalScreenState extends State<SubTenantPortalScreen> {
-  static const int _tabCount = 8;
+  static const int _tabCount = 9;
 
   late int _currentIndex;
   late final List<Widget?> _pages;
@@ -191,6 +193,11 @@ class _SubTenantTabChrome {
         title: 'Disputes & Cases',
         subtitle:
             'Review and resolve reported issues involving bookings, payments, drivers, tourists, tours, and service incidents.',
+      ),
+      8 => const _SubTenantTabChrome(
+        index: 8,
+        title: 'Complaints Management',
+        subtitle: 'Investigate booking reports and document manual decisions.',
       ),
       _ => const _SubTenantTabChrome(
         index: 0,
