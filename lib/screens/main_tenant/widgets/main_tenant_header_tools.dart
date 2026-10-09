@@ -115,10 +115,7 @@ class MainTenantGlobalSearchButton extends StatelessWidget {
           ),
           child: const Row(
             children: [
-              Icon(
-                Icons.search_rounded,
-                color: MainTenantColors.lightMuted,
-              ),
+              Icon(Icons.search_rounded, color: MainTenantColors.lightMuted),
               SizedBox(width: 9),
               Expanded(
                 child: Text(
@@ -166,10 +163,13 @@ class _AdminSearchDialogState extends State<_AdminSearchDialog> {
       setState(() => _future = null);
       return;
     }
-    _debounce = Timer(
-      const Duration(milliseconds: 300),
-      () => setState(() => _future = _service.searchProvince(query)),
-    );
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      final next = _service.searchProvince(query);
+      setState(() {
+        _future = next;
+      });
+    });
   }
 
   @override
@@ -247,7 +247,8 @@ class _AdminSearchDialogState extends State<_AdminSearchDialog> {
         if (results.isEmpty) {
           return const Center(child: Text('No matching province records.'));
         }
-        final groups = <MainTenantSearchResultType, List<MainTenantSearchResult>>{};
+        final groups =
+            <MainTenantSearchResultType, List<MainTenantSearchResult>>{};
         for (final result in results) {
           groups.putIfAbsent(result.type, () => []).add(result);
         }
@@ -414,7 +415,11 @@ class _MainTenantNotificationsDialogState
   }
 
   void _reload() {
-    setState(() => _future = widget.service.fetchMainTenantNotifications());
+    final next = widget.service.fetchMainTenantNotifications();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   Future<void> _markAll() async {
@@ -425,16 +430,17 @@ class _MainTenantNotificationsDialogState
           .markAllMainTenantNotificationsRead();
       if (!mounted) return;
       widget.onNotificationsRead(updatedIds);
+      final next = _future.then(
+        (items) => items
+            .map(
+              (item) => updatedIds.contains('${item.id}')
+                  ? item.copyWith(isRead: true)
+                  : item,
+            )
+            .toList(growable: false),
+      );
       setState(() {
-        _future = _future.then(
-          (items) => items
-              .map(
-                (item) => updatedIds.contains('${item.id}')
-                    ? item.copyWith(isRead: true)
-                    : item,
-              )
-              .toList(growable: false),
-        );
+        _future = next;
       });
     } catch (_) {
       if (mounted) {
@@ -451,7 +457,8 @@ class _MainTenantNotificationsDialogState
 
   Future<void> _openNotification(MainTenantNotification item) async {
     try {
-      if (!item.isRead) await widget.service.markMainTenantNotificationRead(item.id);
+      if (!item.isRead)
+        await widget.service.markMainTenantNotificationRead(item.id);
       final destination = _destination(item.type);
       if (!mounted) return;
       Navigator.pop(context);

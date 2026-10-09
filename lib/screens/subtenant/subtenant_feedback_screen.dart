@@ -29,7 +29,11 @@ class _SubTenantFeedbackScreenState extends State<SubTenantFeedbackScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   @override

@@ -252,7 +252,11 @@ class _SubTenantPackageFormScreenState
   }
 
   void _reloadData() {
-    setState(() => _dataFuture = _loadData());
+    final next = _loadData();
+    if (!mounted) return;
+    setState(() {
+      _dataFuture = next;
+    });
   }
 
   void _addSpot(SubTenantSpot spot) {

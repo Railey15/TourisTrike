@@ -139,13 +139,27 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
           schema: 'public',
           table: 'conversations',
           callback: (_) {
-            if (!mounted) return;
-            setState(() {
-              _convFuture = _loadConversations();
-            });
+            _reloadConversations();
           },
         )
         .subscribe();
+  }
+
+  void _reloadConversations() {
+    if (!mounted) return;
+    final next = _loadConversations();
+    setState(() {
+      _convFuture = next;
+    });
+  }
+
+  Future<void> _refreshConversations() async {
+    if (!mounted) return;
+    final next = _loadConversations();
+    setState(() {
+      _convFuture = next;
+    });
+    await next;
   }
 
   void _openChat(_DriverConversationItem conversation) {
@@ -218,9 +232,7 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
                       if (snapshot.hasError) {
                         return _DriverMessagesErrorState(
                           message: snapshot.error.toString(),
-                          onRetry: () => setState(() {
-                            _convFuture = _loadConversations();
-                          }),
+                          onRetry: _reloadConversations,
                         );
                       }
 
@@ -231,12 +243,7 @@ class _DriverMessagesScreenState extends State<DriverMessagesScreen> {
 
                       return RefreshIndicator(
                         color: const Color(0xFF2F6FFF),
-                        onRefresh: () async {
-                          if (!mounted) return;
-                          setState(() {
-                            _convFuture = _loadConversations();
-                          });
-                        },
+                        onRefresh: _refreshConversations,
                         child: ListView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -374,8 +381,9 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
 
   void _refreshMessages() {
     if (!mounted) return;
+    final next = _loadMessages();
     setState(() {
-      _msgFuture = _loadMessages();
+      _msgFuture = next;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
@@ -405,9 +413,12 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
       clientMessageId: clientMessageId,
     );
 
+    final optimisticMessages = _msgFuture.then(
+      (messages) => [...messages, optimistic],
+    );
     setState(() {
       _sending = true;
-      _msgFuture = _msgFuture.then((messages) => [...messages, optimistic]);
+      _msgFuture = optimisticMessages;
     });
 
     try {
@@ -422,7 +433,10 @@ class _DriverChatScreenState extends State<DriverChatScreen> {
       _refreshMessages();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _msgFuture = _loadMessages());
+      final next = _loadMessages();
+      setState(() {
+        _msgFuture = next;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not send your message right now. $error'),

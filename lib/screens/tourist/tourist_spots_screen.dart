@@ -36,7 +36,11 @@ class _TouristSpotsScreenState extends State<TouristSpotsScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _fetchTouristSpots());
+    final next = _fetchTouristSpots();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   Future<List<_PublicTouristSpot>> _fetchTouristSpots() async {

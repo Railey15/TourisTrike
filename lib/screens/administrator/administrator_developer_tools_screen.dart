@@ -131,9 +131,13 @@ class _AdministratorDeveloperToolsScreenState
 
     if (resetPage) _query = _query.copyWith(offset: 0);
 
+    final next = _load();
+
+    if (!mounted) return;
+
     setState(() {
 
-      _future = _load();
+      _future = next;
 
     });
 

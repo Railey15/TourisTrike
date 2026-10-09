@@ -212,6 +212,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _liveTrackingEligibility.scheduledStartAt ?? _booking?.scheduledStartAt,
     now: _liveTrackingEligibility.authoritativeNow(),
     serverAuthorized: _liveTrackingEligibility.canAccess,
+    scheduleBypassAuthorized: _liveTrackingEligibility.testModeScheduleBypass,
   );
 
   bool get _isLiveTrackingScheduleLocked =>
@@ -2524,19 +2525,15 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     downPaymentRecord.id?.toString(),
               )
               .toList(growable: false);
-    final downPaymentPayoutLabel =
+    final downPaymentSettlementLabel =
         downPaymentAllocations.isNotEmpty &&
-            downPaymentAllocations.every((allocation) => allocation.isPaidOut)
-        ? 'Driver Payout Paid'
-        : downPaymentAllocations.any(
-            (allocation) => allocation.status == 'processing',
-          )
-        ? 'Driver Payout Processing'
-        : downPaymentAllocations.any(
-            (allocation) => allocation.isPayoutEligible,
-          )
-        ? 'Driver Payout Eligible'
-        : 'Driver Payout Pending';
+            downPaymentAllocations.every(
+              (allocation) => allocation.isCompletedEarning,
+            )
+        ? 'Tour Payment Settled'
+        : completed
+        ? 'Payment Review In Progress'
+        : 'Payment Confirmed';
     final downPaymentConfirmed =
         _paymentPrompt.value?.confirmed == true ||
         (booking?.downpaymentAmount ?? 0) <= 0;
@@ -2610,7 +2607,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                             ),
                           ),
                           Text(
-                            downPaymentPayoutLabel,
+                            downPaymentSettlementLabel,
                             style: const TextStyle(
                               color: _muted,
                               fontWeight: FontWeight.w600,
@@ -4903,22 +4900,24 @@ class _PaymentStageCard extends StatelessWidget {
     final confirmedCashCount = allocations
         .where((allocation) => allocation.isCashConfirmed)
         .length;
-    final showDriverPayout =
+    final showPaymentSettlement =
         payment?.isPayMongo == true && status == 'confirmed';
-    final driverPayoutLabel =
+    final paymentSettlementLabel =
         allocations.isNotEmpty &&
-            allocations.every((allocation) => allocation.isPaidOut)
-        ? 'Driver Payout Paid'
-        : allocations.any((allocation) => allocation.status == 'processing')
-        ? 'Driver Payout Processing'
-        : allocations.any((allocation) => allocation.isPayoutEligible)
-        ? 'Driver Payout Eligible'
-        : 'Driver Payout Pending';
-    final driverPayoutColor = driverPayoutLabel == 'Driver Payout Paid'
-        ? _success
-        : driverPayoutLabel == 'Driver Payout Eligible'
-        ? _primary
-        : _warning;
+            allocations.every((allocation) => allocation.isCompletedEarning)
+        ? 'Tour Payment Settled'
+        : allocations.any(
+            (allocation) => const {
+              'disputed',
+              'refund_pending',
+              'refunded',
+              'failed',
+            }.contains(allocation.earningStatus),
+          )
+        ? 'Payment Review In Progress'
+        : 'Payment Confirmed';
+    final paymentSettlementColor =
+        paymentSettlementLabel == 'Tour Payment Settled' ? _success : _warning;
 
     Color statusColor = _muted;
     Color statusBackground = const Color(0xFFF1F5F9);
@@ -5024,22 +5023,22 @@ class _PaymentStageCard extends StatelessWidget {
             const SizedBox(height: 12),
           ],
 
-          if (showDriverPayout) ...[
+          if (showPaymentSettlement) ...[
             Row(
               children: [
                 Icon(
-                  driverPayoutLabel == 'Driver Payout Paid'
+                  paymentSettlementLabel == 'Tour Payment Settled'
                       ? Icons.check_circle_outline_rounded
                       : Icons.schedule_rounded,
-                  color: driverPayoutColor,
+                  color: paymentSettlementColor,
                   size: 16,
                 ),
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(
-                    driverPayoutLabel,
+                    paymentSettlementLabel,
                     style: TextStyle(
-                      color: driverPayoutColor,
+                      color: paymentSettlementColor,
                       fontWeight: FontWeight.w800,
                       fontSize: 10.5,
                     ),

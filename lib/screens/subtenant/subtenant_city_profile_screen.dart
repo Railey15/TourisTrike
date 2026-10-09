@@ -175,10 +175,12 @@ class _SubTenantCityProfileScreenState
   }
 
   void _reload() {
+    final next = _load();
+    if (!mounted) return;
     setState(() {
       _dirty = false;
       _coverSuggestionsFuture = null;
-      _future = _load();
+      _future = next;
     });
   }
 

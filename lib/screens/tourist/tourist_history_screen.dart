@@ -44,7 +44,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _repo.fetchTouristPackageBookings());
+    final next = _repo.fetchTouristPackageBookings();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   List<PackageBooking> _filtered(List<PackageBooking> bookings) {

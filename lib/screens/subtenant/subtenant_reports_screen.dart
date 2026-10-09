@@ -238,15 +238,19 @@ class _SubTenantReportsScreenState extends State<SubTenantReportsScreen>
   }
 
   void _reload() {
+    final next = _load();
+    if (!mounted) return;
     setState(() {
-      _future = _load();
+      _future = next;
     });
   }
 
   void _setRange(SubTenantReportRange range) {
+    _range = range;
+    final next = _load();
+    if (!mounted) return;
     setState(() {
-      _range = range;
-      _future = _load();
+      _future = next;
     });
   }
 

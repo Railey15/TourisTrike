@@ -168,24 +168,27 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
           schema: 'public',
           table: 'conversations',
           callback: (_) {
-            if (!mounted) return;
-
-            setState(() {
-              _convFuture = _loadConversations();
-            });
+            _reloadConversations();
           },
         )
         .subscribe();
   }
 
+  void _reloadConversations() {
+    if (!mounted) return;
+    final next = _loadConversations();
+    setState(() {
+      _convFuture = next;
+    });
+  }
+
   Future<void> _refresh() async {
     if (!mounted) return;
-
+    final next = _loadConversations();
     setState(() {
-      _convFuture = _loadConversations();
+      _convFuture = next;
     });
-
-    await _convFuture;
+    await next;
   }
 
   void _openChat(_ConversationItem conversation) {
@@ -234,11 +237,7 @@ class _TouristMessagesScreenState extends State<TouristMessagesScreen> {
                         if (snapshot.hasError) {
                           return _ErrorState(
                             message: snapshot.error.toString(),
-                            onRetry: () {
-                              setState(() {
-                                _convFuture = _loadConversations();
-                              });
-                            },
+                            onRetry: _reloadConversations,
                           );
                         }
 
@@ -1123,9 +1122,9 @@ class _TouristChatScreenState extends State<TouristChatScreen> {
 
   void _refreshMessages() {
     if (!mounted) return;
-
+    final next = _loadMessages();
     setState(() {
-      _messagesFuture = _loadMessages();
+      _messagesFuture = next;
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1171,11 +1170,12 @@ class _TouristChatScreenState extends State<TouristChatScreen> {
       clientMessageId: clientMessageId,
     );
 
+    final optimisticMessages = _messagesFuture.then(
+      (messages) => [...messages, optimistic],
+    );
     setState(() {
       _sending = true;
-      _messagesFuture = _messagesFuture.then(
-        (messages) => [...messages, optimistic],
-      );
+      _messagesFuture = optimisticMessages;
     });
 
     try {
@@ -1191,8 +1191,10 @@ class _TouristChatScreenState extends State<TouristChatScreen> {
       _refreshMessages();
     } catch (error) {
       if (!mounted) return;
-
-      setState(() => _messagesFuture = _loadMessages());
+      final next = _loadMessages();
+      setState(() {
+        _messagesFuture = next;
+      });
 
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()

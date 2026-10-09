@@ -30,7 +30,11 @@ class _SubTenantAnnouncementsScreenState
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   Future<void> _openForm(

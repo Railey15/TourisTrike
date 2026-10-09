@@ -15,10 +15,17 @@ class _MunicipalRestrictionNoticeState
   @override
   void initState() {
     super.initState();
-    _refresh();
+    _future = _load();
   }
 
-  void _refresh() => setState(() => _future = _load());
+  void _refresh() {
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
+  }
+
   Future<List<Map<String, dynamic>>> _load() async {
     final value = await Supabase.instance.client.rpc(
       'get_my_municipal_restrictions',

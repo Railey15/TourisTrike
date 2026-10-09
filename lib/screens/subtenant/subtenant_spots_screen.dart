@@ -88,10 +88,9 @@ class _SubTenantSpotsScreenState extends State<SubTenantSpotsScreen> {
   }
 
   Future<void> _reload() async {
-    late Future<_SpotListLoad> newFuture;
-
+    final newFuture = _load();
+    if (!mounted) return;
     setState(() {
-      newFuture = _load();
       _future = newFuture;
       _suggestionsFuture = null;
       _suggestionCity = null;

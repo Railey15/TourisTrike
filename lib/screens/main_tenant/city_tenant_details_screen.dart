@@ -34,7 +34,11 @@ class _CityTenantDetailsScreenState extends State<CityTenantDetailsScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _service.fetchTenantDetails(widget.tenantId));
+    final next = _service.fetchTenantDetails(widget.tenantId);
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   Future<void> _setStatus(CityTenantDetailsData data, String status) async {
@@ -765,9 +769,7 @@ class _ActionSection extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: MainTenantColors.green,
                       side: BorderSide(
-                        color: MainTenantColors.green.withValues(
-                          alpha: 0.55,
-                        ),
+                        color: MainTenantColors.green.withValues(alpha: 0.55),
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       shape: RoundedRectangleBorder(

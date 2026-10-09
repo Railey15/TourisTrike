@@ -1078,6 +1078,25 @@ class TourisTrikeRepository {
     return rows.map(PaymentRecord.new).toList(growable: false);
   }
 
+  Future<List<PaymentRecord>> fetchDriverDirectEarningRecords({
+    int limit = 200,
+  }) async {
+    final rows = await _client
+        .from(TourisTrikeTables.paymentRecords)
+        .select('*, package_bookings(id, tour_packages(title))')
+        .eq('payee_id', requireUserId())
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return _rows(rows).map(PaymentRecord.new).toList(growable: false);
+  }
+
+  Future<Map<String, Profile>> fetchParticipantProfilesById(
+    Iterable<String> profileIds,
+  ) async {
+    final rows = await ParticipantProfiles.fetchMany(_client, profileIds);
+    return {for (final row in rows) dbString(row['id']): Profile(row)};
+  }
+
   /// Returns the tourist's outgoing payments and their linked refunds as one
   /// chronological ledger. Refunds remain separate `refund_requests` rows and
   /// retain their authoritative `payment_record_id` relationship.
@@ -1333,19 +1352,11 @@ class TourisTrikeRepository {
   Future<List<PaymentAllocation>> fetchConfirmedDriverPaymentAllocations({
     int limit = 500,
   }) async {
-    final rows = await _client
-        .from('payment_allocations')
-        .select(
-          '*, payment_records!inner('
-          'status, provider, payment_method, payment_stage, paid_at'
-          ')',
-        )
-        .eq('driver_id', requireUserId())
-        .eq('payment_records.status', 'confirmed')
-        .neq('status', 'cancelled')
-        .neq('status', 'manual_review')
-        .order('created_at', ascending: false)
-        .limit(limit);
+    requireUserId();
+    final rows = await _client.rpc(
+      'get_my_completed_driver_earnings',
+      params: {'p_limit': limit},
+    );
     return _rows(rows).map(PaymentAllocation.new).toList(growable: false);
   }
 

@@ -20,10 +20,16 @@ class _SubTenantComplaintsScreenState extends State<SubTenantComplaintsScreen> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    _future = _load();
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() {
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
+  }
 
   Future<_ComplaintLoad> _load() async {
     final results = await Future.wait<dynamic>([
@@ -375,14 +381,16 @@ class _SubTenantComplaintsScreenState extends State<SubTenantComplaintsScreen> {
               title: const Text('Municipal booking history'),
               subtitle: Text('${bookingHistory.length} recent booking(s)'),
               children: bookingHistory
-                  .map((booking) => ListTile(
-                        title: Text(
-                          'Booking #${booking['booking_id'].toString().substring(0, 8).toUpperCase()}',
-                        ),
-                        subtitle: Text(
-                          '${booking['travel_date']} · ${booking['booking_status']}',
-                        ),
-                      ))
+                  .map(
+                    (booking) => ListTile(
+                      title: Text(
+                        'Booking #${booking['booking_id'].toString().substring(0, 8).toUpperCase()}',
+                      ),
+                      subtitle: Text(
+                        '${booking['travel_date']} · ${booking['booking_status']}',
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
             if (item['investigation_notes'] != null)
@@ -449,7 +457,9 @@ class _SubTenantComplaintsScreenState extends State<SubTenantComplaintsScreen> {
                     onPressed: _busy || warningIssued
                         ? null
                         : () => _caseAction(item, 'warn'),
-                    child: Text(warningIssued ? 'Warning issued' : 'Issue warning'),
+                    child: Text(
+                      warningIssued ? 'Warning issued' : 'Issue warning',
+                    ),
                   ),
                   OutlinedButton(
                     onPressed: _busy

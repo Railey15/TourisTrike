@@ -87,11 +87,13 @@ class _CityTenantsScreenState extends State<CityTenantsScreen> {
   }
 
   Future<void> _reload() async {
+    final next = _loadData();
+    if (!mounted) return;
     setState(() {
-      _future = _loadData();
+      _future = next;
     });
 
-    await _future;
+    await next;
   }
 
   void _clearSearch() {

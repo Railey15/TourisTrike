@@ -82,11 +82,13 @@ class _ProvincialSpotsScreenState extends State<ProvincialSpotsScreen> {
   }
 
   Future<void> _reload() async {
+    final next = _service.fetchProvinceSpots();
+    if (!mounted) return;
     setState(() {
-      _future = _service.fetchProvinceSpots();
+      _future = next;
     });
 
-    await _future;
+    await next;
   }
 
   // ───────────────────────────────────────────────────────────────────────────

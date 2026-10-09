@@ -5,16 +5,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/core/reports/personal_report_service.dart';
-import 'package:touristrike/screens/shared/acknowledgement_receipt_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
 import 'package:touristrike/widgets/driver_page_header.dart';
 
 // TourisTrike does NOT custody funds — GCash-to-GCash direct.
 // Outside AMLA covered-person scope (RA 9160).
 //
-// This screen is a read-only transaction and payout-status record. A tourist
-// payment is not represented as money received by the driver until the linked
-// payout allocation reaches `paid`.
+// This screen is a read-only earnings record. Backend `earning_status` is kept
+// separate from the provider payout transport state for audit accuracy.
 class DriverEarningsScreen extends StatefulWidget {
   const DriverEarningsScreen({super.key});
 
@@ -30,6 +28,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   List<PaymentRecord> _records = const [];
   List<PaymentAllocation> _allocations = const [];
   List<PackageActivity> _activities = const [];
+  Map<String, Profile> _payerProfiles = const {};
   RealtimeChannel? _earningsChannel;
   bool _exporting = false;
 
@@ -38,12 +37,17 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
     setState(() => _exporting = true);
     try {
       await PersonalReportService().shareDriverReport();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text('Earnings PDF is ready to share.')),
+          );
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to export your activity report.'),
-          ),
+          const SnackBar(content: Text('Unable to export your earnings PDF.')),
         );
       }
     } finally {
@@ -100,17 +104,23 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
     try {
       final results = await Future.wait([
-        _repo.fetchPaymentRecords(role: 'payee', limit: 200),
+        _repo.fetchDriverDirectEarningRecords(limit: 200),
         _repo.fetchConfirmedDriverPaymentAllocations(limit: 200),
         _repo.fetchDriverActivities(),
       ]);
 
+      final records = results[0] as List<PaymentRecord>;
+      final payerProfiles = await _repo.fetchParticipantProfilesById(
+        records.map((record) => record.payerId),
+      );
+
       if (!mounted) return;
 
       setState(() {
-        _records = results[0] as List<PaymentRecord>;
+        _records = records;
         _allocations = results[1] as List<PaymentAllocation>;
         _activities = results[2] as List<PackageActivity>;
+        _payerProfiles = payerProfiles;
         _loading = false;
       });
     } catch (error, stackTrace) {
@@ -162,7 +172,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
         .where((record) => record.isConfirmed)
         .fold<double>(0, (sum, record) => sum + record.amount);
     final packageShares = _allocations
-        .where((allocation) => allocation.isPaidOut)
+        .where((allocation) => allocation.isCompletedEarning)
         .fold<double>(0, (sum, allocation) => sum + allocation.driverAmount);
     return directPayments + packageShares;
   }
@@ -185,7 +195,9 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
   int get _confirmedCount {
     return _records.where((record) => record.isConfirmed).length +
-        _allocations.where((allocation) => allocation.isPaidOut).length;
+        _allocations
+            .where((allocation) => allocation.isCompletedEarning)
+            .length;
   }
 
   int get _pendingCount {
@@ -196,12 +208,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
               status != 'disputed' &&
               status != 'cancelled';
         }).length +
-        _allocations
-            .where(
-              (allocation) =>
-                  allocation.isPayoutPending || allocation.isPayoutEligible,
-            )
-            .length;
+        _allocations.where((allocation) => allocation.isEarningPending).length;
   }
 
   double get _todayEarnings {
@@ -222,8 +229,9 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
         .fold<double>(0, (sum, record) => sum + record.amount);
     final packageShares = _allocations
         .where((allocation) {
-          final date = allocation.confirmedAt?.toLocal();
-          return allocation.isPaidOut &&
+          final date = (allocation.earningCompletedAt ?? allocation.confirmedAt)
+              ?.toLocal();
+          return allocation.isCompletedEarning &&
               date != null &&
               date.year == now.year &&
               date.month == now.month &&
@@ -270,7 +278,13 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('Export my activity and earnings PDF'),
+                    label: const Text('Export Earnings PDF'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
                   ),
                 ),
 
@@ -330,7 +344,10 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                         ..._records.map(
                           (record) => Padding(
                             padding: const EdgeInsets.only(bottom: 12),
-                            child: _EarningTile(record: record),
+                            child: _EarningTile(
+                              record: record,
+                              touristName: _touristNameFor(record.payerId),
+                            ),
                           ),
                         ),
                       ],
@@ -374,6 +391,16 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       ],
     );
   }
+
+  String _touristNameFor(String profileId) {
+    final profile = _payerProfiles[profileId];
+    if (profile == null) return 'Tourist';
+    final first = profile.firstName.trim().isNotEmpty
+        ? profile.firstName.trim()
+        : profile.displayName.split(' ').first;
+    final last = profile.lastName.trim();
+    return last.isEmpty ? first : '$first ${last[0].toUpperCase()}.';
+  }
 }
 
 // =============================================================================
@@ -400,8 +427,8 @@ class _EarningsRecordNotice extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Tourist payment and Driver payout are tracked separately. A '
-              'pending payout is not money already received.',
+              'Completed earnings are finalized only after the tour and all '
+              'required tourist payments are successfully completed.',
               style: TextStyle(
                 color: Color(0xFF57739A),
                 fontWeight: FontWeight.w600,
@@ -704,6 +731,165 @@ class _TransactionSectionHeader extends StatelessWidget {
 // TRANSACTION TILE
 // =============================================================================
 
+class _PaymentDetailData {
+  const _PaymentDetailData({
+    required this.packageName,
+    required this.touristName,
+    required this.paymentType,
+    required this.amount,
+    required this.paymentMethod,
+    required this.bookingReference,
+    required this.transactionReference,
+    required this.paidAt,
+    required this.status,
+  });
+
+  final String packageName;
+  final String touristName;
+  final String paymentType;
+  final double amount;
+  final String paymentMethod;
+  final String bookingReference;
+  final String transactionReference;
+  final DateTime? paidAt;
+  final String status;
+}
+
+Future<void> _showPaymentDetails(
+  BuildContext context,
+  _PaymentDetailData details,
+) {
+  final money = NumberFormat.currency(symbol: '+ ₱', decimalDigits: 2);
+  final paidLabel = details.paidAt == null
+      ? 'Not available'
+      : DateFormat('MMM d, yyyy • h:mm a').format(details.paidAt!.toLocal());
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.only(top: 48),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD7DEE8),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Payment Details',
+                style: TextStyle(
+                  color: Color(0xFF111827),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _PaymentDetailRow(label: 'Package', value: details.packageName),
+              _PaymentDetailRow(label: 'Tourist', value: details.touristName),
+              _PaymentDetailRow(
+                label: 'Payment Type',
+                value: details.paymentType,
+              ),
+              _PaymentDetailRow(
+                label: 'Amount',
+                value: money.format(details.amount),
+                valueColor: const Color(0xFF15803D),
+              ),
+              _PaymentDetailRow(
+                label: 'Payment Method',
+                value: details.paymentMethod,
+              ),
+              _PaymentDetailRow(
+                label: 'Booking Reference',
+                value: details.bookingReference,
+              ),
+              _PaymentDetailRow(
+                label: 'Transaction Reference',
+                value: details.transactionReference,
+              ),
+              _PaymentDetailRow(label: 'Paid', value: paidLabel),
+              _PaymentDetailRow(
+                label: 'Status',
+                value: details.status,
+                valueColor: details.status == 'Successful'
+                    ? const Color(0xFF15803D)
+                    : const Color(0xFFB45309),
+                isLast: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _PaymentDetailRow extends StatelessWidget {
+  const _PaymentDetailRow({
+    required this.label,
+    required this.value,
+    this.valueColor,
+    this.isLast = false,
+  });
+
+  final String label;
+  final String value;
+  final Color? valueColor;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : const Border(bottom: BorderSide(color: Color(0xFFE9EEF5))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF8A98AB),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 3),
+          SelectableText(
+            value,
+            style: TextStyle(
+              color: valueColor ?? const Color(0xFF111827),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AllocationEarningTile extends StatelessWidget {
   const _AllocationEarningTile({required this.allocation});
 
@@ -711,7 +897,8 @@ class _AllocationEarningTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final paidAt = allocation.confirmedAt?.toLocal();
+    final paidAt = (allocation.earningCompletedAt ?? allocation.confirmedAt)
+        ?.toLocal();
     final dateLabel = paidAt == null
         ? '-'
         : DateFormat('MMM d, yyyy • h:mm a').format(paidAt);
@@ -720,122 +907,158 @@ class _AllocationEarningTile extends StatelessWidget {
       statusLabel,
       statusColor,
       statusBackground,
-    ) = switch (allocation.status) {
-      'paid' => ('PAID', const Color(0xFF15803D), const Color(0xFFECFDF3)),
-      'eligible' => (
-        'PAYOUT ELIGIBLE',
-        const Color(0xFF1D4ED8),
-        const Color(0xFFEFF6FF),
+    ) = switch (allocation.earningStatus) {
+      'completed' => (
+        'SUCCESSFUL',
+        const Color(0xFF15803D),
+        const Color(0xFFECFDF3),
       ),
-      'processing' => (
-        'PROCESSING',
+      'disputed' || 'failed' || 'refunded' => (
+        allocation.earningStatusLabel.toUpperCase(),
+        const Color(0xFFDC2626),
+        const Color(0xFFFEF2F2),
+      ),
+      'refund_pending' || 'manual_review' => (
+        allocation.earningStatusLabel.toUpperCase(),
         const Color(0xFF7C3AED),
         const Color(0xFFF5F3FF),
       ),
-      _ => ('PENDING PAYOUT', const Color(0xFFB45309), const Color(0xFFFFF7E8)),
+      _ => ('PENDING', const Color(0xFFB45309), const Color(0xFFFFF7E8)),
     };
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE5ECF5)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+        onTap: () => _showPaymentDetails(
+          context,
+          _PaymentDetailData(
+            packageName: allocation.packageName,
+            touristName: allocation.touristDisplayName,
+            paymentType: stage,
+            amount: allocation.driverAmount,
+            paymentMethod: allocation.paymentMethodLabel,
+            bookingReference: allocation.bookingReference,
+            transactionReference: allocation.transactionReference,
+            paidAt: paidAt,
+            status: allocation.earningStatusLabel,
           ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF3FF),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.payments_outlined,
-              color: Color(0xFF2F7EFF),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Package $stage',
-                  style: const TextStyle(
-                    color: Color(0xFF111827),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13.5,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '$dateLabel • PayMongo GCash',
-                  style: const TextStyle(
-                    color: Color(0xFF8A98AB),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 10.5,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Booking ${_shortId(allocation.bookingId)}',
-                  style: const TextStyle(
-                    color: Color(0xFF8A98AB),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 9.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '₱${allocation.driverAmount.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  color: Color(0xFF111827),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14.5,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  color: statusBackground,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 8.8,
-                  ),
-                ),
+        ),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFE5ECF5)),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
-        ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF3FF),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.payments_outlined,
+                  color: Color(0xFF2F7EFF),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${allocation.packageName} - $stage',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      allocation.touristDisplayName,
+                      style: const TextStyle(
+                        color: Color(0xFF8A98AB),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '$dateLabel • ${allocation.paymentMethodLabel}',
+                      style: const TextStyle(
+                        color: Color(0xFF8A98AB),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 9.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${allocation.bookingReference} • ${allocation.transactionReference}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF8A98AB),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 9.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '+ ₱${allocation.driverAmount.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: Color(0xFF111827),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusBackground,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 8.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
-  }
-
-  static String _shortId(String value) {
-    return value.length <= 8 ? value : value.substring(0, 8);
   }
 
   static String _titleCase(String value) {
@@ -851,9 +1074,10 @@ class _AllocationEarningTile extends StatelessWidget {
 }
 
 class _EarningTile extends StatelessWidget {
-  const _EarningTile({required this.record});
+  const _EarningTile({required this.record, required this.touristName});
 
   final PaymentRecord record;
+  final String touristName;
 
   @override
   Widget build(BuildContext context) {
@@ -890,23 +1114,48 @@ class _EarningTile extends StatelessWidget {
         ? DateFormat('MMM d, yyyy • h:mm a').format(record.createdAt!.toLocal())
         : '-';
 
-    final title = record.serviceDescription.isEmpty
-        ? _titleCase(record.paymentStage.replaceAll('_', ' '))
-        : record.serviceDescription;
+    final paymentType = _titleCase(record.paymentStage.replaceAll('_', ' '));
+    final packageName = record.packageName.isEmpty
+        ? (record.serviceDescription.isEmpty
+              ? 'Tour Payment'
+              : record.serviceDescription)
+        : record.packageName;
+    final title = '$packageName - $paymentType';
+    final paymentMethod = [
+      if (record.provider == 'paymongo') 'PayMongo',
+      _titleCase(record.paymentMethod),
+    ].where((part) => part.isNotEmpty).join(' ');
+    final bookingId = record.bookingId?.toString() ?? '';
+    final bookingReference = bookingId.isEmpty
+        ? 'Not available'
+        : '#${bookingId.substring(0, bookingId.length.clamp(0, 8)).toUpperCase()}';
+    final transactionReference = record.providerReference.isNotEmpty
+        ? record.providerReference
+        : record.providerPaymentId.isNotEmpty
+        ? record.providerPaymentId
+        : record.receiptNo.isNotEmpty
+        ? record.receiptNo
+        : record.externalReferenceNo.isNotEmpty
+        ? record.externalReferenceNo
+        : record.id?.toString() ?? 'Not available';
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: record.isConfirmed
-            ? () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        AcknowledgementReceiptScreen(record: record),
-                  ),
-                );
-              }
-            : null,
+        onTap: () => _showPaymentDetails(
+          context,
+          _PaymentDetailData(
+            packageName: packageName,
+            touristName: touristName,
+            paymentType: paymentType,
+            amount: record.amount,
+            paymentMethod: paymentMethod,
+            bookingReference: bookingReference,
+            transactionReference: transactionReference,
+            paidAt: record.paidAt ?? record.createdAt,
+            status: record.isConfirmed ? 'Successful' : statusLabel,
+          ),
+        ),
         borderRadius: BorderRadius.circular(22),
         child: Ink(
           padding: const EdgeInsets.all(14),
@@ -962,6 +1211,17 @@ class _EarningTile extends StatelessWidget {
                         const SizedBox(height: 5),
 
                         Text(
+                          touristName,
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
+                        ),
+
+                        const SizedBox(height: 3),
+
+                        Text(
                           dateLabel,
                           style: const TextStyle(
                             color: Color(0xFF8A98AB),
@@ -979,7 +1239,7 @@ class _EarningTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        '₱${record.amount.toStringAsFixed(2)}',
+                        '+ ₱${record.amount.toStringAsFixed(2)}',
                         style: const TextStyle(
                           color: Color(0xFF111827),
                           fontWeight: FontWeight.w900,
@@ -1044,7 +1304,7 @@ class _EarningTile extends StatelessWidget {
                       ),
                       SizedBox(width: 6),
                       Text(
-                        'View Acknowledgement Receipt',
+                        'View Payment Details',
                         style: TextStyle(
                           color: Color(0xFF2F7EFF),
                           fontWeight: FontWeight.w800,

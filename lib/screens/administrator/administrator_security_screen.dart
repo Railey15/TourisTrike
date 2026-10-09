@@ -137,7 +137,13 @@ class _BookingRestrictionAppealsState
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
-  void _refresh() => setState(() => _appeals = _load());
+  void _refresh() {
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _appeals = next;
+    });
+  }
 
   Future<void> _review(String appealId, bool approve) async {
     final confirmed = await showDialog<bool>(

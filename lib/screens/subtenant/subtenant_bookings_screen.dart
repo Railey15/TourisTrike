@@ -55,7 +55,11 @@ class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   List<SubTenantBooking> _filteredBookings(List<SubTenantBooking> bookings) {
@@ -138,9 +142,10 @@ class _SubTenantBookingsScreenState extends State<SubTenantBookingsScreen> {
                   resultCount: bookings.length,
                   totalCount: load.bookings.length,
                   onStatusChanged: (value) {
+                    _status = value;
+                    final next = _load();
                     setState(() {
-                      _status = value;
-                      _future = _load();
+                      _future = next;
                     });
                   },
                 ),
@@ -423,11 +428,7 @@ class _BookingCardState extends State<_BookingCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        transform: Matrix4.translationValues(
-          0.0,
-          _hovered ? -3.0 : 0.0,
-          0.0,
-        ),
+        transform: Matrix4.translationValues(0.0, _hovered ? -3.0 : 0.0, 0.0),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),

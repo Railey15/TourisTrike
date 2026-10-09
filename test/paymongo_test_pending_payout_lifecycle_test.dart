@@ -9,6 +9,7 @@ String read(String path) => File(
 
 void main() {
   late String migration;
+  late String earningsMigration;
   late String createPayment;
   late String refundFunction;
   late String touristTracking;
@@ -18,6 +19,9 @@ void main() {
   setUpAll(() {
     migration = read(
       'supabase/migrations/20261009000000_paymongo_test_pending_payout_lifecycle.sql',
+    );
+    earningsMigration = read(
+      'supabase/migrations/20261009140000_completed_driver_earnings_and_test_tracking.sql',
     );
     createPayment = read('supabase/functions/paymongo-create-payment/index.ts');
     refundFunction = read(
@@ -36,7 +40,8 @@ void main() {
     expect(migration, contains('sync_test_payment_pending_payouts'));
     expect(migration, contains("set status = 'pending', eligible_at = null"));
     expect(touristTracking, contains('Downpayment Paid'));
-    expect(touristTracking, contains('Driver Payout Pending'));
+    expect(touristTracking, isNot(contains('Driver Payout Pending')));
+    expect(touristTracking, contains('Tour Payment Settled'));
   });
 
   test('2 payment success never marks a payout paid or succeeded', () {
@@ -126,9 +131,12 @@ void main() {
     expect(driverTracking, contains('Report Tourist No-Show'));
   });
 
-  test('11 completion is an explicit payout eligibility outcome', () {
+  test('11 completion finalizes earnings without faking provider payout', () {
     expect(migration, contains('mark_completed_booking_payout_eligible'));
     expect(migration, contains("new.id, 'eligible', 'tour_completed'"));
+    expect(earningsMigration, contains('earning_status'));
+    expect(earningsMigration, contains("then 'completed'"));
+    expect(earningsMigration, contains('recompute_booking_driver_earnings'));
   });
 
   test(
@@ -151,10 +159,7 @@ void main() {
     expect(added, isNot(contains('wallet_balance')));
     expect(added.toLowerCase(), isNot(contains('escrow_balance')));
     expect(added.toLowerCase(), isNot(contains('stored_value')));
-    expect(
-      driverEarnings,
-      contains('pending payout is not money already received'),
-    );
+    expect(driverEarnings, contains('required tourist payments'));
   });
 
   test('test mode rejects live environment and live keys', () {
@@ -179,6 +184,11 @@ void main() {
         'status': 'paid',
         'payment_records': {'status': 'confirmed'},
       });
+      const completed = PaymentAllocation({
+        'status': 'eligible',
+        'earning_status': 'completed',
+        'payment_record_status': 'confirmed',
+      });
 
       expect(pending.isPayoutPending, isTrue);
       expect(pending.isPaidOut, isFalse);
@@ -186,6 +196,9 @@ void main() {
       expect(eligible.isPayoutEligible, isTrue);
       expect(eligible.payoutStatusLabel, 'Eligible after tour completion');
       expect(paid.isPaidOut, isTrue);
+      expect(completed.isCompletedEarning, isTrue);
+      expect(completed.isConfirmedEarning, isTrue);
+      expect(completed.earningStatusLabel, 'Successful');
     },
   );
 }

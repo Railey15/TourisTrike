@@ -26,7 +26,11 @@ class _FeedbackTrendsScreenState extends State<FeedbackTrendsScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _service.fetchFeedbackTrends());
+    final next = _service.fetchFeedbackTrends();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   @override
@@ -35,7 +39,7 @@ class _FeedbackTrendsScreenState extends State<FeedbackTrendsScreen> {
       current: MainTenantDestination.feedback,
       title: 'Feedback',
       subtitle: 'Review tourist feedback trends and low-rated experiences.',
-      
+
       child: FutureBuilder<FeedbackTrendData>(
         future: _future,
         builder: (context, snapshot) {
@@ -610,9 +614,7 @@ class _MetricGrid extends StatelessWidget {
       mobileAspectRatio: 2.8,
       tabletAspectRatio: 2.6,
       desktopAspectRatio: 2.6,
-      children: [
-        for (final item in items) _MetricCard(item: item),
-      ],
+      children: [for (final item in items) _MetricCard(item: item)],
     );
   }
 }
@@ -1012,9 +1014,7 @@ class _CityReviewRows extends StatelessWidget {
               child: Text(
                 '${index + 1}',
                 style: TextStyle(
-                  color: index == 0
-                      ? Colors.white
-                      : MainTenantColors.muted,
+                  color: index == 0 ? Colors.white : MainTenantColors.muted,
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
                 ),

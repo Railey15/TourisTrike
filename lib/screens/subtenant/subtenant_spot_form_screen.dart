@@ -297,6 +297,14 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
     );
   }
 
+  void _reloadData() {
+    final next = _loadData();
+    if (!mounted) return;
+    setState(() {
+      _dataFuture = next;
+    });
+  }
+
   @override
   void dispose() {
     _placeSearchTimer?.cancel();
@@ -1159,7 +1167,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
           if (snapshot.hasError) {
             return SubTenantErrorView(
               message: snapshot.error.toString(),
-              onRetry: () => setState(() => _dataFuture = _loadData()),
+              onRetry: _reloadData,
             );
           }
 
@@ -1419,8 +1427,7 @@ class _SubTenantSpotFormScreenState extends State<SubTenantSpotFormScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () =>
-                              setState(() => _dataFuture = _loadData()),
+                          onPressed: _reloadData,
                           icon: const Icon(Icons.refresh_rounded, size: 18),
                           label: const Text('Refresh'),
                           style: OutlinedButton.styleFrom(

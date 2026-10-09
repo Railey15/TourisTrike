@@ -53,7 +53,11 @@ class _SubTenantDriversScreenState extends State<SubTenantDriversScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   Future<void> _openDetails(SubTenantDriver driver) async {

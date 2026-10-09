@@ -271,8 +271,10 @@ class _ProvinceReportsScreenState extends State<ProvinceReportsScreen>
   }
 
   void _reload() {
+    final next = _service.fetchReports();
+    if (!mounted) return;
     setState(() {
-      _future = _service.fetchReports();
+      _future = next;
     });
   }
 

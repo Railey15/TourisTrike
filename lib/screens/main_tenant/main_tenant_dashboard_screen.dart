@@ -17,8 +17,7 @@ class MainTenantDashboardScreen extends StatefulWidget {
       _MainTenantDashboardScreenState();
 }
 
-class _MainTenantDashboardScreenState
-    extends State<MainTenantDashboardScreen> {
+class _MainTenantDashboardScreenState extends State<MainTenantDashboardScreen> {
   final MainTenantService _service = MainTenantService();
 
   late Future<MainTenantDashboardData> _future;
@@ -30,8 +29,10 @@ class _MainTenantDashboardScreenState
   }
 
   void _reload() {
+    final next = _service.loadDashboard();
+    if (!mounted) return;
     setState(() {
-      _future = _service.loadDashboard();
+      _future = next;
     });
   }
 
@@ -82,14 +83,11 @@ class _MainTenantDashboardScreenState
                 return _DesktopDashboard(
                   data: data,
                   money: money,
-                  openTenants: () =>
-                      _open(MainTenantDestination.cityTenants),
+                  openTenants: () => _open(MainTenantDestination.cityTenants),
                   openRegistrations: () =>
                       _open(MainTenantDestination.cityTenants),
-                  openSpots: () =>
-                      _open(MainTenantDestination.tourismData),
-                  openPackages: () =>
-                      _open(MainTenantDestination.packages),
+                  openSpots: () => _open(MainTenantDestination.tourismData),
+                  openPackages: () => _open(MainTenantDestination.packages),
                 );
               }
 
@@ -97,22 +95,18 @@ class _MainTenantDashboardScreenState
                 return _TabletDashboard(
                   data: data,
                   money: money,
-                  openTenants: () =>
-                      _open(MainTenantDestination.cityTenants),
+                  openTenants: () => _open(MainTenantDestination.cityTenants),
                   openRegistrations: () =>
                       _open(MainTenantDestination.cityTenants),
-                  openSpots: () =>
-                      _open(MainTenantDestination.tourismData),
-                  openPackages: () =>
-                      _open(MainTenantDestination.packages),
+                  openSpots: () => _open(MainTenantDestination.tourismData),
+                  openPackages: () => _open(MainTenantDestination.packages),
                 );
               }
 
               return _MobileDashboard(
                 data: data,
                 money: money,
-                openTenants: () =>
-                    _open(MainTenantDestination.cityTenants),
+                openTenants: () => _open(MainTenantDestination.cityTenants),
                 openRegistrations: () =>
                     _open(MainTenantDestination.cityTenants),
                 openSpots: () => _open(MainTenantDestination.tourismData),

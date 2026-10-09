@@ -48,8 +48,10 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   }
 
   void _reload() {
+    final next = _load();
+    if (!mounted) return;
     setState(() {
-      _future = _load();
+      _future = next;
     });
   }
 

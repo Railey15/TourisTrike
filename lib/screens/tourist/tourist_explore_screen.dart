@@ -123,13 +123,14 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     if (!mounted) return;
     _searchDebounce?.cancel();
     final query = _searchCtrl.text.trim();
+    final next = _loadExploreData();
     setState(() {
       _googleSearchSpots.clear();
       _isSearchingGoogle = false;
-      _future = _loadExploreData();
+      _future = next;
     });
     if (query.length >= 3) {
-      final currentLoad = _future;
+      final currentLoad = next;
       currentLoad.then((data) {
         if (mounted &&
             identical(_future, currentLoad) &&
@@ -580,12 +581,14 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
   }
 
   Future<void> _refresh() async {
+    final next = _loadExploreData();
+    if (!mounted) return;
     setState(() {
-      _future = _loadExploreData();
+      _future = next;
       _googleSearchSpots.clear();
       _isSearchingGoogle = false;
     });
-    await _future;
+    await next;
   }
 
   void _onSearchTextChanged(String query, _ExploreData data) {
@@ -803,7 +806,11 @@ class _TouristExploreScreenState extends State<TouristExploreScreen> {
     touristLocationStore.usePhoneLocation();
 
     if (!wasManual) {
-      setState(() => _future = _loadExploreData());
+      final next = _loadExploreData();
+      if (!mounted) return;
+      setState(() {
+        _future = next;
+      });
     }
   }
 

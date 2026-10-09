@@ -17,8 +17,7 @@ class MainTenantSettingsScreen extends StatefulWidget {
       _MainTenantSettingsScreenState();
 }
 
-class _MainTenantSettingsScreenState
-    extends State<MainTenantSettingsScreen> {
+class _MainTenantSettingsScreenState extends State<MainTenantSettingsScreen> {
   final MainTenantService _service = MainTenantService();
 
   late Future<MainTenantSettingsData> _future;
@@ -134,7 +133,11 @@ class _MainTenantSettingsScreenState
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final next = _load();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   bool get _officeDirty {
@@ -279,7 +282,10 @@ class _MainTenantSettingsScreenState
         '${_sections[_selectedSection].label} saved.',
         error: false,
       );
-      setState(() => _future = _load());
+      final next = _load();
+      setState(() {
+        _future = next;
+      });
     } catch (error) {
       if (mounted) showAdminSnack(context, 'Unable to save settings: $error');
     } finally {
@@ -1027,16 +1033,12 @@ class _SettingsNavigation extends StatelessWidget {
                         ),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? MainTenantColors.blue.withValues(
-                                  alpha: .10,
-                                )
+                              ? MainTenantColors.blue.withValues(alpha: .10)
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: isSelected
-                                ? MainTenantColors.blue.withValues(
-                                    alpha: .22,
-                                  )
+                                ? MainTenantColors.blue.withValues(alpha: .22)
                                 : Colors.transparent,
                           ),
                         ),
@@ -1120,17 +1122,13 @@ class _MobileSectionPicker extends StatelessWidget {
                   Icon(
                     section.icon,
                     size: 16,
-                    color: isSelected
-                        ? Colors.white
-                        : MainTenantColors.muted,
+                    color: isSelected ? Colors.white : MainTenantColors.muted,
                   ),
                   const SizedBox(width: 7),
                   Text(
                     section.label,
                     style: TextStyle(
-                      color: isSelected
-                          ? Colors.white
-                          : MainTenantColors.muted,
+                      color: isSelected ? Colors.white : MainTenantColors.muted,
                       fontWeight: FontWeight.w900,
                       fontSize: 12,
                     ),
@@ -1673,8 +1671,9 @@ class _SaveBar extends StatelessWidget {
                   style: FilledButton.styleFrom(
                     backgroundColor: MainTenantColors.blue,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: MainTenantColors.blue
-                        .withValues(alpha: .42),
+                    disabledBackgroundColor: MainTenantColors.blue.withValues(
+                      alpha: .42,
+                    ),
                     disabledForegroundColor: Colors.white.withValues(
                       alpha: .85,
                     ),

@@ -1158,7 +1158,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       lastDate: DateTime(now.year + 2),
     );
 
-    if (picked == null) {
+    if (!mounted || picked == null) {
       return;
     }
 
@@ -1249,7 +1249,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         ),
       ),
     );
-    if (picked == null) return;
+    if (!mounted || picked == null) return;
     setState(() => _selectedPickupTime = picked);
     await _recalculateSelectedItinerary();
   }
@@ -1345,6 +1345,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
     if (_currentStep == 1 || _currentStep == 2) {
       await _recalculateSelectedItinerary();
+      if (!mounted) return;
     }
 
     if (_currentStep >= 5) {
@@ -1833,8 +1834,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             return _ErrorView(
               message: snapshot.error.toString(),
               onRetry: () {
+                final next = _loadAndInitializePackage();
                 setState(() {
-                  _future = _loadAndInitializePackage();
+                  _future = next;
                 });
               },
             );

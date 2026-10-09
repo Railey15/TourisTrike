@@ -299,7 +299,8 @@ class _DriverPackageTrackingScreenState
   final Map<String, LatLng> _liveMarkerPositions = <String, LatLng>{};
   final Map<String, double> _liveMarkerHeadings = <String, double>{};
 
-  bool get _scheduledStartBypassAuthorized => _testSessionAuthorized;
+  bool get _scheduledStartBypassAuthorized =>
+      _liveTrackingEligibility.testModeScheduleBypass || _testSessionAuthorized;
 
   bool get _isBookingCancelled {
     final values = [
@@ -343,6 +344,7 @@ class _DriverPackageTrackingScreenState
         _liveTrackingEligibility.scheduledStartAt ?? _booking?.scheduledStartAt,
     now: _liveTrackingEligibility.authoritativeNow(),
     serverAuthorized: _liveTrackingEligibility.canAccess,
+    scheduleBypassAuthorized: _liveTrackingEligibility.testModeScheduleBypass,
   );
 
   bool get _isLiveTrackingScheduleLocked =>
@@ -1111,6 +1113,23 @@ class _DriverPackageTrackingScreenState
   // REALTIME
   // =========================================================================
 
+  bool _isCancelledRealtimeRow(Map<String, dynamic> row) => [
+    row['status'],
+    row['booking_status'],
+    row['tour_status'],
+  ].any((value) => value?.toString().toLowerCase() == 'cancelled');
+
+  void _handleLifecycleRealtimeUpdate(
+    PostgresChangePayload payload,
+    String logTag,
+  ) {
+    if (_isCancelledRealtimeRow(payload.newRecord)) {
+      _redirectToPackageJobs();
+      return;
+    }
+    _refreshLifecycleAndConvoy(logTag);
+  }
+
   void _subscribeRealtime() {
     final bookingId = _bookingId;
 
@@ -1131,8 +1150,8 @@ class _DriverPackageTrackingScreenState
             column: 'booking_id',
             value: bookingId,
           ),
-          callback: (_) {
-            _refreshLifecycleAndConvoy('activity-update');
+          callback: (payload) {
+            _handleLifecycleRealtimeUpdate(payload, 'activity-update');
           },
         )
         .subscribe();
@@ -1150,8 +1169,8 @@ class _DriverPackageTrackingScreenState
             column: 'id',
             value: bookingId,
           ),
-          callback: (_) {
-            _refreshLifecycleAndConvoy('booking-update');
+          callback: (payload) {
+            _handleLifecycleRealtimeUpdate(payload, 'booking-update');
           },
         )
         .subscribe();

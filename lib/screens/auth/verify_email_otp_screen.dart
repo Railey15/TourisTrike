@@ -182,7 +182,9 @@ class _VerifyEmailOtpScreenState extends State<VerifyEmailOtpScreen> {
         debugPrint('[Signup OTP] resend accepted');
         return true;
       }());
-      if (mounted) setState(_startCooldown);
+      if (!mounted) return;
+      _startCooldown();
+      setState(() {});
       _showSnack(
         'If this address is eligible, a new code will arrive shortly.',
         isError: false,

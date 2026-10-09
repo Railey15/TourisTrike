@@ -465,6 +465,7 @@ class LiveTourTrackingEligibility {
     required this.serverNow,
     required this.scheduledStartAt,
     required this.deviceReceivedAt,
+    this.testModeScheduleBypass = false,
   });
 
   factory LiveTourTrackingEligibility.fromJson(Json json) =>
@@ -474,6 +475,9 @@ class LiveTourTrackingEligibility {
         serverNow: dbDate(json['server_now']),
         scheduledStartAt: dbDate(json['scheduled_start_at']),
         deviceReceivedAt: DateTime.now().toUtc(),
+        testModeScheduleBypass:
+            dbBool(json['test_mode_schedule_bypass']) ||
+            dbString(json['reason_code']) == 'TEST_MODE_SCHEDULE_BYPASS',
       );
 
   static const locked = LiveTourTrackingEligibility(
@@ -482,6 +486,7 @@ class LiveTourTrackingEligibility {
     serverNow: null,
     scheduledStartAt: null,
     deviceReceivedAt: null,
+    testModeScheduleBypass: false,
   );
 
   final bool canAccess;
@@ -489,6 +494,7 @@ class LiveTourTrackingEligibility {
   final DateTime? serverNow;
   final DateTime? scheduledStartAt;
   final DateTime? deviceReceivedAt;
+  final bool testModeScheduleBypass;
 
   DateTime authoritativeNow([DateTime? deviceNow]) {
     final current = (deviceNow ?? DateTime.now()).toUtc();
@@ -828,23 +834,89 @@ class PaymentAllocation extends TourisTrikeRow {
   double get driverAmount => dbDouble(row['driver_amount']);
   int get splitBasisPoints => dbInt(row['split_basis_points']);
   String get status => dbString(row['status']);
+  String get earningStatus => dbString(
+    row['earning_status'],
+    fallback: status == 'paid' ? 'completed' : 'pending',
+  );
+  DateTime? get earningCompletedAt => dbDate(row['earning_completed_at']);
   DateTime? get paidAt => dbDate(row['paid_at']);
   Json get paymentRecord {
     final value = row['payment_records'];
     return value is Map ? Json.from(value) : <String, dynamic>{};
   }
 
-  String get paymentRecordStatus => dbString(paymentRecord['status']);
-  String get provider => dbString(paymentRecord['provider']);
-  String get paymentMethod => dbString(paymentRecord['payment_method']);
-  String get paymentStage => dbString(paymentRecord['payment_stage']);
-  DateTime? get confirmedAt => dbDate(paymentRecord['paid_at']) ?? paidAt;
+  String get paymentRecordStatus => dbString(
+    row['payment_record_status'],
+    fallback: dbString(paymentRecord['status']),
+  );
+  String get provider =>
+      dbString(row['provider'], fallback: dbString(paymentRecord['provider']));
+  String get paymentMethod => dbString(
+    row['payment_method'],
+    fallback: dbString(paymentRecord['payment_method']),
+  );
+  String get paymentStage => dbString(
+    row['payment_stage'],
+    fallback: dbString(paymentRecord['payment_stage']),
+  );
+  DateTime? get confirmedAt =>
+      dbDate(row['payment_paid_at']) ??
+      dbDate(paymentRecord['paid_at']) ??
+      earningCompletedAt ??
+      paidAt;
+
+  String get packageName =>
+      dbString(row['package_name'], fallback: 'Tour Package');
+  String get touristFirstName => dbString(row['tourist_first_name']);
+  String get touristLastName => dbString(row['tourist_last_name']);
+  String get touristDisplayName {
+    final first = touristFirstName.trim();
+    final last = touristLastName.trim();
+    if (first.isEmpty && last.isEmpty) return 'Tourist';
+    if (last.isEmpty) return first;
+    final initial = last[0].toUpperCase();
+    return first.isEmpty ? '$initial.' : '$first $initial.';
+  }
+
+  String get bookingReference => dbString(
+    row['booking_reference'],
+    fallback: bookingId.isEmpty
+        ? 'Not available'
+        : '#${bookingId.substring(0, bookingId.length.clamp(0, 8)).toUpperCase()}',
+  );
+  String get transactionReference =>
+      dbString(row['transaction_reference'], fallback: paymentRecordId);
+  String get paymentMethodLabel {
+    final method = paymentMethod.toLowerCase();
+    final providerName = provider.toLowerCase() == 'paymongo'
+        ? 'PayMongo'
+        : provider.isEmpty || provider.toLowerCase() == 'manual'
+        ? ''
+        : _titleCase(provider);
+    final methodName = _titleCase(method.isEmpty ? 'Payment' : method);
+    return [
+      providerName,
+      methodName,
+    ].where((value) => value.isNotEmpty).join(' ');
+  }
 
   bool get isAwaitingCash => status == 'awaiting_cash';
   bool get isCashConfirmed => status == 'cash_confirmed';
   bool get isPayoutPending => status == 'pending' || status == 'held';
   bool get isPayoutEligible => status == 'eligible';
   bool get isPaidOut => status == 'paid';
+  bool get isCompletedEarning => earningStatus == 'completed';
+  bool get isEarningPending => earningStatus == 'pending';
+  String get earningStatusLabel => switch (earningStatus) {
+    'completed' => 'Successful',
+    'refund_pending' => 'Refund pending',
+    'refunded' => 'Refunded',
+    'disputed' => 'Disputed',
+    'failed' => 'Failed',
+    'cancelled' => 'Cancelled',
+    'manual_review' => 'Under review',
+    _ => 'Pending',
+  };
   String get payoutStatusLabel => switch (status) {
     'pending' || 'held' => 'Pending payout',
     'eligible' => 'Eligible after tour completion',
@@ -856,9 +928,16 @@ class PaymentAllocation extends TourisTrikeRow {
     _ => status.replaceAll('_', ' '),
   };
   bool get isConfirmedEarning =>
-      paymentRecordStatus == 'confirmed' &&
-      status != 'cancelled' &&
-      status != 'manual_review';
+      paymentRecordStatus == 'confirmed' && isCompletedEarning;
+
+  static String _titleCase(String value) => value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .where((word) => word.isNotEmpty)
+      .map(
+        (word) => '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+      )
+      .join(' ');
 }
 
 class PayMongoCheckout {

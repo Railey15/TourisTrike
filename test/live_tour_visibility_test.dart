@@ -182,4 +182,43 @@ void main() {
       isFalse,
     );
   });
+
+  test('authorized TEST MODE bypasses only the future schedule boundary', () {
+    final accepted = assignment(ConvoyJourneyState.assigned);
+    final early = scheduled.subtract(const Duration(days: 1));
+
+    expect(
+      LiveTourVisibility.driver(
+        assignment: accepted,
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: early,
+        serverAuthorized: true,
+        scheduleBypassAuthorized: true,
+      ),
+      isTrue,
+    );
+    expect(
+      LiveTourVisibility.tourist(
+        roster: [accepted],
+        statuses: ['cancelled'],
+        scheduledStartAt: scheduled,
+        now: early,
+        serverAuthorized: true,
+        scheduleBypassAuthorized: true,
+      ),
+      isFalse,
+    );
+    expect(
+      LiveTourVisibility.driver(
+        assignment: assignment(ConvoyJourneyState.assigned, status: 'rejected'),
+        statuses: ['confirmed'],
+        scheduledStartAt: scheduled,
+        now: early,
+        serverAuthorized: true,
+        scheduleBypassAuthorized: true,
+      ),
+      isFalse,
+    );
+  });
 }

@@ -25,10 +25,11 @@ class LiveTourVisibility {
     required DateTime? scheduledStartAt,
     required DateTime now,
     required bool serverAuthorized,
+    bool scheduleBypassAuthorized = false,
   }) {
     if (!serverAuthorized ||
         scheduledStartAt == null ||
-        now.isBefore(scheduledStartAt) ||
+        (now.isBefore(scheduledStartAt) && !scheduleBypassAuthorized) ||
         _isTerminal(statuses)) {
       return false;
     }
@@ -45,10 +46,11 @@ class LiveTourVisibility {
     required DateTime? scheduledStartAt,
     required DateTime now,
     required bool serverAuthorized,
+    bool scheduleBypassAuthorized = false,
   }) {
     return serverAuthorized &&
         scheduledStartAt != null &&
-        !now.isBefore(scheduledStartAt) &&
+        (!now.isBefore(scheduledStartAt) || scheduleBypassAuthorized) &&
         !_isTerminal(statuses) &&
         assignment?.assignmentStatus == 'accepted' &&
         assignment?.journeyState != ConvoyJourneyState.completed;

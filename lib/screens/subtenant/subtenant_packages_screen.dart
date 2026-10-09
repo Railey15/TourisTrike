@@ -130,11 +130,10 @@ class _SubTenantPackagesScreenState extends State<SubTenantPackagesScreen> {
   }
 
   Future<void> _reload() async {
-    late Future<_PackageListLoad> nextFuture;
-
+    final nextFuture = _load();
+    if (!mounted) return;
     setState(() {
       _currentLoad = null;
-      nextFuture = _load();
       _future = nextFuture;
     });
 

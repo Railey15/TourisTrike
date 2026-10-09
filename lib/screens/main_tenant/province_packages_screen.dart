@@ -92,11 +92,13 @@ class _ProvincePackagesScreenState extends State<ProvincePackagesScreen> {
   }
 
   Future<void> _reload() async {
+    final next = _service.fetchProvincePackages();
+    if (!mounted) return;
     setState(() {
-      _future = _service.fetchProvincePackages();
+      _future = next;
     });
 
-    await _future;
+    await next;
   }
 
   bool get _hasActiveFilters {

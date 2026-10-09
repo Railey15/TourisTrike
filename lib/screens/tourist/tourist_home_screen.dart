@@ -108,7 +108,15 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
       _usingManualLocation = false;
       _usingPhoneLocation = true;
     }
-    setState(() => _homeFuture = _loadHome());
+    _reloadHome();
+  }
+
+  void _reloadHome() {
+    if (!mounted) return;
+    final next = _loadHome();
+    setState(() {
+      _homeFuture = next;
+    });
   }
 
   Future<_HomeData> _loadHome() async {
@@ -509,14 +517,12 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
 
     if (selected == null) return;
 
-    setState(() {
-      _selectedArea = selected;
-      _usingManualLocation = true;
-      _usingPhoneLocation = false;
-      _lastKnownCenter = selected.center;
-      _lastMunicipality = selected.name;
-      _homeFuture = _loadHome();
-    });
+    _selectedArea = selected;
+    _usingManualLocation = true;
+    _usingPhoneLocation = false;
+    _lastKnownCenter = selected.center;
+    _lastMunicipality = selected.name;
+    _reloadHome();
 
     touristLocationStore.useManualLocation(
       TouristMunicipalityArea(name: selected.name, center: selected.center),
@@ -527,12 +533,10 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     touristLocationStore.usePhoneLocation();
     _locationPermissionFuture = null;
 
-    setState(() {
-      _usingManualLocation = false;
-      _usingPhoneLocation = true;
-      _selectedArea = null;
-      _homeFuture = _loadHome();
-    });
+    _usingManualLocation = false;
+    _usingPhoneLocation = true;
+    _selectedArea = null;
+    _reloadHome();
     await _startLocationWatch();
   }
 
@@ -576,12 +580,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             if (municipality != _lastMunicipality || movedKm >= 1.0) {
               _lastKnownCenter = center;
               _lastMunicipality = municipality;
-
-              if (mounted) {
-                setState(() {
-                  _homeFuture = _loadHome();
-                });
-              }
+              _reloadHome();
             }
           });
     } catch (e) {
@@ -788,11 +787,7 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
             if (snap.hasError) {
               return _ErrorState(
                 error: snap.error.toString(),
-                onRetry: () {
-                  setState(() {
-                    _homeFuture = _loadHome();
-                  });
-                },
+                onRetry: _reloadHome,
               );
             }
 

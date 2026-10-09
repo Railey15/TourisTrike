@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/screens/driver/driver_package_tracking_screen.dart';
@@ -57,6 +58,7 @@ class DriverPackageBookingDetailsScreen extends StatefulWidget {
 class _DriverPackageBookingDetailsScreenState
     extends State<DriverPackageBookingDetailsScreen> {
   final TourisTrikeRepository _repo = TourisTrikeRepository();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   late PackageActivity _job;
 
@@ -67,10 +69,60 @@ class _DriverPackageBookingDetailsScreenState
 
   String? _error;
   bool _redirected = false;
+  RealtimeChannel? _cancellationChannel;
+  String _subscribedBookingId = '';
+
+  bool _isCancelledRow(Map<String, dynamic> row) => [
+    row['status'],
+    row['booking_status'],
+    row['tour_status'],
+  ].any((value) => value?.toString().toLowerCase() == 'cancelled');
+
+  void _subscribeToCancellation(String bookingId) {
+    if (bookingId.isEmpty || bookingId == _subscribedBookingId) return;
+    _subscribedBookingId = bookingId;
+    _cancellationChannel?.unsubscribe();
+    _cancellationChannel = _supabase
+        .channel('driver-booking-details-cancellation:$bookingId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'package_bookings',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: bookingId,
+          ),
+          callback: (payload) {
+            if (_isCancelledRow(payload.newRecord)) {
+              _redirectToPackageJobs();
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'package_activities',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'booking_id',
+            value: bookingId,
+          ),
+          callback: (payload) {
+            if (_isCancelledRow(payload.newRecord)) {
+              _redirectToPackageJobs();
+            }
+          },
+        )
+        .subscribe();
+  }
 
   void _redirectToPackageJobs() {
     if (!mounted || _redirected) return;
     _redirected = true;
+    _cancellationChannel?.unsubscribe();
+    _cancellationChannel = null;
+    _spots = const [];
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const DriverPackageJobsScreen()),
       (route) => false,
@@ -86,8 +138,14 @@ class _DriverPackageBookingDetailsScreenState
     super.initState();
 
     _job = widget.initialJob;
-
+    _subscribeToCancellation(widget.initialJob.bookingId);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _cancellationChannel?.unsubscribe();
+    super.dispose();
   }
 
   // =========================================================================
@@ -107,6 +165,8 @@ class _DriverPackageBookingDetailsScreenState
 
       final bookingId = activity?.bookingId ?? widget.initialJob.bookingId;
 
+      _subscribeToCancellation(bookingId);
+
       if (bookingId.isNotEmpty) {
         final priorAssignment = await _repo.fetchMyBookingDriverAssignment(
           bookingId,
@@ -124,6 +184,12 @@ class _DriverPackageBookingDetailsScreenState
       final booking = bookingId.isEmpty
           ? null
           : await _repo.fetchPackageBookingDetails(bookingId);
+
+      if (booking != null &&
+          _isCancelledRow(Map<String, dynamic>.from(booking.row))) {
+        _redirectToPackageJobs();
+        return;
+      }
 
       var spots = bookingId.isEmpty
           ? const <BookingItineraryItem>[]

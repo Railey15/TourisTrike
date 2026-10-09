@@ -33,7 +33,11 @@ class _TouristPackagesScreenState extends State<TouristPackagesScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _repo.fetchTourPackages(limit: 100));
+    final next = _repo.fetchTourPackages(limit: 100);
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
   }
 
   List<String> _chipsFor(List<TourPackage> packages) {

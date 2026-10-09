@@ -6,6 +6,7 @@ String source(String path) => File(path).readAsStringSync();
 
 void main() {
   late String migration;
+  late String completionMigration;
   late String touristTracking;
   late String driverTracking;
   late String repository;
@@ -13,6 +14,9 @@ void main() {
   setUpAll(() {
     migration = source(
       'supabase/migrations/20261009080000_live_tracking_start_gate_driver_withdrawal.sql',
+    );
+    completionMigration = source(
+      'supabase/migrations/20261009140000_completed_driver_earnings_and_test_tracking.sql',
     );
     touristTracking = source(
       'lib/screens/tourist/tourist_activity_tracking_screen.dart',
@@ -24,17 +28,23 @@ void main() {
   });
 
   test('server time and scheduled start authorize participant tracking', () {
-    expect(migration, contains('can_access_live_tour_tracking'));
-    expect(migration, contains('now() >= b.scheduled_start_at'));
-    expect(migration, contains("'BEFORE_SCHEDULED_START'"));
-    expect(migration, contains("bd.status = 'accepted'"));
-    expect(migration, contains('get_live_tour_tracking_eligibility'));
+    expect(completionMigration, contains('can_access_live_tour_tracking'));
+    expect(completionMigration, contains('now() >= b.scheduled_start_at'));
+    expect(completionMigration, contains("'BEFORE_SCHEDULED_START'"));
+    expect(completionMigration, contains("bd.status = 'accepted'"));
+    expect(
+      completionMigration,
+      contains('developer_test_schedule_bypass_authorized'),
+    );
+    expect(completionMigration, contains("'TEST_MODE_SCHEDULE_BYPASS'"));
+    expect(completionMigration, contains('get_live_tour_tracking_eligibility'));
     expect(repository, contains('fetchLiveTourTrackingEligibility'));
   });
 
   test('both participant screens fail closed and show the scheduled lock', () {
     for (final screen in [touristTracking, driverTracking]) {
       expect(screen, contains('serverAuthorized:'));
+      expect(screen, contains('scheduleBypassAuthorized:'));
       expect(screen, contains('LiveTrackingLockedCard('));
       expect(screen, contains('_syncScheduleGateTimer'));
       expect(screen, contains('refreshLocationsOnUnlock: true'));

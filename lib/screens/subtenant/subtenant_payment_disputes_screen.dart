@@ -68,10 +68,20 @@ class _SubTenantPaymentDisputesScreenState
     super.dispose();
   }
 
-  void _reload() => setState(() => _future = _service.fetchCases());
+  void _reload() {
+    final next = _service.fetchCases();
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
+  }
+
   Future<void> _refresh() async {
     final next = _service.fetchCases();
-    setState(() => _future = next);
+    if (!mounted) return;
+    setState(() {
+      _future = next;
+    });
     await next;
   }
 
@@ -96,7 +106,10 @@ class _SubTenantPaymentDisputesScreenState
       try {
         final refreshed = await _service.fetchCases();
         if (mounted) {
-          setState(() => _future = Future.value(refreshed));
+          final next = Future.value(refreshed);
+          setState(() {
+            _future = next;
+          });
         }
       } catch (refreshError, refreshStack) {
         developer.log(
@@ -214,8 +227,8 @@ class _SubTenantPaymentDisputesScreenState
                   maxColumns: Responsive.isMobile(context)
                       ? 1
                       : Responsive.isLargeDesktop(context)
-                          ? 3
-                          : 2,
+                      ? 3
+                      : 2,
                   mainAxisExtent: 156,
                   mobileAspectRatio: 2.25,
                   desktopAspectRatio: 3.25,
