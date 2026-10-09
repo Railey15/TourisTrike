@@ -22,6 +22,9 @@ import 'tourist_available_municipalities.dart';
 import 'tourist_explore_screen.dart';
 import 'package_details_screen.dart';
 
+const _homeLocationSelectorHeight = 66.0;
+const _homeLocationSelectorOverlap = _homeLocationSelectorHeight / 2;
+
 class TouristHomeScreen extends StatefulWidget {
   const TouristHomeScreen({super.key});
 
@@ -758,7 +761,11 @@ class _TouristHomeScreenState extends State<TouristHomeScreen> {
     const navBarBodyHeight = 92.0;
     final navTotalH = navBarBodyHeight + bottomInset;
 
-    final heroH = (size.height * 0.43).clamp(350.0, 420.0);
+    // Keep the artwork itself within a compact, map-header-like range. The
+    // selector occupies another half of its height below the cover so the
+    // content can begin immediately after it without covering the control.
+    final coverHeroH = (size.height * 0.36).clamp(280.0, 320.0);
+    final heroH = coverHeroH + _homeLocationSelectorOverlap;
 
     final sheetTop = heroH;
     final sheetHeight = size.height - media.padding.top - navTotalH;
@@ -935,131 +942,122 @@ class _MunicipalityHero extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned(
-            left: 12,
-            right: 12,
-            top: 8,
-            bottom: 42,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _ResilientCoverImage(
-                    selection: data.cover,
-                    key: ValueKey(
-                      '${data.municipality}-${data.cover.imageUrl}',
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: _homeLocationSelectorOverlap,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _ResilientCoverImage(
+                  selection: data.cover,
+                  key: ValueKey('${data.municipality}-${data.cover.imageUrl}'),
+                ),
+
+                // A light-touch gradient protects the header on bright
+                // photos while keeping the municipality artwork prominent.
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0x7300173D),
+                        Color(0x0800173D),
+                        Color(0x5200173D),
+                      ],
+                      stops: [0.0, 0.55, 1.0],
                     ),
                   ),
+                ),
 
-                  // Dark overlay so the header remains readable
-                  // on bright municipality cover photos.
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Color(0x9900173D),
-                          Color(0x1400173D),
-                          Color(0x8500173D),
-                        ],
-                        stops: [0.0, 0.48, 1.0],
-                      ),
-                    ),
-                  ),
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // LEFT AVATAR IS NOW THE PROFILE BUTTON.
+                            _AvatarWithDot(
+                              imageUrl: data.avatarUrl,
+                              onTap: onProfileTap,
+                            ),
 
-                  SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 62),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              // LEFT AVATAR IS NOW THE PROFILE BUTTON.
-                              _AvatarWithDot(
-                                imageUrl: data.avatarUrl,
-                                onTap: onProfileTap,
-                              ),
+                            const SizedBox(width: 11),
 
-                              const SizedBox(width: 11),
-
-                              Expanded(
-                                child: Text(
-                                  'WELCOME BACK\n${data.fullName}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.2,
-                                    shadows: [
-                                      Shadow(
-                                        blurRadius: 8,
-                                        color: Colors.black38,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(width: 8),
-
-                              // Notification stays on the right.
-                              const NotificationBell(color: Colors.white),
-
-                              // Removed:
-                              // _WhiteCircleButton(
-                              //   icon: Icons.person_outline_rounded,
-                              //   onTap: onProfileTap,
-                              // ),
-                            ],
-                          ),
-
-                          const Spacer(),
-
-                          if (data.cover.attribution.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                left: 4,
-                                right: 4,
-                                bottom: 5,
-                              ),
-                              child: InkWell(
-                                onTap: data.cover.sourceUrl.isEmpty
-                                    ? null
-                                    : _openAttribution,
-                                child: Text(
-                                  data.cover.attribution,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.78),
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w500,
-                                    decoration: data.cover.sourceUrl.isEmpty
-                                        ? null
-                                        : TextDecoration.underline,
-                                    decorationColor: Colors.white70,
-                                  ),
+                            Expanded(
+                              child: Text(
+                                'WELCOME BACK\n${data.fullName}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.2,
+                                  shadows: [
+                                    Shadow(
+                                      blurRadius: 8,
+                                      color: Colors.black38,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                        ],
-                      ),
+
+                            const SizedBox(width: 8),
+
+                            // Notification stays on the right.
+                            const NotificationBell(color: Colors.white),
+
+                            // Removed:
+                            // _WhiteCircleButton(
+                            //   icon: Icons.person_outline_rounded,
+                            //   onTap: onProfileTap,
+                            // ),
+                          ],
+                        ),
+
+                        const Spacer(),
+
+                        if (data.cover.attribution.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: InkWell(
+                              onTap: data.cover.sourceUrl.isEmpty
+                                  ? null
+                                  : _openAttribution,
+                              child: Text(
+                                data.cover.attribution,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.78),
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w500,
+                                  decoration: data.cover.sourceUrl.isEmpty
+                                      ? null
+                                      : TextDecoration.underline,
+                                  decorationColor: Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
 
           Positioned(
-            left: 20,
-            right: 20,
-            bottom: 7,
+            left: 16,
+            right: 16,
+            bottom: 0,
             child: _FloatingLocationSelector(
               text: data.cityText,
               usingManualLocation: usingManualLocation,
@@ -1126,6 +1124,7 @@ class _ResilientCoverImageState extends State<_ResilientCoverImage> {
     return Image.network(
       urls[_index],
       fit: BoxFit.cover,
+      alignment: Alignment.center,
       errorBuilder: (_, _, _) {
         _advance();
         return const _HomeCoverFallback();
@@ -1248,18 +1247,8 @@ class _HomeSheet extends StatelessWidget {
 
     final hasPreferences = prefCategories.isNotEmpty || prefLocation.isNotEmpty;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F9FC),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF25334A).withValues(alpha: 0.13),
-            blurRadius: 28,
-            offset: const Offset(0, -10),
-          ),
-        ],
-      ),
+    return ColoredBox(
+      color: const Color(0xFFF7F9FC),
       child: Column(
         children: [
           Expanded(
@@ -1666,7 +1655,7 @@ class _FloatingLocationSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 66,
+      height: _homeLocationSelectorHeight,
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.98),
         borderRadius: BorderRadius.circular(22),
@@ -1767,7 +1756,7 @@ class _FloatingLocationSelector extends StatelessWidget {
               ),
               child: SizedBox(
                 width: 65,
-                height: 66,
+                height: _homeLocationSelectorHeight,
                 child: Center(
                   child: Container(
                     width: 43,
