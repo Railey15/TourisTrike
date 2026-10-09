@@ -1,5 +1,5 @@
 // Native (iOS/Android) implementation.
-// Uses the Google Directions REST API over HTTP — no CORS restrictions on native.
+// Uses Routes API computeRoutes over HTTP — no CORS restrictions on native.
 // Conditional export in route_polyline_service.dart selects this for non-web targets.
 
 import 'dart:convert';
@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
 import '../places/google_maps_api_key_resolver.dart';
+import 'google_routes_api.dart';
 
 class RouteResult {
   const RouteResult({required this.points, this.durationText});
@@ -37,23 +38,19 @@ class RoutePolylineService {
       '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}',
     );
 
-    final waypointsParam = waypoints.isNotEmpty
-        ? '&waypoints=${waypoints.map((p) => '${p.latitude},${p.longitude}').join('|')}'
-        : '';
-
-    final url =
-        'https://maps.googleapis.com/maps/api/directions/json'
-        '?origin=${origin.latitude},${origin.longitude}'
-        '&destination=${dest.latitude},${dest.longitude}'
-        '&mode=driving$waypointsParam'
-        '&key=$effectiveApiKey';
+    final points = [origin, ...waypoints, dest];
+    final uri = Uri.parse(googleRoutesEndpoint);
 
     // ignore: avoid_print
-    print('$tag GET directions (key omitted from log)');
+    print('$tag POST computeRoutes (key omitted from log)');
 
     try {
       final res = await http
-          .get(Uri.parse(url))
+          .post(
+            uri,
+            headers: googleRoutesHeaders(effectiveApiKey),
+            body: googleRoutesRequestBody(points, trafficAware: true),
+          )
           .timeout(const Duration(seconds: 15));
 
       // ignore: avoid_print
@@ -74,23 +71,6 @@ class RoutePolylineService {
         return RouteResult(points: [origin, dest]);
       }
 
-      final status = body['status'] as String? ?? 'UNKNOWN';
-      final errMsg = body['error_message'] as String? ?? '';
-      // ignore: avoid_print
-      print(
-        '$tag API status=$status'
-        '${errMsg.isNotEmpty ? "  error_message=$errMsg" : ""}',
-      );
-
-      if (status != 'OK') {
-        // ignore: avoid_print
-        print(
-          '$tag Non-OK status → fallback straight line. '
-          'Check: Directions API enabled, key restrictions, billing.',
-        );
-        return RouteResult(points: [origin, dest]);
-      }
-
       final routes = (body['routes'] as List?) ?? const [];
       if (routes.isEmpty) {
         // ignore: avoid_print
@@ -99,31 +79,9 @@ class RoutePolylineService {
       }
 
       final route = routes.first as Map;
-      String? durationText;
-      final pts = <LatLng>[];
-
-      // Step-level polylines (highest detail)
-      final legs = (route['legs'] as List?) ?? const [];
-      if (legs.isNotEmpty) {
-        final leg = legs.first as Map;
-        durationText = leg['duration']?['text'] as String?;
-        for (final step in (leg['steps'] as List?) ?? const []) {
-          final enc = (step as Map)['polyline']?['points'] as String?;
-          if (enc != null && enc.isNotEmpty) pts.addAll(_decode(enc));
-        }
-      }
-
-      if (pts.isNotEmpty) {
-        // ignore: avoid_print
-        print(
-          '$tag step_pts=${pts.length}, ETA=$durationText ✓ road-following',
-        );
-        return RouteResult(points: pts, durationText: durationText);
-      }
-
-      // overview_polyline fallback
+      final durationText = googleDurationText(route['duration']);
       final overviewEnc =
-          route['overview_polyline']?['points'] as String? ?? '';
+          (route['polyline'] as Map?)?['encodedPolyline'] as String? ?? '';
       if (overviewEnc.isNotEmpty) {
         final ovPts = _decode(overviewEnc);
         // ignore: avoid_print
@@ -135,7 +93,10 @@ class RoutePolylineService {
 
       // ignore: avoid_print
       print('$tag No polyline data in response → straight-line fallback');
-      return RouteResult(points: [origin, dest], durationText: durationText);
+      return RouteResult(
+        points: [origin, dest],
+        durationText: durationText.isEmpty ? null : durationText,
+      );
     } catch (e, st) {
       // ignore: avoid_print
       print('$tag Exception: $e\n$st');

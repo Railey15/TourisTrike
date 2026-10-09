@@ -264,7 +264,7 @@ void main() {
     );
   });
 
-  test('mobile Directions classifies HTTP authorization failures', () async {
+  test('mobile Routes classifies HTTP authorization failures', () async {
     await http.runWithClient(
       () async {
         final service = ItineraryScheduleService(apiKey: 'test-key');
@@ -280,43 +280,48 @@ void main() {
         );
       },
       () => MockClient((request) async {
-        expect(request.url.host, 'maps.googleapis.com');
-        expect(request.url.queryParameters['key'], 'test-key');
-        return http.Response(jsonEncode({'status': 'REQUEST_DENIED'}), 403);
+        expect(request.method, 'POST');
+        expect(request.url.host, 'routes.googleapis.com');
+        expect(request.url.path, '/directions/v2:computeRoutes');
+        expect(request.headers['x-goog-api-key'], 'test-key');
+        expect(request.url.queryParameters, isEmpty);
+        return http.Response(
+          jsonEncode({
+            'error': {'status': 'PERMISSION_DENIED', 'message': 'Denied'},
+          }),
+          403,
+        );
       }),
     );
   });
 
-  test(
-    'mobile Directions distinguishes missing key and network failure',
-    () async {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (_) async => '');
+  test('mobile Routes distinguishes missing key and network failure', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => '');
+    await expectLater(
+      const ItineraryScheduleService(apiKey: '').fetchTravelLegs(points),
+      throwsA(
+        isA<ItineraryRouteException>().having(
+          (error) => error.kind,
+          'kind',
+          ItineraryRouteFailure.notConfigured,
+        ),
+      ),
+    );
+
+    await http.runWithClient(() async {
       await expectLater(
-        const ItineraryScheduleService(apiKey: '').fetchTravelLegs(points),
+        const ItineraryScheduleService(
+          apiKey: 'test-key',
+        ).fetchTravelLegs(points),
         throwsA(
           isA<ItineraryRouteException>().having(
             (error) => error.kind,
             'kind',
-            ItineraryRouteFailure.notConfigured,
+            ItineraryRouteFailure.network,
           ),
         ),
       );
-
-      await http.runWithClient(() async {
-        await expectLater(
-          const ItineraryScheduleService(
-            apiKey: 'test-key',
-          ).fetchTravelLegs(points),
-          throwsA(
-            isA<ItineraryRouteException>().having(
-              (error) => error.kind,
-              'kind',
-              ItineraryRouteFailure.network,
-            ),
-          ),
-        );
-      }, () => MockClient((_) async => throw const SocketException('offline')));
-    },
-  );
+    }, () => MockClient((_) async => throw const SocketException('offline')));
+  });
 }

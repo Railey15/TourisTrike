@@ -8,27 +8,25 @@ Future<String> secureGoogleMediaUrl({
 }) async {
   final original = imageUrl.trim();
   final uri = Uri.tryParse(original);
-  if (uri == null || uri.host.toLowerCase() != 'maps.googleapis.com') {
+  if (uri == null) return original;
+  final host = uri.host.toLowerCase();
+  if (host != 'maps.googleapis.com' && host != 'places.googleapis.com') {
     return original;
   }
 
   final gateway = GooglePlacesGateway(apiKey: '');
   try {
-    if (uri.path == '/maps/api/place/photo') {
+    if (uri.path == '/maps/api/place/photo' ||
+        (host == 'places.googleapis.com' && uri.path.endsWith('/media'))) {
       final reference = photoReference.trim().isNotEmpty
           ? photoReference.trim()
+          : uri.path.startsWith('/v1/places/')
+          ? uri.path.substring('/v1/'.length).replaceFirst('/media', '')
           : (uri.queryParameters['photo_reference'] ?? '').trim();
       return reference.isEmpty ? '' : gateway.photoProxyUrl(reference);
     }
 
-    if (uri.path == '/maps/api/staticmap' &&
-        latitude != null &&
-        longitude != null) {
-      return gateway.staticMapProxyUrl(
-        latitude: latitude,
-        longitude: longitude,
-      );
-    }
+    if (uri.path == '/maps/api/staticmap') return '';
   } catch (_) {
     // A failed signing request must not fall back to exposing/requesting the
     // legacy server-key URL in the browser.

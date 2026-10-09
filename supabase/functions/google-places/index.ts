@@ -10,7 +10,8 @@ const SUPABASE_ANON_KEY = (Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
@@ -30,26 +31,28 @@ type Operation =
 
 const operationConfig: Record<
   Operation,
-  { path: string; allowed: ReadonlySet<string> }
+  { allowed: ReadonlySet<string> }
 > = {
   textSearch: {
-    path: "/maps/api/place/textsearch/json",
     allowed: new Set(["query", "location", "radius", "region"]),
   },
   nearbySearch: {
-    path: "/maps/api/place/nearbysearch/json",
     allowed: new Set(["location", "radius", "keyword", "region", "type"]),
   },
   details: {
-    path: "/maps/api/place/details/json",
     allowed: new Set(["place_id", "fields", "region", "language"]),
   },
   autocomplete: {
-    path: "/maps/api/place/autocomplete/json",
-    allowed: new Set(["input", "components", "language", "location", "radius", "strictbounds"]),
+    allowed: new Set([
+      "input",
+      "components",
+      "language",
+      "location",
+      "radius",
+      "strictbounds",
+    ]),
   },
   geocode: {
-    path: "/maps/api/geocode/json",
     allowed: new Set(["latlng", "language", "region"]),
   },
 };
@@ -72,8 +75,216 @@ function safeParameters(
     (operation === "autocomplete" && !params.get("input")) ||
     (operation === "geocode" && !params.get("latlng"))
   ) return null;
-  params.set("key", GOOGLE_MAPS_API_KEY);
   return params;
+}
+
+const searchFieldMask = [
+  "places.id",
+  "places.displayName",
+  "places.formattedAddress",
+  "places.location",
+  "places.rating",
+  "places.userRatingCount",
+  "places.photos",
+  "places.types",
+  "places.businessStatus",
+].join(",");
+
+const detailsFieldMask = [
+  "id",
+  "displayName",
+  "formattedAddress",
+  "location",
+  "rating",
+  "userRatingCount",
+  "websiteUri",
+  "nationalPhoneNumber",
+  "editorialSummary",
+  "regularOpeningHours.weekdayDescriptions",
+  "addressComponents",
+  "photos",
+  "types",
+  "businessStatus",
+].join(",");
+
+function locationCircle(params: URLSearchParams) {
+  const parts = (params.get("location") ?? "").split(",");
+  const latitude = Number(parts[0]);
+  const longitude = Number(parts[1]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const requestedRadius = Number(params.get("radius") ?? "25000");
+  const radius = Math.min(50000, Math.max(1, requestedRadius || 25000));
+  return { center: { latitude, longitude }, radius };
+}
+
+function nearbyType(params: URLSearchParams): string {
+  const value = (params.get("type") ?? params.get("keyword") ?? "")
+    .trim().toLowerCase().replaceAll(" ", "_");
+  return [
+      "museum",
+      "park",
+      "church",
+      "restaurant",
+      "cafe",
+      "tourist_attraction",
+    ]
+      .includes(value)
+    ? value
+    : "tourist_attraction";
+}
+
+function placesRequest(
+  operation: Operation,
+  params: URLSearchParams,
+): { url: URL; init: RequestInit } {
+  if (operation === "geocode") {
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    url.searchParams.set("key", GOOGLE_MAPS_API_KEY);
+    return { url, init: { method: "GET" } };
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+  };
+  const languageCode = params.get("language") ?? "en";
+  const regionCode = (params.get("region") ?? "ph").toUpperCase();
+  let url: URL;
+  let body: Record<string, unknown> | undefined;
+  if (operation === "textSearch") {
+    url = new URL("https://places.googleapis.com/v1/places:searchText");
+    headers["X-Goog-FieldMask"] = searchFieldMask;
+    const circle = locationCircle(params);
+    body = {
+      textQuery: params.get("query") ?? "",
+      languageCode,
+      regionCode,
+      pageSize: 20,
+      ...(circle ? { locationBias: { circle } } : {}),
+    };
+  } else if (operation === "nearbySearch") {
+    url = new URL("https://places.googleapis.com/v1/places:searchNearby");
+    headers["X-Goog-FieldMask"] = searchFieldMask;
+    const circle = locationCircle(params);
+    body = {
+      languageCode,
+      regionCode,
+      maxResultCount: 20,
+      rankPreference: "POPULARITY",
+      includedTypes: [nearbyType(params)],
+      ...(circle ? { locationRestriction: { circle } } : {}),
+    };
+  } else if (operation === "autocomplete") {
+    url = new URL("https://places.googleapis.com/v1/places:autocomplete");
+    const circle = locationCircle(params);
+    body = {
+      input: params.get("input") ?? "",
+      languageCode,
+      regionCode,
+      includedRegionCodes: ["ph"],
+      ...(circle
+        ? params.get("strictbounds") === "true"
+          ? { locationRestriction: { circle } }
+          : { locationBias: { circle } }
+        : {}),
+    };
+  } else {
+    const placeId = encodeURIComponent(params.get("place_id") ?? "");
+    url = new URL(`https://places.googleapis.com/v1/places/${placeId}`);
+    url.searchParams.set("languageCode", languageCode);
+    url.searchParams.set("regionCode", regionCode);
+    headers["X-Goog-FieldMask"] = detailsFieldMask;
+  }
+  return {
+    url,
+    init: {
+      method: operation === "details" ? "GET" : "POST",
+      headers,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    },
+  };
+}
+
+function legacyPlace(raw: Record<string, unknown>): Record<string, unknown> {
+  const displayName = raw.displayName as Record<string, unknown> | undefined;
+  const location = raw.location as Record<string, unknown> | undefined;
+  const editorial = raw.editorialSummary as Record<string, unknown> | undefined;
+  const hours = raw.regularOpeningHours as Record<string, unknown> | undefined;
+  const components = Array.isArray(raw.addressComponents)
+    ? raw.addressComponents.map((item) => {
+      const component = item as Record<string, unknown>;
+      return {
+        long_name: component.longText,
+        short_name: component.shortText,
+        types: component.types,
+      };
+    })
+    : [];
+  const photos = Array.isArray(raw.photos)
+    ? raw.photos.map((item) => ({
+      photo_reference: (item as Record<string, unknown>).name,
+    }))
+    : [];
+  return {
+    place_id: raw.id,
+    name: displayName?.text,
+    formatted_address: raw.formattedAddress,
+    ...(location
+      ? {
+        geometry: {
+          location: { lat: location.latitude, lng: location.longitude },
+        },
+      }
+      : {}),
+    rating: raw.rating,
+    user_ratings_total: raw.userRatingCount,
+    website: raw.websiteUri,
+    formatted_phone_number: raw.nationalPhoneNumber,
+    ...(editorial ? { editorial_summary: { overview: editorial.text } } : {}),
+    ...(hours
+      ? { opening_hours: { weekday_text: hours.weekdayDescriptions } }
+      : {}),
+    address_components: components,
+    photos,
+    types: raw.types,
+    business_status: raw.businessStatus,
+  };
+}
+
+function normalizePlacesBody(
+  operation: Operation,
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  if (operation === "geocode") return body;
+  if (operation === "textSearch" || operation === "nearbySearch") {
+    const places = Array.isArray(body.places) ? body.places : [];
+    return {
+      status: places.length ? "OK" : "ZERO_RESULTS",
+      results: places.map((place) =>
+        legacyPlace(place as Record<string, unknown>)
+      ),
+      ...(body.nextPageToken ? { next_page_token: body.nextPageToken } : {}),
+    };
+  }
+  if (operation === "details") {
+    return { status: "OK", result: legacyPlace(body) };
+  }
+  const suggestions = Array.isArray(body.suggestions) ? body.suggestions : [];
+  const predictions = suggestions.flatMap((item) => {
+    const suggestion = item as Record<string, unknown>;
+    const prediction = suggestion.placePrediction as
+      | Record<string, unknown>
+      | undefined;
+    const text = prediction?.text as Record<string, unknown> | undefined;
+    return prediction?.placeId && text?.text
+      ? [{ place_id: prediction.placeId, description: text.text }]
+      : [];
+  });
+  return {
+    status: predictions.length ? "OK" : "ZERO_RESULTS",
+    predictions,
+  };
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -125,50 +336,6 @@ async function photoProxyUrl(photoReference: string): Promise<string> {
   return url.toString();
 }
 
-async function staticMapProxyUrl(lat: number, lng: number): Promise<string> {
-  const latitude = lat.toFixed(6);
-  const longitude = lng.toFixed(6);
-  const zoom = 15;
-  const signedValue = `static-map:${latitude}:${longitude}:${zoom}`;
-  const url = new URL(functionUrl());
-  url.searchParams.set("resource", "static-map");
-  url.searchParams.set("lat", latitude);
-  url.searchParams.set("lng", longitude);
-  url.searchParams.set("zoom", String(zoom));
-  url.searchParams.set("signature", await signature(signedValue));
-  return url.toString();
-}
-
-async function routeStaticMapProxyUrl(
-  pickupLat: number,
-  pickupLng: number,
-  dropoffLat: number,
-  dropoffLng: number,
-  encodedPolyline: string,
-): Promise<string> {
-  const pickupLatitude = pickupLat.toFixed(6);
-  const pickupLongitude = pickupLng.toFixed(6);
-  const dropoffLatitude = dropoffLat.toFixed(6);
-  const dropoffLongitude = dropoffLng.toFixed(6);
-  const signedValue = [
-    "route-static-map",
-    pickupLatitude,
-    pickupLongitude,
-    dropoffLatitude,
-    dropoffLongitude,
-    encodedPolyline,
-  ].join(":");
-  const url = new URL(functionUrl());
-  url.searchParams.set("resource", "route-static-map");
-  url.searchParams.set("pickup_lat", pickupLatitude);
-  url.searchParams.set("pickup_lng", pickupLongitude);
-  url.searchParams.set("dropoff_lat", dropoffLatitude);
-  url.searchParams.set("dropoff_lng", dropoffLongitude);
-  if (encodedPolyline) url.searchParams.set("polyline", encodedPolyline);
-  url.searchParams.set("signature", await signature(signedValue));
-  return url.toString();
-}
-
 async function decoratePlace(raw: unknown): Promise<unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const place = { ...(raw as Record<string, unknown>) };
@@ -181,13 +348,6 @@ async function decoratePlace(raw: unknown): Promise<unknown> {
     if (photoReference) {
       place._proxy_image_url = await photoProxyUrl(photoReference);
     }
-  }
-  const geometry = place.geometry as Record<string, unknown> | undefined;
-  const location = geometry?.location as Record<string, unknown> | undefined;
-  const lat = Number(location?.lat);
-  const lng = Number(location?.lng);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    place._proxy_static_map_url = await staticMapProxyUrl(lat, lng);
   }
   return place;
 }
@@ -207,21 +367,81 @@ function googleFailure(
   body: Record<string, unknown>,
   httpStatus: number,
 ): Response | null {
-  const status = String(body.status ?? "");
-  if (httpStatus === 429 || status === "OVER_QUERY_LIMIT") {
+  const error = body.error as Record<string, unknown> | undefined;
+  const status = String(error?.status ?? body.status ?? "");
+  const upstreamMessage = String(error?.message ?? body.error_message ?? "");
+  const diagnostic = `${status} ${upstreamMessage}`.toLowerCase();
+  if (
+    httpStatus === 429 || status === "OVER_QUERY_LIMIT" ||
+    diagnostic.includes("quota")
+  ) {
     return json(
       {
         error: "RATE_LIMITED",
-        message: "Google Places request limit was reached. Please retry shortly.",
+        message:
+          "Google Places request limit was reached. Please retry shortly.",
       },
       429,
     );
+  }
+  if (diagnostic.includes("field mask")) {
+    return json({
+      error: "MISSING_FIELD_MASK",
+      message: "Google Places rejected a missing or invalid field mask.",
+    }, 400);
+  }
+  if (diagnostic.includes("billing")) {
+    return json({
+      error: "BILLING_REQUIRED",
+      message:
+        "Google Maps Platform billing is not available for this project.",
+    }, 403);
+  }
+  if (
+    diagnostic.includes("legacy api") ||
+    diagnostic.includes("legacy endpoint")
+  ) {
+    return json({
+      error: "LEGACY_ENDPOINT",
+      message:
+        "Google Places rejected a legacy endpoint. Update the deployed client or server.",
+    }, 400);
+  }
+  if (
+    diagnostic.includes("not enabled") ||
+    diagnostic.includes("has not been used") ||
+    diagnostic.includes("disabled")
+  ) {
+    return json({
+      error: "API_NOT_ENABLED",
+      message: "Places API (New) is not enabled for this project.",
+    }, 403);
+  }
+  if (
+    diagnostic.includes("api key not valid") ||
+    diagnostic.includes("invalid api key")
+  ) {
+    return json({
+      error: "INVALID_API_KEY",
+      message: "Google Places rejected the configured server API key.",
+    }, 403);
+  }
+  if (
+    diagnostic.includes("referer") || diagnostic.includes("restriction") ||
+    diagnostic.includes("not authorized")
+  ) {
+    return json({
+      error: "API_RESTRICTION_MISMATCH",
+      message:
+        "The server API key restrictions do not allow this Places request.",
+    }, 403);
   }
   if (httpStatus === 401 || httpStatus === 403 || status === "REQUEST_DENIED") {
     return json(
       {
         error: "GOOGLE_UNAUTHORIZED",
-        message: "Google Places rejected the server API key or its API restrictions.",
+        message:
+          "Google Places rejected the server API key or its API restrictions.",
       },
       403,
     );
@@ -234,7 +454,7 @@ function googleFailure(
   }
   if (
     httpStatus < 200 || httpStatus >= 300 ||
-    (status !== "OK" && status !== "ZERO_RESULTS")
+    (status && status !== "OK" && status !== "ZERO_RESULTS")
   ) {
     return json({
       error: "UPSTREAM_FAILURE",
@@ -257,7 +477,8 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
   let signedValue: string;
 
   if (resource === "photo") {
-    const photoReference = (requestUrl.searchParams.get("photo_reference") ?? "").trim();
+    const photoReference =
+      (requestUrl.searchParams.get("photo_reference") ?? "").trim();
     const maxWidth = Number(requestUrl.searchParams.get("maxwidth") ?? "900");
     if (
       !photoReference || photoReference.length > 1000 ||
@@ -269,83 +490,21 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
       }, 400);
     }
     signedValue = `photo:${photoReference}:${maxWidth}`;
-    upstream = new URL("https://maps.googleapis.com/maps/api/place/photo");
-    upstream.searchParams.set("photo_reference", photoReference);
-    upstream.searchParams.set("maxwidth", String(maxWidth));
-  } else if (resource === "static-map") {
-    const lat = Number(requestUrl.searchParams.get("lat"));
-    const lng = Number(requestUrl.searchParams.get("lng"));
-    const zoom = Number(requestUrl.searchParams.get("zoom") ?? "15");
     if (
-      !Number.isFinite(lat) || !Number.isFinite(lng) || lat < 4 || lat > 22 ||
-      lng < 115 || lng > 130 || !Number.isInteger(zoom) || zoom < 10 ||
-      zoom > 18
-    ) {
-      return json(
-        { error: "INVALID_REQUEST", message: "Invalid map request." },
-        400,
-      );
-    }
-    const latitude = lat.toFixed(6);
-    const longitude = lng.toFixed(6);
-    signedValue = `static-map:${latitude}:${longitude}:${zoom}`;
-    const marker = `${latitude},${longitude}`;
-    upstream = new URL("https://maps.googleapis.com/maps/api/staticmap");
-    upstream.searchParams.set("center", marker);
-    upstream.searchParams.set("zoom", String(zoom));
-    upstream.searchParams.set("size", "640x420");
-    upstream.searchParams.set("scale", "2");
-    upstream.searchParams.set("maptype", "roadmap");
-    upstream.searchParams.set("markers", `color:red|${marker}`);
-  } else if (resource === "route-static-map") {
-    const pickupLat = Number(requestUrl.searchParams.get("pickup_lat"));
-    const pickupLng = Number(requestUrl.searchParams.get("pickup_lng"));
-    const dropoffLat = Number(requestUrl.searchParams.get("dropoff_lat"));
-    const dropoffLng = Number(requestUrl.searchParams.get("dropoff_lng"));
-    const encodedPolyline = requestUrl.searchParams.get("polyline") ?? "";
-    const validCoordinate = (lat: number, lng: number) =>
-      Number.isFinite(lat) && Number.isFinite(lng) &&
-      lat >= 4 && lat <= 22 && lng >= 115 && lng <= 130;
-    if (
-      !validCoordinate(pickupLat, pickupLng) ||
-      !validCoordinate(dropoffLat, dropoffLng) ||
-      encodedPolyline.length > 4000
+      !photoReference.startsWith("places/") ||
+      !photoReference.includes("/photos/")
     ) {
       return json({
         error: "INVALID_REQUEST",
-        message: "Invalid route map request.",
+        message: "Invalid Places API (New) photo resource.",
       }, 400);
     }
-    const pickupLatitude = pickupLat.toFixed(6);
-    const pickupLongitude = pickupLng.toFixed(6);
-    const dropoffLatitude = dropoffLat.toFixed(6);
-    const dropoffLongitude = dropoffLng.toFixed(6);
-    signedValue = [
-      "route-static-map",
-      pickupLatitude,
-      pickupLongitude,
-      dropoffLatitude,
-      dropoffLongitude,
-      encodedPolyline,
-    ].join(":");
-    upstream = new URL("https://maps.googleapis.com/maps/api/staticmap");
-    upstream.searchParams.set("size", "800x360");
-    upstream.searchParams.set("scale", "2");
-    upstream.searchParams.set("maptype", "roadmap");
-    upstream.searchParams.append(
-      "markers",
-      `color:green|label:P|${pickupLatitude},${pickupLongitude}`,
+    upstream = new URL(
+      `https://places.googleapis.com/v1/${
+        photoReference.replace(/^\/+/, "")
+      }/media`,
     );
-    upstream.searchParams.append(
-      "markers",
-      `color:red|label:D|${dropoffLatitude},${dropoffLongitude}`,
-    );
-    if (encodedPolyline) {
-      upstream.searchParams.set(
-        "path",
-        `color:0x2A86FF|weight:4|enc:${encodedPolyline}`,
-      );
-    }
+    upstream.searchParams.set("maxWidthPx", String(maxWidth));
   } else {
     return json({
       error: "INVALID_REQUEST",
@@ -363,10 +522,16 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
     }, 403);
   }
 
-  upstream.searchParams.set("key", GOOGLE_MAPS_API_KEY);
+  const placePhoto = resource === "photo";
+  if (!placePhoto) upstream.searchParams.set("key", GOOGLE_MAPS_API_KEY);
   let response: Response;
   try {
-    response = await fetch(upstream, { redirect: "follow" });
+    response = await fetch(upstream, {
+      redirect: "follow",
+      ...(placePhoto
+        ? { headers: { "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY } }
+        : {}),
+    });
   } catch {
     return json({
       error: "UPSTREAM_NETWORK",
@@ -377,7 +542,9 @@ async function proxyImage(requestUrl: URL): Promise<Response> {
   if (!response.ok || !contentType.startsWith("image/")) {
     return json(
       {
-        error: response.status === 429 ? "RATE_LIMITED" : "MEDIA_UPSTREAM_FAILURE",
+        error: response.status === 429
+          ? "RATE_LIMITED"
+          : "MEDIA_UPSTREAM_FAILURE",
         message: "Google media is unavailable.",
       },
       response.status === 429 ? 429 : 502,
@@ -447,9 +614,7 @@ async function handleRequest(request: Request): Promise<Response> {
   const requestedOperation = String(input.operation ?? "");
   const rawParameters = input.parameters;
   if (
-    (requestedOperation === "photoProxyUrl" ||
-      requestedOperation === "staticMapProxyUrl" ||
-      requestedOperation === "routeStaticMapProxyUrl") &&
+    requestedOperation === "photoProxyUrl" &&
     (!rawParameters || typeof rawParameters !== "object" ||
       Array.isArray(rawParameters))
   ) {
@@ -469,49 +634,6 @@ async function handleRequest(request: Request): Promise<Response> {
     }
     return json({ url: await photoProxyUrl(photoReference) });
   }
-  if (requestedOperation === "staticMapProxyUrl") {
-    const lat = Number(mediaParameters.lat);
-    const lng = Number(mediaParameters.lng);
-    if (
-      !Number.isFinite(lat) || !Number.isFinite(lng) ||
-      lat < 4 || lat > 22 || lng < 115 || lng > 130
-    ) {
-      return json({
-        error: "INVALID_REQUEST",
-        message: "Invalid map coordinates.",
-      }, 400);
-    }
-    return json({ url: await staticMapProxyUrl(lat, lng) });
-  }
-  if (requestedOperation === "routeStaticMapProxyUrl") {
-    const pickupLat = Number(mediaParameters.pickup_lat);
-    const pickupLng = Number(mediaParameters.pickup_lng);
-    const dropoffLat = Number(mediaParameters.dropoff_lat);
-    const dropoffLng = Number(mediaParameters.dropoff_lng);
-    const encodedPolyline = String(mediaParameters.polyline ?? "");
-    const validCoordinate = (lat: number, lng: number) =>
-      Number.isFinite(lat) && Number.isFinite(lng) &&
-      lat >= 4 && lat <= 22 && lng >= 115 && lng <= 130;
-    if (
-      !validCoordinate(pickupLat, pickupLng) ||
-      !validCoordinate(dropoffLat, dropoffLng) ||
-      encodedPolyline.length > 4000
-    ) {
-      return json({
-        error: "INVALID_REQUEST",
-        message: "Invalid route map parameters.",
-      }, 400);
-    }
-    return json({
-      url: await routeStaticMapProxyUrl(
-        pickupLat,
-        pickupLng,
-        dropoffLat,
-        dropoffLng,
-        encodedPolyline,
-      ),
-    });
-  }
 
   const operation = requestedOperation as Operation;
   if (!(operation in operationConfig)) {
@@ -528,13 +650,10 @@ async function handleRequest(request: Request): Promise<Response> {
     }, 400);
   }
 
-  const upstream = new URL(
-    `https://maps.googleapis.com${operationConfig[operation].path}`,
-  );
-  upstream.search = params.toString();
+  const upstreamRequest = placesRequest(operation, params);
   let googleResponse: Response;
   try {
-    googleResponse = await fetch(upstream);
+    googleResponse = await fetch(upstreamRequest.url, upstreamRequest.init);
   } catch {
     return json({
       error: "UPSTREAM_NETWORK",
@@ -552,7 +671,9 @@ async function handleRequest(request: Request): Promise<Response> {
   }
   const failure = googleFailure(googleBody, googleResponse.status);
   if (failure) return failure;
-  return json(await decorateGoogleBody(googleBody));
+  return json(
+    await decorateGoogleBody(normalizePlacesBody(operation, googleBody)),
+  );
 }
 
 serve(async (request) => {

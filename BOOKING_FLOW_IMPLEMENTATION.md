@@ -39,7 +39,7 @@ Implemented September 5, 2026. The existing Flutter booking architecture, atomic
 
 10. **Pickup storage:** The selected date and exact time form the existing `scheduledStartAt` value. The repository sends its UTC ISO timestamp to `package_bookings.scheduled_start_at`; `travel_date` retains the selected calendar date. Existing server validation checks the pickup date in `Asia/Manila`. The application continues using its existing device-local date/time input and display convention.
 
-11. **Maps service:** `ItineraryScheduleService` uses the existing Google Directions integration: native clients call `/maps/api/directions/json`; web clients call the existing `_flutterGetRoute` bridge backed by `google.maps.DirectionsService`. Scheduling requests use stopover waypoints with order optimization disabled, yielding one numeric leg per segment. Seconds are rounded up to whole minutes. Web navigation requests keep their previous non-stopover behavior. See [Google's Directions service documentation](https://developers.google.com/maps/documentation/javascript/legacy/directions).
+11. **Maps service:** `ItineraryScheduleService` uses Routes API `computeRoutes` on native clients; web clients call the existing `_flutterGetRoute` bridge backed by Maps JavaScript API. Scheduling requests use stopover waypoints with order optimization disabled, yielding one numeric leg per segment. Seconds are rounded up to whole minutes. Web navigation requests keep their previous non-stopover behavior.
 
 12. **First ETA:** `pickup time + Google Maps pickup-to-first-stop duration`.
 
@@ -57,7 +57,7 @@ Implemented September 5, 2026. The existing Flutter booking architecture, atomic
 
 19. **SQL migration:** None added. The existing schedule/capacity migration `20260830000000_booking_schedule_group_chat_arrivals.sql`, payment foundation and transaction-lifecycle migrations remain prerequisites. The active developer diagnostics migration was not changed.
 
-20. **Google configuration:** No new API or credential name. Native scheduling uses the existing `GOOGLE_MAPS_API_KEY`/`GOOGLE_PLACES_API_KEY` resolution; web uses the existing Maps JavaScript loader key. The existing Google project must allow Directions and Maps JavaScript where applicable, with billing and appropriate key restrictions. A rejected or unavailable route now produces an explicit error instead of an approximation. No live API credential/billing check was performed.
+20. **Google configuration:** No new credential name. Native scheduling uses the existing `GOOGLE_MAPS_API_KEY`/`GOOGLE_PLACES_API_KEY` resolution with Routes API; web uses the existing Maps JavaScript loader key. The Google project must allow Routes API and Maps JavaScript API where applicable, with billing and appropriate key restrictions. A rejected or unavailable route now produces an explicit error instead of an approximation. No live API credential/billing check was performed.
 
 21. **Supabase deployment:** No new migration or Edge Function deployment is required for this change when the repository's existing migrations/functions are deployed. Existing Realtime publication membership for `package_bookings`, `booking_drivers`, `payment_records`, `payment_allocations` and booking payment requirements must remain enabled. Rebuild/release the Flutter client and include the updated `web/index.html` in the web release. No remote database or production deployment was performed.
 

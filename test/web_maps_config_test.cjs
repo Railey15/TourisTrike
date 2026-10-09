@@ -31,13 +31,68 @@ test('generated loader sends exactly the supplied key once and records its finge
   assert.equal(new URL(src).searchParams.get('key'), key);
 });
 
+test('web route bridge uses Routes Library computeRoutes and preserves app response shape', async () => {
+  const scripts = [...template.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  let request;
+  const context = {JSON, Number};
+  context.window = context;
+  context.google = {
+    maps: {
+      importLibrary: async name => {
+        assert.equal(name, 'routes');
+        return {
+          Route: {
+            computeRoutes: async value => {
+              request = value;
+              return {
+                routes: [{
+                  path: [{lat: 14.95, lng: 120.9}, {lat: 14.96, lng: 120.91}],
+                  durationMillis: 125000,
+                  legs: [{durationMillis: 125000, distanceMeters: 2300}],
+                }],
+              };
+            },
+          },
+        };
+      },
+    },
+  };
+  vm.runInNewContext(scripts[1][1], context);
+  const result = JSON.parse(await context._flutterGetRoute(JSON.stringify({
+    originLat: 14.95,
+    originLng: 120.9,
+    destLat: 14.96,
+    destLng: 120.91,
+    requestTraffic: true,
+    stopovers: true,
+    waypoints: [{lat: 14.955, lng: 120.905}],
+  })));
+  assert.equal(request.routingPreference, 'TRAFFIC_AWARE');
+  assert.equal(request.intermediates[0].via, false);
+  assert.deepEqual(Array.from(request.fields), [
+    'path',
+    'durationMillis',
+    'distanceMeters',
+    'legs.durationMillis',
+    'legs.distanceMeters',
+  ]);
+  assert.equal(result.status, 'OK');
+  assert.deepEqual(result.points, [[14.95, 120.9], [14.96, 120.91]]);
+  assert.equal(result.eta, '3 min');
+  assert.equal(result.routes[0].legs[0].duration.value, 125);
+  assert.equal(result.routes[0].legs[0].distance.value, 2300);
+});
+
 test('old output or a missing placeholder cannot silently preserve a stale key', () => {
   assert.throws(() => injectHtml(injectHtml(template, key), differentKey), /fresh Flutter web build/);
   assert.throws(() => injectHtml('<script src="https://maps.googleapis.com/maps/api/js?key=x"></script>', key), /fresh Flutter web build/);
 });
 
 test('duplicate loaders are rejected', () => {
-  assert.throws(() => injectHtml(template + '<script src="https://maps.googleapis.com/maps/api/js"></script>', key), /exactly one SDK loader/);
+  assert.throws(
+    () => injectHtml(template + '<script src="https://maps.googleapis.com/maps/api/js"></script>', key),
+    /exactly one SDK loader|loaderCount \(must be 1\)/,
+  );
 });
 
 test('audit recognizes the previous literal-key deployment without exposing its key', () => {

@@ -20,7 +20,7 @@ History comparison: `7eff78c` already contains the silent autocomplete catch and
 
 - `lib/core/places/booking_location_service.dart`: extracts the existing Places Autocomplete, Place Details, and Geocoding REST integration into a testable service. Explicit API-status errors replace silent empty results and fake coordinate-address fallbacks. Autocomplete retains `components=country:ph` and sends the user's actual query instead of appending the package municipality.
 - `lib/widgets/booking_location_picker.dart`: retains the existing field, suggestions, current-location button, selected-address card, colors, and spacing. Each instance owns its selected state and request revision. Adds service-error feedback and retry search.
-- `lib/screens/tourist/package_booking_screen.dart`: uses these two independent pickers, stores their complete resolved objects, and sends actual locality/province/country values through existing booking persistence fields. Route Preview uses the selected coordinates, displays both markers, requests the existing Directions integration, and draws the returned route on the existing static map. It displays calculation/loading failure and retry without creating a fake route.
+- `lib/screens/tourist/package_booking_screen.dart`: uses these two independent pickers, stores their complete resolved objects, and sends actual locality/province/country values through existing booking persistence fields. Route Preview uses the selected coordinates, displays both markers, requests route data, and draws the returned route on the existing preview. It displays calculation/loading failure and retry without creating a fake route.
 - `test/booking_location_search_test.dart`: service and widget regression tests.
 
 No payment, driver navigation, convoy, itinerary scheduling, Supabase function, or schema changes are part of this repair.
@@ -39,7 +39,7 @@ Validation no longer requires the selected point's municipality to match the pac
 
 Previously, typing after selection left the old coordinates valid, and asynchronous search/details/GPS responses had no revision guard. Each edit, selection, clear, or current-location operation now advances an instance-specific revision. Stale responses cannot alter text, errors, suggestions, or selected coordinates. Editing clears that field's accepted coordinates immediately. Country validation happens only after details/reverse geocoding finish; no country errors run on screen opening or ordinary typing. Continuing with unresolved/free text is blocked by the existing booking-step validation.
 
-The preview receives `_selectedPickup` and `_selectedDropoff` coordinates directly. A missing selection displays the waiting card and issues no Directions request. Changes to either coordinate pair invalidate the previous preview request; only the current result is rendered. The existing `fetchItineraryDirections` platform integration calculates the route; Static Maps displays its encoded overview polyline and both coordinate markers. Route failure is explicit and retryable.
+The preview receives `_selectedPickup` and `_selectedDropoff` coordinates directly. A missing selection displays the waiting card and issues no route request. Changes to either coordinate pair invalidate the previous preview request; only the current result is rendered. The existing `fetchItineraryDirections` platform integration calculates the route through Routes API on native clients; the web bridge remains backed by Maps JavaScript API. Route failure is explicit and retryable.
 
 ## Verification and remaining external requirement
 
@@ -49,8 +49,8 @@ Validation completed: `flutter test` passed all **212 tests**, including **13 ne
 
 `flutter build apk --debug` also succeeded. Updated APK: `build/app/outputs/flutter-apk/app-debug.apk`.
 
-Google documents the JSON response status and country component filter in [Place Autocomplete (Legacy)](https://developers.google.com/maps/documentation/places/web-service/legacy/autocomplete). This repair preserves that existing provider rather than introducing another search source.
+Google documents the request and response model in [Places API (New) Autocomplete](https://developers.google.com/maps/documentation/places/web-service/place-autocomplete). The current integration preserves Google Places as the search source while using that current endpoint.
 
-The configured Google Cloud project's billing must be enabled before live autocomplete, reverse geocoding, and route calculation can work. API keys were not exposed or changed by this fix. Google's returned error establishes the billing blocker; whether an additional API restriction will appear after billing is enabled cannot be verified from the denied responses. The existing integration needs Places API (Legacy Autocomplete/Details), Geocoding API, Directions API, and Maps Static API access.
+The configured Google Cloud project's billing must be enabled before live autocomplete, reverse geocoding, and route calculation can work. API keys were not exposed or changed by this fix. The current integration requires Places API (New), Geocoding API, and Routes API. Maps SDK for Android and Maps JavaScript API remain responsible for their existing interactive-map surfaces.
 
 No SQL, Supabase deployment, or generated types update is required. After resolving billing, rebuild/restart the Flutter app and test both fields with `Bustos Municipal Hall` and `SM City Baliwag`, selecting the returned suggestions. Verify green selected-address cards, two preview markers and a route, then edit one field and verify its old selection disappears while the other stays selected. Also test Current Location with a Philippine emulator GPS fix.

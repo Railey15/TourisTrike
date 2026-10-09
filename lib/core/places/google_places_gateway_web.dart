@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'google_places_errors.dart';
 
 class GooglePlacesGateway {
-  const GooglePlacesGateway({required this.apiKey});
+  const GooglePlacesGateway({required this.apiKey, Object? client});
 
   // Kept for a matching cross-platform constructor. It is never sent on web.
   final String apiKey;
@@ -51,6 +51,51 @@ class GooglePlacesGateway {
             message ??
             'Google Places request limit was reached. Please retry shortly.',
         statusCode: 429,
+      );
+    }
+    if (code == 'API_NOT_ENABLED') {
+      return GooglePlacesException(
+        kind: GooglePlacesFailureKind.apiNotEnabled,
+        message: message ?? 'Places API (New) is not enabled on the server.',
+        statusCode: error.status,
+      );
+    }
+    if (code == 'LEGACY_ENDPOINT') {
+      return GooglePlacesException(
+        kind: GooglePlacesFailureKind.legacyEndpoint,
+        message:
+            message ??
+            'The deployed Places service attempted to use a legacy endpoint.',
+        statusCode: error.status,
+      );
+    }
+    if (code == 'INVALID_API_KEY') {
+      return GooglePlacesException(
+        kind: GooglePlacesFailureKind.invalidApiKey,
+        message: message ?? 'Google Places rejected the server API key.',
+        statusCode: error.status,
+      );
+    }
+    if (code == 'API_RESTRICTION_MISMATCH') {
+      return GooglePlacesException(
+        kind: GooglePlacesFailureKind.restrictionMismatch,
+        message:
+            message ?? 'The server API key restrictions rejected this request.',
+        statusCode: error.status,
+      );
+    }
+    if (code == 'BILLING_REQUIRED') {
+      return GooglePlacesException(
+        kind: GooglePlacesFailureKind.billing,
+        message: message ?? 'Google Maps Platform billing is unavailable.',
+        statusCode: error.status,
+      );
+    }
+    if (code == 'MISSING_FIELD_MASK') {
+      return GooglePlacesException(
+        kind: GooglePlacesFailureKind.missingFieldMask,
+        message: message ?? 'Google Places rejected the field mask.',
+        statusCode: error.status,
       );
     }
     if (error.status == 401 ||
@@ -102,13 +147,7 @@ class GooglePlacesGateway {
   Future<String> staticMapProxyUrl({
     required double latitude,
     required double longitude,
-  }) async {
-    final data = await request('staticMapProxyUrl', {
-      'lat': latitude.toString(),
-      'lng': longitude.toString(),
-    });
-    return data['url']?.toString().trim() ?? '';
-  }
+  }) async => '';
 
   Future<String> routeStaticMapUrl({
     required double pickupLatitude,
@@ -116,16 +155,7 @@ class GooglePlacesGateway {
     required double dropoffLatitude,
     required double dropoffLongitude,
     String encodedPolyline = '',
-  }) async {
-    final data = await request('routeStaticMapProxyUrl', {
-      'pickup_lat': pickupLatitude.toString(),
-      'pickup_lng': pickupLongitude.toString(),
-      'dropoff_lat': dropoffLatitude.toString(),
-      'dropoff_lng': dropoffLongitude.toString(),
-      if (encodedPolyline.isNotEmpty) 'polyline': encodedPolyline,
-    });
-    return data['url']?.toString().trim() ?? '';
-  }
+  }) async => '';
 }
 
 String resolveGoogleMapsApiKey() => '';

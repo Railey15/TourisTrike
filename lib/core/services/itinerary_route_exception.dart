@@ -1,6 +1,10 @@
 enum ItineraryRouteFailure {
   notConfigured,
+  legacyEndpoint,
   apiNotEnabled,
+  billing,
+  invalidApiKey,
+  restrictionMismatch,
   unauthorized,
   rateLimited,
   noRoute,
@@ -30,8 +34,16 @@ class ItineraryRouteException implements Exception {
   String get message => switch (kind) {
     ItineraryRouteFailure.notConfigured =>
       'Google Maps routing is not configured. Please contact support.',
+    ItineraryRouteFailure.legacyEndpoint =>
+      'Google Maps routing rejected a legacy endpoint. Update the deployed application.',
     ItineraryRouteFailure.apiNotEnabled =>
-      'Google Maps routing is unavailable because the Directions API is not enabled. Please contact support.',
+      'Google Maps routing is unavailable because the Routes API is not enabled. Please contact support.',
+    ItineraryRouteFailure.billing =>
+      'Google Maps routing is unavailable because billing is not enabled. Please contact support.',
+    ItineraryRouteFailure.invalidApiKey =>
+      'Google Maps routing rejected the configured API key. Please contact support.',
+    ItineraryRouteFailure.restrictionMismatch =>
+      'Google Maps routing is blocked by the API key restrictions. Please contact support.',
     ItineraryRouteFailure.unauthorized =>
       'Google Maps routing is unavailable because its API access was rejected. Please contact support.',
     ItineraryRouteFailure.rateLimited =>

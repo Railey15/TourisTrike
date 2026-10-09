@@ -38,6 +38,19 @@ Map<String, dynamic> place(double lat, double lng) => {
     },
   ],
 };
+Map<String, dynamic> newPlace(String id, double lat, double lng) => {
+  'id': id,
+  'displayName': {'text': 'A location'},
+  'formattedAddress': 'A location labelled Bustos, Philippines',
+  'location': {'latitude': lat, 'longitude': lng},
+  'addressComponents': [
+    {
+      'types': ['country'],
+      'longText': 'Philippines',
+      'shortText': 'PH',
+    },
+  ],
+};
 http.Response reply(Map<String, dynamic> body) =>
     http.Response(jsonEncode(body), 200);
 
@@ -144,25 +157,30 @@ void main() {
         apiKey: 'test',
         client: MockClient((r) async {
           if (r.url.path.contains('autocomplete')) {
-            expect(r.url.queryParameters['strictbounds'], 'true');
-            expect(r.url.queryParameters['location'], isNotNull);
+            expect(r.method, 'POST');
+            final body = jsonDecode(r.body) as Map<String, dynamic>;
+            expect(body['locationRestriction'], isNotNull);
             return reply({
-              'status': 'OK',
-              'predictions': [
-                {'place_id': 'inside', 'description': 'Inside'},
-                {'place_id': 'outside', 'description': 'Bustos, Philippines'},
+              'suggestions': [
+                {
+                  'placePrediction': {
+                    'placeId': 'inside',
+                    'text': {'text': 'Inside'},
+                  },
+                },
+                {
+                  'placePrediction': {
+                    'placeId': 'outside',
+                    'text': {'text': 'Bustos, Philippines'},
+                  },
+                },
               ],
             });
           }
-          return reply({
-            'status': 'OK',
-            'result': place(
-              r.url.queryParameters['place_id'] == 'inside' && inside
-                  ? 14.95
-                  : 14.6,
-              120.92,
-            ),
-          });
+          final id = r.url.pathSegments.last;
+          return reply(
+            newPlace(id, id == 'inside' && inside ? 14.95 : 14.6, 120.92),
+          );
         }),
       );
       final suggestions = await api.search('Bustos');

@@ -3,11 +3,13 @@ import 'dart:developer' as developer;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_media_url.dart';
+import 'package:touristrike/core/services/google_routes_api.dart';
 import 'package:touristrike/screens/subtenant/subtenant_package_itinerary_ordering.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 
@@ -678,56 +680,35 @@ class SubTenantService {
     try {
       final apiKey = CitySpotSuggestionService.resolveApiKey().trim();
       if (apiKey.isNotEmpty) {
-        final origin =
-            '${coordinates.first.latitude},${coordinates.first.longitude}';
-        final destination =
-            '${coordinates.last.latitude},${coordinates.last.longitude}';
-        final waypoints = coordinates
-            .skip(1)
-            .take(coordinates.length - 2)
-            .map((spot) => '${spot.latitude},${spot.longitude}')
-            .join('|');
-        final uri = Uri.parse(
-          'https://maps.googleapis.com/maps/api/directions/json'
-          '?origin=${Uri.encodeQueryComponent(origin)}'
-          '&destination=${Uri.encodeQueryComponent(destination)}'
-          '${waypoints.isEmpty ? '' : '&waypoints=${Uri.encodeQueryComponent(waypoints)}'}'
-          '&mode=driving'
-          '&region=ph'
-          '&key=$apiKey',
-        );
-
-        final res = await http.get(uri).timeout(const Duration(seconds: 12));
+        final points = coordinates
+            .map((spot) => LatLng(spot.latitude, spot.longitude))
+            .toList(growable: false);
+        final res = await http
+            .post(
+              Uri.parse(googleRoutesEndpoint),
+              headers: googleRoutesHeaders(apiKey),
+              body: googleRoutesRequestBody(points),
+            )
+            .timeout(const Duration(seconds: 12));
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body) as Map<String, dynamic>;
-          final status = body['status']?.toString() ?? '';
           developer.log(
-            '[PlacesAPI] Directions status=$status for ${coordinates.length} stops',
+            '[RoutesAPI] computeRoutes status=OK for ${coordinates.length} stops',
             name: 'SubTenantService',
           );
-          if (status == 'OK') {
-            final routes = (body['routes'] as List?) ?? const [];
-            if (routes.isNotEmpty) {
-              final route = routes.first as Map<String, dynamic>;
-              final legs = (route['legs'] as List?) ?? const [];
-              var totalMeters = 0.0;
-              var totalSeconds = 0;
-              for (final legRaw in legs) {
-                final leg = legRaw as Map<String, dynamic>;
-                totalMeters +=
-                    ((leg['distance'] as Map?)?['value'] as num?)?.toDouble() ??
-                    0;
-                totalSeconds +=
-                    ((leg['duration'] as Map?)?['value'] as num?)?.toInt() ?? 0;
-              }
-              if (totalMeters > 0) {
-                return SubTenantRouteMetrics(
-                  distanceKm: totalMeters / 1000,
-                  travelDurationMinutes: (totalSeconds / 60).round(),
-                  usedDirectionsApi: true,
-                  available: true,
-                );
-              }
+          final routes = (body['routes'] as List?) ?? const [];
+          if (routes.isNotEmpty) {
+            final route = routes.first as Map<String, dynamic>;
+            final totalMeters =
+                (route['distanceMeters'] as num?)?.toDouble() ?? 0;
+            final totalSeconds = googleDurationSeconds(route['duration']) ?? 0;
+            if (totalMeters > 0) {
+              return SubTenantRouteMetrics(
+                distanceKm: totalMeters / 1000,
+                travelDurationMinutes: (totalSeconds / 60).round(),
+                usedDirectionsApi: true,
+                available: true,
+              );
             }
           }
         }

@@ -42,6 +42,44 @@ Map<String, dynamic> place({
 };
 
 http.Response response(Object body) => http.Response(jsonEncode(body), 200);
+Map<String, dynamic> newPlace([Map<String, dynamic>? legacy]) {
+  final source = legacy ?? place();
+  final location = (source['geometry'] as Map)['location'] as Map;
+  return {
+    'id': 'bustos-place',
+    'displayName': {'text': 'Bustos Municipal Hall'},
+    'formattedAddress': source['formatted_address'],
+    'location': {'latitude': location['lat'], 'longitude': location['lng']},
+    'addressComponents': ((source['address_components'] as List?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (component) => {
+            'types': component['types'],
+            'shortText': component['short_name'],
+            'longText': component['long_name'],
+          },
+        )
+        .toList(),
+  };
+}
+
+http.Response detailsResponse([Map<String, dynamic>? legacy]) =>
+    response(newPlace(legacy));
+
+http.Response autocompleteResponse(String id, String description) => response({
+  'suggestions': [
+    {
+      'placePrediction': {
+        'placeId': id,
+        'text': {'text': description},
+      },
+    },
+  ],
+});
+
+bool isDetailsRequest(http.Request request) =>
+    request.method == 'GET' && request.url.host == 'places.googleapis.com';
+
 const suggestion = BookingPlaceSuggestion(
   placeId: 'bustos-place',
   description: 'Bustos Municipal Hall',
@@ -59,12 +97,12 @@ void main() {
     'PH details pass without Philippines in text and preserve structured data',
     () async {
       final api = service((request) async {
-        expect(request.url.queryParameters['place_id'], 'bustos-place');
+        expect(request.url.path, '/v1/places/bustos-place');
         expect(
-          request.url.queryParameters['fields'],
-          contains('address_components'),
+          request.headers['x-goog-fieldmask'],
+          contains('addressComponents'),
         );
-        return response({'status': 'OK', 'result': place()});
+        return detailsResponse();
       });
       final result = await api.select(suggestion);
       expect(result.countryCode, 'PH');
@@ -81,14 +119,9 @@ void main() {
     'explicit foreign country overrides misleading Philippines address text',
     () async {
       final api = service(
-        (_) async => response({
-          'status': 'OK',
-          'result': place(
-            code: 'US',
-            country: 'United States',
-            address: 'Philippines',
-          ),
-        }),
+        (_) async => detailsResponse(
+          place(code: 'US', country: 'United States', address: 'Philippines'),
+        ),
       );
       await expectLater(
         api.select(suggestion),
@@ -109,11 +142,8 @@ void main() {
       final calls = <String>[];
       final api = service((r) async {
         calls.add(r.url.path);
-        if (r.url.path.contains('details')) {
-          return response({
-            'status': 'OK',
-            'result': place(withCountry: false),
-          });
+        if (isDetailsRequest(r)) {
+          return detailsResponse(place(withCountry: false));
         }
         expect(r.url.queryParameters['latlng'], '14.9539783,120.9185984');
         return response({
@@ -209,18 +239,14 @@ void main() {
     'autocomplete retains PH filter and uses user query without municipality suffix',
     () async {
       final api = service((r) async {
-        if (r.url.path.contains('details')) {
-          return response({'status': 'OK', 'result': place()});
+        if (isDetailsRequest(r)) {
+          return detailsResponse();
         }
-        expect(r.url.queryParameters['components'], 'country:ph');
-        expect(r.url.queryParameters['strictbounds'], 'true');
-        expect(r.url.queryParameters['input'], 'SM City Baliwag');
-        return response({
-          'status': 'OK',
-          'predictions': [
-            {'place_id': 'sm', 'description': 'SM City Baliwag'},
-          ],
-        });
+        final body = jsonDecode(r.body) as Map<String, dynamic>;
+        expect(body['includedRegionCodes'], ['ph']);
+        expect(body['locationRestriction'], isNotNull);
+        expect(body['input'], 'SM City Baliwag');
+        return autocompleteResponse('sm', 'SM City Baliwag');
       });
       expect((await api.search('SM City Baliwag')).single.placeId, 'sm');
     },
@@ -231,16 +257,9 @@ void main() {
     (tester) async {
       BookingLocation? pickup, dropoff;
       final api = service(
-        (r) async => response(
-          r.url.path.contains('autocomplete')
-              ? {
-                  'status': 'OK',
-                  'predictions': [
-                    {'place_id': 'bustos', 'description': 'Bustos Hall'},
-                  ],
-                }
-              : {'status': 'OK', 'result': place()},
-        ),
+        (r) async => r.url.path.contains('autocomplete')
+            ? autocompleteResponse('bustos', 'Bustos Hall')
+            : detailsResponse(),
       );
       await tester.pumpWidget(
         MaterialApp(
@@ -291,16 +310,11 @@ void main() {
   ) async {
     final old = Completer<http.Response>();
     final api = service((r) async {
-      if (r.url.path.contains('details')) {
-        return response({'status': 'OK', 'result': place()});
+      if (isDetailsRequest(r)) {
+        return detailsResponse();
       }
-      if (r.url.queryParameters['input'] == 'old') return old.future;
-      return response({
-        'status': 'OK',
-        'predictions': [
-          {'place_id': 'new', 'description': 'New result'},
-        ],
-      });
+      if ((jsonDecode(r.body) as Map)['input'] == 'old') return old.future;
+      return autocompleteResponse('new', 'New result');
     });
     await tester.pumpWidget(
       MaterialApp(
@@ -319,14 +333,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'new');
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
-    old.complete(
-      response({
-        'status': 'OK',
-        'predictions': [
-          {'place_id': 'old', 'description': 'Old result'},
-        ],
-      }),
-    );
+    old.complete(autocompleteResponse('old', 'Old result'));
     await tester.pumpAndSettle();
     expect(find.text('New result'), findsOneWidget);
     expect(find.text('Old result'), findsNothing);
@@ -340,16 +347,9 @@ void main() {
       String? validation;
       var detailsCalls = 0;
       final api = service(
-        (r) async => r.url.path.contains('details')
-            ? (++detailsCalls == 1
-                  ? response({'status': 'OK', 'result': place()})
-                  : details.future)
-            : response({
-                'status': 'OK',
-                'predictions': [
-                  {'place_id': 'bustos', 'description': 'Bustos Hall'},
-                ],
-              }),
+        (r) async => isDetailsRequest(r)
+            ? (++detailsCalls == 1 ? detailsResponse() : details.future)
+            : autocompleteResponse('bustos', 'Bustos Hall'),
       );
       await tester.pumpWidget(
         MaterialApp(
@@ -372,7 +372,7 @@ void main() {
       expect(selected, isNull);
       expect(validation, isNull);
       await tester.enterText(find.byType(TextField), 'Changed');
-      details.complete(response({'status': 'OK', 'result': place()}));
+      details.complete(detailsResponse());
       await tester.pump();
       expect(selected, isNull);
       expect(validation, isNull);
@@ -385,20 +385,21 @@ void main() {
     'service failure is visible with retry instead of silent missing suggestions',
     (tester) async {
       var denied = true;
-      final api = service(
-        (r) async => response(
-          denied
-              ? {'status': 'REQUEST_DENIED'}
-              : r.url.path.contains('details')
-              ? {'status': 'OK', 'result': place()}
-              : {
-                  'status': 'OK',
-                  'predictions': [
-                    {'place_id': 'bustos', 'description': 'Bustos Hall'},
-                  ],
-                },
-        ),
-      );
+      final api = service((r) async {
+        return denied
+            ? http.Response(
+                jsonEncode({
+                  'error': {
+                    'status': 'PERMISSION_DENIED',
+                    'message': 'Permission denied',
+                  },
+                }),
+                403,
+              )
+            : isDetailsRequest(r)
+            ? detailsResponse()
+            : autocompleteResponse('bustos', 'Bustos Hall');
+      });
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -413,7 +414,12 @@ void main() {
       );
       await tester.enterText(find.byType(TextField), 'Bustos');
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
       expect(
         find.textContaining('rejected the configured API key'),
         findsOneWidget,
@@ -422,7 +428,10 @@ void main() {
       denied = false;
       await tester.tap(find.text('Retry search'));
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
       expect(find.text('Bustos Hall'), findsOneWidget);
     },
   );

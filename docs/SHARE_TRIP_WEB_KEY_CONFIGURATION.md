@@ -49,7 +49,7 @@ No browser session is connected and no gcloud CLI is installed. An unauthenticat
    ```
 
    Do not add `*.vercel.app`, a Supabase domain, or localhost for this production-only surface. The guest frontend origin is the Vercel domain, even though it reads Supabase data. Use a separate development key if local testing needs another origin.
-3. Enable **Maps JavaScript API** in that same project and include it under the key's **API restrictions**. Existing route drawing uses DirectionsService; if continuing to use that existing service, retain/authorize **Directions API (Legacy)** where available on this project. That route requirement is separate from the confirmed invalid-key loading error; no route-service migration was made. [Google's recommended application/API restrictions](https://developers.google.com/maps/api-security-best-practices#recommended-application-and-api-restrictions).
+3. Enable **Maps JavaScript API** and **Routes API** in that same project and include both under the key's **API restrictions**. The current web bridge uses the Maps JavaScript Routes Library `Route.computeRoutes`; do not enable Places API (Legacy), Directions API, or Distance Matrix API for this browser key. [Google's recommended application/API restrictions](https://developers.google.com/maps/api-security-best-practices#recommended-application-and-api-restrictions).
 4. In the existing Vercel project for `touris-trike.vercel.app`, set **Settings → Environment Variables → `GOOGLE_MAPS_BROWSER_API_KEY`**, scoped to **Production**, to the complete dedicated key value, without added quotes or whitespace. Do not change `GOOGLE_MAPS_API_KEY` or Android package/SHA restrictions.
 5. Deploy the reviewed source/configuration and trigger a new production build using `bash build.sh` (already configured by `vercel.json`). Updating an environment variable does not change previously generated HTML. The new build log must contain `Web Maps key fingerprint=... (injected and verified)`.
 
@@ -61,7 +61,7 @@ No browser session is connected and no gcloud CLI is installed. An unauthenticat
 - `test/web_maps_config_test.cjs`: five passing tests for missing/malformed key handling, exact loader input, duplicate SDK scripts, stale output, and redacted live-output inspection.
 - This report.
 
-Guest UI/state, share tokens, SQL, Tourist/Driver mobile map code, and DirectionsService code were not modified in this follow-up. The workspace retains changes from the earlier broader request.
+Guest UI/state, share tokens, SQL, and Tourist/Driver mobile map code were not modified in that focused follow-up. The route bridge now uses the Maps JavaScript Routes Library as part of the later current-API migration.
 
 **Rebuild and verify**
 

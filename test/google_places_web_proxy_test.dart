@@ -26,6 +26,9 @@ void main() {
     expect(index, contains('__GOOGLE_MAPS_BROWSER_API_KEY__'));
     expect(index, contains('__GOOGLE_MAPS_BROWSER_KEY_FINGERPRINT__'));
     expect(index, contains('https://maps.googleapis.com/maps/api/js?key='));
+    expect(index, contains("google.maps.importLibrary('routes')"));
+    expect(index, contains('Route.computeRoutes(req)'));
+    expect(index, isNot(contains('DirectionsService')));
     expect(configurator, contains('GOOGLE_MAPS_BROWSER_API_KEY'));
     expect(configurator, contains('keyPlaceholder'));
     expect(
@@ -53,8 +56,17 @@ void main() {
     expect(edgeFunction, contains('RATE_LIMITED'));
     expect(edgeFunction, contains('GOOGLE_UNAUTHORIZED'));
     expect(edgeFunction, contains('ZERO_RESULTS'));
-    expect(edgeFunction, contains('route-static-map'));
     expect(edgeFunction, contains('photoProxyUrl'));
+    expect(
+      edgeFunction,
+      contains('https://places.googleapis.com/v1/places:searchText'),
+    );
+    expect(
+      edgeFunction,
+      contains('https://places.googleapis.com/v1/places:searchNearby'),
+    );
+    expect(edgeFunction, isNot(contains('/maps/api/place/textsearch')));
+    expect(edgeFunction, isNot(contains('/maps/api/place/nearbysearch')));
   });
 
   test('web sources do not build direct Google REST media URLs', () {
@@ -63,7 +75,6 @@ void main() {
 
     expect(booking, isNot(contains('/maps/api/staticmap')));
     expect(webGateway, isNot(contains('maps.googleapis.com')));
-    expect(webGateway, contains('routeStaticMapProxyUrl'));
     expect(webGateway, contains('photoProxyUrl'));
   });
 }

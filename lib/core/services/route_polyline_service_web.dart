@@ -1,8 +1,8 @@
 // ignore_for_file: avoid_web_libraries_in_flutter
 //
 // Web-only implementation. Delegates to window._flutterGetRoute() — an async
-// JS helper injected in web/index.html — which wraps google.maps.DirectionsService
-// (already loaded, no CORS issues).
+// JS helper injected in web/index.html — which wraps the Maps JavaScript Routes
+// Library Route.computeRoutes method (already loaded, no CORS issues).
 // Conditional export in route_polyline_service.dart selects this for web targets.
 
 import 'dart:async';
@@ -33,9 +33,11 @@ class RoutePolylineService {
     const tag = '[RoutePolyline/WEB]';
 
     // ignore: avoid_print
-    print('$tag platform=WEB '
-        '${_fmt(origin)} → ${_fmt(dest)}'
-        '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}');
+    print(
+      '$tag platform=WEB '
+      '${_fmt(origin)} → ${_fmt(dest)}'
+      '${waypoints.isNotEmpty ? " via ${waypoints.length} wp" : ""}',
+    );
 
     try {
       // Encode all params as a single JSON string so callMethod stays within
@@ -70,8 +72,9 @@ class RoutePolylineService {
       // Await the JS Promise<string>
       final String jsonStr;
       try {
-        jsonStr = await (promise as JSPromise<JSString>).toDart
-            .then((v) => v.toDart);
+        jsonStr = await (promise as JSPromise<JSString>).toDart.then(
+          (v) => v.toDart,
+        );
       } catch (e) {
         // ignore: avoid_print
         print('$tag Promise rejected: $e');
@@ -79,8 +82,10 @@ class RoutePolylineService {
       }
 
       // ignore: avoid_print
-      print('$tag raw result (first 200): '
-          '${jsonStr.length > 200 ? '${jsonStr.substring(0, 200)}…' : jsonStr}');
+      print(
+        '$tag raw result (first 200): '
+        '${jsonStr.length > 200 ? '${jsonStr.substring(0, 200)}…' : jsonStr}',
+      );
 
       final Map<String, dynamic> data;
       try {

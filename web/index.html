@@ -61,29 +61,72 @@
       }
       try {
         var p = JSON.parse(paramsJson);
-        var svc = new google.maps.DirectionsService();
+        var routesLibrary = await google.maps.importLibrary('routes');
+        var Route = routesLibrary.Route;
+        var formatDuration = function(milliseconds) {
+          var minutes = Math.ceil(milliseconds / 60000);
+          if (minutes < 60) return minutes + ' min';
+          var hours = Math.floor(minutes / 60);
+          var remaining = minutes % 60;
+          return remaining === 0
+              ? hours + ' hr'
+              : hours + ' hr ' + remaining + ' min';
+        };
         var req = {
           origin: { lat: p.originLat, lng: p.originLng },
           destination: { lat: p.destLat, lng: p.destLng },
-          travelMode: google.maps.TravelMode.DRIVING,
-          optimizeWaypoints: false
+          travelMode: 'DRIVING',
+          routingPreference: p.requestTraffic === true
+              ? 'TRAFFIC_AWARE'
+              : 'TRAFFIC_UNAWARE',
+          polylineQuality: 'OVERVIEW',
+          optimizeWaypointOrder: false,
+          language: 'en-US',
+          region: 'ph',
+          units: 'METRIC',
+          fields: [
+            'path',
+            'durationMillis',
+            'distanceMeters',
+            'legs.durationMillis',
+            'legs.distanceMeters'
+          ]
         };
         if (p.waypoints && p.waypoints.length > 0) {
-          req.waypoints = p.waypoints.map(function(wp) {
-            return { location: { lat: wp.lat, lng: wp.lng }, stopover: p.stopovers === true };
+          req.intermediates = p.waypoints.map(function(wp) {
+            return {
+              location: { lat: wp.lat, lng: wp.lng },
+              via: p.stopovers !== true
+            };
           });
         }
-        if (p.requestTraffic === true) {
-          req.drivingOptions = { departureTime: new Date() };
+        var result = await Route.computeRoutes(req);
+        var route = result.routes && result.routes[0];
+        if (!route) {
+          return JSON.stringify({ status: 'ZERO_RESULTS', routes: [] });
         }
-        var result = await svc.route(req);
-        var route = result.routes[0];
-        var pts = route.overview_path.map(function(ll) { return [ll.lat(), ll.lng()]; });
-        var eta = (route.legs && route.legs[0] && route.legs[0].duration)
-            ? route.legs[0].duration.text : null;
+        var pts = (route.path || []).map(function(point) {
+          return [point.lat, point.lng];
+        });
+        var eta = Number.isFinite(route.durationMillis)
+            ? formatDuration(route.durationMillis)
+            : null;
         return JSON.stringify({ status: 'OK', points: pts, eta: eta,
-          routes: [{ legs: route.legs.map(function(leg) {
-            return { duration: leg.duration, duration_in_traffic: leg.duration_in_traffic, distance: leg.distance };
+          routes: [{ legs: (route.legs || []).map(function(leg) {
+            var seconds = Number.isFinite(leg.durationMillis)
+                ? leg.durationMillis / 1000
+                : null;
+            var duration = {
+              value: seconds,
+              text: Number.isFinite(leg.durationMillis)
+                  ? formatDuration(leg.durationMillis)
+                  : null
+            };
+            return {
+              duration: duration,
+              duration_in_traffic: p.requestTraffic === true ? duration : null,
+              distance: { value: leg.distanceMeters }
+            };
           }) }]
         });
       } catch (e) {

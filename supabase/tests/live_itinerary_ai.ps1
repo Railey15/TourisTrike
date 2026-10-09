@@ -89,20 +89,39 @@ try {
     '14.9717,120.9176', '14.949,120.912')
   $legs = @()
   for ($i = 0; $i -lt $points.Count - 1; $i++) {
-    $origin = [uri]::EscapeDataString($points[$i])
-    $destination = [uri]::EscapeDataString($points[$i + 1])
-    $directionsUrl = "https://maps.googleapis.com/maps/api/directions/json?origin=$origin&destination=$destination&mode=driving&key=$mapsKey"
+    $origin = $points[$i].Split(',')
+    $destination = $points[$i + 1].Split(',')
+    $routeBody = @{
+      origin = @{ location = @{ latLng = @{
+        latitude = [double]$origin[0]; longitude = [double]$origin[1]
+      } } }
+      destination = @{ location = @{ latLng = @{
+        latitude = [double]$destination[0]; longitude = [double]$destination[1]
+      } } }
+      travelMode = 'DRIVE'
+      routingPreference = 'TRAFFIC_UNAWARE'
+      regionCode = 'PH'
+      units = 'METRIC'
+    } | ConvertTo-Json -Depth 8
+    $routeHeaders = @{
+      'X-Goog-Api-Key' = $mapsKey
+      'X-Goog-FieldMask' = 'routes.duration,routes.distanceMeters'
+    }
     try {
-      $directions = Invoke-RestMethod -Method Get -Uri $directionsUrl -TimeoutSec 20
+      $directions = Invoke-RestMethod -Method Post `
+        -Uri 'https://routes.googleapis.com/directions/v2:computeRoutes' `
+        -Headers $routeHeaders -ContentType 'application/json' `
+        -Body $routeBody -TimeoutSec 20
     } catch {
       throw 'Google Maps test route is unavailable.'
     }
-    if ($directions.status -ne 'OK' -or !$directions.routes[0].legs[0]) {
+    if (!$directions.routes[0]) {
       throw 'Google Maps test route is unavailable.'
     }
-    $leg = $directions.routes[0].legs[0]
-    $legs += @{ duration_minutes = [int][math]::Ceiling($leg.duration.value / 60);
-      distance_meters = [int]$leg.distance.value }
+    $route = $directions.routes[0]
+    $durationSeconds = [double]($route.duration.TrimEnd('s'))
+    $legs += @{ duration_minutes = [int][math]::Ceiling($durationSeconds / 60);
+      distance_meters = [int]$route.distanceMeters }
   }
   Write-Output 'Google Maps route legs obtained: 4'
 

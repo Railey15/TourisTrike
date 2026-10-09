@@ -1,9 +1,15 @@
 enum GooglePlacesFailureKind {
   network,
   unauthorized,
+  legacyEndpoint,
+  apiNotEnabled,
+  invalidApiKey,
+  restrictionMismatch,
+  billing,
   rateLimited,
   notConfigured,
   invalidRequest,
+  missingFieldMask,
   upstream,
 }
 

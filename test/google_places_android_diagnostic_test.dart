@@ -120,18 +120,23 @@ void main() {
   });
 
   test(
-    'native Home REST logs actual HTTP 200 REQUEST_DENIED and billing message',
+    'native Home uses Places API New and classifies billing failures',
     () async {
       final client = MockClient((request) async {
-        expect(request.url.path, '/maps/api/place/textsearch/json');
-        expect(request.url.queryParameters['key'], key);
+        expect(request.method, 'POST');
+        expect(request.url.host, 'places.googleapis.com');
+        expect(request.url.path, '/v1/places:searchText');
+        expect(request.headers['x-goog-api-key'], key);
+        expect(request.headers['x-goog-fieldmask'], contains('places.id'));
+        expect(jsonDecode(request.body)['textQuery'], 'Baliwag');
         return http.Response(
           jsonEncode({
-            'status': 'REQUEST_DENIED',
-            'error_message':
-                'You must enable Billing on the Google Cloud Project',
+            'error': {
+              'status': 'PERMISSION_DENIED',
+              'message': 'You must enable Billing on the Google Cloud Project',
+            },
           }),
-          200,
+          403,
         );
       });
       await expectLater(
@@ -143,12 +148,12 @@ void main() {
           isA<GooglePlacesException>().having(
             (e) => e.kind,
             'kind',
-            GooglePlacesFailureKind.unauthorized,
+            GooglePlacesFailureKind.billing,
           ),
         ),
       );
-      expect(logs.single, contains('"http_status":200'));
-      expect(logs.single, contains('REQUEST_DENIED'));
+      expect(logs.single, contains('"http_status":403'));
+      expect(logs.single, contains('PERMISSION_DENIED'));
       expect(logs.single, contains('enable Billing'));
       expect(logs.single, contains('native application configuration'));
       expect(logs.single, contains('safe-hash'));
@@ -165,7 +170,7 @@ void main() {
             jsonEncode({
               'error': {
                 'status': 'PERMISSION_DENIED',
-                'message': 'API not enabled',
+                'message': 'Permission denied',
               },
             }),
             code,
@@ -185,20 +190,55 @@ void main() {
           ),
         );
         expect(logs.single, contains('PERMISSION_DENIED'));
-        expect(logs.single, contains('API not enabled'));
+        expect(logs.single, contains('Permission denied'));
         expect(logs.single, contains('"http_status":$code'));
       },
     );
   }
 
-  for (final entry in {
-    'OVER_QUERY_LIMIT': GooglePlacesFailureKind.rateLimited,
-    'INVALID_REQUEST': GooglePlacesFailureKind.invalidRequest,
-    'UNKNOWN_ERROR': GooglePlacesFailureKind.upstream,
-  }.entries) {
-    test('${entry.key} retains error mapping', () async {
+  test(
+    'legacy endpoint diagnostics remain distinct from API enablement',
+    () async {
       final client = MockClient(
-        (_) async => http.Response(jsonEncode({'status': entry.key}), 200),
+        (_) async => http.Response(
+          jsonEncode({
+            'error': {
+              'status': 'FAILED_PRECONDITION',
+              'message': 'This request is calling a legacy API endpoint.',
+            },
+          }),
+          400,
+        ),
+      );
+      await expectLater(
+        GooglePlacesGateway(
+          apiKey: key,
+          client: client,
+        ).request('textSearch', {}),
+        throwsA(
+          isA<GooglePlacesException>().having(
+            (e) => e.kind,
+            'kind',
+            GooglePlacesFailureKind.legacyEndpoint,
+          ),
+        ),
+      );
+    },
+  );
+
+  for (final entry in {
+    429: GooglePlacesFailureKind.rateLimited,
+    400: GooglePlacesFailureKind.invalidRequest,
+    500: GooglePlacesFailureKind.upstream,
+  }.entries) {
+    test('HTTP ${entry.key} retains error mapping', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'error': {'status': 'ERROR', 'message': 'Request failed'},
+          }),
+          entry.key,
+        ),
       );
       await expectLater(
         GooglePlacesGateway(apiKey: key, client: client).request('details', {}),
@@ -212,6 +252,54 @@ void main() {
       );
     });
   }
+
+  test(
+    'Places API New search response is normalized for existing callers',
+    () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/v1/places:searchText');
+        return http.Response(
+          jsonEncode({
+            'places': [
+              {
+                'id': 'place-1',
+                'displayName': {'text': 'Bustos Heritage Park'},
+                'formattedAddress': 'Bustos, Bulacan, Philippines',
+                'location': {'latitude': 14.95, 'longitude': 120.91},
+                'photos': [
+                  {'name': 'places/place-1/photos/photo-1'},
+                ],
+                'types': ['tourist_attraction'],
+              },
+            ],
+          }),
+          200,
+        );
+      });
+      final body = await GooglePlacesGateway(
+        apiKey: key,
+        client: client,
+      ).request('textSearch', {'query': 'Bustos'});
+      expect(body['status'], 'OK');
+      final result = (body['results'] as List).single as Map;
+      expect(result['place_id'], 'place-1');
+      expect(result['name'], 'Bustos Heritage Park');
+      expect(
+        ((result['photos'] as List).single as Map)['photo_reference'],
+        'places/place-1/photos/photo-1',
+      );
+    },
+  );
+
+  test('photo URLs use Places API New media resources', () {
+    final url = GooglePlacesGateway(
+      apiKey: key,
+    ).photoUrl('places/place-1/photos/photo-1');
+    expect(url, startsWith('https://places.googleapis.com/v1/'));
+    expect(url, contains('/photos/photo-1/media'));
+    expect(url, isNot(contains('/maps/api/place/photo')));
+  });
 
   test('network failure never logs exception containing keyed URL', () async {
     final client = MockClient(
@@ -242,12 +330,13 @@ void main() {
       await GooglePlacesDiagnostics.record(
         operation: 'textSearch',
         endpoint:
-            'https://maps.googleapis.com/maps/api/place/textsearch/json?key=$key&query=private#fragment',
+            'https://places.googleapis.com/v1/places:searchText?key=$key&query=private#fragment',
         key: key,
         httpStatus: 200,
         googleStatus: 'REQUEST_DENIED',
         googleMessage:
-            'Rejected $key and AIzaAnotherCredential12345; api_key=other-secret\nretry',
+            'Rejected $key and AI'
+            'zaAnotherCredential12345; api_key=other-secret\nretry',
       );
       final log = logs.single;
       expect(log, isNot(contains(key)));
@@ -258,7 +347,7 @@ void main() {
       expect(
         log,
         contains(
-          '"endpoint":"https://maps.googleapis.com/maps/api/place/textsearch/json"',
+          '"endpoint":"https://places.googleapis.com/v1/places:searchText"',
         ),
       );
     },

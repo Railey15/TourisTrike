@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'city_spot_suggestions.dart';
 import 'google_maps_api_key_resolver.dart';
 import 'google_places_gateway.dart';
+import 'google_places_errors.dart';
 import 'booking_service_area.dart';
 
 class BookingPlaceSuggestion {
@@ -167,8 +168,28 @@ class BookingLocationService {
       );
     }
 
+    if (path == 'place/autocomplete' || path == 'place/details') {
+      final operation = path == 'place/autocomplete'
+          ? 'autocomplete'
+          : 'details';
+      try {
+        return await GooglePlacesGateway(
+          apiKey: effectiveApiKey,
+          client: _client,
+        ).request(operation, {...params, 'language': 'en'});
+      } on GooglePlacesException catch (error) {
+        throw BookingLocationException(error.message);
+      }
+    }
+
+    if (path != 'geocode') {
+      throw const BookingLocationException(
+        'Unsupported Google location request.',
+      );
+    }
+
     try {
-      final uri = Uri.https('maps.googleapis.com', '/maps/api/$path/json', {
+      final uri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
         ...params,
         'key': effectiveApiKey,
         'language': 'en',

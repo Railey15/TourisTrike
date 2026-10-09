@@ -48,9 +48,9 @@ substring determines containment. No database extension is required.
 
 ## Selection behavior
 
-- Search sends `country:ph`, a boundary-derived enclosing circle and `strictbounds`.
-  The [legacy Google API](https://developers.google.com/maps/documentation/places/web-service/legacy/autocomplete)
-  does not implement the exact polygon restriction. Each of up to five predictions
+- Search sends a Philippines region restriction and a boundary-derived enclosing
+  circle through [Places API (New) Autocomplete](https://developers.google.com/maps/documentation/places/web-service/place-autocomplete).
+  The API does not implement the exact polygon restriction. Each of up to five predictions
   is therefore resolved and filtered before display; selecting it resolves and
   validates it again. This adds up to five Details requests per debounced search.
   Areas too large for Google's 50 km restriction use circle bias plus polygon filtering.
