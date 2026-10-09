@@ -44,6 +44,52 @@ Map<String, dynamic> _case({
   };
 }
 
+Map<String, dynamic> _complaint({
+  String category = 'conduct',
+  String status = 'submitted',
+  String reportedRole = 'driver',
+}) {
+  return {
+    'id': 'aaaaaaaa-1234-1234-1234-123456789012',
+    'booking_id': 'bbbbbbbb-1234-1234-1234-123456789012',
+    'municipality': 'Baliwag',
+    'province': 'Bulacan',
+    'reporter_id': 'tourist-id',
+    'reporter_name': 'Tourist Reporter',
+    'reported_user_id': 'driver-id',
+    'reported_name': 'Driver Reported',
+    'reported_role': reportedRole,
+    'category': category,
+    'description': 'The driver behaved unsafely during the booked tour.',
+    'status': status,
+    'booking_status': 'completed',
+    'booking_travel_date': '2026-10-01',
+    'booking_history': [
+      {
+        'booking_id': 'cccccccc-1234-1234-1234-123456789012',
+        'travel_date': '2026-09-01',
+        'booking_status': 'completed',
+      },
+    ],
+    'evidence': [
+      {
+        'id': 'evidence-id',
+        'storage_path': 'complaints/evidence.jpg',
+        'file_name': 'evidence.jpg',
+        'content_type': 'image/jpeg',
+      },
+    ],
+    'events': [
+      {
+        'action': 'submitted',
+        'details': 'Complaint submitted for MTO review',
+        'created_at': '2026-10-02T01:00:00Z',
+      },
+    ],
+    'created_at': '2026-10-02T01:00:00Z',
+  };
+}
+
 void main() {
   const migration =
       'supabase/migrations/20260930000000_subtenant_disputes_cases.sql';
@@ -51,16 +97,22 @@ void main() {
       'supabase/migration_hold/20261001100000_repair_dispute_case_mutation_results.sql';
   const screen = 'lib/screens/subtenant/subtenant_payment_disputes_screen.dart';
   const service = 'lib/screens/subtenant/subtenant_service.dart';
+  const shell = 'lib/screens/subtenant/layouts/subtenant_admin_shell.dart';
+  const sidebar = 'lib/screens/subtenant/widgets/subtenant_sidebar.dart';
   late String sql;
   late String repairSql;
   late String ui;
   late String serviceSource;
+  late String shellSource;
+  late String sidebarSource;
 
   setUpAll(() {
     sql = _read(migration);
     repairSql = _read(repairMigration);
     ui = _read(screen);
     serviceSource = _read(service);
+    shellSource = _read(shell);
+    sidebarSource = _read(sidebar);
   });
 
   test(
@@ -86,6 +138,30 @@ void main() {
       expect(booking.reference, 'CASE-12345678');
     },
   );
+
+  test('municipal complaints adapt into unified cases without duplication', () {
+    final complaint = SubTenantCase.fromComplaintMap(
+      _complaint(),
+      restrictions: [
+        {
+          'id': 'restriction-id',
+          'complaint_id': 'aaaaaaaa-1234-1234-1234-123456789012',
+          'active': true,
+        },
+      ],
+    );
+
+    expect(complaint.isComplaint, isTrue);
+    expect(complaint.category, 'driver');
+    expect(complaint.status, 'needs_review');
+    expect(complaint.originalStatus, 'submitted');
+    expect(complaint.reporter.role, 'tourist');
+    expect(complaint.reportedUser?.role, 'driver');
+    expect(complaint.bookingHistory, hasLength(1));
+    expect(complaint.evidence.single.storagePath, 'complaints/evidence.jpg');
+    expect(complaint.timeline.single.details, contains('MTO review'));
+    expect(complaint.restrictions, hasLength(1));
+  });
 
   test(
     'case search index contains reference, subject, booking and parties',
@@ -139,6 +215,15 @@ void main() {
         searchQuery: '',
       ),
       isFalse,
+    );
+    expect(
+      SubTenantCase.fromComplaintMap(_complaint()).matchesFilters(
+        categoryFilter: 'driver',
+        statusFilter: 'attention',
+        roleFilter: 'driver',
+        searchQuery: 'Tourist Reporter',
+      ),
+      isTrue,
     );
   });
 
@@ -225,14 +310,20 @@ void main() {
     'UI exposes filters, contextual empty states and payment-only details',
     () {
       for (final label in [
-        'All Categories',
+        'All Types',
         'Fare / Additional Charges',
-        'Safety / Incident',
+        'Safety / Tour Incident',
+        'All Roles',
         'Needs Attention',
         'Search cases...',
         'Nothing here',
         'Start Review',
         'Resolve Case',
+        'Report / Complaint Details',
+        'Municipal Booking History',
+        'Supporting Evidence',
+        'Investigation / Decision History',
+        'Admin Actions',
       ]) {
         expect(ui, contains(label));
       }
@@ -244,4 +335,32 @@ void main() {
       expect(ui, contains('maxWidth: 820, maxHeight: 760'));
     },
   );
+
+  test('service merges complaints and preserves their secured workflows', () {
+    for (final value in [
+      "'get_dispute_cases'",
+      "'get_municipal_complaints'",
+      "'get_municipal_restrictions'",
+      "'update_municipal_complaint'",
+      "'impose_municipal_restriction'",
+      "'lift_municipal_restriction'",
+      "'decide_municipal_restriction_appeal'",
+      "'municipal-complaint-evidence'",
+    ]) {
+      expect(serviceSource, contains(value));
+    }
+  });
+
+  test('navigation exposes one Disputes & Cases destination', () {
+    expect(sidebarSource, contains("label: 'Disputes & Cases'"));
+    expect(sidebarSource, isNot(contains("label: 'Complaints'")));
+    expect(shellSource, contains('static const int _tabCount = 8;'));
+    expect(shellSource, isNot(contains('SubTenantComplaintsScreen')));
+    expect(
+      File(
+        'lib/screens/subtenant/subtenant_complaints_screen.dart',
+      ).existsSync(),
+      isFalse,
+    );
+  });
 }

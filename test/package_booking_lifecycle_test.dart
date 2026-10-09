@@ -82,10 +82,14 @@ void main() {
           );
         }
         if (request.url.path.endsWith('/rpc/tricycle_passenger_capacity')) {
-          return Future.value(http.Response(
-            '3', 200, request: request,
-            headers: {'content-type': 'application/json'},
-          ));
+          return Future.value(
+            http.Response(
+              '3',
+              200,
+              request: request,
+              headers: {'content-type': 'application/json'},
+            ),
+          );
         }
         requests++;
         return handle(request);
@@ -111,6 +115,64 @@ void main() {
   });
 
   testWidgets(
+    'participant recommendation counts children and keeps quantity within limits',
+    (tester) async {
+      Finder type(String name) => find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == name,
+      );
+
+      await tester.pumpWidget(screen('capacity'));
+      await tester.pumpAndSettle();
+
+      dynamic participants = tester.widget(type('_ParticipantsCard'));
+      participants.onChildrenPlus();
+      participants.onChildrenPlus();
+      await tester.pump();
+
+      dynamic quantity = tester.widget(type('_TricycleQuantityCard'));
+      expect(quantity.minimum, 1);
+      expect(quantity.maximum, 3);
+      expect(quantity.selected, 1);
+      expect(
+        find.textContaining('Suggested based on 3 passengers'),
+        findsOneWidget,
+      );
+
+      participants = tester.widget(type('_ParticipantsCard'));
+      participants.onAdultsPlus();
+      participants.onAdultsPlus();
+      participants.onChildrenPlus();
+      await tester.pump();
+
+      quantity = tester.widget(type('_TricycleQuantityCard'));
+      expect(quantity.minimum, 2);
+      expect(quantity.maximum, 6);
+      expect(quantity.selected, 2);
+      expect(
+        find.textContaining('Suggested based on 6 passengers'),
+        findsOneWidget,
+      );
+
+      quantity.onIncrease();
+      await tester.pump();
+      quantity = tester.widget(type('_TricycleQuantityCard'));
+      expect(quantity.selected, 3);
+
+      quantity.onDecrease();
+      await tester.pump();
+      quantity = tester.widget(type('_TricycleQuantityCard'));
+      expect(quantity.selected, 2);
+      final removeButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.remove_circle_outline),
+      );
+      expect(removeButton.onPressed, isNull);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
     'real screen recalculates after time, stay, order, spots and fresh travel changes',
     (tester) async {
       dotenv.testLoad(fileInput: 'GOOGLE_MAPS_API_KEY=test-key');
@@ -123,18 +185,18 @@ void main() {
           return http.Response('{"status":"ZERO_RESULTS","results":[]}', 200);
         }
         directionsCalls++;
-        final waypoints = r.url.queryParameters['waypoints'];
-        final count = waypoints == null ? 1 : waypoints.split('|').length + 1;
+        final body = jsonDecode(r.body) as Map<String, dynamic>;
+        final intermediates = body['intermediates'] as List? ?? const [];
+        final count = intermediates.length + 1;
         return http.Response(
           jsonEncode({
-            'status': 'OK',
             'routes': [
               {
                 'legs': List.generate(
                   count,
                   (_) => {
-                    'duration': {'value': travelMinutes * 60},
-                    'distance': {'value': 1000},
+                    'duration': '${travelMinutes * 60}s',
+                    'distanceMeters': 1000,
                   },
                 ),
               },
@@ -270,7 +332,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('Package a'), findsOneWidget);
-      expect(requests, 1);
+      expect(requests, 2);
 
       tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(1);
       await tester.pumpAndSettle();
@@ -293,7 +355,7 @@ void main() {
         same(originalController),
       );
       expect(originalController!.text, 'Bustos');
-      expect(requests, 1);
+      expect(requests, 2);
       expect(tester.takeException(), isNull);
       tester
           .widgetList<BookingLocationPicker>(pickers)
@@ -355,10 +417,10 @@ void main() {
       expect(find.text('Package b'), findsOneWidget);
       expect(find.text('Package a'), findsNothing);
       expect(tester.takeException(), isNull);
-      expect(requests, 2);
+      expect(requests, 3);
       await tester.pumpWidget(screen('b'));
       await tester.pumpAndSettle();
-      expect(requests, 2);
+      expect(requests, 3);
     },
   );
 

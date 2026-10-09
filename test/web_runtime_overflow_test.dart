@@ -6,6 +6,7 @@ import 'package:touristrike/screens/auth/web_portal_landing_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_models.dart';
 import 'package:touristrike/screens/subtenant/subtenant_payment_disputes_screen.dart';
 import 'package:touristrike/screens/subtenant/subtenant_service.dart';
+import 'package:touristrike/screens/subtenant/widgets/subtenant_admin_widgets.dart';
 
 const _runtimeViewports = <Size>[
   Size(1920, 1080),
@@ -91,11 +92,90 @@ void main() {
       );
     }
   });
+
+  testWidgets('municipal complaint renders in unified case workspace', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SubTenantPaymentDisputesScreen(
+          service: _RuntimeComplaintCaseService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Driver conduct complaint'), findsOneWidget);
+    expect(find.text('Complaint'), findsOneWidget);
+    final needsReviewMetric = find.ancestor(
+      of: find.text('Needs Review'),
+      matching: find.byType(DashboardMetricCard),
+    );
+    expect(
+      find.descendant(of: needsReviewMetric, matching: find.text('1')),
+      findsOneWidget,
+    );
+    expect(find.text('Review Case'), findsOneWidget);
+    await tester.ensureVisible(find.text('Review Case'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review Case'));
+    await tester.pumpAndSettle();
+    expect(find.text('Report / Complaint Details'), findsOneWidget);
+    expect(find.text('Municipal Booking History'), findsOneWidget);
+    expect(find.text('Supporting Evidence'), findsOneWidget);
+    expect(find.text('Admin Actions'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _RuntimeCaseService extends SubTenantService {
   @override
   Future<List<SubTenantCase>> fetchCases({String? caseId}) async {
     return const <SubTenantCase>[];
+  }
+}
+
+class _RuntimeComplaintCaseService extends SubTenantService {
+  @override
+  Future<List<SubTenantCase>> fetchCases({String? caseId}) async {
+    return [
+      SubTenantCase.fromComplaintMap({
+        'id': 'aaaaaaaa-1234-1234-1234-123456789012',
+        'booking_id': 'bbbbbbbb-1234-1234-1234-123456789012',
+        'municipality': 'Baliwag',
+        'province': 'Bulacan',
+        'reporter_id': 'tourist-id',
+        'reporter_name': 'Tourist Reporter',
+        'reported_user_id': 'driver-id',
+        'reported_name': 'Driver Reported',
+        'reported_role': 'driver',
+        'category': 'conduct',
+        'description': 'The driver behaved unsafely during the booked tour.',
+        'status': 'submitted',
+        'booking_status': 'completed',
+        'booking_travel_date': '2026-10-01',
+        'booking_history': [
+          {
+            'booking_id': 'cccccccc-1234-1234-1234-123456789012',
+            'travel_date': '2026-09-01',
+            'booking_status': 'completed',
+          },
+        ],
+        'evidence': const <Map<String, dynamic>>[],
+        'events': [
+          {
+            'action': 'submitted',
+            'details': 'Complaint submitted for MTO review',
+            'created_at': '2026-10-02T01:00:00Z',
+          },
+        ],
+        'created_at': '2026-10-02T01:00:00Z',
+      }),
+    ];
   }
 }

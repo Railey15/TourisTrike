@@ -12,8 +12,36 @@ abstract final class BookingCapacity {
     }
   }
 
-  static int minimumForAdults(int adults, int capacity) =>
-      requiredTricycles(adults, capacity);
+  static int minimumForParticipants({
+    required int adults,
+    required int children,
+    required int capacity,
+  }) {
+    validateParticipants(adults: adults, children: children);
+    return requiredTricycles(adults + children, capacity);
+  }
+
+  static int maximumSelectableTricycles({
+    required int adults,
+    required int children,
+  }) {
+    validateParticipants(adults: adults, children: children);
+    return adults + children;
+  }
+
+  static void validateParticipants({
+    required int adults,
+    required int children,
+  }) {
+    if (children > 0 && adults == 0) {
+      throw ArgumentError(
+        'Children must be accompanied by at least one adult.',
+      );
+    }
+    if (adults < 1 || children < 0) {
+      throw ArgumentError('Invalid passenger quantity.');
+    }
+  }
 
   static void validateSelectedTricycles({
     required int adults,
@@ -21,12 +49,11 @@ abstract final class BookingCapacity {
     required int tricycles,
     required int capacity,
   }) {
-    if (adults < 1 ||
-        children < 0 ||
-        capacity < 1 ||
-        tricycles < minimumForAdults(adults, capacity) ||
-        tricycles > adults ||
-        adults + children > tricycles * capacity) {
+    validateParticipants(adults: adults, children: children);
+    final passengers = adults + children;
+    if (capacity < 1 ||
+        tricycles < requiredTricycles(passengers, capacity) ||
+        tricycles > passengers) {
       throw ArgumentError('Invalid passenger/tricycle quantity.');
     }
   }

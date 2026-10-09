@@ -11,15 +11,20 @@ import 'widgets/subtenant_admin_widgets.dart';
 import 'widgets/subtenant_components.dart';
 
 const caseCategories = <String, String>{
-  'all': 'All Categories',
-  'payment': 'Payment',
-  'booking': 'Booking',
-  'driver': 'Driver',
-  'tourist': 'Tourist',
-  'tour_package': 'Tour / Package',
+  'all': 'All Types',
+  'payment': 'Payment Dispute',
+  'booking': 'Booking Issue',
+  'driver': 'Driver Conduct',
+  'tourist': 'Tourist Complaint',
+  'tour_package': 'Tour / Service',
   'fare_charge': 'Fare / Additional Charges',
-  'safety_incident': 'Safety / Incident',
+  'safety_incident': 'Safety / Tour Incident',
   'other': 'Other',
+};
+const caseRoles = <String, String>{
+  'all': 'All Roles',
+  'driver': 'Driver Involved',
+  'tourist': 'Tourist Involved',
 };
 const caseStatuses = <String, String>{
   'attention': 'Needs Attention',
@@ -55,6 +60,7 @@ class _SubTenantPaymentDisputesScreenState
   final Set<String> _processing = {};
   String _category = 'all';
   String _status = 'attention';
+  String _role = 'all';
   @override
   void initState() {
     super.initState();
@@ -90,6 +96,7 @@ class _SubTenantPaymentDisputesScreenState
       categoryFilter: _category,
       statusFilter: _status,
       searchQuery: _search.text,
+      roleFilter: _role,
     );
   }
 
@@ -128,6 +135,23 @@ class _SubTenantPaymentDisputesScreenState
   }
 
   Future<void> _startReview(SubTenantCase item) async {
+    if (item.isComplaint) {
+      final notes = await _requestNote(
+        title: 'Start Investigation',
+        label: 'Initial investigation notes',
+      );
+      if (notes == null) return;
+      await _mutate(
+        item,
+        () => _service.updateComplaint(
+          complaintId: item.id,
+          action: 'investigate',
+          notes: notes,
+        ),
+        'Complaint is now under investigation.',
+      );
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -177,12 +201,192 @@ class _SubTenantPaymentDisputesScreenState
     );
   }
 
+  Future<String?> _requestNote({
+    required String title,
+    required String label,
+    int minimumLength = 10,
+  }) async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 6,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: label,
+              alignLabelWithHint: true,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < minimumLength) return;
+                Navigator.pop(context, value);
+              },
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _complaintAction(
+    SubTenantCase item,
+    String action,
+    String title,
+    String successMessage,
+  ) async {
+    final notes = await _requestNote(title: title, label: 'Reason / notes');
+    if (notes == null) return;
+    await _mutate(
+      item,
+      () => _service.updateComplaint(
+        complaintId: item.id,
+        action: action,
+        notes: notes,
+      ),
+      successMessage,
+    );
+  }
+
+  Future<void> _decideComplaint(
+    SubTenantCase item, {
+    required bool dismiss,
+  }) async {
+    final decision = await showDialog<_ComplaintDecisionInput>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ComplaintDecisionDialog(dismiss: dismiss),
+    );
+    if (decision == null) return;
+    await _mutate(
+      item,
+      () => _service.updateComplaint(
+        complaintId: item.id,
+        action: dismiss ? 'dismiss' : 'resolve',
+        notes: decision.notes,
+        findings: decision.findings,
+      ),
+      dismiss ? 'Complaint dismissed.' : 'Complaint resolved.',
+    );
+  }
+
+  Future<void> _imposeRestriction(SubTenantCase item) async {
+    final request = await showDialog<_RestrictionInput>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _RestrictionDialog(item: item),
+    );
+    if (request == null) return;
+    await _mutate(
+      item,
+      () => _service.imposeComplaintRestriction(
+        complaintId: item.id,
+        reason: request.reason,
+        endsAt: DateTime.now().toUtc().add(Duration(days: request.days)),
+      ),
+      'Municipal restriction imposed.',
+    );
+  }
+
+  Future<void> _liftRestriction(
+    SubTenantCase item,
+    Map<String, dynamic> restriction,
+  ) async {
+    final note = await _requestNote(
+      title: 'Lift Restriction',
+      label: 'Decision note',
+    );
+    if (note == null) return;
+    await _mutate(
+      item,
+      () => _service.liftComplaintRestriction(
+        restrictionId: stId(restriction['id']),
+        note: note,
+      ),
+      'Municipal restriction lifted.',
+    );
+  }
+
+  Future<void> _decideAppeal(
+    SubTenantCase item,
+    Map<String, dynamic> appeal, {
+    required bool grant,
+  }) async {
+    final note = await _requestNote(
+      title: grant ? 'Grant Appeal' : 'Uphold Restriction',
+      label: 'Decision note',
+    );
+    if (note == null) return;
+    await _mutate(
+      item,
+      () => _service.decideComplaintRestrictionAppeal(
+        appealId: stId(appeal['id']),
+        grant: grant,
+        note: note,
+      ),
+      grant ? 'Appeal granted.' : 'Restriction upheld.',
+    );
+  }
+
+  Future<void> _openEvidence(SubTenantCaseEvidence evidence) async {
+    try {
+      final url = evidence.url.isNotEmpty
+          ? evidence.url
+          : await _service.complaintEvidenceUrl(evidence.storagePath);
+      if (!mounted) return;
+      if (evidence.isImage) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => Dialog(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
+              child: InteractiveViewer(
+                child: Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Text('Unable to preview this image.'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+      final uri = Uri.tryParse(url);
+      if (uri == null ||
+          !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw StateError('Could not open the secure evidence link.');
+      }
+    } catch (error) {
+      if (mounted) showSubTenantSnack(context, 'Evidence unavailable: $error');
+    }
+  }
+
   Future<void> _view(SubTenantCase item) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _CaseDialog(
         item: item,
         busy: _processing.contains(item.id),
+        onOpenEvidence: _openEvidence,
         onStart: () {
           Navigator.pop(context);
           _startReview(item);
@@ -190,6 +394,44 @@ class _SubTenantPaymentDisputesScreenState
         onResolve: () {
           Navigator.pop(context);
           _resolve(item);
+        },
+        onAddNote: () {
+          Navigator.pop(context);
+          _complaintAction(
+            item,
+            'note',
+            'Add Investigation Note',
+            'Investigation note added.',
+          );
+        },
+        onWarn: () {
+          Navigator.pop(context);
+          _complaintAction(
+            item,
+            'warn',
+            'Issue Formal Warning',
+            'Formal warning issued.',
+          );
+        },
+        onRestrict: () {
+          Navigator.pop(context);
+          _imposeRestriction(item);
+        },
+        onResolveComplaint: () {
+          Navigator.pop(context);
+          _decideComplaint(item, dismiss: false);
+        },
+        onDismissComplaint: () {
+          Navigator.pop(context);
+          _decideComplaint(item, dismiss: true);
+        },
+        onLiftRestriction: (restriction) {
+          Navigator.pop(context);
+          _liftRestriction(item, restriction);
+        },
+        onDecideAppeal: (appeal, grant) {
+          Navigator.pop(context);
+          _decideAppeal(item, appeal, grant: grant);
         },
       ),
     );
@@ -323,24 +565,22 @@ class _SubTenantPaymentDisputesScreenState
             values: caseStatuses,
             onChanged: (value) => setState(() => _status = value),
           );
+          final role = _Filter(
+            value: _role,
+            values: caseRoles,
+            onChanged: (value) => setState(() => _role = value),
+          );
           if (constraints.maxWidth < 720) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 search,
                 const SizedBox(height: 12),
-                if (constraints.maxWidth < 430) ...[
-                  category,
-                  const SizedBox(height: 10),
-                  status,
-                ] else
-                  Row(
-                    children: [
-                      Expanded(child: category),
-                      const SizedBox(width: 10),
-                      Expanded(child: status),
-                    ],
-                  ),
+                category,
+                const SizedBox(height: 10),
+                status,
+                const SizedBox(height: 10),
+                role,
               ],
             );
           }
@@ -348,9 +588,11 @@ class _SubTenantPaymentDisputesScreenState
             children: [
               Expanded(child: search),
               const SizedBox(width: 12),
-              SizedBox(width: 220, child: category),
+              SizedBox(width: 190, child: category),
               const SizedBox(width: 12),
-              SizedBox(width: 190, child: status),
+              SizedBox(width: 170, child: status),
+              const SizedBox(width: 12),
+              SizedBox(width: 170, child: role),
             ],
           );
         },
@@ -572,6 +814,8 @@ class _CaseCard extends StatelessWidget {
                     caseCategories[item.category] ?? stTitleCase(item.category),
                 color: _categoryColor(item.category),
               ),
+              if (item.isComplaint)
+                const _Badge(label: 'Complaint', color: Color(0xFF475569)),
               _Badge(
                 label: _statusLabel(item.status),
                 color: _statusColor(item.status),
@@ -627,6 +871,12 @@ class _CaseCard extends StatelessWidget {
                   icon: Icons.book_online_outlined,
                   text: 'Booking ${_shortId(item.bookingId)}',
                 ),
+              if (item.evidence.isNotEmpty)
+                _Inline(
+                  icon: Icons.attach_file_rounded,
+                  text:
+                      '${item.evidence.length} evidence attachment${item.evidence.length == 1 ? '' : 's'}',
+                ),
               _Inline(
                 icon: Icons.schedule_rounded,
                 text: _date(item.createdAt),
@@ -644,7 +894,7 @@ class _CaseCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.open_in_new_rounded, size: 18),
-              label: const Text('View Case'),
+              label: const Text('Review Case'),
             ),
           ),
         ],
@@ -659,13 +909,35 @@ class _CaseDialog extends StatelessWidget {
     required this.busy,
     required this.onStart,
     required this.onResolve,
+    required this.onOpenEvidence,
+    required this.onAddNote,
+    required this.onWarn,
+    required this.onRestrict,
+    required this.onResolveComplaint,
+    required this.onDismissComplaint,
+    required this.onLiftRestriction,
+    required this.onDecideAppeal,
   });
   final SubTenantCase item;
   final bool busy;
   final VoidCallback onStart;
   final VoidCallback onResolve;
+  final ValueChanged<SubTenantCaseEvidence> onOpenEvidence;
+  final VoidCallback onAddNote;
+  final VoidCallback onWarn;
+  final VoidCallback onRestrict;
+  final VoidCallback onResolveComplaint;
+  final VoidCallback onDismissComplaint;
+  final ValueChanged<Map<String, dynamic>> onLiftRestriction;
+  final void Function(Map<String, dynamic> appeal, bool grant) onDecideAppeal;
   @override
   Widget build(BuildContext context) {
+    final warningIssued = item.timeline.any(
+      (event) => event.label.toLowerCase() == 'warning issued',
+    );
+    final hasActiveRestriction = item.restrictions.any(
+      (restriction) => restriction['active'] == true,
+    );
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -712,22 +984,26 @@ class _CaseDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _Section(
-                      title: 'Case Summary',
+                      title: item.isComplaint
+                          ? 'Report / Complaint Details'
+                          : 'Case Details',
                       child: _Details(
                         rows: {
                           'Case ID': item.reference,
-                          'Category':
+                          'Case / report type':
                               caseCategories[item.category] ??
                               stTitleCase(item.category),
                           'Status': _statusLabel(item.status),
                           'Priority': stTitleCase(item.priority),
                           'Submitted': _date(item.createdAt),
                           'Municipality': item.municipality,
+                          if (item.province.isNotEmpty)
+                            'Province': item.province,
                         },
                       ),
                     ),
                     _Section(
-                      title: 'Parties Involved',
+                      title: 'Reporter & Reported Party',
                       child: Column(
                         children: [
                           _Party(label: 'Reporter', party: item.reporter),
@@ -743,7 +1019,7 @@ class _CaseDialog extends StatelessWidget {
                     ),
                     if (item.booking != null || item.tourPackage != null)
                       _Section(
-                        title: 'Related Booking / Tour',
+                        title: 'Booking Context',
                         child: _Details(
                           rows: {
                             if (item.bookingId.isNotEmpty)
@@ -764,7 +1040,9 @@ class _CaseDialog extends StatelessWidget {
                         ),
                       ),
                     _Section(
-                      title: 'Description',
+                      title: item.isComplaint
+                          ? 'Complaint Description'
+                          : 'Case Description',
                       child: Text(
                         item.description.isEmpty
                             ? 'No additional description was supplied.'
@@ -775,6 +1053,38 @@ class _CaseDialog extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (item.bookingHistory.isNotEmpty)
+                      _Section(
+                        title: 'Municipal Booking History',
+                        child: Column(
+                          children: [
+                            for (
+                              var i = 0;
+                              i < item.bookingHistory.length;
+                              i++
+                            ) ...[
+                              _BookingHistoryRow(
+                                booking: item.bookingHistory[i],
+                              ),
+                              if (i != item.bookingHistory.length - 1)
+                                const Divider(height: 18),
+                            ],
+                          ],
+                        ),
+                      ),
+                    if (item.investigationNotes.isNotEmpty ||
+                        item.findings.isNotEmpty)
+                      _Section(
+                        title: 'Investigation Findings',
+                        child: _Details(
+                          rows: {
+                            if (item.investigationNotes.isNotEmpty)
+                              'Investigation notes': item.investigationNotes,
+                            if (item.findings.isNotEmpty)
+                              'Findings': item.findings,
+                          },
+                        ),
+                      ),
                     if (item.category == 'payment' && item.payment != null)
                       _Section(
                         title: 'Payment Details',
@@ -813,7 +1123,7 @@ class _CaseDialog extends StatelessWidget {
                         ),
                       ),
                     _Section(
-                      title: 'Evidence',
+                      title: 'Supporting Evidence',
                       child: item.evidence.isEmpty
                           ? const Text(
                               'No evidence was attached.',
@@ -824,22 +1134,54 @@ class _CaseDialog extends StatelessWidget {
                               runSpacing: 10,
                               children: [
                                 for (final evidence in item.evidence)
-                                  _Evidence(evidence: evidence),
+                                  _Evidence(
+                                    evidence: evidence,
+                                    onOpen: () => onOpenEvidence(evidence),
+                                  ),
                               ],
                             ),
                     ),
                     _Section(
-                      title: 'Case Timeline',
+                      title: 'Investigation / Decision History',
                       child: Column(
                         children: [
+                          if (item.timeline.isEmpty)
+                            const Text(
+                              'No investigation events have been recorded yet.',
+                              style: TextStyle(color: SubTenantColors.muted),
+                            ),
                           for (final event in item.timeline)
                             _Timeline(
                               label: event.label,
+                              details: event.details,
                               date: _date(event.at),
                             ),
                         ],
                       ),
                     ),
+                    if (item.restrictions.isNotEmpty)
+                      _Section(
+                        title: 'Municipal Restrictions & Appeals',
+                        child: Column(
+                          children: [
+                            for (
+                              var i = 0;
+                              i < item.restrictions.length;
+                              i++
+                            ) ...[
+                              _RestrictionDetails(
+                                restriction: item.restrictions[i],
+                                busy: busy,
+                                onLift: () =>
+                                    onLiftRestriction(item.restrictions[i]),
+                                onDecideAppeal: onDecideAppeal,
+                              ),
+                              if (i != item.restrictions.length - 1)
+                                const Divider(height: 24),
+                            ],
+                          ],
+                        ),
+                      ),
                     if (item.status == 'closed')
                       _Section(
                         title: 'Resolution',
@@ -862,23 +1204,77 @@ class _CaseDialog extends StatelessWidget {
               const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.icon(
-                    onPressed: busy
-                        ? null
-                        : (item.status == 'needs_review' ? onStart : onResolve),
-                    icon: Icon(
-                      item.status == 'needs_review'
-                          ? Icons.manage_search_rounded
-                          : Icons.gavel_rounded,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Admin Actions',
+                      style: TextStyle(fontWeight: FontWeight.w900),
                     ),
-                    label: Text(
-                      item.status == 'needs_review'
-                          ? 'Start Review'
-                          : 'Resolve Case',
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: item.isComplaint && item.status == 'under_review'
+                          ? Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton(
+                                  onPressed: busy ? null : onAddNote,
+                                  child: const Text('Add Note'),
+                                ),
+                                OutlinedButton(
+                                  onPressed: busy || warningIssued
+                                      ? null
+                                      : onWarn,
+                                  child: Text(
+                                    warningIssued
+                                        ? 'Warning Issued'
+                                        : 'Issue Warning',
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  onPressed: busy || hasActiveRestriction
+                                      ? null
+                                      : onRestrict,
+                                  child: Text(
+                                    hasActiveRestriction
+                                        ? 'Restriction Active'
+                                        : 'Restrict Manually',
+                                  ),
+                                ),
+                                FilledButton(
+                                  onPressed: busy ? null : onResolveComplaint,
+                                  child: const Text('Resolve'),
+                                ),
+                                TextButton(
+                                  onPressed: busy ? null : onDismissComplaint,
+                                  child: const Text('Dismiss'),
+                                ),
+                              ],
+                            )
+                          : FilledButton.icon(
+                              onPressed: busy
+                                  ? null
+                                  : (item.status == 'needs_review'
+                                        ? onStart
+                                        : onResolve),
+                              icon: Icon(
+                                item.status == 'needs_review'
+                                    ? Icons.manage_search_rounded
+                                    : Icons.gavel_rounded,
+                              ),
+                              label: Text(
+                                item.status == 'needs_review'
+                                    ? (item.isComplaint
+                                          ? 'Investigate'
+                                          : 'Start Review')
+                                    : 'Resolve Case',
+                              ),
+                            ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ],
@@ -888,6 +1284,313 @@ class _CaseDialog extends StatelessWidget {
     );
   }
 }
+
+class _BookingHistoryRow extends StatelessWidget {
+  const _BookingHistoryRow({required this.booking});
+
+  final Map<String, dynamic> booking;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = stId(booking['booking_id']);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.history_rounded,
+          size: 19,
+          color: SubTenantColors.blue,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Booking ${_shortId(id)}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              Text(
+                '${booking['travel_date'] ?? 'Date unavailable'} · '
+                '${stTitleCase(stString(booking, const ['booking_status']))}',
+                style: const TextStyle(
+                  color: SubTenantColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RestrictionDetails extends StatelessWidget {
+  const _RestrictionDetails({
+    required this.restriction,
+    required this.busy,
+    required this.onLift,
+    required this.onDecideAppeal,
+  });
+
+  final Map<String, dynamic> restriction;
+  final bool busy;
+  final VoidCallback onLift;
+  final void Function(Map<String, dynamic> appeal, bool grant) onDecideAppeal;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = restriction['active'] == true;
+    final appeals = restriction['appeals'] is List
+        ? (restriction['appeals'] as List)
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _Badge(
+              label: active ? 'Active Restriction' : 'Expired / Lifted',
+              color: active ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            ),
+            Text(
+              'Ends ${_date(stDate(restriction['ends_at']))}',
+              style: const TextStyle(
+                color: SubTenantColors.muted,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(stString(restriction, const ['reason'])),
+        if (active) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: busy ? null : onLift,
+              child: const Text('Lift Restriction'),
+            ),
+          ),
+        ],
+        for (final appeal in appeals) ...[
+          const Divider(height: 20),
+          Text(
+            'Appeal · ${stTitleCase(stString(appeal, const ['status']))}',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            stString(appeal, const ['reason']),
+            style: const TextStyle(color: SubTenantColors.muted),
+          ),
+          if (stString(appeal, const ['status']) == 'pending')
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: busy ? null : () => onDecideAppeal(appeal, true),
+                  child: const Text('Grant Appeal'),
+                ),
+                TextButton(
+                  onPressed: busy ? null : () => onDecideAppeal(appeal, false),
+                  child: const Text('Uphold Restriction'),
+                ),
+              ],
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ComplaintDecisionDialog extends StatefulWidget {
+  const _ComplaintDecisionDialog({required this.dismiss});
+
+  final bool dismiss;
+
+  @override
+  State<_ComplaintDecisionDialog> createState() =>
+      _ComplaintDecisionDialogState();
+}
+
+class _ComplaintDecisionDialogState extends State<_ComplaintDecisionDialog> {
+  final _key = GlobalKey<FormState>();
+  final _findings = TextEditingController();
+  final _notes = TextEditingController();
+
+  @override
+  void dispose() {
+    _findings.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.dismiss ? 'Dismiss Complaint' : 'Resolve Complaint'),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 540),
+      child: Form(
+        key: _key,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _findings,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'Investigation findings',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: _minimumTenCharacters,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _notes,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'Decision notes',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                validator: _minimumTenCharacters,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!_key.currentState!.validate()) return;
+          Navigator.pop(
+            context,
+            _ComplaintDecisionInput(
+              findings: _findings.text.trim(),
+              notes: _notes.text.trim(),
+            ),
+          );
+        },
+        child: Text(widget.dismiss ? 'Dismiss' : 'Resolve'),
+      ),
+    ],
+  );
+}
+
+class _RestrictionDialog extends StatefulWidget {
+  const _RestrictionDialog({required this.item});
+
+  final SubTenantCase item;
+
+  @override
+  State<_RestrictionDialog> createState() => _RestrictionDialogState();
+}
+
+class _RestrictionDialogState extends State<_RestrictionDialog> {
+  final _reason = TextEditingController();
+  int _days = 7;
+  bool _confirmed = false;
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Manual Municipal Restriction'),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Account: ${widget.item.reportedUser?.name ?? 'Unknown user'} '
+              '(${stTitleCase(widget.item.reportedUser?.role ?? '')}). '
+              'Existing trips, payments, refunds, and appeals remain accessible.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _reason,
+              minLines: 3,
+              maxLines: 5,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Documented investigation reason',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              initialValue: _days,
+              decoration: const InputDecoration(
+                labelText: 'Duration',
+                border: OutlineInputBorder(),
+              ),
+              items: const [1, 7, 30, 90]
+                  .map(
+                    (days) => DropdownMenuItem(
+                      value: days,
+                      child: Text('$days day${days == 1 ? '' : 's'}'),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) => setState(() => _days = value ?? _days),
+            ),
+            CheckboxListTile(
+              value: _confirmed,
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'I confirm this is a manual MTO decision after investigation.',
+              ),
+              onChanged: (value) => setState(() => _confirmed = value == true),
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: !_confirmed || _reason.text.trim().length < 20
+            ? null
+            : () => Navigator.pop(
+                context,
+                _RestrictionInput(reason: _reason.text.trim(), days: _days),
+              ),
+        child: const Text('Impose Restriction'),
+      ),
+    ],
+  );
+}
+
+String? _minimumTenCharacters(String? value) =>
+    (value?.trim().length ?? 0) < 10 ? 'Enter at least 10 characters.' : null;
 
 class _ResolveDialog extends StatefulWidget {
   const _ResolveDialog();
@@ -1119,38 +1822,14 @@ class _Party extends StatelessWidget {
 }
 
 class _Evidence extends StatelessWidget {
-  const _Evidence({required this.evidence});
+  const _Evidence({required this.evidence, required this.onOpen});
   final SubTenantCaseEvidence evidence;
-  Future<void> _open(BuildContext context) async {
-    if (evidence.isImage) {
-      await showDialog<void>(
-        context: context,
-        builder: (context) => Dialog(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
-            child: InteractiveViewer(
-              child: Image.network(
-                evidence.url,
-                fit: BoxFit.contain,
-                errorBuilder: (_, _, _) => const Padding(
-                  padding: EdgeInsets.all(40),
-                  child: Text('Unable to preview this image.'),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    final uri = Uri.tryParse(evidence.url);
-    if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) => InkWell(
     borderRadius: BorderRadius.circular(12),
-    onTap: () => _open(context),
+    onTap: onOpen,
     child: Container(
       width: 180,
       padding: const EdgeInsets.all(12),
@@ -1180,13 +1859,15 @@ class _Evidence extends StatelessWidget {
 }
 
 class _Timeline extends StatelessWidget {
-  const _Timeline({required this.label, required this.date});
+  const _Timeline({required this.label, required this.date, this.details = ''});
   final String label;
   final String date;
+  final String details;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 6),
     child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Icon(
           Icons.check_circle_rounded,
@@ -1195,14 +1876,28 @@ class _Timeline extends StatelessWidget {
         ),
         const SizedBox(width: 9),
         Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w700),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+              if (details.isNotEmpty)
+                Text(
+                  details,
+                  style: const TextStyle(
+                    color: SubTenantColors.muted,
+                    fontSize: 12,
+                  ),
+                ),
+              const SizedBox(height: 2),
+              Text(
+                date,
+                style: const TextStyle(
+                  color: SubTenantColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ),
-        ),
-        Text(
-          date,
-          style: const TextStyle(color: SubTenantColors.muted, fontSize: 12),
         ),
       ],
     ),
@@ -1237,9 +1932,13 @@ class _Inline extends StatelessWidget {
     children: [
       Icon(icon, size: 16, color: SubTenantColors.lightMuted),
       const SizedBox(width: 5),
-      Text(
-        text,
-        style: const TextStyle(color: SubTenantColors.muted, fontSize: 12),
+      Flexible(
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: SubTenantColors.muted, fontSize: 12),
+        ),
       ),
     ],
   );
@@ -1283,6 +1982,20 @@ class _ResolutionInput {
   final String type;
   final String notes;
   final String custom;
+}
+
+class _ComplaintDecisionInput {
+  const _ComplaintDecisionInput({required this.findings, required this.notes});
+
+  final String findings;
+  final String notes;
+}
+
+class _RestrictionInput {
+  const _RestrictionInput({required this.reason, required this.days});
+
+  final String reason;
+  final int days;
 }
 
 String _statusLabel(String status) => switch (status) {

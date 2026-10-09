@@ -321,10 +321,17 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   int get _totalParticipants => _adults + _children;
 
-  int get _requiredTricycles =>
-      BookingCapacity.minimumForAdults(_adults, _tricyclePassengerCapacity!);
+  int get _requiredTricycles => BookingCapacity.minimumForParticipants(
+    adults: _adults,
+    children: _children,
+    capacity: _tricyclePassengerCapacity!,
+  );
+  int get _maximumTricycles => BookingCapacity.maximumSelectableTricycles(
+    adults: _adults,
+    children: _children,
+  );
   int get _totalRequestedTricycles => (_selectedTricycles ?? _requiredTricycles)
-      .clamp(_requiredTricycles, _adults);
+      .clamp(_requiredTricycles, _maximumTricycles);
 
   // =============================================================================
   // BOOKING TYPE
@@ -1259,6 +1266,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // =============================================================================
 
   String? _passengerValidationMessage() {
+    if (_children > 0 && _adults == 0) {
+      return 'Children must be accompanied by at least one adult.';
+    }
+
     if (_adults < 1) {
       return 'Please include at least 1 adult passenger.';
     }
@@ -1960,13 +1971,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                           const SizedBox(height: 12),
 
                           _TransportRequirementCard(
-                            participants: _adults,
+                            participants: _totalParticipants,
                             requiredTricycles: _requiredTricycles,
+                            capacity: _tricyclePassengerCapacity!,
                           ),
                           const SizedBox(height: 10),
                           _TricycleQuantityCard(
                             minimum: _requiredTricycles,
-                            maximum: _adults,
+                            maximum: _maximumTricycles,
                             selected: _totalRequestedTricycles,
                             onIncrease: () => setState(
                               () => _selectedTricycles =
@@ -3559,10 +3571,12 @@ class _TransportRequirementCard extends StatelessWidget {
   const _TransportRequirementCard({
     required this.participants,
     required this.requiredTricycles,
+    required this.capacity,
   });
 
   final int participants;
   final int requiredTricycles;
+  final int capacity;
 
   @override
   Widget build(BuildContext context) {
@@ -3580,8 +3594,8 @@ class _TransportRequirementCard extends StatelessWidget {
 
           Expanded(
             child: Text(
-              '$requiredTricycles Minimum Tricycle${requiredTricycles == 1 ? '' : 's'}\n'
-              'Based on $participants adult${participants == 1 ? '' : 's'} and vehicle capacity',
+              'Minimum $requiredTricycles tricycle${requiredTricycles == 1 ? '' : 's'} required\n'
+              'Suggested based on $participants passenger${participants == 1 ? '' : 's'} and vehicle capacity ($capacity per tricycle)',
               style: const TextStyle(
                 color: Color(0xFF4D6686),
                 fontWeight: FontWeight.w700,
@@ -3628,7 +3642,7 @@ class _TricycleQuantityCard extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         Text(
-          'Choose $minimum to $maximum tricycle${maximum == 1 ? '' : 's'} for your adult group. Each selected tricycle opens one real driver slot.',
+          'Choose $minimum to $maximum tricycle${maximum == 1 ? '' : 's'} for your passenger group. Each selected tricycle opens one real driver slot.',
           style: const TextStyle(color: _secondaryText, fontSize: 11.5),
         ),
         Row(

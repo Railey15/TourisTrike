@@ -1132,6 +1132,7 @@ class SubTenantCaseEvidence {
     required this.name,
     required this.contentType,
     required this.createdAt,
+    this.storagePath = '',
   });
 
   final String id;
@@ -1139,6 +1140,7 @@ class SubTenantCaseEvidence {
   final String name;
   final String contentType;
   final DateTime? createdAt;
+  final String storagePath;
 
   factory SubTenantCaseEvidence.fromMap(Map<String, dynamic> map) {
     return SubTenantCaseEvidence(
@@ -1147,6 +1149,7 @@ class SubTenantCaseEvidence {
       name: stString(map, const ['name'], fallback: 'Evidence'),
       contentType: stString(map, const ['content_type']),
       createdAt: stDate(map['created_at']),
+      storagePath: stString(map, const ['storage_path']),
     );
   }
 
@@ -1159,15 +1162,21 @@ class SubTenantCaseEvidence {
 }
 
 class SubTenantCaseTimelineEvent {
-  const SubTenantCaseTimelineEvent({required this.label, required this.at});
+  const SubTenantCaseTimelineEvent({
+    required this.label,
+    required this.at,
+    this.details = '',
+  });
 
   final String label;
   final DateTime? at;
+  final String details;
 
   factory SubTenantCaseTimelineEvent.fromMap(Map<String, dynamic> map) {
     return SubTenantCaseTimelineEvent(
       label: stString(map, const ['label']),
       at: stDate(map['at']),
+      details: stString(map, const ['details']),
     );
   }
 }
@@ -1199,6 +1208,13 @@ class SubTenantCase {
     required this.reviewedAt,
     required this.resolvedAt,
     required this.updatedAt,
+    this.source = 'dispute',
+    this.province = '',
+    this.originalStatus = '',
+    this.investigationNotes = '',
+    this.findings = '',
+    this.bookingHistory = const [],
+    this.restrictions = const [],
   });
 
   final String id;
@@ -1226,6 +1242,15 @@ class SubTenantCase {
   final DateTime? reviewedAt;
   final DateTime? resolvedAt;
   final DateTime? updatedAt;
+  final String source;
+  final String province;
+  final String originalStatus;
+  final String investigationNotes;
+  final String findings;
+  final List<Map<String, dynamic>> bookingHistory;
+  final List<Map<String, dynamic>> restrictions;
+
+  bool get isComplaint => source == 'complaint';
 
   factory SubTenantCase.fromMap(Map<String, dynamic> map) {
     Map<String, dynamic>? nested(String key) {
@@ -1277,6 +1302,119 @@ class SubTenantCase {
       reviewedAt: stDate(map['reviewed_at']),
       resolvedAt: stDate(map['resolved_at']),
       updatedAt: stDate(map['updated_at']),
+      province: stString(map, const ['province']),
+      originalStatus: stString(map, const ['status']),
+    );
+  }
+
+  factory SubTenantCase.fromComplaintMap(
+    Map<String, dynamic> map, {
+    List<Map<String, dynamic>> restrictions = const [],
+  }) {
+    List<Map<String, dynamic>> maps(String key) {
+      final value = map[key];
+      if (value is! List) return const [];
+      return value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+
+    final reportedRole = stString(map, const ['reported_role']);
+    final category = stString(map, const ['category'], fallback: 'other');
+    final originalStatus = stString(map, const [
+      'status',
+    ], fallback: 'submitted');
+    final normalizedCategory = switch (category) {
+      'payment' => 'payment',
+      'safety' => 'safety_incident',
+      'conduct' when reportedRole == 'driver' => 'driver',
+      'conduct' when reportedRole == 'tourist' => 'tourist',
+      'service' => 'tour_package',
+      _ => 'other',
+    };
+    final normalizedStatus = switch (originalStatus) {
+      'submitted' => 'needs_review',
+      'under_investigation' => 'under_review',
+      'resolved' || 'dismissed' => 'closed',
+      _ => originalStatus,
+    };
+    final reporterRole = reportedRole == 'driver' ? 'tourist' : 'driver';
+    final events = maps('events');
+    final evidence = maps('evidence');
+    final bookingId = stId(map['booking_id']);
+    final description = stString(map, const ['description']);
+    final subject = switch (category) {
+      'conduct' => '${stTitleCase(reportedRole)} conduct complaint',
+      'safety' => 'Safety incident report',
+      'service' => 'Tour service complaint',
+      'payment' => 'Payment complaint',
+      _ => 'Booking complaint',
+    };
+
+    return SubTenantCase(
+      id: stId(map['id']),
+      municipality: stString(map, const ['municipality']),
+      province: stString(map, const ['province']),
+      bookingId: bookingId,
+      packageId: '',
+      paymentRecordId: '',
+      category: normalizedCategory,
+      subject: subject,
+      description: description,
+      priority: category == 'safety' ? 'high' : 'normal',
+      status: normalizedStatus,
+      originalStatus: originalStatus,
+      source: 'complaint',
+      resolutionType: originalStatus == 'dismissed'
+          ? 'dismissed_insufficient_evidence'
+          : originalStatus == 'resolved'
+          ? 'other_resolution'
+          : '',
+      customResolution: '',
+      resolutionNotes: stString(map, const ['resolution_note']),
+      reporter: SubTenantCaseParty(
+        id: stId(map['reporter_id']),
+        name: stString(map, const ['reporter_name'], fallback: 'Unknown user'),
+        role: reporterRole,
+        mobile: '',
+      ),
+      reportedUser: SubTenantCaseParty(
+        id: stId(map['reported_user_id']),
+        name: stString(map, const ['reported_name'], fallback: 'Unknown user'),
+        role: reportedRole,
+        mobile: '',
+      ),
+      assignee: null,
+      booking: {
+        'id': bookingId,
+        'status': map['booking_status'],
+        'travel_date': map['booking_travel_date'],
+      },
+      tourPackage: null,
+      payment: null,
+      evidence: evidence
+          .map(SubTenantCaseEvidence.fromMap)
+          .toList(growable: false),
+      timeline: events
+          .map(
+            (event) => SubTenantCaseTimelineEvent(
+              label: stTitleCase(stString(event, const ['action'])),
+              details: stString(event, const ['details']),
+              at: stDate(event['created_at']),
+            ),
+          )
+          .toList(growable: false),
+      investigationNotes: stString(map, const ['investigation_notes']),
+      findings: stString(map, const ['findings']),
+      bookingHistory: maps('booking_history'),
+      restrictions: restrictions,
+      createdAt: stDate(map['created_at']),
+      reviewedAt: originalStatus == 'submitted'
+          ? null
+          : stDate(map['updated_at']) ?? stDate(map['created_at']),
+      resolvedAt: stDate(map['decided_at']),
+      updatedAt: stDate(map['updated_at']),
     );
   }
 
@@ -1290,7 +1428,11 @@ class SubTenantCase {
     description,
     bookingId,
     reporter.name,
+    reporter.role,
     reportedUser?.name ?? '',
+    reportedUser?.role ?? '',
+    category,
+    source,
     stString(booking ?? const {}, const ['id']),
     stString(tourPackage ?? const {}, const ['title']),
   ].join(' ').toLowerCase();
@@ -1299,6 +1441,7 @@ class SubTenantCase {
     required String categoryFilter,
     required String statusFilter,
     required String searchQuery,
+    String roleFilter = 'all',
   }) {
     final categoryMatches =
         categoryFilter == 'all' || category == categoryFilter;
@@ -1307,8 +1450,13 @@ class SubTenantCase {
         (statusFilter == 'attention' && status != 'closed') ||
         status == statusFilter;
     final normalizedQuery = searchQuery.trim().toLowerCase();
+    final roleMatches =
+        roleFilter == 'all' ||
+        reporter.role == roleFilter ||
+        reportedUser?.role == roleFilter;
     return categoryMatches &&
         statusMatches &&
+        roleMatches &&
         (normalizedQuery.isEmpty || searchableText.contains(normalizedQuery));
   }
 }

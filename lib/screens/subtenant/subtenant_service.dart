@@ -2195,15 +2195,43 @@ class SubTenantService {
   }
 
   Future<List<SubTenantCase>> fetchCases({String? caseId}) async {
-    final result = await _supabase.rpc(
-      'get_dispute_cases',
-      params: {'p_case_id': caseId},
-    );
-    if (result is! List) return const [];
-    return result
-        .whereType<Map>()
-        .map((row) => SubTenantCase.fromMap(Map<String, dynamic>.from(row)))
-        .toList(growable: false);
+    List<Map<String, dynamic>> rows(dynamic value) => value is List
+        ? value
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList(growable: false)
+        : const [];
+
+    final results = await Future.wait<dynamic>([
+      _supabase.rpc('get_dispute_cases', params: {'p_case_id': caseId}),
+      _supabase.rpc(
+        'get_municipal_complaints',
+        params: {'p_complaint_id': caseId},
+      ),
+      _supabase.rpc('get_municipal_restrictions'),
+    ]);
+    final restrictions = rows(results[2]);
+    final restrictionsByComplaint = <String, List<Map<String, dynamic>>>{};
+    for (final restriction in restrictions) {
+      restrictionsByComplaint
+          .putIfAbsent(stId(restriction['complaint_id']), () => [])
+          .add(restriction);
+    }
+    final cases = <SubTenantCase>[
+      ...rows(results[0]).map(SubTenantCase.fromMap),
+      ...rows(results[1]).map(
+        (row) => SubTenantCase.fromComplaintMap(
+          row,
+          restrictions: restrictionsByComplaint[stId(row['id'])] ?? const [],
+        ),
+      ),
+    ];
+    cases.sort((a, b) {
+      final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return right.compareTo(left);
+    });
+    return cases;
   }
 
   Future<SubTenantCase> fetchCaseDetails(String caseId) async {
@@ -2272,6 +2300,72 @@ class SubTenantService {
           item.customResolution == custom &&
           item.resolvedAt != null,
     );
+  }
+
+  Future<void> updateComplaint({
+    required String complaintId,
+    required String action,
+    required String notes,
+    String? findings,
+  }) async {
+    await _supabase.rpc(
+      'update_municipal_complaint',
+      params: {
+        'p_complaint_id': complaintId,
+        'p_action': action,
+        'p_notes': notes.trim(),
+        'p_findings': findings?.trim().isEmpty == true
+            ? null
+            : findings?.trim(),
+      },
+    );
+  }
+
+  Future<void> imposeComplaintRestriction({
+    required String complaintId,
+    required String reason,
+    required DateTime endsAt,
+  }) async {
+    await _supabase.rpc(
+      'impose_municipal_restriction',
+      params: {
+        'p_complaint_id': complaintId,
+        'p_reason': reason.trim(),
+        'p_ends_at': endsAt.toUtc().toIso8601String(),
+        'p_confirm': true,
+      },
+    );
+  }
+
+  Future<void> liftComplaintRestriction({
+    required String restrictionId,
+    required String note,
+  }) async {
+    await _supabase.rpc(
+      'lift_municipal_restriction',
+      params: {'p_restriction_id': restrictionId, 'p_note': note.trim()},
+    );
+  }
+
+  Future<void> decideComplaintRestrictionAppeal({
+    required String appealId,
+    required bool grant,
+    required String note,
+  }) async {
+    await _supabase.rpc(
+      'decide_municipal_restriction_appeal',
+      params: {
+        'p_appeal_id': appealId,
+        'p_grant': grant,
+        'p_note': note.trim(),
+      },
+    );
+  }
+
+  Future<String> complaintEvidenceUrl(String storagePath) {
+    return _supabase.storage
+        .from('municipal-complaint-evidence')
+        .createSignedUrl(storagePath, 60);
   }
 
   Future<void> _runCaseMutation({

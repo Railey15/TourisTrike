@@ -62,14 +62,9 @@ class _SubTenantSidebarState extends State<SubTenantSidebar> {
       index: 6,
     ),
     _SidebarDestination(
-      label: 'Disputes',
+      label: 'Disputes & Cases',
       icon: Icons.report_problem_rounded,
       index: 7,
-    ),
-    _SidebarDestination(
-      label: 'Complaints',
-      icon: Icons.gavel_outlined,
-      index: 8,
     ),
   ];
 
