@@ -328,7 +328,11 @@ class CityTenant {
         'office_name',
         'name',
       ], fallback: generatedName.isEmpty ? 'Subtenant Admin' : generatedName),
-      email: mainTenantString(map, const ['email', 'contact_email', 'office_email']),
+      email: mainTenantString(map, const [
+        'email',
+        'contact_email',
+        'office_email',
+      ]),
       mobile: mainTenantString(map, const ['mobile', 'contact_number']),
       address: mainTenantString(map, const ['address', 'office_address']),
       status: status,
@@ -406,6 +410,7 @@ class MainTenantNotification {
     required this.type,
     required this.isRead,
     required this.createdAt,
+    this.data = const {},
   });
 
   final dynamic id;
@@ -414,6 +419,9 @@ class MainTenantNotification {
   final String type;
   final bool isRead;
   final DateTime? createdAt;
+  final Map<String, dynamic> data;
+
+  String get caseId => data['case_id']?.toString() ?? '';
 
   factory MainTenantNotification.fromMap(Map<String, dynamic> map) {
     return MainTenantNotification(
@@ -423,6 +431,9 @@ class MainTenantNotification {
       type: mainTenantString(map, const ['type']),
       isRead: map['is_read'] == true,
       createdAt: mainTenantDate(map['created_at']),
+      data: map['data'] is Map
+          ? Map<String, dynamic>.from(map['data'] as Map)
+          : const {},
     );
   }
 
@@ -434,6 +445,7 @@ class MainTenantNotification {
       type: type,
       isRead: isRead ?? this.isRead,
       createdAt: createdAt,
+      data: data,
     );
   }
 }
@@ -480,7 +492,10 @@ class ProvincePackage {
   }) {
     return ProvincePackage(
       id: map['id'],
-      title: mainTenantString(map, const ['title', 'name'], fallback: 'Untitled'),
+      title: mainTenantString(map, const [
+        'title',
+        'name',
+      ], fallback: 'Untitled'),
       subtitle: mainTenantString(map, const ['subtitle', 'tagline']),
       description: mainTenantString(map, const ['description', 'details']),
       city: mainTenantString(map, const ['city'], fallback: 'Unassigned'),
@@ -531,7 +546,10 @@ class ProvinceSpot {
   factory ProvinceSpot.fromMap(Map<String, dynamic> map) {
     return ProvinceSpot(
       id: map['id'],
-      title: mainTenantString(map, const ['title', 'name'], fallback: 'Untitled'),
+      title: mainTenantString(map, const [
+        'title',
+        'name',
+      ], fallback: 'Untitled'),
       description: mainTenantString(map, const ['description']),
       city: mainTenantString(map, const ['city'], fallback: 'Unassigned'),
       barangay: mainTenantString(map, const ['barangay']),
@@ -585,10 +603,14 @@ class ProvinceBooking {
       packageId: map['package_id'] ?? package?.id,
       packageTitle:
           package?.title ??
-          mainTenantString(nested ?? const {}, const ['title'], fallback: 'Package'),
+          mainTenantString(nested ?? const {}, const [
+            'title',
+          ], fallback: 'Package'),
       city:
           package?.city ??
-          mainTenantString(nested ?? const {}, const ['city'], fallback: 'Unknown'),
+          mainTenantString(nested ?? const {}, const [
+            'city',
+          ], fallback: 'Unknown'),
       touristName: mainTenantString(map, const [
         'tourist_name',
         'full_name',
@@ -635,7 +657,10 @@ class ProvinceFeedback {
       id: map['id'],
       source: source,
       city: mainTenantString(map, const ['city'], fallback: city),
-      rating: mainTenantDouble(map['rating'], fallback: mainTenantDouble(map['score'])),
+      rating: mainTenantDouble(
+        map['rating'],
+        fallback: mainTenantDouble(map['score']),
+      ),
       comment: mainTenantString(map, const [
         'comment',
         'review_text',
@@ -743,7 +768,9 @@ class MainTenantPolicy {
   factory MainTenantPolicy.fromMap(Map<String, dynamic> map) {
     return MainTenantPolicy(
       id: map['id'],
-      title: mainTenantString(map, const ['title'], fallback: 'Untitled Policy'),
+      title: mainTenantString(map, const [
+        'title',
+      ], fallback: 'Untitled Policy'),
       content: mainTenantString(map, const ['content', 'body', 'description']),
       status: mainTenantString(map, const ['status'], fallback: 'draft'),
       createdAt: mainTenantDate(map['created_at']),

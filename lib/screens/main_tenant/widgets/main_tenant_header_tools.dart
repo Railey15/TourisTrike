@@ -306,10 +306,12 @@ class MainTenantNotificationButton extends StatefulWidget {
     super.key,
     required this.userId,
     required this.onNavigate,
+    required this.onOpenCase,
   });
 
   final String userId;
   final ValueChanged<MainTenantDestination> onNavigate;
+  final ValueChanged<String> onOpenCase;
 
   @override
   State<MainTenantNotificationButton> createState() =>
@@ -333,6 +335,7 @@ class _MainTenantNotificationButtonState
       builder: (_) => _MainTenantNotificationsDialog(
         service: _service,
         onNavigate: widget.onNavigate,
+        onOpenCase: widget.onOpenCase,
         onNotificationsRead: _handleNotificationsRead,
       ),
     );
@@ -392,11 +395,13 @@ class _MainTenantNotificationsDialog extends StatefulWidget {
     required this.service,
     required this.onNavigate,
     required this.onNotificationsRead,
+    required this.onOpenCase,
   });
 
   final MainTenantService service;
   final ValueChanged<MainTenantDestination> onNavigate;
   final ValueChanged<Set<String>> onNotificationsRead;
+  final ValueChanged<String> onOpenCase;
 
   @override
   State<_MainTenantNotificationsDialog> createState() =>
@@ -457,12 +462,18 @@ class _MainTenantNotificationsDialogState
 
   Future<void> _openNotification(MainTenantNotification item) async {
     try {
-      if (!item.isRead)
+      if (!item.isRead) {
         await widget.service.markMainTenantNotificationRead(item.id);
+      }
       final destination = _destination(item.type);
       if (!mounted) return;
       Navigator.pop(context);
-      if (destination != null) widget.onNavigate(destination);
+      if (item.caseId.isNotEmpty &&
+          item.data['route']?.toString() == 'disputes_cases') {
+        widget.onOpenCase(item.caseId);
+      } else if (destination != null) {
+        widget.onNavigate(destination);
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -480,7 +491,9 @@ class _MainTenantNotificationsDialogState
     if (value.contains('spot')) return MainTenantDestination.tourismData;
     if (value.contains('package')) return MainTenantDestination.packages;
     if (value.contains('booking') || value.contains('payment')) {
-      return MainTenantDestination.reports;
+      return value.contains('restriction') || value.contains('suspension')
+          ? MainTenantDestination.disputes
+          : MainTenantDestination.reports;
     }
     if (value.contains('review') || value.contains('feedback')) {
       return MainTenantDestination.feedback;

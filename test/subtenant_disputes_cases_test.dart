@@ -159,8 +159,77 @@ void main() {
     expect(complaint.reportedUser?.role, 'driver');
     expect(complaint.bookingHistory, hasLength(1));
     expect(complaint.evidence.single.storagePath, 'complaints/evidence.jpg');
+    expect(complaint.evidence.single.name, 'evidence.jpg');
     expect(complaint.timeline.single.details, contains('MTO review'));
     expect(complaint.restrictions, hasLength(1));
+  });
+
+  test('tourist suspension appeals adapt into the unified cases workflow', () {
+    final item = SubTenantCase.fromBookingSuspensionMap({
+      'id': 'dddddddd-1234-1234-1234-123456789012',
+      'municipality': 'Baliwag',
+      'province': 'Bulacan',
+      'booking_id': 'eeeeeeee-1234-1234-1234-123456789012',
+      'package_id': '42',
+      'subject': 'Automatic booking suspension',
+      'description': 'Three tourist-initiated bookings were cancelled today.',
+      'status': 'under_review',
+      'original_status': 'pending_review',
+      'reporter': {
+        'id': 'tourist-id',
+        'name': 'Tourist Appealing',
+        'role': 'tourist',
+        'mobile': '09123456789',
+      },
+      'booking': {
+        'id': 'eeeeeeee-1234-1234-1234-123456789012',
+        'status': 'cancelled',
+      },
+      'booking_history': [
+        {'booking_id': 'one', 'booking_status': 'cancelled'},
+        {'booking_id': 'two', 'booking_status': 'cancelled'},
+        {'booking_id': 'three', 'booking_status': 'cancelled'},
+      ],
+      'timeline': [
+        {
+          'label': 'Automatic suspension applied',
+          'details': '3 same-day tourist cancellations',
+          'at': '2026-10-10T01:00:00Z',
+        },
+      ],
+      'restrictions': [
+        {
+          'id': 'dddddddd-1234-1234-1234-123456789012',
+          'active': true,
+          'cancellation_count': 3,
+          'appeals': [
+            {
+              'id': 'appeal-id',
+              'status': 'pending_review',
+              'reason': 'Please review this suspension.',
+            },
+          ],
+        },
+      ],
+      'created_at': '2026-10-10T01:00:00Z',
+      'reviewed_at': '2026-10-10T02:00:00Z',
+    });
+
+    expect(item.isBookingSuspension, isTrue);
+    expect(item.category, 'booking_suspension');
+    expect(item.status, 'under_review');
+    expect(item.originalStatus, 'pending_review');
+    expect(item.bookingHistory, hasLength(3));
+    expect(item.restrictions.single['cancellation_count'], 3);
+    expect(
+      item.matchesFilters(
+        categoryFilter: 'booking_suspension',
+        statusFilter: 'under_review',
+        roleFilter: 'tourist',
+        searchQuery: 'Tourist Appealing',
+      ),
+      isTrue,
+    );
   });
 
   test(
@@ -176,6 +245,31 @@ void main() {
         'heritage tour',
       ]) {
         expect(item.searchableText, contains(query));
+      }
+    },
+  );
+
+  test(
+    'complaint search covers reporter, reported party, booking and report text',
+    () {
+      final complaint = SubTenantCase.fromComplaintMap(_complaint());
+
+      for (final query in [
+        'Tourist Reporter',
+        'Driver Reported',
+        'bbbbbbbb',
+        'behaved unsafely',
+      ]) {
+        expect(
+          complaint.matchesFilters(
+            categoryFilter: 'driver',
+            statusFilter: 'attention',
+            roleFilter: 'driver',
+            searchQuery: query,
+          ),
+          isTrue,
+          reason: 'Expected unified complaint search to match "$query".',
+        );
       }
     },
   );
@@ -295,7 +389,7 @@ void main() {
     () {
       final action = ui.indexOf('await action();');
       final refresh = ui.indexOf(
-        'final refreshed = await _service.fetchCases();',
+        'final refreshed = await _loadCases();',
       );
       final success = ui.indexOf(
         'showSubTenantSnack(context, message, error: false)',
@@ -332,6 +426,8 @@ void main() {
         contains("item.category == 'payment' && item.payment != null"),
       );
       expect(ui, contains('constraints.maxWidth < 720'));
+      expect(ui, contains('Responsive.isLargeDesktop(context)'));
+      expect(ui, contains('? 4'));
       expect(ui, contains('maxWidth: 820, maxHeight: 760'));
     },
   );

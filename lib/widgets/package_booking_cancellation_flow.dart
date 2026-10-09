@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:touristrike/core/presentation/cancellation_display.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/widgets/tourist_booking_suspension.dart';
 
 const _cancelBlue = Color(0xFF2563EB);
 const _cancelInk = Color(0xFF0F172A);
@@ -41,7 +42,10 @@ Future<BookingCancellationResult?> showPackageBookingCancellationFlow(
   TourisTrikeRepository? repository,
 }) async {
   final repo = repository ?? TourisTrikeRepository();
-  _showBlockingProgress(context, 'Checking cancellation policy…');
+  final policyProgress = _showBlockingProgress(
+    context,
+    'Checking cancellation policy…',
+  );
 
   late CancellationEligibility eligibility;
   try {
@@ -50,11 +54,14 @@ Future<BookingCancellationResult?> showPackageBookingCancellationFlow(
     );
   } catch (error) {
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    await policyProgress;
     if (context.mounted) _showError(context, humanizeCancellationError(error));
     return null;
   }
   if (!context.mounted) return null;
   Navigator.of(context, rootNavigator: true).pop();
+  await policyProgress;
+  if (!context.mounted) return null;
 
   if (!eligibility.canCancel) {
     await _showUnavailableSheet(context, eligibility.displayMessage);
@@ -73,7 +80,10 @@ Future<BookingCancellationResult?> showPackageBookingCancellationFlow(
   );
   if (!confirmed || !context.mounted) return null;
 
-  _showBlockingProgress(context, 'Cancelling booking…');
+  final cancellationProgress = _showBlockingProgress(
+    context,
+    'Cancelling booking…',
+  );
   try {
     final result = await repo.cancelPackageBooking(
       bookingId: bookingId,
@@ -82,9 +92,35 @@ Future<BookingCancellationResult?> showPackageBookingCancellationFlow(
       category: _categoryFor(choice.$1),
     );
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    await cancellationProgress;
+    if (context.mounted && result.bookingRestrictionCreated) {
+      final submitted = await showTouristBookingSuspensionSheet(
+        context,
+        suspension: TouristBookingSuspension(
+          caseId: result.bookingRestrictionCaseId,
+          reason: result.bookingRestrictionReason,
+          startsAt: result.cancelledAt,
+          endsAt: result.bookingRestrictedUntil?.toLocal(),
+          cancellationCount: result.qualifyingCancellationCount,
+          active: true,
+          appealStatus: '',
+          offenseNumber: result.bookingRestrictionOffenseNumber,
+          manualReviewRequired: result.bookingRestrictionManualReviewRequired,
+          riskLevel: result.bookingRestrictionRiskLevel,
+        ),
+      );
+      if (context.mounted && submitted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your appeal was submitted for review.'),
+          ),
+        );
+      }
+    }
     return result;
   } catch (error) {
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    await cancellationProgress;
     if (context.mounted) _showError(context, humanizeCancellationError(error));
     return null;
   }
@@ -399,8 +435,8 @@ Future<void> _showUnavailableSheet(BuildContext context, String message) {
   );
 }
 
-void _showBlockingProgress(BuildContext context, String label) {
-  showDialog<void>(
+Future<void> _showBlockingProgress(BuildContext context, String label) {
+  return showDialog<void>(
     context: context,
     useRootNavigator: true,
     barrierDismissible: false,

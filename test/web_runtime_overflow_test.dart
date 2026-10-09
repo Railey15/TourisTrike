@@ -128,7 +128,62 @@ void main() {
     expect(find.text('Report / Complaint Details'), findsOneWidget);
     expect(find.text('Municipal Booking History'), findsOneWidget);
     expect(find.text('Supporting Evidence'), findsOneWidget);
+    expect(
+      find.text('scaled_b925a8e7-1a42-4901-ad0d-9dc77e696910-1_all_2.heif'),
+      findsOneWidget,
+    );
     expect(find.text('Admin Actions'), findsOneWidget);
+    await tester.tap(find.text('Investigate'));
+    await tester.pumpAndSettle();
+    expect(find.text('Start Investigation'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('under-review complaint preserves resolve and dismiss actions', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SubTenantPaymentDisputesScreen(
+          service: _RuntimeComplaintCaseService(status: 'under_investigation'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Review Case'));
+    await tester.tap(find.text('Review Case'));
+    await tester.pumpAndSettle();
+
+    for (final label in const [
+      'Add Note',
+      'Issue Warning',
+      'Restrict Manually',
+      'Resolve',
+      'Dismiss',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+
+    await tester.tap(find.text('Resolve'));
+    await tester.pumpAndSettle();
+    expect(find.text('Resolve Complaint'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Review Case'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dismiss'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dismiss Complaint'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 }
@@ -141,6 +196,10 @@ class _RuntimeCaseService extends SubTenantService {
 }
 
 class _RuntimeComplaintCaseService extends SubTenantService {
+  _RuntimeComplaintCaseService({this.status = 'submitted'});
+
+  final String status;
+
   @override
   Future<List<SubTenantCase>> fetchCases({String? caseId}) async {
     return [
@@ -156,7 +215,7 @@ class _RuntimeComplaintCaseService extends SubTenantService {
         'reported_role': 'driver',
         'category': 'conduct',
         'description': 'The driver behaved unsafely during the booked tour.',
-        'status': 'submitted',
+        'status': status,
         'booking_status': 'completed',
         'booking_travel_date': '2026-10-01',
         'booking_history': [
@@ -166,7 +225,15 @@ class _RuntimeComplaintCaseService extends SubTenantService {
             'booking_status': 'completed',
           },
         ],
-        'evidence': const <Map<String, dynamic>>[],
+        'evidence': const [
+          {
+            'id': 'evidence-id',
+            'storage_path': 'complaints/evidence.jpg',
+            'file_name':
+                'scaled_b925a8e7-1a42-4901-ad0d-9dc77e696910-1_all_2.heif',
+            'content_type': 'image/heif',
+          },
+        ],
         'events': [
           {
             'action': 'submitted',

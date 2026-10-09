@@ -131,8 +131,11 @@ class _BookingRestrictionAppealsState
   Future<List<Map<String, dynamic>>> _load() async {
     final rows = await Supabase.instance.client
         .from('tourist_booking_restriction_appeals')
-        .select('id,tourist_id,reason,created_at')
-        .eq('status', 'pending')
+        .select(
+          'id,tourist_id,reason,created_at,suspension_reason,'
+          'cancellation_count,suspension_started_at,suspension_ends_at',
+        )
+        .eq('status', 'pending_review')
         .order('created_at', ascending: true);
     return rows.map((row) => Map<String, dynamic>.from(row)).toList();
   }

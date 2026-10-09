@@ -6,13 +6,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_places_gateway.dart';
+
 import 'chatbot_models.dart';
 
 /// A single message in the conversation history sent to Gemini.
 class GeminiTurn {
-  const GeminiTurn({required this.role, required this.text});
+  const GeminiTurn({
+    required this.role,
+    required this.text,
+  });
 
-  /// Either `'user'` or `'model'`.
+  /// Either `user` or `model`.
   final String role;
   final String text;
 }
@@ -20,41 +24,50 @@ class GeminiTurn {
 /// Thrown internally when Gemini returns a 503 / high-demand response.
 class _OverloadException implements Exception {
   const _OverloadException(this.message);
+
   final String message;
 }
 
 /// Thin wrapper around the Gemini generateContent REST API.
 ///
 /// Features:
-/// - Fetches real in-app tourist spots AND packages from Supabase as context
-/// - Intent-aware: returns spot cards, package cards, or both based on the query
-/// - Automatic retry with exponential back-off on 503 / high-demand errors
-/// - One-shot fallback to [_fallbackModel] before giving up
+/// - Fetches real in-app tourist spots and packages from Supabase.
+/// - Uses Google Places for municipality and named-place searches.
+/// - Intent-aware structured output.
+/// - Validates Gemini-returned IDs against real app records.
+/// - Automatic retry with exponential back-off.
+/// - One-shot fallback model.
 class GeminiService {
   GeminiService._();
+
   static final GeminiService instance = GeminiService._();
 
-  // ── Model config ──────────────────────────────────────────────────────────
-  static const _primaryModel = 'gemini-2.5-flash';
-  static const _fallbackModel = 'gemini-1.5-flash';
+  // ─────────────────────────────────────────────────────────────────────────
+  // Model config
+  // ─────────────────────────────────────────────────────────────────────────
+
+  static const _primaryModel = 'gemini-3.8-flash';
+  static const _fallbackModel = 'gemini-3.5-flash-lite';
+
   static const _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models';
 
-  /// 1 initial attempt + 3 retries = 4 total on the primary model.
+  /// 1 initial attempt + 3 retries = 4 total primary attempts.
   static const _maxAttempts = 4;
 
-  // ── Caches ────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Caches
+  // ─────────────────────────────────────────────────────────────────────────
+
   List<Map<String, dynamic>>? _cachedPackages;
   DateTime? _packagesCachedAt;
 
   List<Map<String, dynamic>>? _cachedSpots;
   DateTime? _spotsCachedAt;
 
-  // Per-city Google Maps spot cache (populated on demand).
   final Map<String, List<Map<String, dynamic>>> _googleSpotsCache = {};
   final Map<String, DateTime> _googleSpotsCachedAt = {};
 
-  // Named-place search cache keyed by normalized query.
   final Map<String, List<Map<String, dynamic>>> _namedPlaceCache = {};
   final Map<String, DateTime> _namedPlaceCachedAt = {};
 
@@ -62,37 +75,75 @@ class GeminiService {
 
   String get _apiKey {
     const key = String.fromEnvironment('GEMINI_API_KEY');
-    assert(key.isNotEmpty, 'GEMINI_API_KEY is missing from --dart-define.');
+
+    assert(
+      key.isNotEmpty,
+      'GEMINI_API_KEY is missing from --dart-define.',
+    );
+
     return key;
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────────────────────────────────
 
-  bool _isOverload(int statusCode, String message) {
-    if (statusCode == 503) return true;
+  bool _isOverload(
+    int statusCode,
+    String message,
+  ) {
+    if (statusCode == 503) {
+      return true;
+    }
+
     final lower = message.toLowerCase();
+
     return lower.contains('high demand') ||
         lower.contains('overloaded') ||
         lower.contains('try again later') ||
         lower.contains('service unavailable');
   }
 
-  String _packageImageUrl(Map<String, dynamic> pkg) {
+  String _packageImageUrl(
+    Map<String, dynamic> pkg,
+  ) {
     final cover = (pkg['cover_image_url'] as String?) ?? '';
-    return cover.isNotEmpty ? cover : ((pkg['image_url'] as String?) ?? '');
+
+    if (cover.isNotEmpty) {
+      return cover;
+    }
+
+    return (pkg['image_url'] as String?) ?? '';
   }
 
-  String _packagePriceText(Map<String, dynamic> pkg) {
+  String _packagePriceText(
+    Map<String, dynamic> pkg,
+  ) {
     final text = (pkg['price_text'] as String?) ?? '';
-    if (text.isNotEmpty) return text;
+
+    if (text.isNotEmpty) {
+      return text;
+    }
+
     final budget = pkg['estimated_budget'];
-    if (budget != null && budget != 0) return 'PHP $budget';
+
+    if (budget != null && budget != 0) {
+      return 'PHP $budget';
+    }
+
     return '';
   }
 
-  String _spotImageUrl(Map<String, dynamic> spot) {
+  String _spotImageUrl(
+    Map<String, dynamic> spot,
+  ) {
     final cover = (spot['cover_image_url'] as String?) ?? '';
-    return cover.isNotEmpty ? cover : ((spot['image_url'] as String?) ?? '');
+
+    if (cover.isNotEmpty) {
+      return cover;
+    }
+
+    return (spot['image_url'] as String?) ?? '';
   }
 
   /// Maps raw category text + title/description to a normalized label.
@@ -102,13 +153,23 @@ class GeminiService {
     String description = '',
   }) {
     final s = '$raw $title $description'.toLowerCase();
-    if (s.contains('museum')) return 'Museum';
-    if (s.contains('park') || s.contains('garden') || s.contains('plaza')) {
+
+    if (s.contains('museum')) {
+      return 'Museum';
+    }
+
+    if (s.contains('park') ||
+        s.contains('garden') ||
+        s.contains('plaza')) {
       return 'Park';
     }
-    if (s.contains('resort') || s.contains('pool') || s.contains('beach')) {
+
+    if (s.contains('resort') ||
+        s.contains('pool') ||
+        s.contains('beach')) {
       return 'Resort';
     }
+
     if (s.contains('food') ||
         s.contains('restaurant') ||
         s.contains('cafe') ||
@@ -117,6 +178,7 @@ class GeminiService {
         s.contains('dining')) {
       return 'Food';
     }
+
     if (s.contains('church') ||
         s.contains('cathedral') ||
         s.contains('religious') ||
@@ -124,12 +186,14 @@ class GeminiService {
         s.contains('worship')) {
       return 'Religious';
     }
+
     if (s.contains('histor') ||
         s.contains('heritage') ||
         s.contains('monument') ||
         s.contains('shrine')) {
       return 'Historical';
     }
+
     if (s.contains('nature') ||
         s.contains('mountain') ||
         s.contains('river') ||
@@ -139,17 +203,19 @@ class GeminiService {
         s.contains('eco')) {
       return 'Nature';
     }
+
     return 'Attraction';
   }
 
-  // ── Named place helpers ───────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Named place helpers
+  // ─────────────────────────────────────────────────────────────────────────
 
-  /// Returns true when the message appears to be asking about a specific named
-  /// place rather than a general category query.
-  bool _isNamedPlaceQuery(String message) {
+  bool _isNamedPlaceQuery(
+    String message,
+  ) {
     final lower = message.toLowerCase().trim();
 
-    // Explicit trigger phrases always indicate a named-place intent.
     const triggers = [
       'where is ',
       "where's ",
@@ -172,14 +238,16 @@ class GeminiService {
       'near ',
       'close to ',
     ];
-    if (triggers.any((t) => lower.contains(t))) return true;
 
-    // Short messages (≤4 words) that contain at least one word that isn't a
-    // common category / general word are likely a named-place query.
+    if (triggers.any(lower.contains)) {
+      return true;
+    }
+
     final words = lower
         .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
+        .where((word) => word.isNotEmpty)
         .toList();
+
     if (words.length <= 4) {
       const generalWords = {
         'suggest',
@@ -260,31 +328,50 @@ class GeminiService {
         'go',
         'get',
       };
-      final meaningful = words.where((w) => !generalWords.contains(w));
-      if (meaningful.isNotEmpty) return true;
+
+      final meaningful = words.where(
+        (word) => !generalWords.contains(word),
+      );
+
+      if (meaningful.isNotEmpty) {
+        return true;
+      }
     }
 
     return false;
   }
 
-  /// Extracts the Bulacan municipality name from a Google Maps address string.
-  String _extractCityFromAddress(String address) {
-    if (address.isEmpty) return '';
-    final lower = address.toLowerCase();
-    final sorted = [...bulacanMunicipalities]
-      ..sort((a, b) => b.name.length.compareTo(a.name.length));
-    for (final area in sorted) {
-      if (lower.contains(area.name.toLowerCase())) return area.name;
+  String _extractCityFromAddress(
+    String address,
+  ) {
+    if (address.isEmpty) {
+      return '';
     }
+
+    final lower = address.toLowerCase();
+
+    final sorted = [...bulacanMunicipalities]
+      ..sort(
+        (a, b) => b.name.length.compareTo(a.name.length),
+      );
+
+    for (final area in sorted) {
+      if (lower.contains(area.name.toLowerCase())) {
+        return area.name;
+      }
+    }
+
     return '';
   }
 
-  /// Searches Google Maps for the specific place(s) named in [query]
-  /// (e.g. "Barasoain Church", "SM Malolos"). Results are only kept when
-  /// they are verifiably inside Bulacan. Cached by normalized query.
-  Future<List<Map<String, dynamic>>> _searchNamedPlace(String query) async {
-    final cacheKey = CitySpotSuggestionService.normalizeText(query);
+  Future<List<Map<String, dynamic>>> _searchNamedPlace(
+    String query,
+  ) async {
+    final cacheKey =
+        CitySpotSuggestionService.normalizeText(query);
+
     final cachedAt = _namedPlaceCachedAt[cacheKey];
+
     if (_namedPlaceCache.containsKey(cacheKey) &&
         cachedAt != null &&
         DateTime.now().difference(cachedAt) < _cacheTtl) {
@@ -292,57 +379,111 @@ class GeminiService {
     }
 
     try {
-      final searchQuery = '${query.trim()} Bulacan Philippines';
-      final apiKey = CitySpotSuggestionService.resolveApiKey();
-      final gateway = GooglePlacesGateway(apiKey: apiKey);
-      final body = await gateway.request('textSearch', {
-        'query': searchQuery,
-        'region': 'ph',
-      });
+      final searchQuery =
+          '${query.trim()} Bulacan Philippines';
 
-      final results = (body['results'] as List?) ?? const [];
+      final apiKey =
+          CitySpotSuggestionService.resolveApiKey();
+
+      final gateway =
+          GooglePlacesGateway(apiKey: apiKey);
+
+      final body = await gateway.request(
+        'textSearch',
+        {
+          'query': searchQuery,
+          'region': 'ph',
+        },
+      );
+
+      final results =
+          (body['results'] as List?) ?? const [];
+
       final spots = <Map<String, dynamic>>[];
 
       for (final raw in results.take(6)) {
-        final item = raw as Map<String, dynamic>;
-        final name = (item['name'] as String?)?.trim() ?? '';
-        if (name.isEmpty) continue;
+        final item =
+            raw as Map<String, dynamic>;
 
-        final address = (item['formatted_address'] as String?)?.trim() ?? '';
-        final city = _extractCityFromAddress(address);
+        final name =
+            (item['name'] as String?)?.trim() ?? '';
 
-        // Keep only results that are actually in Bulacan.
-        if (city.isEmpty && !address.toLowerCase().contains('bulacan')) {
+        if (name.isEmpty) {
           continue;
         }
 
-        final geometry = item['geometry'] as Map<String, dynamic>?;
-        final loc = geometry?['location'] as Map<String, dynamic>?;
-        final lat = ((loc?['lat'] as num?) ?? 0.0).toDouble();
-        final lng = ((loc?['lng'] as num?) ?? 0.0).toDouble();
-        final rating = ((item['rating'] as num?) ?? 4.5).toDouble();
-        final placeId = (item['place_id'] as String?) ?? name;
-        final types = ((item['types'] as List?) ?? const [])
-            .map((e) => e.toString())
-            .toList();
+        final address =
+            (item['formatted_address'] as String?)
+                    ?.trim() ??
+                '';
 
-        // Photo URL
-        final photos = (item['photos'] as List?) ?? const [];
+        final city =
+            _extractCityFromAddress(address);
+
+        if (city.isEmpty &&
+            !address.toLowerCase().contains('bulacan')) {
+          continue;
+        }
+
+        final geometry =
+            item['geometry'] as Map<String, dynamic>?;
+
+        final loc =
+            geometry?['location']
+                as Map<String, dynamic>?;
+
+        final lat =
+            ((loc?['lat'] as num?) ?? 0.0)
+                .toDouble();
+
+        final lng =
+            ((loc?['lng'] as num?) ?? 0.0)
+                .toDouble();
+
+        final rating =
+            ((item['rating'] as num?) ?? 4.5)
+                .toDouble();
+
+        final placeId =
+            (item['place_id'] as String?) ?? name;
+
+        final types =
+            ((item['types'] as List?) ?? const [])
+                .map((e) => e.toString())
+                .toList();
+
+        final photos =
+            (item['photos'] as List?) ?? const [];
+
         final photoRef = photos.isEmpty
             ? ''
-            : ((photos.first as Map)['photo_reference'] as String?) ?? '';
+            : ((photos.first as Map)['photo_reference']
+                    as String?) ??
+                '';
+
         final proxyImageUrl =
-            (item['_proxy_image_url'] as String?)?.trim() ?? '';
+            (item['_proxy_image_url'] as String?)
+                    ?.trim() ??
+                '';
+
         final proxyMapUrl =
-            (item['_proxy_static_map_url'] as String?)?.trim() ?? '';
+            (item['_proxy_static_map_url'] as String?)
+                    ?.trim() ??
+                '';
+
         final imageUrl = proxyImageUrl.isNotEmpty
             ? proxyImageUrl
             : photoRef.isNotEmpty
-            ? gateway.photoUrl(photoRef)
-            : proxyMapUrl;
+                ? gateway.photoUrl(photoRef)
+                : proxyMapUrl;
 
-        final category = _normalizeCategory(types.join(' '), title: name);
-        final municipality = city.isNotEmpty ? city : 'Bulacan';
+        final category = _normalizeCategory(
+          types.join(' '),
+          title: name,
+        );
+
+        final municipality =
+            city.isNotEmpty ? city : 'Bulacan';
 
         spots.add({
           'id': placeId,
@@ -356,56 +497,86 @@ class GeminiService {
           'cover_image_url': '',
           'address': address,
           'google_place_id': placeId,
-          'description': '$category landmark in $municipality.',
+          'description':
+              '$category landmark in $municipality.',
           '_category': category,
           '_isNamedResult': true,
         });
       }
 
       _namedPlaceCache[cacheKey] = spots;
-      _namedPlaceCachedAt[cacheKey] = DateTime.now();
-      debugPrint('[Gemini] Named place "$query": ${spots.length} results');
+      _namedPlaceCachedAt[cacheKey] =
+          DateTime.now();
+
+      debugPrint(
+        '[Gemini] Named place "$query": '
+        '${spots.length} results',
+      );
+
       return spots;
     } catch (e) {
-      debugPrint('[Gemini] Named place search failed: $e');
+      debugPrint(
+        '[Gemini] Named place search failed: $e',
+      );
+
       return const [];
     }
   }
 
-  // ── City detection ────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // City detection
+  // ─────────────────────────────────────────────────────────────────────────
 
-  /// Returns the canonical municipality name if one is mentioned in [message].
-  String? _detectCity(String message) {
+  String? _detectCity(
+    String message,
+  ) {
     final lower = message.toLowerCase();
 
-    // Sort longest names first to avoid prefix false-positives.
     final sorted = [...bulacanMunicipalities]
-      ..sort((a, b) => b.name.length.compareTo(a.name.length));
+      ..sort(
+        (a, b) => b.name.length.compareTo(a.name.length),
+      );
 
     for (final area in sorted) {
-      if (lower.contains(area.name.toLowerCase())) return area.name;
+      if (lower.contains(area.name.toLowerCase())) {
+        return area.name;
+      }
     }
 
-    // Common alternate spellings / abbreviations.
-    if (lower.contains('baliwag') || lower.contains('baliuag')) {
+    if (lower.contains('baliwag') ||
+        lower.contains('baliuag')) {
       return 'Baliwag';
     }
-    if (lower.contains('sta. maria') || lower.contains('sta maria')) {
+
+    if (lower.contains('sta. maria') ||
+        lower.contains('sta maria')) {
       return 'Santa Maria';
     }
-    if (lower.contains('sjdm')) return 'San Jose del Monte';
-    if (lower.contains('drt')) return 'Dona Remedios Trinidad';
+
+    if (lower.contains('sjdm')) {
+      return 'San Jose del Monte';
+    }
+
+    if (lower.contains('drt')) {
+      return 'Dona Remedios Trinidad';
+    }
 
     return null;
   }
 
-  // ── Data fetching ─────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Data fetching
+  // ─────────────────────────────────────────────────────────────────────────
 
-  /// Fetches live Google Maps spots for [city] (same source as the explore
-  /// screen). Results are cached for [_cacheTtl] per city.
-  Future<List<Map<String, dynamic>>> _getGoogleSpotsForCity(String city) async {
+  Future<List<Map<String, dynamic>>>
+      _getGoogleSpotsForCity(
+    String city,
+  ) async {
     final now = DateTime.now();
-    final cachedAt = _googleSpotsCachedAt[city];
+
+    final cachedAt =
+        _googleSpotsCachedAt[city];
+
     if (_googleSpotsCache.containsKey(city) &&
         cachedAt != null &&
         now.difference(cachedAt) < _cacheTtl) {
@@ -413,91 +584,132 @@ class GeminiService {
     }
 
     try {
-      final service = CitySpotSuggestionService();
-      // fetchSuggestions resolves the city center internally.
-      final suggestions = await service.fetchSuggestions(
+      final service =
+          CitySpotSuggestionService();
+
+      final suggestions =
+          await service.fetchSuggestions(
         city: city,
         province: 'Bulacan',
         limit: 30,
       );
 
       final spots = suggestions
-          .map((s) {
-            final municipality = s.city.isNotEmpty ? s.city : city;
-            return <String, dynamic>{
-              'id': s.id,
-              'title': s.title,
-              'municipality': municipality,
-              'city': municipality,
-              'latitude': s.latitude,
-              'longitude': s.longitude,
-              'rating': s.rating,
-              'image_url': s.imageUrl,
-              'cover_image_url': '',
-              'address': s.address,
-              'google_place_id': s.id,
-              'description': s.description,
-              '_category': _normalizeCategory(
-                s.category,
-                title: s.title,
-                description: s.description,
-              ),
-            };
-          })
+          .map(
+            (s) {
+              final municipality =
+                  s.city.isNotEmpty
+                      ? s.city
+                      : city;
+
+              return <String, dynamic>{
+                'id': s.id,
+                'title': s.title,
+                'municipality': municipality,
+                'city': municipality,
+                'latitude': s.latitude,
+                'longitude': s.longitude,
+                'rating': s.rating,
+                'image_url': s.imageUrl,
+                'cover_image_url': '',
+                'address': s.address,
+                'google_place_id': s.id,
+                'description': s.description,
+                '_category':
+                    _normalizeCategory(
+                  s.category,
+                  title: s.title,
+                  description: s.description,
+                ),
+              };
+            },
+          )
           .toList(growable: false);
 
       _googleSpotsCache[city] = spots;
       _googleSpotsCachedAt[city] = now;
-      debugPrint('[Gemini] Google spots for $city: ${spots.length}');
+
+      debugPrint(
+        '[Gemini] Google spots for $city: '
+        '${spots.length}',
+      );
+
       return spots;
     } catch (e) {
-      debugPrint('[Gemini] Google spot fetch for "$city" failed: $e');
-      return _googleSpotsCache[city] ?? const [];
+      debugPrint(
+        '[Gemini] Google spot fetch for '
+        '"$city" failed: $e',
+      );
+
+      return _googleSpotsCache[city] ??
+          const [];
     }
   }
 
-  Future<List<Map<String, dynamic>>> _getPackages() async {
+  Future<List<Map<String, dynamic>>>
+      _getPackages() async {
     final now = DateTime.now();
+
     if (_cachedPackages != null &&
         _packagesCachedAt != null &&
-        now.difference(_packagesCachedAt!) < _cacheTtl) {
+        now.difference(_packagesCachedAt!) <
+            _cacheTtl) {
       return _cachedPackages!;
     }
 
     try {
-      final rows = await Supabase.instance.client
-          .from('tour_packages')
-          .select(
-            'id, title, subtitle, description, city, price_text, '
-            'estimated_budget, image_url, cover_image_url, '
-            'status, visibility_status',
-          )
-          .isFilter('archived_at', null)
-          .eq('visibility_status', 'visible')
-          .neq('status', 'draft')
-          .neq('status', 'archived')
-          .limit(60);
+      final rows =
+          await Supabase.instance.client
+              .from('tour_packages')
+              .select(
+                'id, title, subtitle, description, city, '
+                'price_text, estimated_budget, image_url, '
+                'cover_image_url, status, visibility_status',
+              )
+              .isFilter('archived_at', null)
+              .eq(
+                'visibility_status',
+                'visible',
+              )
+              .neq('status', 'draft')
+              .neq('status', 'archived')
+              .limit(60);
 
       _cachedPackages = (rows as List)
-          .map((row) => Map<String, dynamic>.from(row as Map))
+          .map(
+            (row) =>
+                Map<String, dynamic>.from(
+              row as Map,
+            ),
+          )
           .toList(growable: false);
+
       _packagesCachedAt = now;
+
       debugPrint(
-        '[Gemini] Loaded ${_cachedPackages!.length} packages for chatbot',
+        '[Gemini] Loaded '
+        '${_cachedPackages!.length} '
+        'packages for chatbot',
       );
     } catch (e) {
-      debugPrint('[Gemini] Package fetch failed: $e');
+      debugPrint(
+        '[Gemini] Package fetch failed: $e',
+      );
+
       _cachedPackages ??= const [];
     }
 
     return _cachedPackages!;
   }
 
-  Future<List<Map<String, dynamic>>> _getSpots() async {
+  Future<List<Map<String, dynamic>>>
+      _getSpots() async {
     final now = DateTime.now();
+
     if (_cachedSpots != null &&
         _spotsCachedAt != null &&
-        now.difference(_spotsCachedAt!) < _cacheTtl) {
+        now.difference(_spotsCachedAt!) <
+            _cacheTtl) {
       return _cachedSpots!;
     }
 
@@ -506,9 +718,10 @@ class GeminiService {
         Supabase.instance.client
             .from('tourist_spots')
             .select(
-              'id, title, city, municipality, latitude, longitude, '
-              'rating, image_url, description, address, google_place_id, '
-              'category_id',
+              'id, title, city, municipality, '
+              'latitude, longitude, rating, '
+              'image_url, description, address, '
+              'google_place_id, category_id',
             )
             .neq('status', 'archived')
             .limit(100),
@@ -518,137 +731,298 @@ class GeminiService {
             .limit(50),
       ]);
 
-      final categoryNames = <String, String>{
-        for (final row in (results[1] as List).whereType<Map>())
-          '${row['id']}': ((row['name'] as String?) ?? '').trim(),
+      final categoryNames =
+          <String, String>{
+        for (final row
+            in (results[1] as List)
+                .whereType<Map>())
+          '${row['id']}':
+              ((row['name'] as String?) ?? '')
+                  .trim(),
       };
 
       _cachedSpots = (results[0] as List)
           .whereType<Map>()
-          .map((row) {
-            final map = Map<String, dynamic>.from(row);
-            final rawCat = categoryNames['${map['category_id']}'] ?? '';
-            map['_category'] = _normalizeCategory(
-              rawCat,
-              title: (map['title'] as String?) ?? '',
-              description: (map['description'] as String?) ?? '',
-            );
-            return map;
-          })
+          .map(
+            (row) {
+              final map =
+                  Map<String, dynamic>.from(
+                row,
+              );
+
+              final rawCat =
+                  categoryNames[
+                          '${map['category_id']}'] ??
+                      '';
+
+              map['_category'] =
+                  _normalizeCategory(
+                rawCat,
+                title:
+                    (map['title'] as String?) ??
+                        '',
+                description:
+                    (map['description']
+                            as String?) ??
+                        '',
+              );
+
+              return map;
+            },
+          )
           .toList(growable: false);
 
       _spotsCachedAt = now;
-      debugPrint('[Gemini] Loaded ${_cachedSpots!.length} spots for chatbot');
+
+      debugPrint(
+        '[Gemini] Loaded '
+        '${_cachedSpots!.length} spots '
+        'for chatbot',
+      );
     } catch (e) {
-      debugPrint('[Gemini] Spot fetch failed: $e');
+      debugPrint(
+        '[Gemini] Spot fetch failed: $e',
+      );
+
       _cachedSpots ??= const [];
     }
 
     return _cachedSpots!;
   }
 
-  // ── Prompt builder ────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Prompt builder
+  // ─────────────────────────────────────────────────────────────────────────
 
   String _buildEnrichedSystemPrompt(
     String basePrompt,
     List<Map<String, dynamic>> spots,
     List<Map<String, dynamic>> packages,
   ) {
-    final spotCatalog = spots.map((s) {
-      final raw = (s['description'] as String?) ?? '';
-      final short = raw.length > 80 ? '${raw.substring(0, 80)}...' : raw;
-      final municipality =
-          ((s['municipality'] as String?)?.trim().isNotEmpty ?? false)
-          ? s['municipality'] as String
-          : (s['city'] as String?) ?? '';
-      return {
-        'id': '${s['id']}',
-        'name': (s['title'] as String?) ?? '',
-        'municipality': municipality,
-        'category': s['_category'] as String? ?? 'Attraction',
-        'description': short,
-      };
-    }).toList();
+    final spotCatalog = spots.map(
+      (s) {
+        final raw =
+            (s['description'] as String?) ?? '';
 
-    final packageCatalog = packages.map((pkg) {
-      final raw = (pkg['description'] as String?) ?? '';
-      final short = raw.length > 100 ? '${raw.substring(0, 100)}...' : raw;
-      return {
-        'id': pkg['id'],
-        'name': pkg['title'] ?? '',
-        'municipality': pkg['city'] ?? '',
-        'description': short,
-        'price': _packagePriceText(pkg),
-      };
-    }).toList();
+        final short = raw.length > 80
+            ? '${raw.substring(0, 80)}...'
+            : raw;
 
-    return '''$basePrompt
+        final municipality =
+            ((s['municipality'] as String?)
+                        ?.trim()
+                        .isNotEmpty ??
+                    false)
+                ? s['municipality'] as String
+                : (s['city'] as String?) ?? '';
 
-RESPONSE FORMAT — You MUST always reply with valid JSON in this exact structure:
-{"reply":"<your message>","spots":[],"packages":[]}
+        return {
+          'id': '${s['id']}',
+          'name':
+              (s['title'] as String?) ?? '',
+          'municipality': municipality,
+          'category':
+              s['_category'] as String? ??
+                  'Attraction',
+          'description': short,
+        };
+      },
+    ).toList();
+
+    final packageCatalog = packages.map(
+      (pkg) {
+        final raw =
+            (pkg['description'] as String?) ??
+                '';
+
+        final short = raw.length > 100
+            ? '${raw.substring(0, 100)}...'
+            : raw;
+
+        return {
+          'id': '${pkg['id']}',
+          'name': pkg['title'] ?? '',
+          'municipality':
+              pkg['city'] ?? '',
+          'description': short,
+          'price':
+              _packagePriceText(pkg),
+        };
+      },
+    ).toList();
+
+    return '''
+$basePrompt
+
+You are the TourisTrike AI Assistant for tourism in Bulacan, Philippines.
+
+Use the application's REAL tourism data supplied below.
+
+Do not invent:
+- tourist spots
+- package IDs
+- package names
+- prices
+- municipalities
+- booking availability
+
+RESPONSE FORMAT
+
+Always return ONE valid JSON object.
+
+Required structure:
+
+{
+  "reply": "Short natural response for the tourist.",
+  "spots": [],
+  "packages": []
+}
+
+Do not return Markdown.
+Do not return ```json fences.
+Do not add text before or after the JSON object.
 
 ── INTENT DETECTION ──
-Read what the user is asking and decide which arrays to populate:
 
-• NAMED PLACE intent (user asks about a SPECIFIC named place: "where is X", "tell me about X", "Barasoain Church", "SM Malolos", "Candaba Swamp", etc.) →
-  - If that exact place appears in AVAILABLE SPOTS, put it FIRST in "spots"
-  - Then add up to 4 more spots of the SAME category from the same city
-  - Write a "reply" that describes the named place: what it is, address, why visit
-  - If the named place is NOT in AVAILABLE SPOTS, say so and still suggest similar places from AVAILABLE SPOTS
-• SPOTS intent (spots/places/attractions/landmarks/cafes/food/historical/nature/religious/museum/park) → populate "spots", keep "packages":[]
-• PACKAGES intent (package/tour/itinerary/booking/trip package/how much/price) → populate "packages", keep "spots":[]
-• GENERAL intent ("suggest places", "what to visit", "recommend something") → populate "spots" first; optionally add "packages" if highly relevant
-• NEVER say "I can only assist with..." for spot/cafe/food/restaurant/place queries — those ARE tourism topics
+NAMED PLACE:
+If the user asks about a specific named place:
+- Find that exact place in AVAILABLE SPOTS when possible.
+- Put the matching place first.
+- You may add up to 4 relevant nearby/similar spots.
+- Explain what the requested place is in "reply".
+
+SPOTS:
+If the user asks about:
+- spots
+- attractions
+- landmarks
+- cafes
+- restaurants
+- food
+- historical places
+- nature
+- churches
+- museums
+- parks
+- resorts
+
+Populate "spots".
+Keep "packages" empty unless packages are clearly requested.
+
+PACKAGES:
+If the user asks about:
+- package
+- tour package
+- booking package
+- available tours
+- package price
+- trip package
+
+Populate "packages".
+Keep "spots" empty unless spots are explicitly requested too.
+
+GENERAL:
+For general tourism recommendations:
+- Prefer relevant spots.
+- Packages may be added only when clearly useful.
 
 ── SPOT RULES ──
-- ONLY include spots from AVAILABLE SPOTS below
-- Use the EXACT "id" string value — never fabricate ids
-- Filter by municipality/city when the user mentions one
-- Category filter map (match user's words to these):
-    historical/history/heritage → Historical
-    nature/eco/mountain/river/falls/lake/forest → Nature
-    food/cafe/coffee/restaurant/dining/eat → Food
-    church/religious/cathedral/temple/shrine → Religious
-    museum → Museum
-    park/garden/plaza → Park
-    resort/beach/pool → Resort
-- If the user asks for cafes/food → filter by "Food" category; if none exist in that city, reply "No food/cafe spots are currently listed in [city]. Here are other spots you can visit:" and still populate "spots" with other available spots from that city
-- If no spots match at all → "spots":[] and explain in "reply"
-- Limit to 5 spots maximum per response
+
+- ONLY use IDs from AVAILABLE SPOTS.
+- NEVER create or guess a spot ID.
+- Prefer results matching the requested municipality.
+- Maximum 5 spots.
+
+Category matching:
+
+historical/history/heritage
+→ Historical
+
+nature/eco/mountain/river/falls/lake/forest
+→ Nature
+
+food/cafe/coffee/restaurant/dining/eat
+→ Food
+
+church/religious/cathedral/temple/shrine
+→ Religious
+
+museum
+→ Museum
+
+park/garden/plaza
+→ Park
+
+resort/beach/pool
+→ Resort
+
+If the user asks for cafes or food and none are available in that city:
+- Explain that no matching food/cafe listings are currently available.
+- You may recommend other valid tourism spots from the same city.
+
+If nothing matches:
+"spots": []
 
 ── PACKAGE RULES ──
-- ONLY include packages from AVAILABLE PACKAGES below
-- Use the EXACT "id" value — never fabricate ids
-- If no package matches → "packages":[] and say "No matching package is currently available in the app."
-- Limit to 4 packages maximum per response
 
-AVAILABLE SPOTS:
+- ONLY use IDs from AVAILABLE PACKAGES.
+- NEVER invent a package.
+- NEVER invent a package ID.
+- Maximum 4 packages.
+
+If matching packages are available:
+- Put their exact IDs in "packages".
+
+If no matching package exists:
+- Return "packages": []
+- Clearly tell the tourist that no matching TourisTrike package is currently available.
+
+For package items, the ID is the most important field.
+You may return:
+
+{
+  "id": "REAL_ID"
+}
+
+The application will load the official package name, image, municipality,
+description and price from its database.
+
+── AVAILABLE SPOTS ──
+
 ${jsonEncode(spotCatalog)}
 
-AVAILABLE PACKAGES:
+── AVAILABLE PACKAGES ──
+
 ${jsonEncode(packageCatalog)}
 ''';
   }
 
-  // ── Request body ──────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Request body
+  // ─────────────────────────────────────────────────────────────────────────
 
   Map<String, dynamic> _buildBody(
     String userMessage,
     List<GeminiTurn> history,
-    String? systemPrompt,
+    String systemPrompt,
   ) {
-    final contents = <Map<String, dynamic>>[
+    final contents =
+        <Map<String, dynamic>>[
       for (final turn in history)
         {
           'role': turn.role,
           'parts': [
-            {'text': turn.text},
+            {
+              'text': turn.text,
+            },
           ],
         },
       {
         'role': 'user',
         'parts': [
-          {'text': userMessage},
+          {
+            'text': userMessage,
+          },
         ],
       },
     ];
@@ -656,344 +1030,1037 @@ ${jsonEncode(packageCatalog)}
     return {
       'contents': contents,
       'generationConfig': {
-        'temperature': 0.7,
+        'temperature': 0.4,
         'maxOutputTokens': 1024,
-        'responseMimeType': 'application/json',
-      },
-      if (systemPrompt != null && systemPrompt.isNotEmpty)
-        'system_instruction': {
-          'parts': [
-            {'text': systemPrompt},
+        'responseMimeType':
+            'application/json',
+
+        // Force Gemini toward the exact structure
+        // expected by the TourisTrike client.
+        'responseSchema': {
+          'type': 'OBJECT',
+          'properties': {
+            'reply': {
+              'type': 'STRING',
+            },
+            'spots': {
+              'type': 'ARRAY',
+              'items': {
+                'type': 'OBJECT',
+                'properties': {
+                  'id': {
+                    'type': 'STRING',
+                  },
+                  'name': {
+                    'type': 'STRING',
+                  },
+                },
+                'required': [
+                  'id',
+                ],
+              },
+            },
+            'packages': {
+              'type': 'ARRAY',
+              'items': {
+                'type': 'OBJECT',
+                'properties': {
+                  'id': {
+                    'type': 'STRING',
+                  },
+                  'name': {
+                    'type': 'STRING',
+                  },
+                  'municipality': {
+                    'type': 'STRING',
+                  },
+                  'description': {
+                    'type': 'STRING',
+                  },
+                  'price': {
+                    'type': 'STRING',
+                  },
+                },
+                'required': [
+                  'id',
+                ],
+              },
+            },
+          },
+          'required': [
+            'reply',
+            'spots',
+            'packages',
           ],
         },
+      },
+      'system_instruction': {
+        'parts': [
+          {
+            'text': systemPrompt,
+          },
+        ],
+      },
     };
   }
 
-  // ── HTTP ──────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // HTTP
+  // ─────────────────────────────────────────────────────────────────────────
 
   Future<String> _postRequest({
     required String model,
     required Map<String, dynamic> body,
     required String key,
   }) async {
-    final url = Uri.parse('$_baseUrl/$model:generateContent?key=$key');
-    debugPrint('[Gemini] POST → $model');
+    final url = Uri.parse(
+      '$_baseUrl/$model:generateContent?key=$key',
+    );
+
+    debugPrint(
+      '[Gemini] POST → $model',
+    );
 
     late http.Response res;
+
     try {
       res = await http
           .post(
             url,
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type':
+                  'application/json',
+            },
             body: jsonEncode(body),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(
+            const Duration(seconds: 30),
+          );
     } catch (e) {
-      debugPrint('[Gemini] Network error: $e');
-      throw Exception('Network error: $e');
+      debugPrint(
+        '[Gemini] Network error: $e',
+      );
+
+      throw Exception(
+        'Network error: $e',
+      );
     }
 
-    debugPrint('[Gemini] Status: ${res.statusCode}');
-    debugPrint('[Gemini] Body:   ${res.body}');
+    debugPrint(
+      '[Gemini] Status: ${res.statusCode}',
+    );
+
+    debugPrint(
+      '[Gemini] Response length: '
+      '${res.body.length} chars',
+    );
 
     if (res.statusCode != 200) {
-      String msg = 'HTTP ${res.statusCode}';
+      String msg =
+          'HTTP ${res.statusCode}';
+
       try {
-        final errJson = jsonDecode(res.body) as Map?;
-        msg = errJson?['error']?['message'] as String? ?? msg;
-      } catch (_) {}
-      debugPrint('[Gemini] API error: $msg');
-      if (_isOverload(res.statusCode, msg)) throw _OverloadException(msg);
+        final errJson =
+            jsonDecode(res.body) as Map?;
+
+        msg =
+            errJson?['error']?['message']
+                    as String? ??
+                msg;
+      } catch (_) {
+        // Keep the HTTP fallback message.
+      }
+
+      debugPrint(
+        '[Gemini] API error: $msg',
+      );
+
+      if (_isOverload(
+        res.statusCode,
+        msg,
+      )) {
+        throw _OverloadException(msg);
+      }
+
       throw Exception(msg);
     }
 
     try {
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
-      final candidates = (json['candidates'] as List?) ?? [];
-      if (candidates.isEmpty) throw Exception('No candidates in response');
+      final decoded =
+          jsonDecode(res.body);
 
-      final content = candidates.first['content'] as Map?;
-      final parts = (content?['parts'] as List?) ?? [];
-      if (parts.isEmpty) throw Exception('No parts in response');
+      if (decoded is! Map) {
+        throw const FormatException(
+          'Gemini response envelope '
+          'was not an object.',
+        );
+      }
 
-      final text = (parts.first['text'] as String?) ?? '';
-      if (text.trim().isEmpty) throw Exception('Empty text in response');
+      final json =
+          Map<String, dynamic>.from(
+        decoded,
+      );
+
+      final candidates =
+          (json['candidates'] as List?) ??
+              const [];
+
+      if (candidates.isEmpty) {
+        throw Exception(
+          'No candidates in response',
+        );
+      }
+
+      final firstCandidate =
+          candidates.first;
+
+      if (firstCandidate is! Map) {
+        throw const FormatException(
+          'Invalid candidate format.',
+        );
+      }
+
+      final candidate =
+          Map<String, dynamic>.from(
+        firstCandidate,
+      );
+
+      final content =
+          candidate['content'];
+
+      if (content is! Map) {
+        throw const FormatException(
+          'Candidate content missing.',
+        );
+      }
+
+      final contentMap =
+          Map<String, dynamic>.from(
+        content,
+      );
+
+      final parts =
+          (contentMap['parts'] as List?) ??
+              const [];
+
+      if (parts.isEmpty) {
+        throw Exception(
+          'No parts in response',
+        );
+      }
+
+      final firstPart = parts.first;
+
+      if (firstPart is! Map) {
+        throw const FormatException(
+          'Invalid Gemini part.',
+        );
+      }
+
+      final partMap =
+          Map<String, dynamic>.from(
+        firstPart,
+      );
+
+      final text =
+          partMap['text']?.toString() ?? '';
+
+      if (text.trim().isEmpty) {
+        throw Exception(
+          'Empty text in response',
+        );
+      }
 
       return text.trim();
     } catch (e) {
-      debugPrint('[Gemini] Parse error: $e');
-      throw Exception('Failed to parse Gemini response: $e');
+      debugPrint(
+        '[Gemini] Provider response '
+        'parse error: $e',
+      );
+
+      throw Exception(
+        'Failed to parse Gemini response: $e',
+      );
     }
   }
 
-  // ── Response parser ───────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Structured-response helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  dynamic _decodeStructuredJson(
+    String raw,
+  ) {
+    var text = raw.trim();
+
+    // Remove an unexpected Markdown fence.
+    final fenceMatch = RegExp(
+      r'```(?:json)?\s*([\s\S]*?)\s*```',
+      caseSensitive: false,
+    ).firstMatch(text);
+
+    if (fenceMatch != null) {
+      text =
+          fenceMatch.group(1)!.trim();
+    }
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(text);
+    } catch (_) {
+      // Some models/providers may accidentally add
+      // surrounding text despite JSON mode.
+      final firstBrace =
+          text.indexOf('{');
+
+      final lastBrace =
+          text.lastIndexOf('}');
+
+      if (firstBrace < 0 ||
+          lastBrace <= firstBrace) {
+        rethrow;
+      }
+
+      final jsonSection =
+          text.substring(
+        firstBrace,
+        lastBrace + 1,
+      );
+
+      decoded =
+          jsonDecode(jsonSection);
+    }
+
+    // Handle double-encoded JSON such as:
+    //
+    // "{\"reply\":\"Hello\",\"spots\":[],\"packages\":[]}"
+    //
+    for (var i = 0;
+        i < 2 && decoded is String;
+        i++) {
+      final nested =
+          decoded.trim();
+
+      if (nested.isEmpty) {
+        break;
+      }
+
+      decoded =
+          jsonDecode(nested);
+    }
+
+    return decoded;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Response parser
+  // ─────────────────────────────────────────────────────────────────────────
 
   GeminiChatResponse _parseResponse(
     String raw,
-    Map<String, String> packageImageById,
-    Map<String, Map<String, dynamic>> spotById,
+    Map<String, Map<String, dynamic>>
+        packageById,
+    Map<String, Map<String, dynamic>>
+        spotById,
   ) {
     try {
-      var text = raw;
-      final fenceMatch = RegExp(
-        r'```(?:json)?\s*([\s\S]*?)\s*```',
-      ).firstMatch(text);
-      if (fenceMatch != null) text = fenceMatch.group(1)!;
+      final decoded =
+          _decodeStructuredJson(raw);
 
-      final json = jsonDecode(text) as Map<String, dynamic>;
-      final reply = (json['reply'] as String?) ?? text;
-
-      // ── Parse packages ────────────────────────────────────────────────────
-      final packagesRaw = json['packages'];
-      List<ChatPackageSuggestion> packages = const [];
-      if (packagesRaw is List && packagesRaw.isNotEmpty) {
-        packages = packagesRaw
-            .whereType<Map>()
-            .map((item) {
-              final map = Map<String, dynamic>.from(item);
-              final idStr = '${map['id']}';
-              return ChatPackageSuggestion.fromJson(
-                map,
-                imageUrlOverride: packageImageById[idStr] ?? '',
-              );
-            })
-            .where((pkg) => pkg.name.isNotEmpty)
-            .toList(growable: false);
+      if (decoded is! Map) {
+        throw const FormatException(
+          'Gemini response is not '
+          'a JSON object.',
+        );
       }
 
-      // ── Parse spots ───────────────────────────────────────────────────────
-      final spotsRaw = json['spots'];
-      List<ChatSpotSuggestion> spots = const [];
-      if (spotsRaw is List && spotsRaw.isNotEmpty) {
-        spots = spotsRaw
-            .whereType<Map>()
-            .map((item) {
-              final map = Map<String, dynamic>.from(item);
-              final idStr = '${map['id']}';
-              final cached = spotById[idStr];
+      final json =
+          Map<String, dynamic>.from(
+        decoded,
+      );
 
-              final name =
-                  (cached?['title'] as String?) ??
-                  (map['name'] as String?) ??
+      final reply =
+          json['reply']
+                  ?.toString()
+                  .trim() ??
+              '';
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Packages
+      // ─────────────────────────────────────────────────────────────────────
+
+      final packages =
+          <ChatPackageSuggestion>[];
+
+      final packagesRaw =
+          json['packages'];
+
+      if (packagesRaw is List) {
+        for (final item
+            in packagesRaw) {
+          if (item is! Map) {
+            continue;
+          }
+
+          final returnedMap =
+              Map<String, dynamic>.from(
+            item,
+          );
+
+          final id =
+              returnedMap['id']
+                      ?.toString()
+                      .trim() ??
                   '';
-              if (name.isEmpty) return null;
 
-              final municipality =
-                  ((cached?['municipality'] as String?)?.trim().isNotEmpty ??
-                      false)
-                  ? (cached!['municipality'] as String).trim()
-                  : ((cached?['city'] as String?) ??
-                            (map['municipality'] as String?) ??
-                            (map['city'] as String?) ??
-                            '')
-                        .toString()
-                        .trim();
+          if (id.isEmpty) {
+            continue;
+          }
 
-              final category =
-                  (cached?['_category'] as String?) ??
-                  (map['category'] as String?) ??
+          final source =
+              packageById[id];
+
+          // Reject hallucinated package IDs.
+          if (source == null) {
+            debugPrint(
+              '[Gemini] Ignored unknown '
+              'package ID: $id',
+            );
+
+            continue;
+          }
+
+          // Hydrate from REAL Supabase data.
+          //
+          // Gemini only chooses the package ID.
+          // Official name/image/municipality/
+          // description/price come from the app.
+          final hydrated =
+              <String, dynamic>{
+            ...returnedMap,
+            'id': id,
+            'name':
+                (source['title']
+                        as String?) ??
+                    returnedMap['name'] ??
+                    '',
+            'title':
+                (source['title']
+                        as String?) ??
+                    returnedMap['name'] ??
+                    '',
+            'municipality':
+                (source['city']
+                        as String?) ??
+                    returnedMap[
+                        'municipality'] ??
+                    '',
+            'city':
+                (source['city']
+                        as String?) ??
+                    returnedMap[
+                        'municipality'] ??
+                    '',
+            'description':
+                (source['description']
+                        as String?) ??
+                    returnedMap[
+                        'description'] ??
+                    '',
+            'price':
+                _packagePriceText(
+              source,
+            ),
+            'price_text':
+                _packagePriceText(
+              source,
+            ),
+          };
+
+          try {
+            final suggestion =
+                ChatPackageSuggestion
+                    .fromJson(
+              hydrated,
+              imageUrlOverride:
+                  _packageImageUrl(
+                source,
+              ),
+            );
+
+            if (suggestion
+                .name.isNotEmpty) {
+              packages.add(
+                suggestion,
+              );
+            }
+          } catch (e) {
+            debugPrint(
+              '[Gemini] Package card '
+              'parse failed for $id: $e',
+            );
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Spots
+      // ─────────────────────────────────────────────────────────────────────
+
+      final spots =
+          <ChatSpotSuggestion>[];
+
+      final spotsRaw =
+          json['spots'];
+
+      if (spotsRaw is List) {
+        for (final item in spotsRaw) {
+          if (item is! Map) {
+            continue;
+          }
+
+          final returnedMap =
+              Map<String, dynamic>.from(
+            item,
+          );
+
+          final id =
+              returnedMap['id']
+                      ?.toString()
+                      .trim() ??
+                  '';
+
+          if (id.isEmpty) {
+            continue;
+          }
+
+          // Gemini is only allowed to return
+          // real IDs that exist in our lookup.
+          final cached =
+              spotById[id];
+
+          if (cached == null) {
+            debugPrint(
+              '[Gemini] Ignored unknown '
+              'spot ID: $id',
+            );
+
+            continue;
+          }
+
+          final name =
+              (cached['title']
+                          as String?)
+                      ?.trim() ??
+                  returnedMap['name']
+                      ?.toString()
+                      .trim() ??
+                  '';
+
+          if (name.isEmpty) {
+            continue;
+          }
+
+          final cachedMunicipality =
+              (cached['municipality']
+                          as String?)
+                      ?.trim() ??
+                  '';
+
+          final municipality =
+              cachedMunicipality.isNotEmpty
+                  ? cachedMunicipality
+                  : ((cached['city']
+                                  as String?) ??
+                              returnedMap[
+                                  'municipality']
+                                  ?.toString() ??
+                              returnedMap[
+                                  'city']
+                                  ?.toString() ??
+                              '')
+                          .trim();
+
+          final category =
+              (cached['_category']
+                      as String?) ??
+                  returnedMap['category']
+                      ?.toString() ??
                   'Attraction';
 
-              final address =
-                  (cached?['address'] as String?) ??
-                  (map['address'] as String?) ??
+          final address =
+              (cached['address']
+                      as String?) ??
+                  returnedMap['address']
+                      ?.toString() ??
                   '';
 
-              final imageUrl = cached != null
-                  ? _spotImageUrl(cached)
-                  : (map['imageUrl'] as String?) ??
-                        (map['image_url'] as String?) ??
-                        '';
+          spots.add(
+            ChatSpotSuggestion(
+              id: id,
+              name: name,
+              municipality:
+                  municipality,
+              category: category,
+              address: address,
+              imageUrl:
+                  _spotImageUrl(cached),
+              rating:
+                  (cached['rating']
+                              as num?)
+                          ?.toDouble() ??
+                      4.5,
+              latitude:
+                  (cached['latitude']
+                              as num?)
+                          ?.toDouble() ??
+                      0,
+              longitude:
+                  (cached['longitude']
+                              as num?)
+                          ?.toDouble() ??
+                      0,
+              googlePlaceId:
+                  (cached[
+                              'google_place_id']
+                          as String?) ??
+                      id,
+            ),
+          );
+        }
+      }
 
-              return ChatSpotSuggestion(
-                id: idStr,
-                name: name,
-                municipality: municipality,
-                category: category,
-                address: address,
-                imageUrl: imageUrl,
-                rating:
-                    (cached?['rating'] as num?)?.toDouble() ??
-                    (map['rating'] as num?)?.toDouble() ??
-                    4.5,
-                latitude:
-                    (cached?['latitude'] as num?)?.toDouble() ??
-                    (map['latitude'] as num?)?.toDouble() ??
-                    0,
-                longitude:
-                    (cached?['longitude'] as num?)?.toDouble() ??
-                    (map['longitude'] as num?)?.toDouble() ??
-                    0,
-                googlePlaceId:
-                    (cached?['google_place_id'] as String?) ??
-                    (map['google_place_id'] as String?) ??
-                    idStr,
-              );
-            })
-            .whereType<ChatSpotSuggestion>()
-            .where((s) => s.name.isNotEmpty)
-            .toList(growable: false);
+      var safeReply = reply;
+
+      if (safeReply.isEmpty) {
+        if (packages.isNotEmpty) {
+          safeReply =
+              'Here are some TourisTrike '
+              'packages you can explore.';
+        } else if (spots.isNotEmpty) {
+          safeReply =
+              'Here are some places '
+              'you can explore.';
+        } else {
+          safeReply =
+              'I could not find a '
+              'matching result right now.';
+        }
       }
 
       return GeminiChatResponse(
-        reply: reply.trim(),
+        reply: safeReply,
         spots: spots,
         packages: packages,
       );
     } catch (e) {
-      debugPrint('[Gemini] JSON parse error: $e — falling back to plain text');
-      return GeminiChatResponse(reply: raw.trim());
+      debugPrint(
+        '[Gemini] Structured response '
+        'parse failed: $e',
+      );
+
+      // CRITICAL:
+      //
+      // Do NOT return `raw` here.
+      //
+      // Returning raw caused JSON such as
+      // {"reply":"...", "spots":[]}
+      // to appear directly inside the chat UI.
+      return const GeminiChatResponse(
+        reply:
+            'I had trouble formatting that '
+            'response. Please try asking again.',
+      );
     }
   }
 
-  // ── Public API ────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API
+  // ─────────────────────────────────────────────────────────────────────────
 
-  /// Sends [userMessage] to Gemini with real tourist spots AND packages
-  /// injected as context. Returns a [GeminiChatResponse] with the reply text
-  /// and matched spot/package cards based on intent detection.
   Future<GeminiChatResponse> chat({
     required String userMessage,
     List<GeminiTurn> history = const [],
     String? systemPrompt,
   }) async {
     final key = _apiKey;
-    debugPrint(
-      '[Gemini] Key: ${key.isEmpty ? "EMPTY" : "${key.substring(0, 8)}... (${key.length} chars)"}',
-    );
+
     if (key.isEmpty) {
-      throw Exception('GEMINI_API_KEY was not provided with --dart-define.');
+      throw Exception(
+        'GEMINI_API_KEY was not provided '
+        'with --dart-define.',
+      );
     }
 
-    // ── Step 1: Detect city and intent ───────────────────────────────────────
-    final detectedCity = _detectCity(userMessage);
-    final isNamedQuery = _isNamedPlaceQuery(userMessage);
+    // Do not print any part of the secret.
+    debugPrint(
+      '[Gemini] API key configured.',
+    );
 
-    // ── Step 2: Parallel data fetching ────────────────────────────────────────
-    final dataFutures = <Future<List<Map<String, dynamic>>>>[
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 1: Detect municipality and intent
+    // ───────────────────────────────────────────────────────────────────────
+
+    final detectedCity =
+        _detectCity(userMessage);
+
+    final isNamedQuery =
+        _isNamedPlaceQuery(
+      userMessage,
+    );
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 2: Fetch TourisTrike data
+    // ───────────────────────────────────────────────────────────────────────
+
+    final dataFutures =
+        <Future<List<Map<String, dynamic>>>>[
       _getPackages(),
       _getSpots(),
-      if (detectedCity != null) _getGoogleSpotsForCity(detectedCity),
-      if (isNamedQuery) _searchNamedPlace(userMessage),
+      if (detectedCity != null)
+        _getGoogleSpotsForCity(
+          detectedCity,
+        ),
+      if (isNamedQuery)
+        _searchNamedPlace(
+          userMessage,
+        ),
     ];
-    final results = await Future.wait(dataFutures);
 
-    final packages = results[0];
-    final supabaseSpots = results[1];
-    int resultIdx = 2;
-    final googleCitySpots = detectedCity != null
-        ? results[resultIdx++]
-        : <Map<String, dynamic>>[];
-    final namedSpots = isNamedQuery
-        ? results[resultIdx]
-        : <Map<String, dynamic>>[];
+    final results =
+        await Future.wait(
+      dataFutures,
+    );
 
-    // ── Step 3: Determine the working city ────────────────────────────────────
-    // If no city was mentioned but the named search found a place, use its city
-    // so we can also fetch similar spots from that city.
-    String? workingCity = detectedCity;
-    if (workingCity == null && namedSpots.isNotEmpty) {
+    final allPackages =
+        results[0];
+
+    final supabaseSpots =
+        results[1];
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 3: Filter package catalogue by requested municipality
+    // ───────────────────────────────────────────────────────────────────────
+
+    List<Map<String, dynamic>>
+        packages;
+
+    if (detectedCity == null) {
+      packages = allPackages;
+    } else {
+      final requestedCity =
+          CitySpotSuggestionService
+              .normalizeText(
+        detectedCity,
+      );
+
+      packages = allPackages.where(
+        (pkg) {
+          final packageCity =
+              CitySpotSuggestionService
+                  .normalizeText(
+            (pkg['city'] as String?) ??
+                '',
+          );
+
+          if (packageCity.isEmpty) {
+            return false;
+          }
+
+          return packageCity ==
+                  requestedCity ||
+              packageCity.contains(
+                requestedCity,
+              ) ||
+              requestedCity.contains(
+                packageCity,
+              );
+        },
+      ).toList(growable: false);
+    }
+
+    debugPrint(
+      '[Gemini] Packages: '
+      'all=${allPackages.length} '
+      'filtered=${packages.length} '
+      'city=${detectedCity ?? "none"}',
+    );
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 4: Read optional Google results
+    // ───────────────────────────────────────────────────────────────────────
+
+    var resultIdx = 2;
+
+    final googleCitySpots =
+        detectedCity != null
+            ? results[resultIdx++]
+            : <Map<String, dynamic>>[];
+
+    final namedSpots =
+        isNamedQuery
+            ? results[resultIdx]
+            : <Map<String, dynamic>>[];
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 5: Determine working municipality
+    // ───────────────────────────────────────────────────────────────────────
+
+    String? workingCity =
+        detectedCity;
+
+    if (workingCity == null &&
+        namedSpots.isNotEmpty) {
       final foundCity =
-          (namedSpots.first['municipality'] as String?)?.trim() ?? '';
-      if (foundCity.isNotEmpty && foundCity != 'Bulacan') {
-        workingCity = foundCity;
+          (namedSpots.first[
+                      'municipality']
+                  as String?)
+              ?.trim() ??
+          '';
+
+      if (foundCity.isNotEmpty &&
+          foundCity != 'Bulacan') {
+        workingCity =
+            foundCity;
       }
     }
 
-    // If named search revealed a new city we haven't fetched yet, fetch it now.
-    List<Map<String, dynamic>> extraCitySpots = const [];
-    if (workingCity != null && workingCity != detectedCity) {
-      extraCitySpots = await _getGoogleSpotsForCity(workingCity);
+    List<Map<String, dynamic>>
+        extraCitySpots = const [];
+
+    if (workingCity != null &&
+        workingCity != detectedCity) {
+      extraCitySpots =
+          await _getGoogleSpotsForCity(
+        workingCity,
+      );
     }
 
-    // ── Step 4: Merge all spot sources ────────────────────────────────────────
-    List<Map<String, dynamic>> spots;
-    final seenTitles = <String>{};
-    final mergedSpots = <Map<String, dynamic>>[];
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 6: Merge spot sources without duplicates
+    // ───────────────────────────────────────────────────────────────────────
 
-    void addSpots(Iterable<Map<String, dynamic>> src) {
-      for (final s in src) {
-        final title = CitySpotSuggestionService.normalizeText(
-          (s['title'] as String?) ?? '',
+    final seenTitles =
+        <String>{};
+
+    final mergedSpots =
+        <Map<String, dynamic>>[];
+
+    void addSpots(
+      Iterable<Map<String, dynamic>> src,
+    ) {
+      for (final spot in src) {
+        final title =
+            CitySpotSuggestionService
+                .normalizeText(
+          (spot['title']
+                  as String?) ??
+              '',
         );
-        if (title.isNotEmpty && seenTitles.add(title)) mergedSpots.add(s);
+
+        if (title.isNotEmpty &&
+            seenTitles.add(title)) {
+          mergedSpots.add(
+            spot,
+          );
+        }
       }
     }
 
     if (workingCity != null) {
-      // Filter Supabase spots to the working city first.
-      final cityNorm = CitySpotSuggestionService.normalizeText(workingCity);
-      final citySupabaseSpots = supabaseSpots.where((s) {
-        final m = CitySpotSuggestionService.normalizeText(
-          ((s['municipality'] as String?)?.isNotEmpty == true
-              ? s['municipality'] as String
-              : (s['city'] as String?) ?? ''),
-        );
-        return m == cityNorm || m.contains(cityNorm);
-      });
-      // Named results first (the specific place the user asked about).
+      final cityNorm =
+          CitySpotSuggestionService
+              .normalizeText(
+        workingCity,
+      );
+
+      final citySupabaseSpots =
+          supabaseSpots.where(
+        (spot) {
+          final rawMunicipality =
+              ((spot['municipality']
+                              as String?)
+                          ?.isNotEmpty ==
+                      true)
+                  ? spot['municipality']
+                      as String
+                  : (spot['city']
+                          as String?) ??
+                      '';
+
+          final municipality =
+              CitySpotSuggestionService
+                  .normalizeText(
+            rawMunicipality,
+          );
+
+          return municipality ==
+                  cityNorm ||
+              municipality.contains(
+                cityNorm,
+              ) ||
+              cityNorm.contains(
+                municipality,
+              );
+        },
+      );
+
+      // Specific named result first.
       addSpots(namedSpots);
-      addSpots(citySupabaseSpots);
-      addSpots(googleCitySpots);
-      addSpots(extraCitySpots);
+
+      // Then app-managed spots.
+      addSpots(
+        citySupabaseSpots,
+      );
+
+      // Then Google suggestions.
+      addSpots(
+        googleCitySpots,
+      );
+
+      addSpots(
+        extraCitySpots,
+      );
     } else {
-      // No city detected — use full Supabase catalogue + any named results.
       addSpots(namedSpots);
-      addSpots(supabaseSpots);
+      addSpots(
+        supabaseSpots,
+      );
     }
 
-    spots = mergedSpots;
+    final spots =
+        mergedSpots;
+
     debugPrint(
-      '[Gemini] Spots: named=${namedSpots.length} city=${googleCitySpots.length} '
-      'extra=${extraCitySpots.length} merged=${spots.length}',
+      '[Gemini] Spots: '
+      'named=${namedSpots.length} '
+      'city=${googleCitySpots.length} '
+      'extra=${extraCitySpots.length} '
+      'merged=${spots.length}',
     );
 
-    // Build lookups used after response parsing.
-    final packageImageById = {
-      for (final pkg in packages) '${pkg['id']}': _packageImageUrl(pkg),
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 7: Build trusted lookup maps
+    // ───────────────────────────────────────────────────────────────────────
+
+    final packageById =
+        <String, Map<String, dynamic>>{
+      for (final pkg in packages)
+        '${pkg['id']}': pkg,
     };
-    final spotById = {for (final spot in spots) '${spot['id']}': spot};
 
-    final enrichedPrompt = systemPrompt != null
-        ? _buildEnrichedSystemPrompt(systemPrompt, spots, packages)
-        : null;
+    final spotById =
+        <String, Map<String, dynamic>>{
+      for (final spot in spots)
+        '${spot['id']}': spot,
+    };
 
-    final body = _buildBody(userMessage, history, enrichedPrompt);
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 8: ALWAYS build enriched system prompt
+    // ───────────────────────────────────────────────────────────────────────
 
-    // ── Primary model with exponential-backoff retries ────────────────────
-    for (int attempt = 0; attempt < _maxAttempts; attempt++) {
+    // Previously, the enriched prompt was only created
+    // when `systemPrompt != null`.
+    //
+    // That could cause Gemini to receive no catalogue,
+    // package rules, spot rules or JSON instructions.
+    final enrichedPrompt =
+        _buildEnrichedSystemPrompt(
+      systemPrompt ?? '',
+      spots,
+      packages,
+    );
+
+    final body =
+        _buildBody(
+      userMessage,
+      history,
+      enrichedPrompt,
+    );
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 9: Primary model + exponential backoff
+    // ───────────────────────────────────────────────────────────────────────
+
+    for (var attempt = 0;
+        attempt < _maxAttempts;
+        attempt++) {
       if (attempt > 0) {
-        final delay = Duration(seconds: 1 << (attempt - 1));
-        debugPrint(
-          '[Gemini] Overloaded – retrying in ${delay.inSeconds}s '
-          '(attempt ${attempt + 1}/$_maxAttempts)',
+        final delay =
+            Duration(
+          seconds:
+              1 << (attempt - 1),
         );
-        await Future.delayed(delay);
+
+        debugPrint(
+          '[Gemini] Overloaded – '
+          'retrying in '
+          '${delay.inSeconds}s '
+          '(attempt '
+          '${attempt + 1}/'
+          '$_maxAttempts)',
+        );
+
+        await Future.delayed(
+          delay,
+        );
       }
+
       try {
-        final raw = await _postRequest(
+        final raw =
+            await _postRequest(
           model: _primaryModel,
           body: body,
           key: key,
         );
-        return _parseResponse(raw, packageImageById, spotById);
+
+        return _parseResponse(
+          raw,
+          packageById,
+          spotById,
+        );
       } on _OverloadException catch (e) {
-        debugPrint('[Gemini] Overload on attempt ${attempt + 1}: ${e.message}');
+        debugPrint(
+          '[Gemini] Overload on '
+          'attempt ${attempt + 1}: '
+          '${e.message}',
+        );
       }
     }
 
-    // ── One-shot fallback model ───────────────────────────────────────────
-    debugPrint('[Gemini] Primary exhausted – trying fallback: $_fallbackModel');
+    // ───────────────────────────────────────────────────────────────────────
+    // Step 10: One-shot fallback model
+    // ───────────────────────────────────────────────────────────────────────
+
+    debugPrint(
+      '[Gemini] Primary exhausted – '
+      'trying fallback: '
+      '$_fallbackModel',
+    );
+
     try {
-      final raw = await _postRequest(
+      final raw =
+          await _postRequest(
         model: _fallbackModel,
         body: body,
         key: key,
       );
-      return _parseResponse(raw, packageImageById, spotById);
+
+      return _parseResponse(
+        raw,
+        packageById,
+        spotById,
+      );
     } catch (e) {
-      debugPrint('[Gemini] Fallback also failed: $e');
+      debugPrint(
+        '[Gemini] Fallback also '
+        'failed: $e',
+      );
+
       throw Exception(
-        'AI assistant is currently busy. Please try again in a moment.',
+        'AI assistant is currently busy. '
+        'Please try again in a moment.',
       );
     }
   }

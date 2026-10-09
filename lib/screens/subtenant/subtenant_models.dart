@@ -1146,7 +1146,11 @@ class SubTenantCaseEvidence {
     return SubTenantCaseEvidence(
       id: stId(map['id']),
       url: stString(map, const ['url']),
-      name: stString(map, const ['name'], fallback: 'Evidence'),
+      name: stString(map, const [
+        'name',
+        'file_name',
+        'filename',
+      ], fallback: 'Evidence'),
       contentType: stString(map, const ['content_type']),
       createdAt: stDate(map['created_at']),
       storagePath: stString(map, const ['storage_path']),
@@ -1251,6 +1255,7 @@ class SubTenantCase {
   final List<Map<String, dynamic>> restrictions;
 
   bool get isComplaint => source == 'complaint';
+  bool get isBookingSuspension => source == 'booking_suspension';
 
   factory SubTenantCase.fromMap(Map<String, dynamic> map) {
     Map<String, dynamic>? nested(String key) {
@@ -1418,6 +1423,69 @@ class SubTenantCase {
     );
   }
 
+  factory SubTenantCase.fromBookingSuspensionMap(Map<String, dynamic> map) {
+    Map<String, dynamic>? nested(String key) {
+      final value = map[key];
+      return value is Map ? Map<String, dynamic>.from(value) : null;
+    }
+
+    List<Map<String, dynamic>> maps(String key) {
+      final value = map[key];
+      if (value is! List) return const [];
+      return value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+
+    final originalStatus = stString(map, const ['original_status']);
+    return SubTenantCase(
+      id: stId(map['id']),
+      municipality: stString(map, const ['municipality']),
+      province: stString(map, const ['province']),
+      bookingId: stId(map['booking_id']),
+      packageId: stId(map['package_id']),
+      paymentRecordId: '',
+      category: 'booking_suspension',
+      subject: stString(map, const [
+        'subject',
+      ], fallback: 'Automatic booking suspension'),
+      description: stString(map, const ['description']),
+      priority: 'high',
+      status: stString(map, const ['status'], fallback: 'needs_review'),
+      originalStatus: originalStatus,
+      source: 'booking_suspension',
+      resolutionType: originalStatus == 'approved'
+          ? 'booking_issue_resolved'
+          : originalStatus == 'rejected' || originalStatus == 'expired'
+          ? 'no_action_required'
+          : '',
+      customResolution: '',
+      resolutionNotes: stString(map, const ['resolution_notes']),
+      reporter: SubTenantCaseParty.fromMap(nested('reporter')),
+      reportedUser: null,
+      assignee: nested('assignee') == null
+          ? null
+          : SubTenantCaseParty.fromMap(nested('assignee')),
+      booking: nested('booking'),
+      tourPackage: nested('tour_package'),
+      payment: null,
+      evidence: const [],
+      timeline: maps('timeline')
+          .where((event) => event['label'] != null && event['at'] != null)
+          .map(SubTenantCaseTimelineEvent.fromMap)
+          .toList(growable: false),
+      investigationNotes: '',
+      findings: '',
+      bookingHistory: maps('booking_history'),
+      restrictions: maps('restrictions'),
+      createdAt: stDate(map['created_at']),
+      reviewedAt: stDate(map['reviewed_at']),
+      resolvedAt: stDate(map['resolved_at']),
+      updatedAt: stDate(map['updated_at']),
+    );
+  }
+
   String get reference =>
       'CASE-${id.length >= 8 ? id.substring(0, 8).toUpperCase() : id.toUpperCase()}';
 
@@ -1433,6 +1501,13 @@ class SubTenantCase {
     reportedUser?.role ?? '',
     category,
     source,
+    ...restrictions.expand(
+      (restriction) => [
+        stString(restriction, const ['offense_number']),
+        stString(restriction, const ['risk_level']),
+        stString(restriction, const ['restriction_status']),
+      ],
+    ),
     stString(booking ?? const {}, const ['id']),
     stString(tourPackage ?? const {}, const ['title']),
   ].join(' ').toLowerCase();

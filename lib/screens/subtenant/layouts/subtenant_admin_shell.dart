@@ -925,6 +925,24 @@ class _NotificationButtonState extends State<_NotificationButton> {
         .eq('is_read', false);
   }
 
+  Future<void> _openNotification(
+    BuildContext dialogContext,
+    Map<String, dynamic> row,
+  ) async {
+    await _markRead(row['id']);
+    if (dialogContext.mounted) Navigator.pop(dialogContext);
+    final data = row['data'];
+    final payload = data is Map ? Map<String, dynamic>.from(data) : const {};
+    final caseId = payload['case_id']?.toString() ?? '';
+    final route = payload['route']?.toString() ?? '';
+    if (!mounted || caseId.isEmpty || route != 'disputes_cases') return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SubTenantPaymentDisputesScreen(initialCaseId: caseId),
+      ),
+    );
+  }
+
   Future<void> _openPanel() async {
     await showDialog<void>(
       context: context,
@@ -991,10 +1009,7 @@ class _NotificationButtonState extends State<_NotificationButton> {
                           ),
                         ),
                         subtitle: Text((row['body'] ?? '').toString()),
-                        onTap: () async {
-                          await _markRead(row['id']);
-                          if (context.mounted) Navigator.pop(context);
-                        },
+                        onTap: () => _openNotification(context, row),
                       );
                     },
                   ),

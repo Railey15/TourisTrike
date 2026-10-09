@@ -2,6 +2,7 @@ import 'dart:math' show atan2, cos, sin, sqrt;
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:touristrike/core/constants/package_spot_limits.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/services/package_builder_ai_service.dart';
 import 'package:touristrike/screens/subtenant/layouts/subtenant_admin_shell.dart';
@@ -131,6 +132,9 @@ class _SubTenantPackageFormScreenState
 
   bool get _editing => widget.package != null;
   bool get _isFinalStep => _currentStep == 3;
+  String? get _spotCountError =>
+      packageSpotCountValidationMessage(_selectedSpots.length);
+  bool get _hasValidSpotCount => _spotCountError == null;
   bool get _wizardBusy =>
       _saving ||
       _uploadingImage ||
@@ -260,6 +264,10 @@ class _SubTenantPackageFormScreenState
   }
 
   void _addSpot(SubTenantSpot spot) {
+    if (_selectedSpots.length >= maxPackageSpots) {
+      showSubTenantSnack(context, 'Packages can contain a maximum of 6 spots.');
+      return;
+    }
     if (_selectedSpots.any((item) => stId(item.spot.id) == stId(spot.id))) {
       return;
     }
@@ -641,6 +649,10 @@ class _SubTenantPackageFormScreenState
     SubTenantProfile profile,
     _GPlaceSuggestion suggestion,
   ) async {
+    if (_selectedSpots.length >= maxPackageSpots) {
+      showSubTenantSnack(context, 'Packages can contain a maximum of 6 spots.');
+      return;
+    }
     if (_addingPlaceIds.contains(suggestion.placeId)) return;
 
     setState(() => _addingPlaceIds.add(suggestion.placeId));
@@ -743,6 +755,7 @@ class _SubTenantPackageFormScreenState
       final generatedIds = <String>{};
       var scheduleCursor = 9 * 60;
       for (final key in plan.orderedCandidateKeys) {
+        if (generatedSpots.length >= maxPackageSpots) break;
         SubTenantSpot? spot = dbByKey[key];
         final google = googleByKey[key];
         if (spot == null && google != null) {
@@ -779,6 +792,17 @@ class _SubTenantPackageFormScreenState
       }
 
       if (!mounted) return;
+      final generatedCountError = packageSpotCountValidationMessage(
+        generatedSpots.length,
+      );
+      if (generatedCountError != null) {
+        setState(() {
+          _aiError =
+              '$generatedCountError AI generation did not produce enough '
+              'usable destinations. Please retry.';
+        });
+        return;
+      }
       if (!spotsOnly) {
         _titleCtrl.text = plan.title;
         _subtitleCtrl.text = plan.subtitle;
@@ -849,9 +873,8 @@ class _SubTenantPackageFormScreenState
     if (requirePrice && _priceCtrl.text.trim().isEmpty) {
       return 'Price text is required.';
     }
-    if (_selectedSpots.isEmpty) {
-      return 'Add at least one destination to this package.';
-    }
+    final spotCountMessage = _spotCountError;
+    if (spotCountMessage != null) return spotCountMessage;
     return null;
   }
 
@@ -946,9 +969,10 @@ class _SubTenantPackageFormScreenState
 
     final published = _status == 'published' && _visibility == 'visible';
 
-    final id = await _service.savePackage(
+    final id = await _service.savePackageWithSpots(
       profile: profile,
       packageId: _workingPackageId,
+      selectedSpots: _selectedSpots,
       values: {
         'title': _titleCtrl.text.trim(),
         'subtitle': _subtitleCtrl.text.trim(),
@@ -965,11 +989,6 @@ class _SubTenantPackageFormScreenState
         'visibility_status': published ? 'visible' : 'hidden',
         if (_packageCategoryId != null) 'category_id': _packageCategoryId,
       },
-    );
-
-    await _service.savePackageSelectedSpots(
-      packageId: id,
-      selectedSpots: _selectedSpots,
     );
 
     if (mounted) {
@@ -1478,45 +1497,76 @@ class _SubTenantPackageFormScreenState
   }
 
   Widget _buildNavigationBar(_BuilderData data) {
+    final requiresValidSpotCount =
+        _currentStep > 0 || _isFinalStep || (_currentStep == 0 && _aiGenerated);
+    final spotCountBlocked = requiresValidSpotCount && !_hasValidSpotCount;
     return Container(
       constraints: const BoxConstraints(maxWidth: 1040),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (_currentStep > 0)
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _wizardBusy ? null : _handleBack,
-                icon: const Icon(Icons.arrow_back_rounded),
-                label: const Text('Back'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                  foregroundColor: SubTenantColors.blue,
-                  side: const BorderSide(color: SubTenantColors.blue),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+          if (spotCountBlocked) ...[
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                _spotCountError!,
+                style: const TextStyle(
+                  color: Color(0xFFB45309),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-          if (_currentStep > 0) const SizedBox(width: 12),
-          Expanded(
-            child: _isFinalStep
-                ? SubTenantGradientButton(
-                    label: widget.package == null
-                        ? 'Save Package'
-                        : 'Update Package',
-                    icon: Icons.save_rounded,
-                    loading: _saving,
-                    onPressed: () => _saveAndClose(data.profile),
-                  )
-                : SubTenantGradientButton(
-                    label: _currentStep == 1
-                        ? 'Continue to Itinerary'
-                        : 'Next Step',
-                    icon: Icons.arrow_forward_rounded,
-                    loading: _saving || _itineraryLoading,
-                    onPressed: () => _handleNext(data),
+            const SizedBox(height: 8),
+          ],
+          Row(
+            children: [
+              if (_currentStep > 0)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _wizardBusy ? null : _handleBack,
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('Back'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      foregroundColor: SubTenantColors.blue,
+                      side: const BorderSide(color: SubTenantColors.blue),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
                   ),
+                ),
+              if (_currentStep > 0) const SizedBox(width: 12),
+              Expanded(
+                child: Opacity(
+                  opacity: spotCountBlocked ? 0.55 : 1,
+                  child: _isFinalStep
+                      ? SubTenantGradientButton(
+                          label: widget.package == null
+                              ? 'Save Package'
+                              : 'Update Package',
+                          icon: Icons.save_rounded,
+                          loading: _saving,
+                          onPressed: spotCountBlocked
+                              ? null
+                              : () => _saveAndClose(data.profile),
+                        )
+                      : SubTenantGradientButton(
+                          label: _currentStep == 1
+                              ? 'Continue to Itinerary'
+                              : _currentStep == 0 && !_aiGenerated
+                              ? 'Choose Spots'
+                              : 'Next Step',
+                          icon: Icons.arrow_forward_rounded,
+                          loading: _saving || _itineraryLoading,
+                          onPressed: spotCountBlocked
+                              ? null
+                              : () => _handleNext(data),
+                        ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1635,7 +1685,7 @@ class _SubTenantPackageFormScreenState
                     label: const Text('Regenerate Spots'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: _aiGenerating || _aiSpotCount >= 10
+                    onPressed: _aiGenerating || _aiSpotCount >= maxPackageSpots
                         ? null
                         : () {
                             setState(() => _aiSpotCount += 1);
@@ -1692,7 +1742,7 @@ class _SubTenantPackageFormScreenState
           isExpanded: true,
           decoration: _dropdownDecoration(),
           items: [
-            for (var count = 1; count <= 10; count++)
+            for (var count = minPackageSpots; count <= maxPackageSpots; count++)
               DropdownMenuItem(value: count, child: Text('$count spots')),
           ],
           onChanged: _aiGenerating
@@ -1876,6 +1926,8 @@ class _SubTenantPackageFormScreenState
               ),
             ],
           ),
+          const SizedBox(height: 6),
+          _packageSpotCountHelper(),
           const SizedBox(height: 10),
           if (fillAvailableHeight) ...[
             Expanded(
@@ -2351,7 +2403,9 @@ class _SubTenantPackageFormScreenState
                   (suggestion) => _GSpotCard(
                     suggestion: suggestion,
                     adding: _addingPlaceIds.contains(suggestion.placeId),
-                    onAdd: () => _addGoogleSpot(data.profile, suggestion),
+                    onAdd: _selectedSpots.length >= maxPackageSpots
+                        ? null
+                        : () => _addGoogleSpot(data.profile, suggestion),
                   ),
                 ),
             const SizedBox(height: 8),
@@ -2376,7 +2430,9 @@ class _SubTenantPackageFormScreenState
             ...dbSpots.map(
               (spot) => _SpotCard(
                 spot: spot,
-                onAdd: () => _addSpot(spot),
+                onAdd: _selectedSpots.length >= maxPackageSpots
+                    ? null
+                    : () => _addSpot(spot),
                 popular: data.popularIds.contains(spot.id),
               ),
             ),
@@ -2487,6 +2543,8 @@ class _SubTenantPackageFormScreenState
             subtitle:
                 '${_selectedSpots.length} spot${_selectedSpots.length == 1 ? '' : 's'} included in this package',
           ),
+          const SizedBox(height: 6),
+          _packageSpotCountHelper(),
           const SizedBox(height: 12),
           if (fillAvailableHeight) ...[
             Expanded(
@@ -2511,6 +2569,20 @@ class _SubTenantPackageFormScreenState
             helperText,
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _packageSpotCountHelper() {
+    final message = _spotCountError;
+    return Text(
+      message ?? 'Packages may include 3 to 6 spots.',
+      style: TextStyle(
+        color: message == null
+            ? const Color(0xFF15803D)
+            : const Color(0xFFB45309),
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
       ),
     );
   }
@@ -2844,11 +2916,15 @@ class _SpotCard extends StatelessWidget {
   });
 
   final SubTenantSpot spot;
-  final VoidCallback onAdd;
+  final VoidCallback? onAdd;
   final bool popular;
 
   @override
   Widget build(BuildContext context) {
+    final addEnabled = onAdd != null;
+    final actionColor = addEnabled
+        ? SubTenantColors.blue
+        : SubTenantColors.lightMuted;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -2969,25 +3045,25 @@ class _SpotCard extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: SubTenantColors.blue.withValues(alpha: 0.1),
+                    color: actionColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: SubTenantColors.blue.withValues(alpha: 0.25),
+                      color: actionColor.withValues(alpha: 0.25),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.add_rounded,
-                        color: SubTenantColors.blue,
+                        addEnabled ? Icons.add_rounded : Icons.block_rounded,
+                        color: actionColor,
                         size: 14,
                       ),
-                      SizedBox(width: 4),
+                      const SizedBox(width: 4),
                       Text(
-                        'Add',
+                        addEnabled ? 'Add' : 'Full',
                         style: TextStyle(
-                          color: SubTenantColors.blue,
+                          color: actionColor,
                           fontSize: 12,
                           fontWeight: FontWeight.w900,
                         ),
@@ -4274,11 +4350,15 @@ class _GSpotCard extends StatelessWidget {
   });
 
   final _GPlaceSuggestion suggestion;
-  final VoidCallback onAdd;
+  final VoidCallback? onAdd;
   final bool adding;
 
   @override
   Widget build(BuildContext context) {
+    final addEnabled = onAdd != null;
+    final actionColor = addEnabled
+        ? SubTenantColors.blue
+        : SubTenantColors.lightMuted;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -4391,25 +4471,27 @@ class _GSpotCard extends StatelessWidget {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: SubTenantColors.blue.withValues(alpha: 0.1),
+                          color: actionColor.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: SubTenantColors.blue.withValues(alpha: 0.25),
+                            color: actionColor.withValues(alpha: 0.25),
                           ),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              Icons.add_rounded,
-                              color: SubTenantColors.blue,
+                              addEnabled
+                                  ? Icons.add_rounded
+                                  : Icons.block_rounded,
+                              color: actionColor,
                               size: 14,
                             ),
-                            SizedBox(width: 4),
+                            const SizedBox(width: 4),
                             Text(
-                              'Add',
+                              addEnabled ? 'Add' : 'Full',
                               style: TextStyle(
-                                color: SubTenantColors.blue,
+                                color: actionColor,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w900,
                               ),

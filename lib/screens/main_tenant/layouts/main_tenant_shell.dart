@@ -18,6 +18,7 @@ import 'package:touristrike/screens/main_tenant/widgets/main_tenant_header_tools
 import 'package:touristrike/screens/main_tenant/widgets/main_tenant_sidebar.dart';
 import 'package:touristrike/screens/main_tenant/widgets/main_tenant_style.dart';
 import 'package:touristrike/screens/auth/web_portal_login_screen.dart';
+import 'package:touristrike/screens/subtenant/subtenant_payment_disputes_screen.dart';
 
 class MainTenantPortalScreen extends StatefulWidget {
   const MainTenantPortalScreen({
@@ -25,11 +26,13 @@ class MainTenantPortalScreen extends StatefulWidget {
     this.initialDestination = MainTenantDestination.dashboard,
     @visibleForTesting this.pageBuilder,
     @visibleForTesting this.profileOverride,
+    this.initialCaseId,
   });
 
   final MainTenantDestination initialDestination;
   final Widget Function(MainTenantDestination destination)? pageBuilder;
   final MainTenantProfile? profileOverride;
+  final String? initialCaseId;
 
   static const destinations = <MainTenantDestination>[
     MainTenantDestination.dashboard,
@@ -37,6 +40,7 @@ class MainTenantPortalScreen extends StatefulWidget {
     MainTenantDestination.packages,
     MainTenantDestination.tourismData,
     MainTenantDestination.reports,
+    MainTenantDestination.disputes,
     MainTenantDestination.feedback,
     MainTenantDestination.settings,
   ];
@@ -47,12 +51,26 @@ class MainTenantPortalScreen extends StatefulWidget {
         : destination;
   }
 
-  static Widget pageForDestination(MainTenantDestination destination) {
+  static Widget pageForDestination(
+    MainTenantDestination destination, {
+    String? initialCaseId,
+  }) {
     return switch (normalize(destination)) {
       MainTenantDestination.cityTenants => const CityTenantsScreen(),
       MainTenantDestination.packages => const ProvincePackagesScreen(),
       MainTenantDestination.tourismData => const ProvincialSpotsScreen(),
       MainTenantDestination.reports => const ProvinceReportsScreen(),
+      MainTenantDestination.disputes => SubTenantPaymentDisputesScreen(
+        initialCaseId: initialCaseId,
+        suspensionCasesOnly: true,
+        shellBuilder: (context, child) => MainTenantShell(
+          current: MainTenantDestination.disputes,
+          title: 'Disputes & Cases',
+          subtitle:
+              'Review province-wide booking suspension cases and appeals.',
+          child: child,
+        ),
+      ),
       MainTenantDestination.feedback => const FeedbackTrendsScreen(),
       MainTenantDestination.settings => const MainTenantSettingsScreen(),
       _ => const MainTenantDashboardScreen(),
@@ -77,7 +95,12 @@ class _MainTenantPortalScreenState extends State<MainTenantPortalScreen> {
 
   Widget _buildPage(MainTenantDestination destination) {
     return widget.pageBuilder?.call(destination) ??
-        MainTenantPortalScreen.pageForDestination(destination);
+        MainTenantPortalScreen.pageForDestination(
+          destination,
+          initialCaseId: destination == MainTenantDestination.disputes
+              ? widget.initialCaseId
+              : null,
+        );
   }
 
   void _selectDestination(MainTenantDestination destination) {
@@ -190,6 +213,11 @@ class _MainTenantTabChrome {
         destination: MainTenantDestination.feedback,
         title: 'Feedback',
         subtitle: 'Review tourist feedback trends and low-rated experiences.',
+      ),
+      MainTenantDestination.disputes => const _MainTenantTabChrome(
+        destination: MainTenantDestination.disputes,
+        title: 'Disputes & Cases',
+        subtitle: 'Review province-wide booking suspension cases and appeals.',
       ),
       MainTenantDestination.settings => const _MainTenantTabChrome(
         destination: MainTenantDestination.settings,
@@ -337,6 +365,17 @@ class _MainTenantShellState extends State<MainTenantShell> {
     );
   }
 
+  void _openSuspensionCase(String caseId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MainTenantPortalScreen(
+          initialDestination: MainTenantDestination.disputes,
+          initialCaseId: caseId,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final portal = _MainTenantPortalScope.maybeOf(context);
@@ -392,6 +431,7 @@ class _MainTenantShellState extends State<MainTenantShell> {
               MainTenantNotificationButton(
                 userId: profile.id,
                 onNavigate: _navigate,
+                onOpenCase: _openSuspensionCase,
               ),
               ...widget.actions,
             ],
@@ -453,6 +493,7 @@ class _MainTenantShellState extends State<MainTenantShell> {
                             notifications: MainTenantNotificationButton(
                               userId: profile.id,
                               onNavigate: _navigate,
+                              onOpenCase: _openSuspensionCase,
                             ),
                           ),
                           Expanded(

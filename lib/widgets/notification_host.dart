@@ -9,6 +9,10 @@ import '../screens/driver/driver_package_jobs_screen.dart';
 import '../screens/driver/driver_package_tracking_screen.dart';
 import '../screens/tourist/tourist_activity_tracking_screen.dart';
 import '../screens/shared/notification_center_screen.dart';
+import '../screens/main_tenant/layouts/main_tenant_shell.dart';
+import '../screens/main_tenant/main_tenant_nav.dart';
+import '../screens/subtenant/subtenant_payment_disputes_screen.dart';
+import 'tourist_booking_suspension.dart';
 import 'notification_foreground_banner.dart';
 export 'notification_foreground_banner.dart';
 
@@ -209,6 +213,14 @@ class _NotificationHostState extends State<NotificationHost>
           activityId: destination['activity_id'] as String,
         ),
         'driver_jobs' => const DriverPackageJobsScreen(),
+        'subtenant_case' => SubTenantPaymentDisputesScreen(
+          initialCaseId: destination['case_id']?.toString(),
+        ),
+        'provincial_case' => MainTenantPortalScreen(
+          initialDestination: MainTenantDestination.disputes,
+          initialCaseId: destination['case_id']?.toString(),
+        ),
+        'tourist_suspension' => const TouristBookingSuspensionDetailsScreen(),
         _ => const NotificationCenterScreen(),
       };
       try {

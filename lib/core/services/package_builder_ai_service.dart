@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/constants/package_spot_limits.dart';
 
 typedef PackageBuilderFunctionInvoker =
     Future<Map<String, dynamic>> Function({
@@ -117,8 +118,22 @@ class PackageBuilderAiService {
     if (candidates.isEmpty) {
       throw StateError('No active spots are available in $municipality.');
     }
+    if (!isValidPackageSpotCount(spotCount)) {
+      throw ArgumentError(
+        'Number of spots must be between $minPackageSpots and '
+        '$maxPackageSpots.',
+      );
+    }
 
-    final requestedCount = spotCount.clamp(1, 10);
+    final eligibleCandidates = _eligibleCandidates(candidates, request);
+    if (eligibleCandidates.length < minPackageSpots) {
+      throw PackageBuilderAiException(
+        'At least $minPackageSpots usable spots are required to generate '
+        'a package. Try another request or add spots manually.',
+      );
+    }
+
+    final requestedCount = spotCount;
     final payload = await _invokeFunction(
       functionName: edgeFunctionName,
       body: {
@@ -141,7 +156,6 @@ class PackageBuilderAiService {
     }
     final response = Map<String, dynamic>.from(rawPackage);
 
-    final eligibleCandidates = _eligibleCandidates(candidates, request);
     final candidateByKey = {
       for (final item in eligibleCandidates) item.key: item,
     };
@@ -157,16 +171,11 @@ class PackageBuilderAiService {
       if (validOrder.length == requestedCount) break;
     }
 
-    // Missing or invalid IDs are filled only from real allow-listed candidates.
-    if (validOrder.length < requestedCount) {
-      final ranked = _rankCandidates(
-        eligibleCandidates,
-        '${request.trim()} ${preferences.trim()} ${response['category'] ?? ''}',
+    if (validOrder.length < minPackageSpots) {
+      throw const PackageBuilderAiException(
+        'AI returned fewer than 3 usable spots. Please retry or build the '
+        'package manually.',
       );
-      for (final item in ranked) {
-        if (!validOrder.contains(item.key)) validOrder.add(item.key);
-        if (validOrder.length == requestedCount) break;
-      }
     }
 
     final stayValues = <String, int>{};
@@ -206,29 +215,6 @@ class PackageBuilderAiService {
       suggestedStayMinutes: stayValues,
       recommendation: _cleanText(response['recommendation']),
     );
-  }
-
-  List<PackageBuilderCandidate> _rankCandidates(
-    List<PackageBuilderCandidate> candidates,
-    String query,
-  ) {
-    final terms = query
-        .toLowerCase()
-        .split(RegExp(r'[^a-z0-9]+'))
-        .where((term) => term.length > 2)
-        .toSet();
-    final ranked = [...candidates];
-    int score(PackageBuilderCandidate item) {
-      final value = '${item.title} ${item.category} ${item.address}'
-          .toLowerCase();
-      return terms.where(value.contains).length;
-    }
-
-    ranked.sort((a, b) {
-      final fit = score(b).compareTo(score(a));
-      return fit != 0 ? fit : b.rating.compareTo(a.rating);
-    });
-    return ranked;
   }
 
   List<PackageBuilderCandidate> _eligibleCandidates(

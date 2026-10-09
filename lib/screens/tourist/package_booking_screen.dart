@@ -1,5 +1,6 @@
 import 'package:touristrike/core/models/booking_capacity.dart';
 import 'package:touristrike/widgets/municipal_restriction_notice.dart';
+import 'package:touristrike/widgets/tourist_booking_suspension.dart';
 import 'package:touristrike/core/models/itinerary_stay_options.dart';
 import 'package:touristrike/widgets/booking_route_preview_map.dart';
 import 'dart:async';
@@ -1725,66 +1726,20 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   Future<void> _showBookingRestrictionDialog() async {
-    final reason = TextEditingController();
     try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: const Text('New bookings temporarily paused'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Repeated qualifying late cancellations have temporarily paused new bookings. Existing bookings, refunds, and support remain available.',
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reason,
-                  maxLines: 3,
-                  maxLength: 1000,
-                  onChanged: (_) => setDialogState(() {}),
-                  decoration: const InputDecoration(
-                    labelText: 'Appeal reason',
-                    hintText: 'Explain why this restriction should be reviewed',
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Close'),
-              ),
-              FilledButton(
-                onPressed: reason.text.trim().length < 10
-                    ? null
-                    : () async {
-                        try {
-                          await Supabase.instance.client.rpc(
-                            'appeal_tourist_booking_restriction',
-                            params: {'p_reason': reason.text.trim()},
-                          );
-                          if (dialogContext.mounted) {
-                            Navigator.pop(dialogContext);
-                          }
-                          if (mounted) {
-                            _snack('Your appeal was submitted for review.');
-                          }
-                        } catch (_) {
-                          if (mounted) {
-                            _snack('Unable to submit the appeal right now.');
-                          }
-                        }
-                      },
-                child: const Text('Submit appeal'),
-              ),
-            ],
-          ),
-        ),
+      final suspension = await loadMyTouristBookingSuspension();
+      if (!mounted || suspension == null) return;
+      final submitted = await showTouristBookingSuspensionSheet(
+        context,
+        suspension: suspension,
       );
-    } finally {
-      reason.dispose();
+      if (mounted && submitted) {
+        _snack('Your appeal was submitted for review.', error: false);
+      }
+    } catch (_) {
+      if (mounted) {
+        _snack('Unable to load your booking suspension details.');
+      }
     }
   }
 
@@ -1889,6 +1844,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                       // ======================================================
                       _StepScrollView(
                         children: [
+                          const TouristBookingSuspensionNotice(),
                           const MunicipalRestrictionNotice(),
                           const _StepIntro(
                             icon: Icons.calendar_month_outlined,

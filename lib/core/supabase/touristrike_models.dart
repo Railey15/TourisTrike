@@ -605,6 +605,14 @@ class BookingCancellationResult {
     required this.releasedDriverCount,
     this.note,
     this.cancelledAt,
+    this.qualifyingCancellationCount = 0,
+    this.bookingRestrictedUntil,
+    this.bookingRestrictionCreated = false,
+    this.bookingRestrictionCaseId = '',
+    this.bookingRestrictionReason = '',
+    this.bookingRestrictionOffenseNumber = 1,
+    this.bookingRestrictionManualReviewRequired = false,
+    this.bookingRestrictionRiskLevel = 'standard',
   });
 
   factory BookingCancellationResult.fromJson(Map<String, dynamic> json) {
@@ -617,6 +625,25 @@ class BookingCancellationResult {
       refundRequestCount: dbInt(json['refund_request_count']),
       releasedDriverCount: dbInt(json['released_driver_count']),
       cancelledAt: dbDate(json['cancelled_at']),
+      qualifyingCancellationCount: dbInt(
+        json['qualifying_cancellations_today'] ??
+            json['qualifying_late_cancellations'],
+      ),
+      bookingRestrictedUntil: dbDate(json['booking_restricted_until']),
+      bookingRestrictionCreated: dbBool(json['booking_restriction_created']),
+      bookingRestrictionCaseId: dbString(json['booking_restriction_case_id']),
+      bookingRestrictionReason: dbString(json['booking_restriction_reason']),
+      bookingRestrictionOffenseNumber: dbInt(
+        json['booking_restriction_offense_number'],
+        fallback: 1,
+      ),
+      bookingRestrictionManualReviewRequired: dbBool(
+        json['booking_restriction_manual_review_required'],
+      ),
+      bookingRestrictionRiskLevel: dbString(
+        json['booking_restriction_risk_level'],
+        fallback: 'standard',
+      ),
     );
   }
 
@@ -628,6 +655,14 @@ class BookingCancellationResult {
   final int refundRequestCount;
   final int releasedDriverCount;
   final DateTime? cancelledAt;
+  final int qualifyingCancellationCount;
+  final DateTime? bookingRestrictedUntil;
+  final bool bookingRestrictionCreated;
+  final String bookingRestrictionCaseId;
+  final String bookingRestrictionReason;
+  final int bookingRestrictionOffenseNumber;
+  final bool bookingRestrictionManualReviewRequired;
+  final String bookingRestrictionRiskLevel;
 }
 
 class RefundRequest extends TourisTrikeRow {

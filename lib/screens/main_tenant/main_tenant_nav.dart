@@ -7,6 +7,7 @@ enum MainTenantDestination {
   packages,
   tourismData,
   reports,
+  disputes,
   feedback,
   settings,
 }
@@ -48,6 +49,11 @@ const mainTenantNavItems = [
     destination: MainTenantDestination.reports,
     label: 'Reports',
     icon: Icons.query_stats_rounded,
+  ),
+  MainTenantNavItem(
+    destination: MainTenantDestination.disputes,
+    label: 'Disputes & Cases',
+    icon: Icons.gavel_rounded,
   ),
   MainTenantNavItem(
     destination: MainTenantDestination.feedback,

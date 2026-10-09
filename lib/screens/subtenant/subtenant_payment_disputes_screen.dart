@@ -16,11 +16,15 @@ const caseCategories = <String, String>{
   'booking': 'Booking Issue',
   'driver': 'Driver Conduct',
   'tourist': 'Tourist Complaint',
+  'booking_suspension': 'Booking Suspension',
   'tour_package': 'Tour / Service',
   'fare_charge': 'Fare / Additional Charges',
   'safety_incident': 'Safety / Tour Incident',
   'other': 'Other',
 };
+
+typedef DisputesCasesShellBuilder =
+    Widget Function(BuildContext context, Widget child);
 const caseRoles = <String, String>{
   'all': 'All Roles',
   'driver': 'Driver Involved',
@@ -45,8 +49,17 @@ const caseResolutions = <String, String>{
 };
 
 class SubTenantPaymentDisputesScreen extends StatefulWidget {
-  const SubTenantPaymentDisputesScreen({super.key, this.service});
+  const SubTenantPaymentDisputesScreen({
+    super.key,
+    this.service,
+    this.initialCaseId,
+    this.suspensionCasesOnly = false,
+    this.shellBuilder,
+  });
   final SubTenantService? service;
+  final String? initialCaseId;
+  final bool suspensionCasesOnly;
+  final DisputesCasesShellBuilder? shellBuilder;
   @override
   State<SubTenantPaymentDisputesScreen> createState() =>
       _SubTenantPaymentDisputesScreenState();
@@ -61,11 +74,17 @@ class _SubTenantPaymentDisputesScreenState
   String _category = 'all';
   String _status = 'attention';
   String _role = 'all';
+  bool _openedInitialCase = false;
+
+  Future<List<SubTenantCase>> _loadCases() => widget.suspensionCasesOnly
+      ? _service.fetchBookingSuspensionCases()
+      : _service.fetchCases();
+
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? SubTenantService();
-    _future = _service.fetchCases();
+    _future = _loadCases();
   }
 
   @override
@@ -75,7 +94,7 @@ class _SubTenantPaymentDisputesScreenState
   }
 
   void _reload() {
-    final next = _service.fetchCases();
+    final next = _loadCases();
     if (!mounted) return;
     setState(() {
       _future = next;
@@ -83,7 +102,7 @@ class _SubTenantPaymentDisputesScreenState
   }
 
   Future<void> _refresh() async {
-    final next = _service.fetchCases();
+    final next = _loadCases();
     if (!mounted) return;
     setState(() {
       _future = next;
@@ -111,7 +130,7 @@ class _SubTenantPaymentDisputesScreenState
       await action();
       if (!mounted) return;
       try {
-        final refreshed = await _service.fetchCases();
+        final refreshed = await _loadCases();
         if (mounted) {
           final next = Future.value(refreshed);
           setState(() {
@@ -174,13 +193,36 @@ class _SubTenantPaymentDisputesScreenState
     if (confirmed == true) {
       await _mutate(
         item,
-        () => _service.startCaseReview(item.id),
+        () => item.isBookingSuspension
+            ? _service.manageTouristBookingSuspensionCase(
+                caseId: item.id,
+                action: 'start_review',
+                note: 'Administrative review started.',
+              )
+            : _service.startCaseReview(item.id),
         'Case is now under review.',
       );
     }
   }
 
   Future<void> _resolve(SubTenantCase item) async {
+    if (item.isBookingSuspension) {
+      final note = await _requestNote(
+        title: 'Resolve Suspension Case',
+        label: 'Resolution note',
+      );
+      if (note == null) return;
+      await _mutate(
+        item,
+        () => _service.manageTouristBookingSuspensionCase(
+          caseId: item.id,
+          action: 'resolve',
+          note: note,
+        ),
+        'Suspension case marked resolved.',
+      );
+      return;
+    }
     final result = await showDialog<_ResolutionInput>(
       context: context,
       barrierDismissible: false,
@@ -205,44 +247,11 @@ class _SubTenantPaymentDisputesScreenState
     required String title,
     required String label,
     int minimumLength = 10,
-  }) async {
-    final controller = TextEditingController();
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: controller,
-            minLines: 3,
-            maxLines: 6,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: label,
-              alignLabelWithHint: true,
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final value = controller.text.trim();
-                if (value.length < minimumLength) return;
-                Navigator.pop(context, value);
-              },
-              child: const Text('Confirm'),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      controller.dispose();
-    }
-  }
+  }) => showDialog<String>(
+    context: context,
+    builder: (_) =>
+        _NoteDialog(title: title, label: label, minimumLength: minimumLength),
+  );
 
   Future<void> _complaintAction(
     SubTenantCase item,
@@ -328,18 +337,59 @@ class _SubTenantPaymentDisputesScreenState
     required bool grant,
   }) async {
     final note = await _requestNote(
-      title: grant ? 'Grant Appeal' : 'Uphold Restriction',
+      title: grant ? 'Approve Appeal' : 'Reject Appeal',
       label: 'Decision note',
     );
     if (note == null) return;
     await _mutate(
       item,
-      () => _service.decideComplaintRestrictionAppeal(
-        appealId: stId(appeal['id']),
-        grant: grant,
+      () => item.isBookingSuspension
+          ? _service.decideTouristBookingSuspensionAppeal(
+              appealId: stId(appeal['id']),
+              approve: grant,
+              note: note,
+            )
+          : _service.decideComplaintRestrictionAppeal(
+              appealId: stId(appeal['id']),
+              grant: grant,
+              note: note,
+            ),
+      grant ? 'Appeal granted.' : 'Restriction upheld.',
+    );
+  }
+
+  Future<void> _addSuspensionNote(SubTenantCase item) async {
+    final note = await _requestNote(
+      title: 'Add Decision Note',
+      label: 'Decision note',
+    );
+    if (note == null) return;
+    await _mutate(
+      item,
+      () => _service.manageTouristBookingSuspensionCase(
+        caseId: item.id,
+        action: 'note',
         note: note,
       ),
-      grant ? 'Appeal granted.' : 'Restriction upheld.',
+      'Decision note added.',
+    );
+  }
+
+  Future<void> _escalateSuspension(SubTenantCase item) async {
+    final note = await _requestNote(
+      title: 'Extend Escalated Suspension',
+      label: 'Policy justification',
+      minimumLength: 20,
+    );
+    if (note == null) return;
+    await _mutate(
+      item,
+      () => _service.manageTouristBookingSuspensionCase(
+        caseId: item.id,
+        action: 'escalate',
+        note: note,
+      ),
+      'Suspension extended under the repeat-offense policy.',
     );
   }
 
@@ -433,96 +483,117 @@ class _SubTenantPaymentDisputesScreenState
           Navigator.pop(context);
           _decideAppeal(item, appeal, grant: grant);
         },
+        onAddSuspensionNote: () {
+          Navigator.pop(context);
+          _addSuspensionNote(item);
+        },
+        onEscalateSuspension: () {
+          Navigator.pop(context);
+          _escalateSuspension(item);
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final content = FutureBuilder<List<SubTenantCase>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SubTenantLoadingView();
+        }
+        if (snapshot.hasError) {
+          return SubTenantErrorView(
+            message: snapshot.error.toString(),
+            onRetry: _reload,
+          );
+        }
+        final all = snapshot.data ?? const <SubTenantCase>[];
+        final initialCaseId = widget.initialCaseId;
+        if (!_openedInitialCase && initialCaseId != null) {
+          _openedInitialCase = true;
+          final matches = all.where((item) => item.id == initialCaseId);
+          if (matches.isNotEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _view(matches.first);
+            });
+          }
+        }
+        final visible = all.where(_matches).toList(growable: false);
+        int count(String status) =>
+            all.where((item) => item.status == status).length;
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ResponsivePageContainer(
+            children: [
+              ResponsiveGrid(
+                minItemWidth: Responsive.isMobile(context) ? 150 : 180,
+                maxColumns: Responsive.isMobile(context)
+                    ? 2
+                    : Responsive.isLargeDesktop(context)
+                    ? 4
+                    : 2,
+                mainAxisExtent: 156,
+                mobileAspectRatio: 2.25,
+                desktopAspectRatio: 3.25,
+                children: [
+                  _metric(
+                    'Needs Review',
+                    count('needs_review'),
+                    Icons.report_problem_outlined,
+                    const Color(0xFFDC2626),
+                    'needs_review',
+                  ),
+                  _metric(
+                    'Under Review',
+                    count('under_review'),
+                    Icons.manage_search_rounded,
+                    const Color(0xFFD97706),
+                    'under_review',
+                  ),
+                  _metric(
+                    'Closed',
+                    count('closed'),
+                    Icons.task_alt_rounded,
+                    const Color(0xFF16A34A),
+                    'closed',
+                  ),
+                  _metric(
+                    'Total',
+                    all.length,
+                    Icons.folder_copy_outlined,
+                    SubTenantColors.blue,
+                    'all',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _filters(),
+              const SizedBox(height: 12),
+              _CaseWorkspace(
+                minHeight: (MediaQuery.sizeOf(context).height - 470).clamp(
+                  300.0,
+                  680.0,
+                ),
+                visible: visible,
+                emptyMessage: _emptyMessage(),
+                processing: _processing,
+                onView: _view,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    final shellBuilder = widget.shellBuilder;
+    if (shellBuilder != null) return shellBuilder(context, content);
     return SubTenantAdminShell(
       currentIndex: 7,
       title: 'Disputes & Cases',
       subtitle:
           'Review and resolve reported issues involving bookings, payments, drivers, tourists, tours, and service incidents.',
-      child: FutureBuilder<List<SubTenantCase>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SubTenantLoadingView();
-          }
-          if (snapshot.hasError) {
-            return SubTenantErrorView(
-              message: snapshot.error.toString(),
-              onRetry: _reload,
-            );
-          }
-          final all = snapshot.data ?? const <SubTenantCase>[];
-          final visible = all.where(_matches).toList(growable: false);
-          int count(String status) =>
-              all.where((item) => item.status == status).length;
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ResponsivePageContainer(
-              children: [
-                ResponsiveGrid(
-                  minItemWidth: 180,
-                  maxColumns: Responsive.isMobile(context)
-                      ? 1
-                      : Responsive.isLargeDesktop(context)
-                      ? 3
-                      : 2,
-                  mainAxisExtent: 156,
-                  mobileAspectRatio: 2.25,
-                  desktopAspectRatio: 3.25,
-                  children: [
-                    _metric(
-                      'Needs Review',
-                      count('needs_review'),
-                      Icons.report_problem_outlined,
-                      const Color(0xFFDC2626),
-                      'needs_review',
-                    ),
-                    _metric(
-                      'Under Review',
-                      count('under_review'),
-                      Icons.manage_search_rounded,
-                      const Color(0xFFD97706),
-                      'under_review',
-                    ),
-                    _metric(
-                      'Closed',
-                      count('closed'),
-                      Icons.task_alt_rounded,
-                      const Color(0xFF16A34A),
-                      'closed',
-                    ),
-                    _metric(
-                      'Total',
-                      all.length,
-                      Icons.folder_copy_outlined,
-                      SubTenantColors.blue,
-                      'all',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _filters(),
-                const SizedBox(height: 12),
-                _CaseWorkspace(
-                  minHeight: (MediaQuery.sizeOf(context).height - 470).clamp(
-                    300.0,
-                    680.0,
-                  ),
-                  visible: visible,
-                  emptyMessage: _emptyMessage(),
-                  processing: _processing,
-                  onView: _view,
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+      child: content,
     );
   }
 
@@ -590,7 +661,7 @@ class _SubTenantPaymentDisputesScreenState
               const SizedBox(width: 12),
               SizedBox(width: 190, child: category),
               const SizedBox(width: 12),
-              SizedBox(width: 170, child: status),
+              SizedBox(width: 190, child: status),
               const SizedBox(width: 12),
               SizedBox(width: 170, child: role),
             ],
@@ -917,6 +988,8 @@ class _CaseDialog extends StatelessWidget {
     required this.onDismissComplaint,
     required this.onLiftRestriction,
     required this.onDecideAppeal,
+    required this.onAddSuspensionNote,
+    required this.onEscalateSuspension,
   });
   final SubTenantCase item;
   final bool busy;
@@ -930,6 +1003,8 @@ class _CaseDialog extends StatelessWidget {
   final VoidCallback onDismissComplaint;
   final ValueChanged<Map<String, dynamic>> onLiftRestriction;
   final void Function(Map<String, dynamic> appeal, bool grant) onDecideAppeal;
+  final VoidCallback onAddSuspensionNote;
+  final VoidCallback onEscalateSuspension;
   @override
   Widget build(BuildContext context) {
     final warningIssued = item.timeline.any(
@@ -984,7 +1059,9 @@ class _CaseDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _Section(
-                      title: item.isComplaint
+                      title: item.isBookingSuspension
+                          ? 'Suspension Case Details'
+                          : item.isComplaint
                           ? 'Report / Complaint Details'
                           : 'Case Details',
                       child: _Details(
@@ -1003,7 +1080,9 @@ class _CaseDialog extends StatelessWidget {
                       ),
                     ),
                     _Section(
-                      title: 'Reporter & Reported Party',
+                      title: item.isBookingSuspension
+                          ? 'Parties Involved'
+                          : 'Reporter & Reported Party',
                       child: Column(
                         children: [
                           _Party(label: 'Reporter', party: item.reporter),
@@ -1161,7 +1240,9 @@ class _CaseDialog extends StatelessWidget {
                     ),
                     if (item.restrictions.isNotEmpty)
                       _Section(
-                        title: 'Municipal Restrictions & Appeals',
+                        title: item.isBookingSuspension
+                            ? 'Booking Suspension & Appeal'
+                            : 'Municipal Restrictions & Appeals',
                         child: Column(
                           children: [
                             for (
@@ -1172,6 +1253,7 @@ class _CaseDialog extends StatelessWidget {
                               _RestrictionDetails(
                                 restriction: item.restrictions[i],
                                 busy: busy,
+                                allowLift: !item.isBookingSuspension,
                                 onLift: () =>
                                     onLiftRestriction(item.restrictions[i]),
                                 onDecideAppeal: onDecideAppeal,
@@ -1214,7 +1296,48 @@ class _CaseDialog extends StatelessWidget {
                     const SizedBox(height: 10),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: item.isComplaint && item.status == 'under_review'
+                      child: item.isBookingSuspension
+                          ? Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton(
+                                  onPressed: busy ? null : onAddSuspensionNote,
+                                  child: const Text('Add Decision Note'),
+                                ),
+                                if (item.restrictions.any(
+                                  (row) =>
+                                      row['active'] == true &&
+                                      row['manual_review_required'] == true &&
+                                      row['manual_extension_used'] != true,
+                                ))
+                                  OutlinedButton(
+                                    onPressed: busy
+                                        ? null
+                                        : onEscalateSuspension,
+                                    child: const Text('Extend per Policy'),
+                                  ),
+                                FilledButton.icon(
+                                  onPressed: busy
+                                      ? null
+                                      : (item.status == 'needs_review'
+                                            ? onStart
+                                            : onResolve),
+                                  icon: Icon(
+                                    item.status == 'needs_review'
+                                        ? Icons.manage_search_rounded
+                                        : Icons.task_alt_rounded,
+                                  ),
+                                  label: Text(
+                                    item.status == 'needs_review'
+                                        ? 'Start Review'
+                                        : 'Mark Resolved',
+                                  ),
+                                ),
+                              ],
+                            )
+                          : item.isComplaint && item.status == 'under_review'
                           ? Wrap(
                               alignment: WrapAlignment.end,
                               spacing: 8,
@@ -1330,12 +1453,14 @@ class _RestrictionDetails extends StatelessWidget {
   const _RestrictionDetails({
     required this.restriction,
     required this.busy,
+    required this.allowLift,
     required this.onLift,
     required this.onDecideAppeal,
   });
 
   final Map<String, dynamic> restriction;
   final bool busy;
+  final bool allowLift;
   final VoidCallback onLift;
   final void Function(Map<String, dynamic> appeal, bool grant) onDecideAppeal;
 
@@ -1367,11 +1492,37 @@ class _RestrictionDetails extends StatelessWidget {
                 fontSize: 12,
               ),
             ),
+            if (restriction['offense_number'] != null)
+              _Badge(
+                label: 'Offense #${restriction['offense_number']}',
+                color: restriction['manual_review_required'] == true
+                    ? const Color(0xFFDC2626)
+                    : const Color(0xFFD97706),
+              ),
+            if (restriction['risk_level'] != null)
+              _Badge(
+                label: stTitleCase(stString(restriction, const ['risk_level'])),
+                color: const Color(0xFF7C3AED),
+              ),
           ],
         ),
         const SizedBox(height: 8),
         Text(stString(restriction, const ['reason'])),
-        if (active) ...[
+        if (restriction['starts_at'] != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Started ${_date(stDate(restriction['starts_at']))}',
+            style: const TextStyle(color: SubTenantColors.muted, fontSize: 12),
+          ),
+        ],
+        if (restriction['cancellation_count'] != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${restriction['cancellation_count']} tourist-initiated cancellations recorded that day',
+            style: const TextStyle(color: SubTenantColors.muted, fontSize: 12),
+          ),
+        ],
+        if (active && allowLift) ...[
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
@@ -1380,6 +1531,31 @@ class _RestrictionDetails extends StatelessWidget {
               child: const Text('Lift Restriction'),
             ),
           ),
+        ],
+        if (restriction['previous_suspensions'] is List &&
+            (restriction['previous_suspensions'] as List).isNotEmpty) ...[
+          const Divider(height: 24),
+          const Text(
+            'Previous suspension history',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          for (final previous
+              in (restriction['previous_suspensions'] as List)
+                  .whereType<Map>()
+                  .map((row) => Map<String, dynamic>.from(row)))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                'Offense #${previous['offense_number']} · '
+                '${stTitleCase(stString(previous, const ['restriction_status']))} · '
+                '${_date(stDate(previous['starts_at']))}',
+                style: const TextStyle(
+                  color: SubTenantColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+            ),
         ],
         for (final appeal in appeals) ...[
           const Divider(height: 20),
@@ -1392,17 +1568,20 @@ class _RestrictionDetails extends StatelessWidget {
             stString(appeal, const ['reason']),
             style: const TextStyle(color: SubTenantColors.muted),
           ),
-          if (stString(appeal, const ['status']) == 'pending')
+          if ({
+            'pending',
+            'pending_review',
+          }.contains(stString(appeal, const ['status'])))
             Wrap(
               spacing: 8,
               children: [
                 TextButton(
                   onPressed: busy ? null : () => onDecideAppeal(appeal, true),
-                  child: const Text('Grant Appeal'),
+                  child: const Text('Approve Appeal'),
                 ),
                 TextButton(
                   onPressed: busy ? null : () => onDecideAppeal(appeal, false),
-                  child: const Text('Uphold Restriction'),
+                  child: const Text('Reject Appeal'),
                 ),
               ],
             ),
@@ -1410,6 +1589,61 @@ class _RestrictionDetails extends StatelessWidget {
       ],
     );
   }
+}
+
+class _NoteDialog extends StatefulWidget {
+  const _NoteDialog({
+    required this.title,
+    required this.label,
+    required this.minimumLength,
+  });
+
+  final String title;
+  final String label;
+  final int minimumLength;
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: TextField(
+      controller: _controller,
+      minLines: 3,
+      maxLines: 6,
+      autofocus: true,
+      decoration: InputDecoration(
+        labelText: widget.label,
+        alignLabelWithHint: true,
+        border: const OutlineInputBorder(),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          final value = _controller.text.trim();
+          if (value.length < widget.minimumLength) return;
+          Navigator.pop(context, value);
+        },
+        child: const Text('Confirm'),
+      ),
+    ],
+  );
 }
 
 class _ComplaintDecisionDialog extends StatefulWidget {

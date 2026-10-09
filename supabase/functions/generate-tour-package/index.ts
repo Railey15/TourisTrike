@@ -180,9 +180,10 @@ export default {
             description: spot.description?.trim() || null,
           }));
 
-        if (validCandidates.length === 0) {
+        if (validCandidates.length < 3) {
           return errorResponse(
-            "No valid candidate spots are available.",
+            "At least 3 usable spots are required to generate a package.",
+            422,
           );
         }
 
@@ -228,12 +229,12 @@ IMPORTANT RULES:
 1. You may ONLY select destinations from the candidate list below.
 2. NEVER invent a business, cafe, tourist attraction, place, or ID.
 3. selectedSpotIds MUST contain only IDs exactly provided below.
-4. Select at most ${requestedCount} spots.
+4. Select between 3 and ${requestedCount} spots.
 5. Do not calculate fares, prices, route distance, or transportation fees.
 6. TourisTrike calculates authoritative routes and fares separately.
 7. Make the package title, subtitle, and description professional and tourist-friendly.
 8. Keep the package relevant to the user's request.
-9. If fewer appropriate destinations exist than requested, return only the appropriate available destinations.
+9. If fewer appropriate destinations exist than requested, you may return fewer than requested, but never fewer than 3.
 10. Do not include markdown.
 
 AVAILABLE REAL DESTINATIONS:
@@ -372,6 +373,13 @@ Return ONLY valid JSON using exactly this structure:
           }
         }
 
+        if (selectedSpotIds.length < 3) {
+          return errorResponse(
+            "AI returned fewer than 3 usable spots. Please retry.",
+            422,
+          );
+        }
+
         const suggestedStayMinutes: Record<string, number> = {};
 
         for (const id of selectedSpotIds) {
@@ -388,22 +396,6 @@ Return ONLY valid JSON using exactly this structure:
             15,
             Math.min(minutes, 240),
           );
-        }
-
-        /*
-         * Safe fallback:
-         * If Gemini returned no valid IDs, use valid candidates.
-         *
-         * These are STILL real allow-listed candidates.
-         */
-        if (selectedSpotIds.length === 0) {
-          for (
-            const spot of validCandidates.slice(0, requestedCount)
-          ) {
-            selectedSpotIds.push(spot.id);
-            orderedSpotIds.push(spot.id);
-            suggestedStayMinutes[spot.id] = 60;
-          }
         }
 
         const selectedSpots = selectedSpotIds

@@ -48,8 +48,8 @@ void main() {
               'subtitle': 'Coffee around town',
               'description': 'A relaxed cafe tour.',
               'category': 'Food',
-              'orderedSpotIds': ['invented:99', 'db:1'],
-              'selectedSpotIds': ['db:1'],
+              'orderedSpotIds': ['invented:99', 'db:1', 'google:2', 'db:3'],
+              'selectedSpotIds': ['db:1', 'google:2', 'db:3'],
               'suggestedStayMinutes': {'invented:99': 999, 'db:1': 45},
             },
           };
@@ -81,9 +81,11 @@ void main() {
     },
   );
 
-  test('never fabricates spots when fewer candidates exist', () async {
+  test('rejects generation when fewer than three usable spots exist', () async {
+    var invoked = false;
     final service = PackageBuilderAiService(
       invokeFunction: ({required functionName, required body}) async {
+        invoked = true;
         return {
           'package': {
             'orderedSpotIds': ['missing'],
@@ -92,17 +94,112 @@ void main() {
       },
     );
 
-    final plan = await service.generate(
-      request: 'Create a cafe hopping package',
-      municipality: 'Baliwag',
-      spotCount: 3,
-      preferences: '',
-      candidates: candidates.take(2).toList(),
+    await expectLater(
+      () => service.generate(
+        request: 'Create a cafe hopping package',
+        municipality: 'Baliwag',
+        spotCount: 3,
+        preferences: '',
+        candidates: candidates.take(2).toList(),
+      ),
+      throwsA(isA<PackageBuilderAiException>()),
+    );
+    expect(invoked, isFalse);
+  });
+
+  test('rejects an AI response with only two valid spots', () async {
+    final service = PackageBuilderAiService(
+      invokeFunction: ({required functionName, required body}) async {
+        return {
+          'package': {
+            'orderedSpotIds': ['db:1', 'google:2', 'invented:99'],
+            'selectedSpotIds': ['db:1', 'google:2'],
+          },
+        };
+      },
     );
 
-    expect(plan.orderedCandidateKeys, hasLength(2));
-    expect(plan.orderedCandidateKeys.toSet(), {'db:1', 'google:2'});
+    await expectLater(
+      () => service.generate(
+        request: 'Create a cafe hopping package',
+        municipality: 'Baliwag',
+        spotCount: 3,
+        preferences: '',
+        candidates: candidates,
+      ),
+      throwsA(
+        isA<PackageBuilderAiException>().having(
+          (error) => error.message,
+          'message',
+          contains('fewer than 3 usable spots'),
+        ),
+      ),
+    );
   });
+
+  test('rejects requested spot counts outside three through six', () async {
+    final service = PackageBuilderAiService(
+      invokeFunction: ({required functionName, required body}) async => {
+        'package': <String, dynamic>{},
+      },
+    );
+
+    for (final count in [2, 7]) {
+      await expectLater(
+        () => service.generate(
+          request: 'Create a cafe hopping package',
+          municipality: 'Baliwag',
+          spotCount: count,
+          preferences: '',
+          candidates: candidates,
+        ),
+        throwsArgumentError,
+      );
+    }
+  });
+
+  test(
+    'accepts and caps a six-spot AI package at the configured maximum',
+    () async {
+      final sixCandidates = [
+        ...candidates,
+        const PackageBuilderCandidate(
+          key: 'db:5',
+          title: 'River Park',
+          category: 'Nature',
+          address: 'Riverside',
+          rating: 4.3,
+        ),
+        const PackageBuilderCandidate(
+          key: 'db:6',
+          title: 'Town Church',
+          category: 'Church',
+          address: 'Town Center',
+          rating: 4.5,
+        ),
+      ];
+      final keys = sixCandidates.map((item) => item.key).toList();
+      final service = PackageBuilderAiService(
+        invokeFunction: ({required functionName, required body}) async => {
+          'package': {
+            'orderedSpotIds': [...keys, 'invented:7'],
+            'selectedSpotIds': keys,
+          },
+        },
+      );
+
+      final plan = await service.generate(
+        request: 'Create a complete town tour',
+        municipality: 'Baliwag',
+        spotCount: 6,
+        preferences: '',
+        candidates: sixCandidates,
+      );
+
+      expect(plan.orderedCandidateKeys, hasLength(6));
+      expect(plan.orderedCandidateKeys, isNot(contains('invented:7')));
+    },
+  );
 
   test('surfaces an unavailable warning only from a function error', () async {
     final service = PackageBuilderAiService(

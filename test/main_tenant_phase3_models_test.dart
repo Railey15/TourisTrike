@@ -41,11 +41,17 @@ void main() {
       'type': 'package_review',
       'is_read': false,
       'created_at': '2026-09-05T01:00:00Z',
+      'data': {
+        'case_id': '11111111-1111-1111-1111-111111111111',
+        'route': 'disputes_cases',
+      },
     });
 
     expect(notification.id, 42);
     expect(notification.type, 'package_review');
     expect(notification.isRead, isFalse);
     expect(notification.createdAt, isNotNull);
+    expect(notification.caseId, '11111111-1111-1111-1111-111111111111');
+    expect(notification.data['route'], 'disputes_cases');
   });
 }

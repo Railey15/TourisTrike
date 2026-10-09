@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:touristrike/core/constants/package_spot_limits.dart';
 import 'package:touristrike/core/supabase/participant_profiles.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
 import 'package:touristrike/core/places/google_media_url.dart';
@@ -853,47 +854,37 @@ class SubTenantService {
     return SubTenantPackage.fromMap(Map<String, dynamic>.from(row));
   }
 
-  Future<dynamic> savePackage({
+  Future<dynamic> savePackageWithSpots({
     required SubTenantProfile profile,
     required dynamic packageId,
     required Map<String, dynamic> values,
+    required List<SelectedPackageSpot> selectedSpots,
   }) async {
-    final payload = {
-      ...values,
-      'city': profile.assignedCity,
-      'submitted_by': profile.id,
-      'submitted_by_name': profile.displayName,
-    };
-
-    if (packageId == null) {
-      final inserted = await _supabase
-          .from('tour_packages')
-          .insert(payload)
-          .select('id')
-          .single();
-      await _logAudit(
-        actorId: profile.id,
-        action: 'create_package',
-        tableName: 'tour_packages',
-        recordId: stId(inserted['id']),
-        description: 'Created tour package ${values['title']}.',
-      );
-      return inserted['id'];
+    _validatePackageSpotCount(selectedSpots.length);
+    final id = await _supabase.rpc(
+      'save_tour_package_with_spots',
+      params: {
+        'p_package_id': packageId,
+        'p_values': {
+          ...values,
+          'city': profile.assignedCity,
+          'submitted_by_name': profile.displayName,
+        },
+        'p_spots': _packageSpotPayload(selectedSpots),
+      },
+    );
+    if (id == null || stId(id).isEmpty) {
+      throw StateError('The package could not be saved.');
     }
-
-    await _supabase
-        .from('tour_packages')
-        .update(payload)
-        .eq('id', packageId)
-        .eq('city', profile.assignedCity);
     await _logAudit(
       actorId: profile.id,
-      action: 'update_package',
+      action: packageId == null ? 'create_package' : 'update_package',
       tableName: 'tour_packages',
-      recordId: stId(packageId),
-      description: 'Updated tour package ${values['title']}.',
+      recordId: stId(id),
+      description:
+          '${packageId == null ? 'Created' : 'Updated'} tour package ${values['title']}.',
     );
-    return packageId;
+    return id;
   }
 
   Future<void> updatePackageStatus(
@@ -2159,40 +2150,47 @@ class SubTenantService {
     required dynamic packageId,
     required List<SelectedPackageSpot> selectedSpots,
   }) async {
-    await _supabase
-        .from('tour_package_spots')
-        .delete()
-        .eq('package_id', packageId);
-
-    if (selectedSpots.isEmpty) return;
-
-    await _supabase.from('tour_package_spots').insert([
-      for (var i = 0; i < selectedSpots.length; i++)
-        {
-          'package_id': packageId,
-          'spot_id': selectedSpots[i].spot.id,
-          'sort_order': i,
-          'opening_time': selectedSpots[i].openingTime.isEmpty
-              ? null
-              : selectedSpots[i].openingTime,
-          'closing_time': selectedSpots[i].closingTime.isEmpty
-              ? null
-              : selectedSpots[i].closingTime,
-          'estimated_arrival_time':
-              selectedSpots[i].estimatedArrivalTime.isEmpty
-              ? null
-              : selectedSpots[i].estimatedArrivalTime,
-          'estimated_duration_minutes':
-              selectedSpots[i].estimatedDurationMinutes > 0
-              ? selectedSpots[i].estimatedDurationMinutes
-              : null,
-          'recommended_visit_duration_minutes':
-              selectedSpots[i].recommendedVisitDurationMinutes > 0
-              ? selectedSpots[i].recommendedVisitDurationMinutes
-              : null,
-        },
-    ]);
+    _validatePackageSpotCount(selectedSpots.length);
+    await _supabase.rpc(
+      'replace_tour_package_spots',
+      params: {
+        'p_package_id': packageId,
+        'p_spots': _packageSpotPayload(selectedSpots),
+      },
+    );
   }
+
+  void _validatePackageSpotCount(int count) {
+    final message = packageSpotCountValidationMessage(count);
+    if (message != null) throw StateError(message);
+  }
+
+  List<Map<String, dynamic>> _packageSpotPayload(
+    List<SelectedPackageSpot> selectedSpots,
+  ) => [
+    for (var i = 0; i < selectedSpots.length; i++)
+      {
+        'spot_id': selectedSpots[i].spot.id,
+        'sort_order': i,
+        'opening_time': selectedSpots[i].openingTime.isEmpty
+            ? null
+            : selectedSpots[i].openingTime,
+        'closing_time': selectedSpots[i].closingTime.isEmpty
+            ? null
+            : selectedSpots[i].closingTime,
+        'estimated_arrival_time': selectedSpots[i].estimatedArrivalTime.isEmpty
+            ? null
+            : selectedSpots[i].estimatedArrivalTime,
+        'estimated_duration_minutes':
+            selectedSpots[i].estimatedDurationMinutes > 0
+            ? selectedSpots[i].estimatedDurationMinutes
+            : null,
+        'recommended_visit_duration_minutes':
+            selectedSpots[i].recommendedVisitDurationMinutes > 0
+            ? selectedSpots[i].recommendedVisitDurationMinutes
+            : null,
+      },
+  ];
 
   Future<List<SubTenantCase>> fetchCases({String? caseId}) async {
     List<Map<String, dynamic>> rows(dynamic value) => value is List
@@ -2209,6 +2207,10 @@ class SubTenantService {
         params: {'p_complaint_id': caseId},
       ),
       _supabase.rpc('get_municipal_restrictions'),
+      _supabase.rpc(
+        'get_tourist_booking_restriction_cases',
+        params: {'p_case_id': caseId},
+      ),
     ]);
     final restrictions = rows(results[2]);
     final restrictionsByComplaint = <String, List<Map<String, dynamic>>>{};
@@ -2225,7 +2227,32 @@ class SubTenantService {
           restrictions: restrictionsByComplaint[stId(row['id'])] ?? const [],
         ),
       ),
+      ...rows(results[3]).map(SubTenantCase.fromBookingSuspensionMap),
     ];
+    cases.sort((a, b) {
+      final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return right.compareTo(left);
+    });
+    return cases;
+  }
+
+  Future<List<SubTenantCase>> fetchBookingSuspensionCases({
+    String? caseId,
+  }) async {
+    final value = await _supabase.rpc(
+      'get_tourist_booking_restriction_cases',
+      params: {'p_case_id': caseId},
+    );
+    if (value is! List) return const [];
+    final cases = value
+        .whereType<Map>()
+        .map(
+          (row) => SubTenantCase.fromBookingSuspensionMap(
+            Map<String, dynamic>.from(row),
+          ),
+        )
+        .toList(growable: false);
     cases.sort((a, b) {
       final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -2359,6 +2386,32 @@ class SubTenantService {
         'p_grant': grant,
         'p_note': note.trim(),
       },
+    );
+  }
+
+  Future<void> decideTouristBookingSuspensionAppeal({
+    required String appealId,
+    required bool approve,
+    required String note,
+  }) async {
+    await _supabase.rpc(
+      'review_tourist_booking_restriction_appeal',
+      params: {
+        'p_appeal_id': appealId,
+        'p_approve': approve,
+        'p_note': note.trim(),
+      },
+    );
+  }
+
+  Future<void> manageTouristBookingSuspensionCase({
+    required String caseId,
+    required String action,
+    required String note,
+  }) async {
+    await _supabase.rpc(
+      'manage_tourist_booking_suspension_case',
+      params: {'p_case_id': caseId, 'p_action': action, 'p_note': note.trim()},
     );
   }
 
