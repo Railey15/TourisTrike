@@ -23,6 +23,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/models/convoy_state.dart';
+import 'package:touristrike/core/presentation/cancellation_display.dart';
 import 'package:touristrike/core/policies/live_tour_visibility.dart';
 import 'package:touristrike/core/policies/driver_withdrawal_policy.dart';
 import 'package:touristrike/core/places/city_spot_suggestions.dart';
@@ -71,9 +72,16 @@ const Color _dangerSoft = Color(0xFFFEF2F2);
 // ============================================================================
 
 class DriverPackageTrackingScreen extends StatefulWidget {
-  const DriverPackageTrackingScreen({super.key, required this.activityId});
+  const DriverPackageTrackingScreen({
+    super.key,
+    required this.activityId,
+    this.bookingId = '',
+    this.historyMode = false,
+  });
 
   final String activityId;
+  final String bookingId;
+  final bool historyMode;
 
   @override
   State<DriverPackageTrackingScreen> createState() =>
@@ -448,19 +456,23 @@ class _DriverPackageTrackingScreenState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _initCustomMarkers();
+    if (!widget.historyMode) {
+      _initCustomMarkers();
+    }
     _load();
-    _journeyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || _isBookingClosed) return;
-      setState(() {});
-    });
-    _gpsRecoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_lastUsableGpsAt == null ||
-          DateTime.now().difference(_lastUsableGpsAt!) >
-              const Duration(seconds: 20)) {
-        unawaited(_recoverGpsFix());
-      }
-    });
+    if (!widget.historyMode) {
+      _journeyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || _isBookingClosed) return;
+        setState(() {});
+      });
+      _gpsRecoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (_lastUsableGpsAt == null ||
+            DateTime.now().difference(_lastUsableGpsAt!) >
+                const Duration(seconds: 20)) {
+          unawaited(_recoverGpsFix());
+        }
+      });
+    }
   }
 
   @override
@@ -517,6 +529,11 @@ class _DriverPackageTrackingScreenState
         _loading = true;
         _error = null;
       });
+    }
+
+    if (widget.historyMode) {
+      await _loadHistory();
+      return;
     }
 
     try {
@@ -659,6 +676,76 @@ class _DriverPackageTrackingScreenState
 
       setState(() {
         _error = 'Unable to load tour information. Please try again.';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      var bookingId = widget.bookingId.trim();
+      PackageActivity? activity;
+
+      if (bookingId.isNotEmpty) {
+        activity = await _repo.fetchMyDriverActivityForBooking(bookingId);
+      } else if (widget.activityId.trim().isNotEmpty) {
+        activity = await _repo.fetchPackageActivityById(widget.activityId);
+        bookingId = activity?.bookingId ?? '';
+      }
+
+      if (activity == null || bookingId.isEmpty) {
+        throw StateError('HISTORICAL_TOUR_NOT_FOUND');
+      }
+
+      final results = await Future.wait<Object?>([
+        _repo.fetchMyBookingDriverAssignment(bookingId),
+        _repo.fetchPackageBookingDetails(bookingId),
+        _repo.fetchBookingItinerary(bookingId),
+      ]);
+      final assignment = results[0] as BookingDriver?;
+      final booking = results[1] as PackageBooking?;
+      final spots = results[2] as List<BookingItineraryItem>;
+
+      if (!_isActiveAssignment(assignment) || booking == null) {
+        throw StateError('HISTORICAL_TOUR_NOT_FOUND');
+      }
+
+      var paymentRecords = <PaymentRecord>[];
+      var paymentAllocations = <PaymentAllocation>[];
+      try {
+        paymentRecords = await _repo.fetchPaymentRecordsFor(
+          bookingId: bookingId,
+        );
+      } catch (error) {
+        debugPrint('[DriverHistory:payments] $error');
+      }
+      try {
+        paymentAllocations = await _repo.fetchPaymentAllocationsForBooking(
+          bookingId,
+        );
+      } catch (error) {
+        debugPrint('[DriverHistory:earnings] $error');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _bookingId = bookingId;
+        _activity = activity;
+        _booking = booking;
+        _spots = spots;
+        _paymentRecords = paymentRecords;
+        _paymentAllocations = paymentAllocations;
+        _liveTrackingEligibility = LiveTourTrackingEligibility.locked;
+        _convoyLoading = false;
+        _loading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('[DriverHistory:load] Error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _error =
+            'This completed tour could not be retrieved for your driver account.';
         _loading = false;
       });
     }
@@ -1429,7 +1516,9 @@ class _DriverPackageTrackingScreenState
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !_loading) {
+    if (!widget.historyMode &&
+        state == AppLifecycleState.resumed &&
+        !_loading) {
       unawaited(_resumeAutomaticTracking());
     }
   }
@@ -3001,7 +3090,7 @@ class _DriverPackageTrackingScreenState
               const _DriverAuthorizedTestSessionBanner(),
             Expanded(
               child: _loading
-                  ? const _TrackingLoadingView()
+                  ? _TrackingLoadingView(historyMode: widget.historyMode)
                   : _error != null
                   ? _buildError()
                   : _buildContent(),
@@ -3016,7 +3105,10 @@ class _DriverPackageTrackingScreenState
     return Column(
       children: [
         _DriverTrackingTopBar(
-          title: 'Tour Navigation',
+          title: widget.historyMode ? 'Completed Tour' : 'Tour Navigation',
+          subtitle: widget.historyMode
+              ? 'Read-only tour history'
+              : 'Live driver tracking',
           onBack: () => Navigator.of(context).pop(),
         ),
         Expanded(
@@ -3229,6 +3321,10 @@ class _DriverPackageTrackingScreenState
   }
 
   Widget _buildContent() {
+    if (widget.historyMode) {
+      return _buildHistoryContent();
+    }
+
     if (_isBookingCancelled) {
       return _buildCancelledContent();
     }
@@ -3581,10 +3677,95 @@ class _DriverPackageTrackingScreenState
     );
   }
 
+  Widget _buildHistoryContent() {
+    final activity = _activity!;
+    final packageName = dbString(
+      _booking?.packageRow?['title'],
+      fallback: dbString(
+        activity.packageRow?['title'],
+        fallback: 'Tour Package',
+      ),
+    );
+
+    return Column(
+      children: [
+        _DriverTrackingTopBar(
+          title: 'Completed Tour',
+          subtitle: 'Read-only tour history',
+          onBack: () => Navigator.of(context).pop(),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            color: _primary,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+              children: [
+                _HistoricalTourBanner(
+                  packageName: packageName,
+                  completedAt: _booking?.completedAt,
+                ),
+                const SizedBox(height: 14),
+                _ModernStatusCard(
+                  status: 'completed',
+                  completedCount: _completedItineraryItemsCount,
+                  totalCount: _spots.length,
+                ),
+                const SizedBox(height: 14),
+                _HistoricalRouteSummaryCard(booking: _booking!, spots: _spots),
+                if (_spots.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _ModernSpotProgressCard(
+                    spots: _spots,
+                    currentItemId: null,
+                    status: 'completed',
+                  ),
+                ],
+                const SizedBox(height: 14),
+                _ModernTouristCard(
+                  activity: activity,
+                  onMessage: () {},
+                  onCall: () {},
+                  showContactActions: false,
+                ),
+                const SizedBox(height: 14),
+                _ModernLocationsCard(
+                  booking: _booking,
+                  activity: activity,
+                  status: 'completed',
+                ),
+                const SizedBox(height: 14),
+                _ModernBookingCard(
+                  booking: _booking,
+                  activity: activity,
+                  remainingBalanceSettled: _hasConfirmedRemainingBalance,
+                ),
+                if (_paymentRecords.isNotEmpty ||
+                    _paymentAllocations.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _HistoricalPaymentSummaryCard(
+                    records: _paymentRecords,
+                    allocations: _paymentAllocations,
+                    driverId: _repo.currentUserId ?? '',
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCancelledContent() {
     final booking = _booking;
 
-    final reason = booking?.cancelledReason.trim();
+    final reason = booking?.cancelledReason.trim().isNotEmpty == true
+        ? booking!.cancelledReason
+        : booking?.cancellationReasonCode ?? '';
 
     return Column(
       children: [
@@ -3633,7 +3814,7 @@ class _DriverPackageTrackingScreenState
                         textAlign: TextAlign.center,
                         style: TextStyle(color: _muted),
                       ),
-                      if (reason != null && reason.isNotEmpty) ...[
+                      if (reason.isNotEmpty) ...[
                         const SizedBox(height: 18),
                         Container(
                           width: double.infinity,
@@ -3656,7 +3837,7 @@ class _DriverPackageTrackingScreenState
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                reason,
+                                cancellationReasonLabel(reason),
                                 style: const TextStyle(
                                   color: _ink,
                                   fontWeight: FontWeight.w700,
@@ -3696,12 +3877,14 @@ class _DriverTrackingTopBar extends StatelessWidget {
   const _DriverTrackingTopBar({
     required this.title,
     required this.onBack,
+    this.subtitle = 'Live driver tracking',
     this.eta,
     this.onRecover,
     this.onRetryGps,
   });
 
   final String title;
+  final String subtitle;
   final String? eta;
   final VoidCallback onBack;
   final VoidCallback? onRecover;
@@ -3737,7 +3920,32 @@ class _DriverTrackingTopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 11),
-          const ContainerTitle(),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17.5,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: _subtle,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 9.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (onRecover != null || onRetryGps != null)
             PopupMenuButton<String>(
               tooltip: 'Tracking recovery',
@@ -3782,40 +3990,6 @@ class _DriverTrackingTopBar extends StatelessWidget {
                 ],
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class ContainerTitle extends StatelessWidget {
-  const ContainerTitle({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Tour Navigation',
-            style: TextStyle(
-              color: _ink,
-              fontWeight: FontWeight.w900,
-              fontSize: 17.5,
-              letterSpacing: -0.2,
-            ),
-          ),
-          SizedBox(height: 2),
-          Text(
-            'Live driver tracking',
-            style: TextStyle(
-              color: _subtle,
-              fontWeight: FontWeight.w600,
-              fontSize: 9.5,
-            ),
-          ),
         ],
       ),
     );
@@ -4421,6 +4595,308 @@ class _MiniMetadataChip extends StatelessWidget {
 }
 
 // ============================================================================
+// COMPLETED TOUR HISTORY
+// ============================================================================
+
+class _HistoricalTourBanner extends StatelessWidget {
+  const _HistoricalTourBanner({
+    required this.packageName,
+    required this.completedAt,
+  });
+
+  final String packageName;
+  final DateTime? completedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final completionLabel = completedAt == null
+        ? 'Completed tour'
+        : 'Completed ${DateFormat('MMM d, yyyy • h:mm a').format(completedAt!.toLocal())}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _successSoft,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.white,
+            child: Icon(Icons.history_rounded, color: _success, size: 25),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  packageName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$completionLabel • Read-only',
+                  style: const TextStyle(
+                    color: _success,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoricalRouteSummaryCard extends StatelessWidget {
+  const _HistoricalRouteSummaryCard({
+    required this.booking,
+    required this.spots,
+  });
+
+  final PackageBooking booking;
+  final List<BookingItineraryItem> spots;
+
+  static bool _validPoint(double? latitude, double? longitude) =>
+      latitude != null &&
+      longitude != null &&
+      latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180 &&
+      !(latitude == 0 && longitude == 0);
+
+  @override
+  Widget build(BuildContext context) {
+    final points = <({String id, String label, LatLng point})>[];
+    if (_validPoint(booking.pickupLatitude, booking.pickupLongitude)) {
+      points.add((
+        id: 'pickup',
+        label: 'Pickup',
+        point: LatLng(booking.pickupLatitude!, booking.pickupLongitude!),
+      ));
+    }
+    for (final entry in spots.indexed) {
+      final spot = entry.$2;
+      if (!_validPoint(spot.latitude, spot.longitude)) continue;
+      points.add((
+        id: 'stop-${entry.$1}',
+        label: spot.destinationName,
+        point: LatLng(spot.latitude, spot.longitude),
+      ));
+    }
+    if (_validPoint(booking.dropoffLatitude, booking.dropoffLongitude)) {
+      points.add((
+        id: 'dropoff',
+        label: 'Drop-off',
+        point: LatLng(booking.dropoffLatitude!, booking.dropoffLongitude!),
+      ));
+    }
+
+    final completedStops = spots
+        .where(
+          (spot) =>
+              spot.spotStatus == 'completed' ||
+              spot.actualDepartureTime != null,
+        )
+        .length;
+    final recordedDistanceMeters = spots.fold<int>(
+      0,
+      (total, spot) => total + spot.routeDistanceMeters,
+    );
+    final distanceLabel = recordedDistanceMeters <= 0
+        ? 'Not recorded'
+        : recordedDistanceMeters < 1000
+        ? '$recordedDistanceMeters m'
+        : '${(recordedDistanceMeters / 1000).toStringAsFixed(1)} km';
+    final markers = {
+      for (final entry in points)
+        Marker(
+          markerId: MarkerId('history-${entry.id}'),
+          position: entry.point,
+          infoWindow: InfoWindow(title: entry.label),
+        ),
+    };
+    final polylines = points.length < 2
+        ? <Polyline>{}
+        : {
+            Polyline(
+              polylineId: const PolylineId('history-route'),
+              points: points.map((entry) => entry.point).toList(),
+              color: _primary,
+              width: 4,
+            ),
+          };
+
+    return _ModernCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _CardHeader(
+            icon: Icons.map_outlined,
+            title: 'Route Summary',
+            subtitle: 'Saved itinerary and completed stop data',
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: _BookingMetric(
+                  label: 'COMPLETED',
+                  value: '$completedStops/${spots.length}',
+                  icon: Icons.task_alt_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _BookingMetric(
+                  label: 'ROUTE DISTANCE',
+                  value: distanceLabel,
+                  icon: Icons.route_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          if (points.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                height: 180,
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: points.first.point,
+                    zoom: points.length == 1 ? 14 : 11,
+                  ),
+                  markers: markers,
+                  polylines: polylines,
+                  liteModeEnabled: true,
+                  myLocationEnabled: false,
+                  myLocationButtonEnabled: false,
+                  compassEnabled: false,
+                  mapToolbarEnabled: false,
+                  zoomControlsEnabled: false,
+                  scrollGesturesEnabled: false,
+                  zoomGesturesEnabled: false,
+                  rotateGesturesEnabled: false,
+                  tiltGesturesEnabled: false,
+                ),
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF7F9FC),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.map_outlined, color: _muted, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'A saved map preview is unavailable, but the completed itinerary remains available below.',
+                      style: TextStyle(
+                        color: _muted,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoricalPaymentSummaryCard extends StatelessWidget {
+  const _HistoricalPaymentSummaryCard({
+    required this.records,
+    required this.allocations,
+    required this.driverId,
+  });
+
+  final List<PaymentRecord> records;
+  final List<PaymentAllocation> allocations;
+  final String driverId;
+
+  @override
+  Widget build(BuildContext context) {
+    final confirmed = records
+        .where((record) => record.isConfirmed)
+        .fold<double>(0, (total, record) => total + record.amount);
+    final mine = allocations
+        .where((allocation) => allocation.driverId == driverId)
+        .toList(growable: false);
+    final earned = mine.fold<double>(
+      0,
+      (total, allocation) => total + allocation.driverAmount,
+    );
+    final earningStatus = mine.isEmpty
+        ? 'Not available'
+        : mine.every((allocation) => allocation.isCompletedEarning)
+        ? 'Completed'
+        : 'Processing';
+    final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 2);
+
+    return _ModernCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _CardHeader(
+            icon: Icons.account_balance_wallet_outlined,
+            title: 'Payment & Earnings',
+            subtitle: 'Persisted settlement summary',
+          ),
+          const SizedBox(height: 14),
+          _BookingInfoLine(
+            icon: Icons.verified_outlined,
+            label: 'Confirmed booking payments',
+            value: money.format(confirmed),
+            valueColor: _success,
+          ),
+          if (mine.isNotEmpty) ...[
+            const SizedBox(height: 9),
+            _BookingInfoLine(
+              icon: Icons.payments_outlined,
+              label: 'Your recorded earning',
+              value: money.format(earned),
+            ),
+            const SizedBox(height: 9),
+            _BookingInfoLine(
+              icon: Icons.task_alt_rounded,
+              label: 'Earning status',
+              value: earningStatus,
+              valueColor: earningStatus == 'Completed' ? _success : _warning,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
 // MODERN ITINERARY CARD
 // ============================================================================
 
@@ -4835,12 +5311,14 @@ class _ModernTouristCard extends StatelessWidget {
     required this.activity,
     required this.onMessage,
     required this.onCall,
+    this.showContactActions = true,
   });
 
   final PackageActivity activity;
 
   final VoidCallback onMessage;
   final VoidCallback onCall;
+  final bool showContactActions;
 
   @override
   Widget build(BuildContext context) {
@@ -4913,20 +5391,22 @@ class _ModernTouristCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          _ContactButton(
-            icon: Icons.call_outlined,
-            tooltip: 'Call tourist',
-            color: _success,
-            onTap: onCall,
-          ),
-          const SizedBox(width: 7),
-          _ContactButton(
-            icon: Icons.chat_bubble_outline_rounded,
-            tooltip: 'Message tourist',
-            color: _primary,
-            onTap: onMessage,
-          ),
+          if (showContactActions) ...[
+            const SizedBox(width: 8),
+            _ContactButton(
+              icon: Icons.call_outlined,
+              tooltip: 'Call tourist',
+              color: _success,
+              onTap: onCall,
+            ),
+            const SizedBox(width: 7),
+            _ContactButton(
+              icon: Icons.chat_bubble_outline_rounded,
+              tooltip: 'Message tourist',
+              color: _primary,
+              onTap: onMessage,
+            ),
+          ],
         ],
       ),
     );
@@ -6172,23 +6652,27 @@ _StatusVisual _statusVisual(String status) {
 // ============================================================================
 
 class _TrackingLoadingView extends StatelessWidget {
-  const _TrackingLoadingView();
+  const _TrackingLoadingView({this.historyMode = false});
+
+  final bool historyMode;
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
+          const SizedBox(
             width: 31,
             height: 31,
             child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
           ),
-          SizedBox(height: 13),
+          const SizedBox(height: 13),
           Text(
-            'Preparing live tour navigation...',
-            style: TextStyle(
+            historyMode
+                ? 'Loading completed tour details...'
+                : 'Preparing live tour navigation...',
+            style: const TextStyle(
               color: _muted,
               fontWeight: FontWeight.w700,
               fontSize: 10.5,

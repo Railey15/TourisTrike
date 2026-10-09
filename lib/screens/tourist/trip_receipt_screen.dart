@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:touristrike/core/presentation/cancellation_display.dart';
 
 /// Trip Details (Option A: Trip Receipt)
 /// - Clean "receipt" layout
@@ -164,7 +165,7 @@ class TripReceiptScreen extends StatelessWidget {
                                   color: const Color(0xFFFCA5A5), width: 1.2),
                             ),
                             child: Text(
-                              'Cancelled: ${trip.cancelReason}',
+                              'Cancelled: ${cancellationReasonLabel(trip.cancelReason)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w900,
                                 color: Color(0xFFDC2626),

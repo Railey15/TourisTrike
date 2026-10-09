@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import 'package:touristrike/screens/driver/profile/driver_profile_models.dart';
 
@@ -448,7 +448,7 @@ class DriverStepTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+            const DriverProfileChevron(),
           ],
         ),
       ),
@@ -485,80 +485,104 @@ class DriverSettingsTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEAF2FF),
-                    borderRadius: BorderRadius.circular(16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF2FF),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(icon, color: const Color(0xFF2A86FF)),
                   ),
-                  child: Icon(icon, color: const Color(0xFF2A86FF)),
-                ),
 
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
 
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
-                        const SizedBox(height: 4),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          subtitle!,
+                          title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12.5,
-                            height: 1.35,
+                            color: Color(0xFF0F172A),
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
+                        if (subtitle != null &&
+                            subtitle!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                ),
-
-                const Spacer(),
-
-                if (trailingText != null && trailingText!.trim().isNotEmpty) ...[
-                  const SizedBox(width: 10),
-                  Text(
-                    trailingText!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: trailingColor ?? const Color(0xFF64748B),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12.5,
                     ),
                   ),
+
+                  if (trailingText != null &&
+                      trailingText!.trim().isNotEmpty) ...[
+                    const SizedBox(width: 10),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 96),
+                      child: Text(
+                        trailingText!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: trailingColor ?? const Color(0xFF64748B),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(width: 8),
+
+                  const DriverProfileChevron(),
                 ],
-
-                const SizedBox(width: 8),
-
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF94A3B8),
-                ),
-              ],
+              ),
             ),
           ),
         ),
         if (showDivider) const Divider(height: 1, color: Color(0xFFEFF4FA)),
       ],
+    );
+  }
+}
+
+class DriverProfileChevron extends StatelessWidget {
+  const DriverProfileChevron({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 24,
+      height: 44,
+      child: Center(
+        child: Icon(
+          Icons.chevron_right_rounded,
+          size: 21,
+          color: Color(0xFF94A3B8),
+        ),
+      ),
     );
   }
 }
@@ -731,5 +755,3 @@ class _ProfileAvatar extends StatelessWidget {
     );
   }
 }
-
-

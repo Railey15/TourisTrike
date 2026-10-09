@@ -1804,6 +1804,45 @@ class TourisTrikeRepository {
         .toList(growable: false);
   }
 
+  /// Reloads one driver-owned Activity entry by its authoritative booking ID.
+  ///
+  /// History navigation must not depend on a possibly missing or stale
+  /// `package_activities.id`: the assignment is the ownership record, and RLS
+  /// independently enforces the same driver/booking relationship.
+  Future<PackageActivity?> fetchMyDriverActivityForBooking(
+    String bookingId,
+  ) async {
+    final normalizedBookingId = bookingId.trim();
+    if (normalizedBookingId.isEmpty) return null;
+    final driverId = requireUserId();
+
+    final rows = await _client
+        .from(TourisTrikeTables.bookingDrivers)
+        .select(
+          'booking_id, status, journey_state, accepted_at, completed_at, created_at, '
+          'package_bookings('
+          '  *, '
+          '  tour_packages(title, city, cover_image_url, image_url), '
+          '  package_activities(*)'
+          ')',
+        )
+        .eq('booking_id', normalizedBookingId)
+        .eq('driver_id', driverId)
+        .inFilter('status', const ['accepted', 'completed'])
+        .limit(1);
+    final memberships = await _withActivityParticipantIdentities(_rows(rows));
+    if (memberships.isEmpty) return null;
+
+    final membership = memberships.first;
+    final bookingValue = membership['package_bookings'];
+    if (bookingValue is! Map) return null;
+    return packageActivityFromPersistedBooking(
+      Json.from(bookingValue),
+      bookingDriver: membership,
+      effectiveDriverId: driverId,
+    );
+  }
+
   // ── PACKAGE ACTIVITY TRACKING ───────────────────────────────
 
   Future<PackageActivity> createPackageActivity({
@@ -2805,6 +2844,19 @@ class TourisTrikeRepository {
 
   Future<Json> fetchDriverHomeOverview() async =>
       Json.from(await _client.rpc('get_driver_home_overview') as Map);
+
+  Future<List<DriverReview>> fetchMyDriverReviews({int limit = 200}) async {
+    final rows = await _client
+        .from(TourisTrikeTables.driverReviews)
+        .select(
+          'id, booking_id, driver_id, tourist_id, rating, review_text, created_at, '
+          'package_bookings(tour_packages(title))',
+        )
+        .eq('driver_id', requireUserId())
+        .order('created_at', ascending: false)
+        .limit(limit.clamp(1, 500).toInt());
+    return _rows(rows).map(DriverReview.new).toList(growable: false);
+  }
 
   Future<void> confirmDriverArrivalFallback(
     String bookingId,

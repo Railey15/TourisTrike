@@ -169,10 +169,10 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
   double get _totalEarned {
     final directPayments = _records
-        .where((record) => record.isConfirmed)
+        .where((record) => record.isFinalizedDriverEarning)
         .fold<double>(0, (sum, record) => sum + record.amount);
     final packageShares = _allocations
-        .where((allocation) => allocation.isCompletedEarning)
+        .where((allocation) => allocation.countsTowardDriverEarnings)
         .fold<double>(0, (sum, allocation) => sum + allocation.driverAmount);
     return directPayments + packageShares;
   }
@@ -194,9 +194,9 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   }
 
   int get _confirmedCount {
-    return _records.where((record) => record.isConfirmed).length +
+    return _records.where((record) => record.isFinalizedDriverEarning).length +
         _allocations
-            .where((allocation) => allocation.isCompletedEarning)
+            .where((allocation) => allocation.countsTowardDriverEarnings)
             .length;
   }
 
@@ -206,7 +206,9 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
           return status != 'confirmed' &&
               status != 'disputed' &&
-              status != 'cancelled';
+              status != 'cancelled' &&
+              status != 'refund_pending' &&
+              status != 'refunded';
         }).length +
         _allocations.where((allocation) => allocation.isEarningPending).length;
   }
@@ -216,7 +218,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
     final directPayments = _records
         .where((record) {
-          if (!record.isConfirmed || record.createdAt == null) {
+          if (!record.isFinalizedDriverEarning || record.createdAt == null) {
             return false;
           }
 
@@ -231,7 +233,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
         .where((allocation) {
           final date = (allocation.earningCompletedAt ?? allocation.confirmedAt)
               ?.toLocal();
-          return allocation.isCompletedEarning &&
+          return allocation.countsTowardDriverEarnings &&
               date != null &&
               date.year == now.year &&
               date.month == now.month &&
@@ -269,21 +271,44 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                 _buildEarningsHeader(),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: OutlinedButton.icon(
-                    onPressed: _exporting ? null : _exportReport,
-                    icon: _exporting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('Export Earnings PDF'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.icon(
+                      onPressed: _exporting ? null : _exportReport,
+                      icon: _exporting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                      label: Text(
+                        _exporting ? 'Preparing PDF…' : 'Export Earnings PDF',
                       ),
+                      style:
+                          FilledButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            elevation: 0,
+                            backgroundColor: const Color(0xFF2563EB),
+                            disabledBackgroundColor: const Color(0xFF93B7F4),
+                            foregroundColor: Colors.white,
+                            disabledForegroundColor: Colors.white,
+                            textStyle: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                          ).copyWith(
+                            overlayColor: WidgetStatePropertyAll(
+                              Colors.white.withValues(alpha: 0.12),
+                            ),
+                          ),
                     ),
                   ),
                 ),
@@ -742,6 +767,7 @@ class _PaymentDetailData {
     required this.transactionReference,
     required this.paidAt,
     required this.status,
+    this.excludedFromEarnings = false,
   });
 
   final String packageName;
@@ -753,13 +779,17 @@ class _PaymentDetailData {
   final String transactionReference;
   final DateTime? paidAt;
   final String status;
+  final bool excludedFromEarnings;
 }
 
 Future<void> _showPaymentDetails(
   BuildContext context,
   _PaymentDetailData details,
 ) {
-  final money = NumberFormat.currency(symbol: '+ ₱', decimalDigits: 2);
+  final money = NumberFormat.currency(
+    symbol: details.excludedFromEarnings ? '₱' : '+ ₱',
+    decimalDigits: 2,
+  );
   final paidLabel = details.paidAt == null
       ? 'Not available'
       : DateFormat('MMM d, yyyy • h:mm a').format(details.paidAt!.toLocal());
@@ -801,6 +831,40 @@ Future<void> _showPaymentDetails(
                 ),
               ),
               const SizedBox(height: 18),
+              if (details.excludedFromEarnings) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(13),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: const Color(0xFFFECACA)),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.money_off_csred_outlined,
+                        color: Color(0xFFDC2626),
+                        size: 18,
+                      ),
+                      SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          'Excluded from earnings. This payment is being refunded or has been reversed.',
+                          style: TextStyle(
+                            color: Color(0xFF991B1B),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               _PaymentDetailRow(label: 'Package', value: details.packageName),
               _PaymentDetailRow(label: 'Tourist', value: details.touristName),
               _PaymentDetailRow(
@@ -810,7 +874,9 @@ Future<void> _showPaymentDetails(
               _PaymentDetailRow(
                 label: 'Amount',
                 value: money.format(details.amount),
-                valueColor: const Color(0xFF15803D),
+                valueColor: details.excludedFromEarnings
+                    ? const Color(0xFFDC2626)
+                    : const Color(0xFF15803D),
               ),
               _PaymentDetailRow(
                 label: 'Payment Method',
@@ -827,8 +893,10 @@ Future<void> _showPaymentDetails(
               _PaymentDetailRow(label: 'Paid', value: paidLabel),
               _PaymentDetailRow(
                 label: 'Status',
-                value: details.status,
-                valueColor: details.status == 'Successful'
+                value: details.status.toUpperCase(),
+                valueColor: details.excludedFromEarnings
+                    ? const Color(0xFFDC2626)
+                    : details.status == 'Successful'
                     ? const Color(0xFF15803D)
                     : const Color(0xFFB45309),
                 isLast: true,
@@ -897,6 +965,7 @@ class _AllocationEarningTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final refundRelated = allocation.isRefundRelated;
     final paidAt = (allocation.earningCompletedAt ?? allocation.confirmedAt)
         ?.toLocal();
     final dateLabel = paidAt == null
@@ -942,14 +1011,19 @@ class _AllocationEarningTile extends StatelessWidget {
             transactionReference: allocation.transactionReference,
             paidAt: paidAt,
             status: allocation.earningStatusLabel,
+            excludedFromEarnings: refundRelated,
           ),
         ),
         child: Ink(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: refundRelated ? const Color(0xFFFFFBFB) : Colors.white,
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: const Color(0xFFE5ECF5)),
+            border: Border.all(
+              color: refundRelated
+                  ? const Color(0xFFFECACA)
+                  : const Color(0xFFE5ECF5),
+            ),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF0F172A).withValues(alpha: 0.04),
@@ -965,12 +1039,18 @@ class _AllocationEarningTile extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF3FF),
+                  color: refundRelated
+                      ? const Color(0xFFFEF2F2)
+                      : const Color(0xFFEAF3FF),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(
-                  Icons.payments_outlined,
-                  color: Color(0xFF2F7EFF),
+                child: Icon(
+                  refundRelated
+                      ? Icons.currency_exchange_rounded
+                      : Icons.payments_outlined,
+                  color: refundRelated
+                      ? const Color(0xFFDC2626)
+                      : const Color(0xFF2F7EFF),
                   size: 20,
                 ),
               ),
@@ -998,6 +1078,17 @@ class _AllocationEarningTile extends StatelessWidget {
                         fontSize: 10.5,
                       ),
                     ),
+                    if (refundRelated) ...[
+                      const SizedBox(height: 5),
+                      const Text(
+                        'Excluded from total earnings',
+                        style: TextStyle(
+                          color: Color(0xFFDC2626),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 9.5,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 5),
                     Text(
                       '$dateLabel • ${allocation.paymentMethodLabel}',
@@ -1022,37 +1113,45 @@ class _AllocationEarningTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '+ ₱${allocation.driverAmount.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      color: Color(0xFF111827),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusBackground,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      statusLabel,
+              SizedBox(
+                width: 116,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      refundRelated
+                          ? 'EXCLUDED · ₱${allocation.driverAmount.toStringAsFixed(2)}'
+                          : '+ ₱${allocation.driverAmount.toStringAsFixed(2)}',
+                      textAlign: TextAlign.right,
                       style: TextStyle(
-                        color: statusColor,
+                        color: refundRelated
+                            ? const Color(0xFFDC2626)
+                            : const Color(0xFF111827),
                         fontWeight: FontWeight.w900,
-                        fontSize: 8.8,
+                        fontSize: refundRelated ? 10.5 : 14.5,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusBackground,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 8.8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1082,6 +1181,7 @@ class _EarningTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = record.status.toLowerCase();
+    final refundRelated = record.isRefundRelated;
 
     final (statusLabel, statusColor, statusBg, statusIcon) = switch (status) {
       'confirmed' => (
@@ -1101,6 +1201,18 @@ class _EarningTile extends StatelessWidget {
         const Color(0xFF64748B),
         const Color(0xFFF1F5F9),
         Icons.cancel_outlined,
+      ),
+      'refund_pending' => (
+        'REFUND PENDING',
+        const Color(0xFF7C3AED),
+        const Color(0xFFF5F3FF),
+        Icons.currency_exchange_rounded,
+      ),
+      'refunded' => (
+        'REFUNDED',
+        const Color(0xFFDC2626),
+        const Color(0xFFFEF2F2),
+        Icons.money_off_csred_outlined,
       ),
       _ => (
         'Pending',
@@ -1154,15 +1266,20 @@ class _EarningTile extends StatelessWidget {
             transactionReference: transactionReference,
             paidAt: record.paidAt ?? record.createdAt,
             status: record.isConfirmed ? 'Successful' : statusLabel,
+            excludedFromEarnings: refundRelated,
           ),
         ),
         borderRadius: BorderRadius.circular(22),
         child: Ink(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: refundRelated ? const Color(0xFFFFFBFB) : Colors.white,
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: const Color(0xFFE5ECF5)),
+            border: Border.all(
+              color: refundRelated
+                  ? const Color(0xFFFECACA)
+                  : const Color(0xFFE5ECF5),
+            ),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF0F172A).withValues(alpha: 0.04),
@@ -1180,12 +1297,18 @@ class _EarningTile extends StatelessWidget {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEAF3FF),
+                      color: refundRelated
+                          ? const Color(0xFFFEF2F2)
+                          : const Color(0xFFEAF3FF),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(
-                      Icons.payments_outlined,
-                      color: Color(0xFF2F7EFF),
+                    child: Icon(
+                      refundRelated
+                          ? Icons.currency_exchange_rounded
+                          : Icons.payments_outlined,
+                      color: refundRelated
+                          ? const Color(0xFFDC2626)
+                          : const Color(0xFF2F7EFF),
                       size: 20,
                     ),
                   ),
@@ -1219,6 +1342,18 @@ class _EarningTile extends StatelessWidget {
                           ),
                         ),
 
+                        if (refundRelated) ...[
+                          const SizedBox(height: 5),
+                          const Text(
+                            'Excluded from total earnings',
+                            style: TextStyle(
+                              color: Color(0xFFDC2626),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        ],
+
                         const SizedBox(height: 3),
 
                         Text(
@@ -1235,53 +1370,61 @@ class _EarningTile extends StatelessWidget {
 
                   const SizedBox(width: 8),
 
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        '+ ₱${record.amount.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          color: Color(0xFF111827),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14.5,
+                  SizedBox(
+                    width: 116,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          refundRelated
+                              ? 'EXCLUDED · ₱${record.amount.toStringAsFixed(2)}'
+                              : '+ ₱${record.amount.toStringAsFixed(2)}',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            color: refundRelated
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF111827),
+                            fontWeight: FontWeight.w900,
+                            fontSize: refundRelated ? 10.5 : 14.5,
+                          ),
                         ),
-                      ),
 
-                      const SizedBox(height: 6),
+                        const SizedBox(height: 6),
 
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusBg,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(statusIcon, color: statusColor, size: 11),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusBg,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(statusIcon, color: statusColor, size: 11),
 
-                            const SizedBox(width: 4),
+                              const SizedBox(width: 4),
 
-                            Text(
-                              statusLabel,
-                              style: TextStyle(
-                                color: statusColor,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 8.8,
+                              Text(
+                                statusLabel,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 8.8,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
 
-              if (record.isConfirmed) ...[
+              if (record.isConfirmed || refundRelated) ...[
                 const SizedBox(height: 12),
 
                 Container(

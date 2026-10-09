@@ -11,7 +11,6 @@ import 'package:touristrike/screens/driver/profile/driver_online_status_screen.d
 import 'package:touristrike/screens/driver/profile/driver_personal_info_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_plate_number_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_profile_completion_screen.dart';
-import 'package:touristrike/screens/driver/profile/driver_role_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_toda_assignment_screen.dart';
 import 'package:touristrike/screens/driver/profile/services/driver_profile_service.dart';
 import 'package:touristrike/screens/driver/profile/widgets/driver_profile_components.dart';
@@ -29,7 +28,7 @@ class DriverProfileScreen extends StatefulWidget {
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
   final DriverProfileService _service = DriverProfileService();
 
-  bool _loggingOut = false;
+  final bool _loggingOut = false;
   bool _navigating = false;
 
   String? get _userId => _service.currentUserId;
@@ -222,7 +221,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       ),
                     ],
                     const SizedBox(height: 14),
-                    DriverIdentityVerificationCard(mtoApprovalStatus: details.status),
+                    DriverIdentityVerificationCard(
+                      mtoApprovalStatus: details.status,
+                    ),
                     const SizedBox(height: 14),
                     DriverSectionCard(
                       title: 'Account',
@@ -343,10 +344,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                 ),
                               )
                             else
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: Color(0xFFDC2626),
-                              ),
+                              const DriverProfileChevron(),
                           ],
                         ),
                       ),
@@ -370,8 +368,6 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     );
   }
 }
-
-
 
 class _SummaryItem extends StatelessWidget {
   const _SummaryItem({

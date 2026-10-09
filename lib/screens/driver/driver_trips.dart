@@ -579,6 +579,8 @@ class _DriverActivityCard extends StatelessWidget {
             MaterialPageRoute(
               builder: (_) => DriverPackageTrackingScreen(
                 activityId: activity.id.toString(),
+                bookingId: activity.bookingId,
+                historyMode: activity.lifecycleStatus == 'completed',
               ),
             ),
           );

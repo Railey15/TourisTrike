@@ -13,6 +13,7 @@ import 'package:touristrike/screens/driver/incoming_ride_screen.dart';
 import 'package:touristrike/screens/driver/profile/driver_profile.dart';
 import 'package:touristrike/widgets/app_bottom_nav_driver.dart';
 import 'package:touristrike/widgets/driver_page_header.dart';
+import 'package:touristrike/widgets/driver_ratings_reviews_sheet.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   const DriverHomeScreen({super.key});
@@ -803,11 +804,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         const SizedBox(height: 11),
 
                         _buildGuideStats(),
-                        if (!_overviewLoading && _overviewError == null)
-                          DriverOverviewDetails(
-                            data: _overview,
-                            onRefresh: _refreshEarnings,
-                          ),
                       ],
                     ),
                   ),
@@ -1418,6 +1414,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               icon: Icons.star_outline_rounded,
               value: _ratingLabel(),
               label: 'Rating',
+              onTap: _showRatingsAndReviews,
             ),
           ),
 
@@ -1442,6 +1439,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showRatingsAndReviews() {
+    showDriverRatingsReviewsSheet(
+      context,
+      averageRating: dbDouble(_overview['average_rating']),
+      totalReviews: dbInt(_overview['review_count']),
+      reviews: _repo.fetchMyDriverReviews(),
     );
   }
 
@@ -2350,15 +2356,17 @@ class _DriverStatItem extends StatelessWidget {
     required this.icon,
     required this.value,
     required this.label,
+    this.onTap,
   });
 
   final IconData icon;
   final String value;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final content = Column(
       children: [
         Container(
           width: 36,
@@ -2403,6 +2411,24 @@ class _DriverStatItem extends StatelessWidget {
           ),
         ),
       ],
+    );
+
+    if (onTap == null) return content;
+    return Semantics(
+      button: true,
+      label: 'Open ratings and reviews',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: content,
+          ),
+        ),
+      ),
     );
   }
 }

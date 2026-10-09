@@ -102,7 +102,12 @@ class PersonalReportService {
         direct.any((item) => item.payeeId != person.id)) {
       throw StateError('Earnings ownership check failed.');
     }
-    final confirmedDirect = direct.where((item) => item.isConfirmed).toList();
+    final completedAllocations = allocations
+        .where((item) => item.countsTowardDriverEarnings)
+        .toList(growable: false);
+    final confirmedDirect = direct
+        .where((item) => item.isFinalizedDriverEarning)
+        .toList(growable: false);
     final bytes = await _buildPdf(
       title: 'Driver Activity & Earnings Report',
       person: person.name,
@@ -119,13 +124,13 @@ class PersonalReportService {
             '${dbString(activity.bookingRow?['tour_packages']?['title'], fallback: 'Tour package')}\n'
                 '${_formatBookingDate(activity.bookingRow)}',
             activity.lifecycleStatus,
-            'PHP ${_money.format(allocations.where((a) => a.bookingId == activity.bookingId).fold<double>(0, (sum, a) => sum + a.driverAmount) + confirmedDirect.where((p) => p.bookingId?.toString() == activity.bookingId).fold<double>(0, (sum, p) => sum + p.amount))}',
+            'PHP ${_money.format(completedAllocations.where((a) => a.bookingId == activity.bookingId).fold<double>(0, (sum, a) => sum + a.driverAmount) + confirmedDirect.where((p) => p.bookingId?.toString() == activity.bookingId).fold<double>(0, (sum, p) => sum + p.amount))}',
           ],
       ],
       empty: 'No assigned or completed tour records are available.',
       note:
           'Earnings include confirmed payment allocations and confirmed direct payments '
-          'visible to this driver. Pending or disputed amounts are excluded.',
+          'visible to this driver. Pending, disputed, refund-pending, and refunded amounts are excluded.',
     );
     await Printing.sharePdf(
       bytes: bytes,

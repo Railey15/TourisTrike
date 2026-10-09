@@ -18,6 +18,8 @@ try {
       select nullif(current_setting('test.uid', true), '')::uuid $$;
     create function public.is_provincial_admin() returns boolean
       language sql stable as $$ select false $$;
+    create function public.current_profile_role() returns text
+      language sql stable as $$ select 'driver'::text $$;
     create function public.subtenant_can_access_booking(uuid) returns boolean
       language sql stable as $$ select false $$;
     create function public.developer_test_schedule_bypass_authorized(uuid, uuid)
@@ -28,11 +30,12 @@ try {
 
     create table public.profiles(id uuid primary key, first_name text,
       last_name text, full_name text);
-    create table public.tour_packages(id bigint primary key, title text);
+    create table public.tour_packages(id bigint primary key, title text, city text);
     create table public.package_bookings(
       id uuid primary key, package_id bigint references tour_packages(id),
       tourist_id uuid references profiles(id), status text, booking_status text,
       scheduled_start_at timestamptz, completed_at timestamptz,
+      tracking_interrupted_at timestamptz, municipality text, province text,
       updated_at timestamptz default now());
     create table public.booking_drivers(
       id uuid primary key, booking_id uuid references package_bookings(id),
@@ -62,21 +65,46 @@ try {
       id uuid primary key default gen_random_uuid(),
       payment_record_id uuid references payment_records(id),
       booking_id uuid references package_bookings(id), status text);
+    create table public.driver_reviews(
+      id uuid primary key default gen_random_uuid(),
+      booking_id uuid references package_bookings(id), driver_id uuid,
+      tourist_id uuid, rating smallint, review_text text,
+      created_at timestamptz default now());
+    create table public.package_activities(
+      id uuid primary key default gen_random_uuid(),
+      booking_id uuid references package_bookings(id));
   `);
 
   const migration = readFileSync(new URL(
     '../migrations/20261009140000_completed_driver_earnings_and_test_tracking.sql',
     import.meta.url), 'utf8');
   await db.exec(migration);
+  const historyMigration = readFileSync(new URL(
+    '../migrations/20261009150000_completed_driver_tour_history.sql',
+    import.meta.url), 'utf8');
+  await db.exec(historyMigration);
+  const earningsOverviewMigration = readFileSync(new URL(
+    '../migrations/20261009160000_driver_earnings_refunds_and_reviews.sql',
+    import.meta.url), 'utf8');
+  await db.exec(earningsOverviewMigration);
+  const cancelledBookingSnapshotMigration = readFileSync(new URL(
+    '../migrations/20261009170000_cancelled_booking_package_snapshot.sql',
+    import.meta.url), 'utf8');
+  await db.exec(cancelledBookingSnapshotMigration);
 
   await db.query('insert into profiles values($1,$2,$3,$4),($5,$6,$7,$8)', [
     tourist, 'Juan', 'Dela Cruz', 'Juan Dela Cruz',
     driver, 'Dina', 'Driver', 'Dina Driver',
   ]);
-  await db.exec("insert into tour_packages values(1,'Baliwag Heritage Tour')");
-  await db.query(`insert into package_bookings values(
-    $1,1,$2,'completed','completed',now()-interval '1 hour',now(),now())`,
+  await db.exec("insert into tour_packages values(1,'Baliwag Heritage Tour','Baliwag')");
+  await db.query(`insert into package_bookings(
+    id,package_id,tourist_id,status,booking_status,scheduled_start_at,
+    completed_at,tracking_interrupted_at,updated_at) values(
+    $1,1,$2,'completed','completed',now()-interval '1 hour',now(),null,now())`,
     [booking, tourist]);
+  assert.equal(await scalar(
+    'select package_title_snapshot from package_bookings where id=$1', [booking]),
+  'Baliwag Heritage Tour', 'booking must retain its package title snapshot');
   await db.query(`insert into booking_drivers values(
     $1,$2,$3,'completed','completed',now())`, [assignment, booking, driver]);
   await db.query(`insert into payment_records values(
@@ -96,6 +124,10 @@ try {
   assert.equal(await scalar(
     'select status from payment_allocations where id=$1', [allocation]),
   'eligible', 'provider payout transport must remain independent');
+  await db.query("select set_config('test.uid',$1,false)", [driver]);
+  assert.equal(Number(await scalar(
+    "select (public.get_driver_home_overview()->>'today_earnings')::numeric")),
+  900, 'completed allocation should count in today earnings');
 
   await db.query('insert into payment_disputes values($1,$2,$3,$4)',
     [dispute, payment, booking, 'open']);
@@ -111,14 +143,22 @@ try {
   assert.equal(await scalar(
     'select earning_status from payment_allocations where id=$1', [allocation]),
   'refund_pending');
+  assert.equal(Number(await scalar(
+    "select (public.get_driver_home_overview()->>'today_earnings')::numeric")),
+  0, 'refund-pending allocation must be excluded from today earnings');
 
-  await db.query(`insert into package_bookings values(
-    $1,1,$2,'confirmed','confirmed',now()+interval '1 day',null,now())`,
+  await db.query(`insert into package_bookings(
+    id,package_id,tourist_id,status,booking_status,scheduled_start_at,
+    completed_at,tracking_interrupted_at,updated_at) values(
+    $1,1,$2,'confirmed','confirmed',now()+interval '1 day',null,null,now())`,
     [futureBooking, tourist]);
   await db.query(`insert into booking_drivers values(
     $1,$2,$3,'accepted','assigned',null)`,
     [futureAssignment, futureBooking, driver]);
-  await db.query("select set_config('test.uid',$1,false)", [driver]);
+  const completedEligibility = await scalar(
+    'select public.get_live_tour_tracking_eligibility($1)', [booking]);
+  assert.equal(completedEligibility.can_access, false);
+  assert.equal(completedEligibility.reason_code, 'BOOKING_NOT_TRACKABLE');
   await db.query("select set_config('test.bypass','false',false)");
   assert.equal(await scalar(
     'select public.can_access_live_tour_tracking($1,$2)',
@@ -131,7 +171,7 @@ try {
     'select public.get_live_tour_tracking_eligibility($1)', [futureBooking]);
   assert.equal(eligibility.reason_code, 'TEST_MODE_SCHEDULE_BYPASS');
 
-  console.log('PASS: completed earnings, exception states, and TEST MODE schedule bypass');
+  console.log('PASS: package snapshot, completed history, earnings, exception states, and TEST MODE schedule bypass');
 } finally {
   await db.close();
 }

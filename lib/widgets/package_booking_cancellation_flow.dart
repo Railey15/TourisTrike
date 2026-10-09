@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:touristrike/core/presentation/cancellation_display.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 
@@ -8,16 +9,6 @@ const _cancelInk = Color(0xFF0F172A);
 const _cancelMuted = Color(0xFF64748B);
 const _cancelBorder = Color(0xFFE5EBF3);
 const _cancelDanger = Color(0xFFDC2626);
-
-const packageCancellationReasons = <String, String>{
-  'change_of_plans': 'Change of plans',
-  'schedule_conflict': 'Schedule conflict',
-  'health_emergency': 'Health/emergency',
-  'weather_concern': 'Weather concern',
-  'incorrect_booking': 'Incorrect booking',
-  'transportation_issue': 'Transportation issue',
-  'other': 'Other',
-};
 
 String humanizeCancellationError(Object error) {
   final value = error.toString().toUpperCase();
@@ -282,7 +273,7 @@ Future<bool> _showConfirmationSheet(
                 _SummaryRow(label: 'Tour date', value: dateText),
                 _SummaryRow(
                   label: 'Reason',
-                  value: packageCancellationReasons[reason] ?? reason,
+                  value: cancellationReasonLabel(reason),
                 ),
                 const Divider(height: 25, color: _cancelBorder),
                 Text(

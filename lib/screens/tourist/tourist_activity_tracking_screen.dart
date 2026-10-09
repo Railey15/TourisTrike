@@ -13,6 +13,10 @@ import 'package:touristrike/core/models/booking_waiting_balance.dart';
 import 'package:touristrike/widgets/booking_payment_sheet.dart';
 import 'package:touristrike/widgets/report_booking_user_sheet.dart';
 import 'package:touristrike/widgets/tour_stay_details.dart';
+import 'package:touristrike/core/presentation/cancellation_display.dart';
+import 'package:touristrike/core/presentation/tourist_tracking_visibility.dart';
+import 'package:touristrike/widgets/cancelled_booking_details.dart';
+import 'package:touristrike/widgets/report_assigned_driver_button.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -103,6 +107,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   List<EmergencyContactRecord> _emergencyContacts = [];
   List<PaymentRecord> _paymentRecords = [];
   List<PaymentAllocation> _paymentAllocations = [];
+  List<RefundRequest> _refundRequests = [];
   final Set<String> _busyPaymentStages = <String>{};
   final _paymentPrompt = ValueNotifier<BookingPaymentPrompt?>(null);
   final _paymentPromptGate = BookingPaymentPromptGate();
@@ -169,53 +174,87 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _spots.where((spot) => spot.spotStatus == 'completed').length;
 
   Future<void> _reportAssignedDriver() async {
-    if (_convoy.isEmpty) return;
-    final driver = _convoy.length == 1
-        ? _convoy.first
-        : await showModalBottomSheet<ConvoyDriverSnapshot>(
-            context: context,
-            showDragHandle: true,
-            builder: (context) => SafeArea(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  const ListTile(title: Text('Select the assigned driver')),
-                  ..._convoy.map(
-                    (item) => ListTile(
-                      title: Text(item.driverName),
-                      subtitle: Text(item.plateNumber),
-                      onTap: () => Navigator.pop(context, item),
+    String driverId;
+    String driverName;
+    if (_convoy.isEmpty) {
+      driverId = _driverInfo?.id ?? '';
+      if (driverId.isEmpty) {
+        driverId = _booking?.assignedDriverId ?? _activity?.driverId ?? '';
+      }
+      driverName = _driverInfo?.name ?? 'Assigned Driver';
+    } else {
+      final driver = _convoy.length == 1
+          ? _convoy.first
+          : await showModalBottomSheet<ConvoyDriverSnapshot>(
+              context: context,
+              showDragHandle: true,
+              builder: (context) => SafeArea(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    const ListTile(title: Text('Select the assigned driver')),
+                    ..._convoy.map(
+                      (item) => ListTile(
+                        title: Text(item.driverName),
+                        subtitle: Text(item.plateNumber),
+                        onTap: () => Navigator.pop(context, item),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-    if (!mounted || driver == null) return;
+            );
+      if (!mounted || driver == null) return;
+      driverId = driver.driverId;
+      driverName = driver.driverName;
+    }
+    if (!mounted || driverId.isEmpty) return;
     await showReportBookingUserSheet(
       context,
       bookingId: widget.bookingId,
-      reportedUserId: driver.driverId,
-      reportedName: driver.driverName,
+      reportedUserId: driverId,
+      reportedName: driverName,
     );
   }
 
-  bool get _canShowLiveTourMap => LiveTourVisibility.tourist(
-    roster: _convoy,
-    statuses: [
-      _booking?.status,
-      _booking?.bookingStatus,
-      _activity?.status,
-      _activity?.tourStatus,
-    ],
-    scheduledStartAt:
-        _liveTrackingEligibility.scheduledStartAt ?? _booking?.scheduledStartAt,
-    now: _liveTrackingEligibility.authoritativeNow(),
-    serverAuthorized: _liveTrackingEligibility.canAccess,
-    scheduleBypassAuthorized: _liveTrackingEligibility.testModeScheduleBypass,
-  );
+  bool get _canReportAssignedDriver =>
+      _convoy.isNotEmpty ||
+      (_driverInfo?.id.isNotEmpty ?? false) ||
+      (_booking?.assignedDriverId.isNotEmpty ?? false) ||
+      (_activity?.driverId.isNotEmpty ?? false);
+
+  TouristTrackingVisibility get _trackingVisibility =>
+      TouristTrackingVisibility.fromStatuses(
+        bookingStatus: _booking?.status,
+        bookingLifecycleStatus: _booking?.bookingStatus,
+        activityStatus: _activity?.status,
+        tourStatus: _activity?.tourStatus,
+        refundStatus: _booking?.refundStatus,
+        hasPickedUpAt:
+            _booking?.pickedUpAt != null || _activity?.pickedUpAt != null,
+      );
+
+  bool get _canShowLiveTourMap =>
+      !_trackingVisibility.isTerminal &&
+      LiveTourVisibility.tourist(
+        roster: _convoy,
+        statuses: [
+          _booking?.status,
+          _booking?.bookingStatus,
+          _activity?.status,
+          _activity?.tourStatus,
+        ],
+        scheduledStartAt:
+            _liveTrackingEligibility.scheduledStartAt ??
+            _booking?.scheduledStartAt,
+        now: _liveTrackingEligibility.authoritativeNow(),
+        serverAuthorized: _liveTrackingEligibility.canAccess,
+        scheduleBypassAuthorized:
+            _liveTrackingEligibility.testModeScheduleBypass,
+      );
 
   bool get _isLiveTrackingScheduleLocked =>
+      !_trackingVisibility.isTerminal &&
       _liveTrackingEligibility.isBeforeScheduledStart;
 
   // =========================================================================
@@ -374,7 +413,11 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   }
 
   void _maybeShowPaymentPrompt() {
-    if (!mounted || _loading || _paymentPromptScheduled || _paymentSheetOpen) {
+    if (!mounted ||
+        _loading ||
+        _trackingVisibility.isTerminal ||
+        _paymentPromptScheduled ||
+        _paymentSheetOpen) {
       return;
     }
     _paymentPromptScheduled = true;
@@ -382,6 +425,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       _paymentPromptScheduled = false;
       if (!mounted ||
           _loading ||
+          _trackingVisibility.isTerminal ||
           _paymentSheetOpen ||
           ModalRoute.of(context)?.isCurrent != true ||
           _busyPaymentStages.isNotEmpty) {
@@ -406,6 +450,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final gate = remaining ? _remainingPromptGate : _paymentPromptGate;
     final stage = remaining ? 'remaining_balance' : 'down_payment';
     if (!mounted ||
+        _trackingVisibility.isTerminal ||
         _paymentSheetOpen ||
         notifier.value?.paymentRequired != true ||
         _busyPaymentStages.contains(stage)) {
@@ -1098,36 +1143,67 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       final activity = await _repo.fetchActivityForBooking(widget.bookingId);
 
       final booking = await _repo.fetchPackageBookingDetails(widget.bookingId);
+      final isCancelled = {
+        booking?.status.toLowerCase(),
+        booking?.bookingStatus.toLowerCase(),
+        activity?.status.toLowerCase(),
+        activity?.tourStatus.toLowerCase(),
+      }.contains('cancelled');
+      final visibility = TouristTrackingVisibility.fromStatuses(
+        bookingStatus: booking?.status,
+        bookingLifecycleStatus: booking?.bookingStatus,
+        activityStatus: activity?.status,
+        tourStatus: activity?.tourStatus,
+        refundStatus: booking?.refundStatus,
+        hasPickedUpAt:
+            booking?.pickedUpAt != null || activity?.pickedUpAt != null,
+      );
 
-      final spots = await _repo.fetchBookingItinerary(widget.bookingId);
-
-      final emergencyContacts = await _repo.fetchEmergencyContacts();
-      final convoy = await _repo.fetchConvoyRoster(widget.bookingId);
-      final liveTrackingEligibility = await _repo
-          .fetchLiveTourTrackingEligibility(widget.bookingId);
-
-      var testSessionAuthorized = false;
+      var spots = <BookingItineraryItem>[];
       try {
-        final result = await _repo.fetchMyBookingTestAuthorization(
+        spots = await _repo.fetchBookingItinerary(widget.bookingId);
+      } catch (error) {
+        debugPrint('[Cancelled booking] itinerary read unavailable: $error');
+      }
+
+      var emergencyContacts = <EmergencyContactRecord>[];
+      var convoy = <ConvoyDriverSnapshot>[];
+      var liveTrackingEligibility = LiveTourTrackingEligibility.locked;
+      if (!isCancelled) {
+        convoy = await _repo.fetchConvoyRoster(widget.bookingId);
+      }
+      if (!visibility.isTerminal) {
+        emergencyContacts = await _repo.fetchEmergencyContacts();
+        liveTrackingEligibility = await _repo.fetchLiveTourTrackingEligibility(
           widget.bookingId,
         );
-        testSessionAuthorized = result['authorized'] == true;
-      } catch (error) {
-        debugPrint(
-          '[TEST AUTHORIZATION] booking_id=${widget.bookingId} read_error=$error',
-        );
+      }
+
+      var testSessionAuthorized = false;
+      if (!visibility.isTerminal) {
+        try {
+          final result = await _repo.fetchMyBookingTestAuthorization(
+            widget.bookingId,
+          );
+          testSessionAuthorized = result['authorized'] == true;
+        } catch (error) {
+          debugPrint(
+            '[TEST AUTHORIZATION] booking_id=${widget.bookingId} read_error=$error',
+          );
+        }
       }
 
       DriverInfo? driverInfo;
 
       final driverId = booking?.assignedDriverId ?? activity?.driverId ?? '';
 
-      if (driverId.isNotEmpty) {
+      if (!isCancelled && driverId.isNotEmpty) {
         driverInfo = await _repo.fetchDriverInfo(driverId);
       }
 
       var paymentRecords = <PaymentRecord>[];
       var paymentAllocations = <PaymentAllocation>[];
+      var refundRequests = <RefundRequest>[];
 
       try {
         final paymentResults = await Future.wait<dynamic>([
@@ -1138,6 +1214,13 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         paymentAllocations = paymentResults[1] as List<PaymentAllocation>;
       } catch (_) {
         // Payment status is non-critical to screen loading.
+      }
+      try {
+        refundRequests = await _repo.fetchBookingRefundRequests(
+          widget.bookingId,
+        );
+      } catch (_) {
+        // Refund detail is non-critical; booking-level refund data remains.
       }
 
       if (!mounted) return;
@@ -1173,6 +1256,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         _emergencyContacts = emergencyContacts;
         _paymentRecords = paymentRecords;
         _paymentAllocations = paymentAllocations;
+        _refundRequests = refundRequests;
         _testSessionAuthorized = testSessionAuthorized;
         _liveTrackingEligibility = liveTrackingEligibility;
 
@@ -1180,6 +1264,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       });
 
       _debugTourState('load');
+      if (isCancelled) {
+        _syncLiveTracking();
+        _subscribeToPayments(widget.bookingId);
+        return;
+      }
+      if (visibility.isTerminal) {
+        _paymentPrompt.value = null;
+        _remainingPrompt.value = null;
+        _stopRealtimeTourProgress();
+        _syncLiveTracking();
+        if (visibility.isCompleted) _checkAndShowReviewModal();
+        return;
+      }
       _syncScheduleGateTimer();
 
       _buildMarkers();
@@ -1206,6 +1303,23 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // =========================================================================
   // REALTIME
   // =========================================================================
+
+  void _stopRealtimeTourProgress() {
+    _scheduleGateTimer?.cancel();
+    _scheduleGateTimer = null;
+    _activityChannel?.unsubscribe();
+    _activityChannel = null;
+    _locationChannel?.unsubscribe();
+    _locationChannel = null;
+    _bookingChannel?.unsubscribe();
+    _bookingChannel = null;
+    _itineraryChannel?.unsubscribe();
+    _itineraryChannel = null;
+    _paymentChannel?.unsubscribe();
+    _paymentChannel = null;
+    _bookingDriversChannel?.unsubscribe();
+    _bookingDriversChannel = null;
+  }
 
   void _subscribeToConvoyRoster() {
     _bookingDriversChannel?.unsubscribe();
@@ -1476,6 +1590,17 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
+          table: 'refund_requests',
+          filter: PostgresChangeFilter(
+            column: 'booking_id',
+            type: PostgresChangeFilterType.eq,
+            value: bookingId,
+          ),
+          callback: (_) => _refreshPayments(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
           table: 'booking_payment_requirements',
           filter: PostgresChangeFilter(
             column: 'booking_id',
@@ -1495,14 +1620,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   // =========================================================================
 
   bool _isTourCompleted() {
-    final bookingStatus = (_booking?.bookingStatus ?? '').toLowerCase();
-    final tourStatus = (_activity?.tourStatus ?? '').toLowerCase();
-    final activityStatus = (_activity?.status ?? '').toLowerCase();
-
-    return bookingStatus == 'completed' ||
-        bookingStatus == 'done' ||
-        tourStatus == 'completed' ||
-        activityStatus == 'completed';
+    return _trackingVisibility.isCompleted;
   }
 
   Future<void> _checkAndShowReviewModal() async {
@@ -1615,11 +1733,13 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
       final results = await Future.wait<dynamic>([
         _repo.fetchPaymentRecordsFor(bookingId: widget.bookingId),
         _repo.fetchPaymentAllocationsForBooking(widget.bookingId),
+        _repo.fetchBookingRefundRequests(widget.bookingId),
       ]);
       if (mounted) {
         setState(() {
           _paymentRecords = results[0] as List<PaymentRecord>;
           _paymentAllocations = results[1] as List<PaymentAllocation>;
+          _refundRequests = results[2] as List<RefundRequest>;
         });
       }
     } catch (error) {
@@ -2286,18 +2406,12 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   }
 
   bool get _isCancelled {
-    final values = [
-      _booking?.status,
-      _booking?.bookingStatus,
-      _activity?.status,
-      _activity?.tourStatus,
-    ];
-    return values.any((value) => value?.toLowerCase() == 'cancelled');
+    return _trackingVisibility.isCancelled;
   }
 
   bool get _canOfferCancellation {
     final tourStatus = _activity?.tourStatus.toLowerCase() ?? 'waiting_driver';
-    return !_isCancelled &&
+    return !_trackingVisibility.isTerminal &&
         !{
           'driver_arrived',
           'picked_up',
@@ -2313,7 +2427,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   bool get _canReportDriverNoShow {
     final booking = _booking;
-    if (booking == null || _isCancelled || booking.pickedUpAt != null) {
+    if (booking == null ||
+        _trackingVisibility.isTerminal ||
+        booking.pickedUpAt != null) {
       return false;
     }
     final scheduled = booking.scheduledStartAt;
@@ -2379,10 +2495,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   Future<void> _manageCancellation() async {
     final booking = _booking;
     if (booking == null) return;
-    final packageTitle = dbString(
-      booking.packageRow?['title'],
-      fallback: 'Tour package',
-    );
+    final packageTitle = booking.packageTitle;
     final result = await showPackageBookingCancellationFlow(
       context,
       bookingId: widget.bookingId,
@@ -2439,8 +2552,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
   Widget _buildContent() {
     final activity = _activity;
     final booking = _booking;
+    final visibility = _trackingVisibility;
 
-    if (_isCancelled) return _buildCancelledContent();
+    if (visibility.isCancelled) return _buildCancelledContent();
 
     final money = NumberFormat.currency(symbol: '₱', decimalDigits: 0);
 
@@ -2450,12 +2564,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     final bookingStatus = booking?.bookingStatus ?? '';
 
+    final completed = visibility.isCompleted;
     final waitingDrivers =
-        bookingStatus == 'waiting_for_drivers' ||
-        (acceptedDrivers < requiredDrivers &&
-            (activity?.status == 'pending' || activity == null));
+        !visibility.isTerminal &&
+        (bookingStatus == 'waiting_for_drivers' ||
+            (acceptedDrivers < requiredDrivers &&
+                (activity?.status == 'pending' || activity == null)));
 
-    final tourStatus = waitingDrivers
+    final tourStatus = completed
+        ? 'completed'
+        : waitingDrivers
         ? 'waiting_for_drivers'
         : activity?.tourStatus ?? 'waiting_driver';
 
@@ -2465,7 +2583,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
         bookingStatus.toLowerCase() == 'awaiting_remaining_payment' ||
         tourStatus == 'awaiting_remaining_payment';
 
-    final statusData = awaitingRemainingPayment
+    final statusData = completed
+        ? (
+            'Tour Completed',
+            'Thank you for touring with TourisTrike!',
+            const Color(0xFF16A34A),
+            Icons.check_circle_rounded,
+          )
+        : awaitingRemainingPayment
         ? (
             'TOUR ITINERARY COMPLETED',
             'All tourist stops have been visited.',
@@ -2513,7 +2638,6 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
     final driverReviewCount = _driverInfo?.profile?.totalReviews ?? 0;
 
-    final completed = _isTourCompleted();
     final fullyAssigned = _paymentPrompt.value?.rosterComplete == true;
     final downPaymentRecord = _paymentRecordForStage('down_payment');
     final downPaymentAllocations = downPaymentRecord == null
@@ -2540,7 +2664,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
     final remainingPaymentRecord = _paymentRecordForStage('remaining_balance');
     final itineraryComplete =
         _spots.isNotEmpty && _completedSpotCount == _spots.length;
-    final enRouteStatusCard = _buildEnRouteStatusCard();
+    final enRouteStatusCard = visibility.showRealtimeTourProgress
+        ? _buildEnRouteStatusCard()
+        : null;
 
     return Column(
       children: [
@@ -2557,89 +2683,98 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
               : null,
         ),
 
-        ValueListenableBuilder<BookingPaymentPrompt?>(
-          valueListenable: _remainingPrompt,
-          builder: (context, prompt, _) {
-            _maybeShowPaymentPrompt();
-            if (prompt?.paymentRequired != true) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _busyPaymentStages.contains('remaining_balance')
-                      ? null
-                      : () => _showPaymentPrompt(remaining: true),
-                  icon: const Icon(Icons.payments_outlined),
-                  label: Text(
-                    prompt!.cashPending
-                        ? 'View cash confirmation'
-                        : 'Pay remaining balance',
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-        ValueListenableBuilder<BookingPaymentPrompt?>(
-          valueListenable: _paymentPrompt,
-          builder: (context, prompt, _) {
-            _maybeShowPaymentPrompt();
-            if (prompt?.confirmed == true) {
+        if (visibility.showLivePaymentProgress)
+          ValueListenableBuilder<BookingPaymentPrompt?>(
+            valueListenable: _remainingPrompt,
+            builder: (context, prompt, _) {
+              _maybeShowPaymentPrompt();
+              if (prompt?.paymentRequired != true) {
+                return const SizedBox.shrink();
+              }
               return Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
-                  vertical: 8,
+                  vertical: 4,
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle, color: _success, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Downpayment Paid',
-                            style: TextStyle(
-                              color: _success,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          Text(
-                            downPaymentSettlementLabel,
-                            style: const TextStyle(
-                              color: _muted,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busyPaymentStages.contains('remaining_balance')
+                        ? null
+                        : () => _showPaymentPrompt(remaining: true),
+                    icon: const Icon(Icons.payments_outlined),
+                    label: Text(
+                      prompt!.cashPending
+                          ? 'View cash confirmation'
+                          : 'Pay remaining balance',
                     ),
-                  ],
-                ),
-              );
-            }
-            if (prompt?.paymentRequired != true) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(backgroundColor: _primary),
-                  onPressed: _busyPaymentStages.contains('down_payment')
-                      ? null
-                      : _showPaymentPrompt,
-                  icon: const Icon(Icons.payments_outlined),
-                  label: Text(
-                    'Pay ${money.format(prompt!.booking.downpaymentAmount)} downpayment',
                   ),
                 ),
-              ),
-            );
-          },
-        ),
+              );
+            },
+          ),
+        if (visibility.showLivePaymentProgress)
+          ValueListenableBuilder<BookingPaymentPrompt?>(
+            valueListenable: _paymentPrompt,
+            builder: (context, prompt, _) {
+              _maybeShowPaymentPrompt();
+              if (prompt?.confirmed == true) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: _success, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Downpayment Paid',
+                              style: TextStyle(
+                                color: _success,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              downPaymentSettlementLabel,
+                              style: const TextStyle(
+                                color: _muted,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              if (prompt?.paymentRequired != true) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: _primary),
+                    onPressed: _busyPaymentStages.contains('down_payment')
+                        ? null
+                        : _showPaymentPrompt,
+                    icon: const Icon(Icons.payments_outlined),
+                    label: Text(
+                      'Pay ${money.format(prompt!.booking.downpaymentAmount)} downpayment',
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
         Expanded(
           child: RefreshIndicator(
             color: _primary,
@@ -2666,15 +2801,18 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   const SizedBox(height: 14),
                 ],
 
-                if (booking?.isSearchingForReplacement == true) ...[
+                if (visibility.showRealtimeTourProgress &&
+                    booking?.isSearchingForReplacement == true) ...[
                   const _ReplacementDriverNotice(searching: true),
                   const SizedBox(height: 14),
-                ] else if (booking?.hasReplacementDriver == true) ...[
+                ] else if (visibility.showRealtimeTourProgress &&
+                    booking?.hasReplacementDriver == true) ...[
                   const _ReplacementDriverNotice(searching: false),
                   const SizedBox(height: 14),
                 ],
 
-                if (itineraryComplete &&
+                if (visibility.showLivePaymentProgress &&
+                    itineraryComplete &&
                     remainingPaymentRecord?.isConfirmed == true) ...[
                   const _ModernCard(
                     child: Row(
@@ -2740,14 +2878,16 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                     },
                   ),
 
-                if (_isLiveTrackingScheduleLocked &&
+                if (!visibility.isTerminal &&
+                    _isLiveTrackingScheduleLocked &&
                     _liveTrackingEligibility.scheduledStartAt != null)
                   LiveTrackingLockedCard(
                     scheduledStartAt:
                         _liveTrackingEligibility.scheduledStartAt!,
                   ),
 
-                if (_canShowLiveTourMap || _isLiveTrackingScheduleLocked)
+                if (_canShowLiveTourMap ||
+                    (!visibility.isTerminal && _isLiveTrackingScheduleLocked))
                   const SizedBox(height: 14),
 
                 if (enRouteStatusCard != null) ...[
@@ -2800,7 +2940,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   const SizedBox(height: 14),
                 ],
 
-                if (_convoy.isNotEmpty) ...[
+                if (completed &&
+                    (_convoy.isNotEmpty || driverName.isNotEmpty)) ...[
+                  _CompletedAssignedDriverCard(
+                    convoy: _convoy,
+                    fallbackName: driverName,
+                    fallbackVehicle: vehicleDetails,
+                    fallbackAvatarUrl:
+                        _driverInfo?.profile?.avatarUrl.isNotEmpty == true
+                        ? _driverInfo!.profile!.avatarUrl
+                        : _driverInfo?.profile?.profileImageUrl ?? '',
+                  ),
+                  const SizedBox(height: 14),
+                ] else if (_convoy.isNotEmpty) ...[
                   ConvoyTouristDriverList(
                     convoy: _convoy,
                     selectedDriverId: _selectedDriverId,
@@ -2817,7 +2969,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // DRIVER
                 // ===========================================================
-                if (_convoy.isEmpty && driverName.isNotEmpty) ...[
+                if (!completed && _convoy.isEmpty && driverName.isNotEmpty) ...[
                   _DriverCard(
                     name: driverName,
                     phone: driverPhone,
@@ -2839,15 +2991,7 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // EMERGENCY
                 // ===========================================================
-                if (booking?.pickedUpAt != null ||
-                    const {
-                      'picked_up',
-                      'on_tour',
-                      'en_route_to_spot',
-                      'at_spot',
-                      'en_route_to_dropoff',
-                      'ready_to_complete',
-                    }.contains(activity?.tourStatus)) ...[
+                if (visibility.showEmergency) ...[
                   _EmergencyPanel(
                     bookingId: widget.bookingId,
                     activityId: _activity?.row['id']?.toString(),
@@ -2902,7 +3046,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                 // ===========================================================
                 // PAYMENTS
                 // ===========================================================
-                if (fullyAssigned && (booking?.downpaymentAmount ?? 0) > 0) ...[
+                if (visibility.showLivePaymentProgress &&
+                    fullyAssigned &&
+                    (booking?.downpaymentAmount ?? 0) > 0) ...[
                   _PaymentStageCard(
                     title: 'Downpayment',
                     amount: booking!.downpaymentAmount,
@@ -2916,7 +3062,8 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   const SizedBox(height: 14),
                 ],
 
-                if (fullyAssigned &&
+                if (visibility.showLivePaymentProgress &&
+                    fullyAssigned &&
                     downPaymentConfirmed &&
                     (itineraryComplete || remainingPaymentRecord != null) &&
                     (booking?.remainingBalance ?? 0) > 0) ...[
@@ -2957,13 +3104,9 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
                   tricycles: requiredDrivers,
                   totalAmount: money.format(totalAmount),
                 ),
-                if (_convoy.isNotEmpty) ...[
+                if (_canReportAssignedDriver) ...[
                   const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _reportAssignedDriver,
-                    icon: const Icon(Icons.report_outlined),
-                    label: const Text('Report assigned driver'),
-                  ),
+                  ReportAssignedDriverButton(onPressed: _reportAssignedDriver),
                 ],
               ],
             ),
@@ -2975,22 +3118,14 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
 
   Widget _buildCancelledContent() {
     final booking = _booking;
-    final reason = booking?.cancelledReason.trim();
-    final refund = booking?.refundableAmount ?? 0;
-    final paid = _paymentRecords
-        .where((record) => record.isConfirmed)
-        .fold<double>(0, (total, record) => total + record.amount);
-    final refundText = paid <= 0
-        ? 'No payment was made'
-        : booking?.refundStatus == 'processing'
-        ? 'Test refund processing'
-        : booking?.refundStatus == 'refunded'
-        ? 'Test refund completed'
-        : booking?.refundStatus == 'not_eligible'
-        ? 'Refund not eligible'
-        : refund > 0
-        ? '${NumberFormat.currency(locale: 'en_PH', symbol: '₱').format(refund)} refund pending'
-        : 'Non-refundable';
+    final reason = booking?.cancelledReason.trim().isNotEmpty == true
+        ? booking!.cancelledReason
+        : booking?.cancellationReasonCode ?? '';
+    final refund = CancellationRefundDisplay.fromBooking(
+      booking: booking,
+      payments: _paymentRecords,
+      refunds: _refundRequests,
+    );
 
     return Column(
       children: [
@@ -3026,80 +3161,19 @@ class _ActivityTrackingScreenState extends State<ActivityTrackingScreen>
           child: RefreshIndicator(
             color: _primary,
             onRefresh: _load,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: _surface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _border),
-                  ),
-                  child: Column(
-                    children: [
-                      const CircleAvatar(
-                        radius: 28,
-                        backgroundColor: _dangerSoft,
-                        child: Icon(
-                          Icons.event_busy_rounded,
-                          color: _danger,
-                          size: 29,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      const Text(
-                        'Booking Cancelled',
-                        style: TextStyle(
-                          color: _ink,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'This booking remains in your history for reference.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: _muted),
-                      ),
-                      const SizedBox(height: 18),
-                      _CancelledDetail(
-                        label: 'Tour date',
-                        value: booking?.travelDate == null
-                            ? 'Schedule unavailable'
-                            : DateFormat(
-                                'MMM d, yyyy',
-                              ).format(booking!.travelDate!),
-                      ),
-                      _CancelledDetail(
-                        label: 'Cancelled',
-                        value: booking?.cancelledAt == null
-                            ? 'Recently'
-                            : DateFormat(
-                                'MMM d, yyyy • h:mm a',
-                              ).format(booking!.cancelledAt!),
-                      ),
-                      _CancelledDetail(
-                        label: 'Reason',
-                        value: reason == null || reason.isEmpty
-                            ? 'Not specified'
-                            : reason,
-                      ),
-                      _CancelledDetail(label: 'Refund', value: refundText),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
-                    backgroundColor: _primary,
-                  ),
-                  child: const Text('Back to Bookings'),
-                ),
-              ],
+            child: CancelledBookingDetails(
+              packageName: booking?.packageTitle ?? 'Tour Package',
+              municipality: booking?.municipality ?? '',
+              province: booking?.province ?? '',
+              travelDate: booking?.travelDate,
+              scheduledStartAt: booking?.scheduledStartAt,
+              estimatedEndAt: booking?.estimatedEndAt,
+              touristCount: booking?.totalPassengers ?? 0,
+              spots: _spots,
+              cancelledAt: booking?.cancelledAt,
+              cancellationReason: reason,
+              refund: refund,
+              onBack: () => Navigator.pop(context),
             ),
           ),
         ),
@@ -3278,35 +3352,6 @@ class _TrackingTopBar extends StatelessWidget {
       ),
     );
   }
-}
-
-class _CancelledDetail extends StatelessWidget {
-  const _CancelledDetail({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: _border)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 82,
-          child: Text(label, style: const TextStyle(color: _muted)),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(color: _ink, fontWeight: FontWeight.w700),
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class _TopIconButton extends StatelessWidget {
@@ -4010,6 +4055,149 @@ class _InfoChip extends StatelessWidget {
 // ============================================================================
 // DRIVER CARD
 // ============================================================================
+
+class _CompletedAssignedDriverCard extends StatelessWidget {
+  const _CompletedAssignedDriverCard({
+    required this.convoy,
+    required this.fallbackName,
+    required this.fallbackVehicle,
+    required this.fallbackAvatarUrl,
+  });
+
+  final List<ConvoyDriverSnapshot> convoy;
+  final String fallbackName;
+  final String fallbackVehicle;
+  final String fallbackAvatarUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final drivers = convoy.isNotEmpty
+        ? convoy
+              .map(
+                (driver) => (
+                  name: driver.driverName,
+                  vehicle: [
+                    driver.plateNumber,
+                    driver.todaName,
+                  ].where((value) => value.trim().isNotEmpty).join(' • '),
+                  avatarUrl: driver.avatarUrl,
+                ),
+              )
+              .toList(growable: false)
+        : [
+            (
+              name: fallbackName,
+              vehicle: fallbackVehicle,
+              avatarUrl: fallbackAvatarUrl,
+            ),
+          ];
+
+    return _ModernCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  drivers.length == 1 ? 'ASSIGNED DRIVER' : 'ASSIGNED DRIVERS',
+                  style: const TextStyle(
+                    color: _subtle,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 9,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _successSoft,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_rounded, size: 13, color: _success),
+                    SizedBox(width: 4),
+                    Text(
+                      'Completed',
+                      style: TextStyle(
+                        color: _success,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (var index = 0; index < drivers.length; index++) ...[
+            if (index > 0) const Divider(height: 20, color: _border),
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _softBlue,
+                    border: Border.all(color: const Color(0xFFD4E5FF)),
+                  ),
+                  child: ClipOval(
+                    child: drivers[index].avatarUrl.isNotEmpty
+                        ? Image.network(
+                            drivers[index].avatarUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const _DriverAvatarFallback(),
+                          )
+                        : const _DriverAvatarFallback(),
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        drivers[index].name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _ink,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (drivers[index].vehicle.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          drivers[index].vehicle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _muted,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 class _DriverCard extends StatelessWidget {
   const _DriverCard({

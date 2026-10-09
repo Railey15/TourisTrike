@@ -72,31 +72,6 @@ class DriverOverviewDetails extends StatelessWidget {
                     : 'No active tour assignments',
               ),
             ),
-        ] else ...[
-          const SizedBox(height: 12),
-          Text(
-            '${dbInt(data['active_trips'])} active · ${dbInt(data['upcoming_trips'])} upcoming',
-          ),
-          if (dbInt(data['interrupted_trips']) > 0)
-            Text(
-              '${dbInt(data['interrupted_trips'])} interrupted — recovery needed',
-            ),
-          const SizedBox(height: 8),
-          Text(
-            '${dbInt(data['review_count'])} driver reviews',
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          for (final review
-              in (data['recent_reviews'] as List? ?? []).whereType<Map>())
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.star, color: Colors.amber),
-                title: Text('${dbInt(review['rating'])}/5'),
-                subtitle: Text(
-                  dbString(review['review_text'], fallback: 'Rating submitted'),
-                ),
-              ),
-            ),
         ],
       ],
     );

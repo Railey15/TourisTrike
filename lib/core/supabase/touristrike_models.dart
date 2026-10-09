@@ -184,6 +184,16 @@ class DriverReview extends TourisTrikeRow {
   int get rating => dbInt(row['rating']);
   String get reviewText => dbString(row['review_text']);
   DateTime? get createdAt => dbDate(row['created_at']);
+  String get packageName {
+    final booking = row['package_bookings'];
+    if (booking is! Map) return '';
+    final package = booking['tour_packages'];
+    if (package is Map) return dbString(package['title']);
+    if (package is List && package.isNotEmpty && package.first is Map) {
+      return dbString((package.first as Map)['title']);
+    }
+    return '';
+  }
 }
 
 class AdminSettings extends TourisTrikeRow {
@@ -395,8 +405,17 @@ class PackageBooking extends TourisTrikeRow {
   DateTime? get updatedAt => dbDate(row['updated_at']);
   String get assignedDriverId => dbString(row['assigned_driver_id']);
   String get bookingStatus => dbString(row['booking_status'], fallback: status);
-  String get municipality =>
-      dbString(row['municipality'], fallback: dbString(packageRow?['city']));
+  String get packageTitle => dbString(
+    row['package_title_snapshot'],
+    fallback: dbString(packageRow?['title'], fallback: 'Tour Package'),
+  );
+  String get municipality => dbString(
+    row['municipality'],
+    fallback: dbString(
+      row['package_city_snapshot'],
+      fallback: dbString(packageRow?['city']),
+    ),
+  );
   String get province => dbString(row['province'], fallback: 'Bulacan');
   int get totalPassengers =>
       dbInt(row['total_passengers'], fallback: adults + children);
@@ -693,6 +712,9 @@ class PaymentRecord extends TourisTrikeRow {
   bool get isPending => status == 'pending_confirmation';
   bool get isDisputed => status == 'disputed';
   bool get isCancelled => status == 'cancelled';
+  bool get isRefundRelated =>
+      const {'refund_pending', 'refunded'}.contains(status.toLowerCase());
+  bool get isFinalizedDriverEarning => isConfirmed && !isRefundRelated;
 
   Json get bookingRow {
     final value = row['package_bookings'];
@@ -907,6 +929,8 @@ class PaymentAllocation extends TourisTrikeRow {
   bool get isPaidOut => status == 'paid';
   bool get isCompletedEarning => earningStatus == 'completed';
   bool get isEarningPending => earningStatus == 'pending';
+  bool get isRefundRelated =>
+      const {'refund_pending', 'refunded'}.contains(earningStatus);
   String get earningStatusLabel => switch (earningStatus) {
     'completed' => 'Successful',
     'refund_pending' => 'Refund pending',
@@ -929,6 +953,7 @@ class PaymentAllocation extends TourisTrikeRow {
   };
   bool get isConfirmedEarning =>
       paymentRecordStatus == 'confirmed' && isCompletedEarning;
+  bool get countsTowardDriverEarnings => isConfirmedEarning && !isRefundRelated;
 
   static String _titleCase(String value) => value
       .replaceAll('_', ' ')

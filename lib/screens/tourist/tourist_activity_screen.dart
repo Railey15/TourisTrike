@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:touristrike/core/presentation/cancellation_display.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
@@ -909,13 +910,10 @@ class _ActivityCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          packageCancellationReasons[dbString(
-                                booking?['cancelled_reason'],
-                              )] ??
-                              dbString(
-                                booking?['cancelled_reason'],
-                                fallback: 'Booking cancelled',
-                              ),
+                          cancellationReasonLabel(
+                            dbString(booking?['cancelled_reason']),
+                            fallback: 'Booking Cancelled',
+                          ),
                           style: const TextStyle(
                             color: Color(0xFF991B1B),
                             fontWeight: FontWeight.w800,

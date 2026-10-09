@@ -4,6 +4,7 @@ import 'package:touristrike/core/supabase/touristrike_models.dart';
 import 'package:touristrike/core/supabase/touristrike_repository.dart';
 import 'package:touristrike/core/reports/personal_report_service.dart';
 import 'package:touristrike/screens/tourist/package_details_screen.dart';
+import 'package:touristrike/screens/tourist/tourist_activity_tracking_screen.dart';
 import 'package:touristrike/widgets/app_bottom_nav_tourist.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -214,8 +215,8 @@ class _BookingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final package = booking.packageRow;
-    final title = dbString(package?['title'], fallback: 'Tour Package');
-    final city = dbString(package?['city']);
+    final title = booking.packageTitle;
+    final city = booking.municipality;
     final imageUrl = dbString(
       package?['cover_image_url'],
       fallback: dbString(package?['image_url']),
@@ -226,17 +227,31 @@ class _BookingCard extends StatelessWidget {
     final money = NumberFormat.currency(symbol: 'PHP ', decimalDigits: 0);
 
     return InkWell(
-      onTap: package == null
-          ? null
-          : () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      PackageDetailsScreen(packageId: booking.packageId),
-                ),
-              );
-            },
+      onTap: () {
+        final isCancelled = {
+          booking.status.toLowerCase(),
+          booking.bookingStatus.toLowerCase(),
+        }.contains('cancelled');
+        if (isCancelled) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  ActivityTrackingScreen(bookingId: booking.id.toString()),
+            ),
+          );
+          return;
+        }
+        if (package != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  PackageDetailsScreen(packageId: booking.packageId),
+            ),
+          );
+        }
+      },
       borderRadius: BorderRadius.circular(22),
       child: Container(
         padding: const EdgeInsets.all(14),

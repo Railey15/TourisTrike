@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:touristrike/core/presentation/cancellation_display.dart';
 import 'package:touristrike/core/supabase/touristrike_models.dart';
-import 'package:touristrike/widgets/package_booking_cancellation_flow.dart';
+import 'package:touristrike/core/supabase/touristrike_repository.dart';
+import 'package:touristrike/widgets/cancelled_booking_details.dart';
 
-class BookingCancellationResultScreen extends StatelessWidget {
+class BookingCancellationResultScreen extends StatefulWidget {
   const BookingCancellationResultScreen({
     super.key,
     required this.result,
@@ -15,159 +16,110 @@ class BookingCancellationResultScreen extends StatelessWidget {
   final String packageTitle;
   final DateTime? travelDate;
 
-  String get _refundText {
-    final eligibility = result.eligibility;
-    if (eligibility.amountPaid <= 0) return 'No payment was made';
-    if (result.refundStatus == 'review_required') {
-      return 'Exceptional review requested; no refund confirmed';
+  @override
+  State<BookingCancellationResultScreen> createState() =>
+      _BookingCancellationResultScreenState();
+}
+
+class _BookingCancellationResultScreenState
+    extends State<BookingCancellationResultScreen> {
+  final TourisTrikeRepository _repo = TourisTrikeRepository();
+  PackageBooking? _booking;
+  List<BookingItineraryItem> _spots = const [];
+  List<PaymentRecord> _payments = const [];
+  List<RefundRequest> _refunds = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPersistedDetails();
+  }
+
+  Future<T> _withFallback<T>(Future<T> request, T fallback) async {
+    try {
+      return await request;
+    } catch (_) {
+      return fallback;
     }
-    if (eligibility.refundableAmount <= 0) {
-      return eligibility.cancellationType == 'late'
-          ? 'Normally non-refundable under the late-cancellation policy'
-          : 'No amount available for new refund processing';
-    }
-    final amount = NumberFormat.currency(
-      locale: 'en_PH',
-      symbol: '₱',
-    ).format(eligibility.refundableAmount);
-    return '$amount eligible for refund processing';
+  }
+
+  Future<void> _loadPersistedDetails() async {
+    final results = await Future.wait<dynamic>([
+      _withFallback<PackageBooking?>(
+        _repo.fetchPackageBookingDetails(widget.result.bookingId),
+        null,
+      ),
+      _withFallback<List<BookingItineraryItem>>(
+        _repo.fetchBookingItinerary(widget.result.bookingId),
+        const [],
+      ),
+      _withFallback<List<PaymentRecord>>(
+        _repo.fetchPaymentRecordsFor(bookingId: widget.result.bookingId),
+        const [],
+      ),
+      _withFallback<List<RefundRequest>>(
+        _repo.fetchBookingRefundRequests(widget.result.bookingId),
+        const [],
+      ),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _booking = results[0] as PackageBooking?;
+      _spots = results[1] as List<BookingItineraryItem>;
+      _payments = results[2] as List<PaymentRecord>;
+      _refunds = results[3] as List<RefundRequest>;
+      _loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final cancelled = result.cancelledAt ?? DateTime.now();
+    final booking = _booking;
+    final refund = booking == null
+        ? CancellationRefundDisplay.fromResult(widget.result)
+        : CancellationRefundDisplay.fromBooking(
+            booking: booking,
+            payments: _payments,
+            refunds: _refunds,
+          );
+    final reason = booking?.cancelledReason.trim().isNotEmpty == true
+        ? booking!.cancelledReason
+        : widget.result.reason;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Container(
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE5EBF3)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0F0F172A),
-                      blurRadius: 20,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFEF2F2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.event_busy_rounded,
-                        color: Color(0xFFDC2626),
-                        size: 32,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Booking Cancelled',
-                      style: TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Your booking has been cancelled successfully.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF64748B)),
-                    ),
-                    const SizedBox(height: 22),
-                    _ResultRow(label: 'Booking', value: packageTitle),
-                    _ResultRow(
-                      label: 'Tour date',
-                      value:
-                          (result.eligibility.scheduledAt ?? travelDate) == null
-                          ? 'Schedule unavailable'
-                          : DateFormat('MMM d, yyyy • h:mm a').format(
-                              result.eligibility.scheduledAt ?? travelDate!,
-                            ),
-                    ),
-                    _ResultRow(
-                      label: 'Reason',
-                      value:
-                          packageCancellationReasons[result.reason] ??
-                          result.reason,
-                    ),
-                    _ResultRow(
-                      label: 'Cancelled',
-                      value: DateFormat(
-                        'MMM d, yyyy • h:mm a',
-                      ).format(cancelled),
-                    ),
-                    _ResultRow(label: 'Refund', value: _refundText),
-                    const SizedBox(height: 22),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: FilledButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF2563EB),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: const Text('Back to Bookings'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF2563EB)),
+                  )
+                : CancelledBookingDetails(
+                    packageName: booking?.packageTitle ?? widget.packageTitle,
+                    municipality: booking?.municipality ?? '',
+                    province: booking?.province ?? '',
+                    travelDate: booking?.travelDate ?? widget.travelDate,
+                    scheduledStartAt:
+                        booking?.scheduledStartAt ??
+                        widget.result.eligibility.scheduledAt,
+                    estimatedEndAt: booking?.estimatedEndAt,
+                    touristCount: booking?.totalPassengers ?? 0,
+                    spots: _spots,
+                    cancelledAt:
+                        booking?.cancelledAt ?? widget.result.cancelledAt,
+                    cancellationReason: reason,
+                    refund: refund,
+                    headerMessage:
+                        'Your booking was cancelled successfully and remains in your history.',
+                    onBack: () => Navigator.of(context).pop(),
+                  ),
           ),
         ),
       ),
     );
   }
-}
-
-class _ResultRow extends StatelessWidget {
-  const _ResultRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: Color(0xFFE5EBF3))),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 82,
-          child: Text(label, style: const TextStyle(color: Color(0xFF64748B))),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              color: Color(0xFF0F172A),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
 }

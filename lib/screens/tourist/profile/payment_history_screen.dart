@@ -671,7 +671,7 @@ class _TransactionCard extends StatelessWidget {
     final occurredLabel = item.occurredAt == null
         ? '-'
         : DateFormat(
-            'MMM d, yyyy â€¢ h:mm a',
+            'MMM d, yyyy • h:mm a',
           ).format(item.occurredAt!.toLocal());
     final providerReference = item.providerReference;
 
