@@ -32,47 +32,14 @@ class CityAdminApplicationDraft {
     final parts = contactPerson.trim().split(RegExp(r'\s+'));
 
     if (parts.isEmpty || parts.first.isEmpty) {
-      return const {
-        'first_name': '',
-        'last_name': '',
-      };
+      return const {'first_name': '', 'last_name': ''};
     }
 
     if (parts.length == 1) {
-      return {
-        'first_name': parts.first,
-        'last_name': '',
-      };
+      return {'first_name': parts.first, 'last_name': ''};
     }
 
-    return {
-      'first_name': parts.first,
-      'last_name': parts.sublist(1).join(' '),
-    };
-  }
-
-  Map<String, dynamic> profileInsertPayload(String userId) {
-    final nameParts = contactNameParts;
-
-    return {
-      'id': userId,
-      'role': 'tourist',
-      'first_name': nameParts['first_name'],
-      'last_name': nameParts['last_name'],
-      'full_name': contactPerson.trim(),
-      'mobile': contactNumber.trim(),
-      'address': officeAddress.trim(),
-      'city': normalizedCity,
-      'province': 'Bulacan',
-    };
-  }
-
-  Map<String, dynamic> profileUpdatePayload() {
-    final payload = profileInsertPayload('');
-    payload.remove('id');
-    payload.remove('role');
-
-    return payload;
+    return {'first_name': parts.first, 'last_name': parts.sublist(1).join(' ')};
   }
 
   Map<String, dynamic> registrationPayload(String userId) {
@@ -94,13 +61,10 @@ class CityAdminApplicationDraft {
 // ============================================================
 
 class CityAdminSignupScreen extends StatefulWidget {
-  const CityAdminSignupScreen({
-    super.key,
-  });
+  const CityAdminSignupScreen({super.key});
 
   @override
-  State<CityAdminSignupScreen> createState() =>
-      _CityAdminSignupScreenState();
+  State<CityAdminSignupScreen> createState() => _CityAdminSignupScreenState();
 }
 
 class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
@@ -145,9 +109,7 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
   void _backToLogin() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (_) => const WebPortalLoginScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const WebPortalLoginScreen()),
     );
   }
 
@@ -192,18 +154,14 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
       final registrationPayload =
           draft.registrationPayload(userId);
 
-      final profilePayload =
-          draft.profileInsertPayload(userId);
-
-      Connect these payloads to your existing
-      Supabase/authentication service.
+      Submit the registration payload through
+      submit_city_admin_application. The profile is created as a
+      subtenant only after Provincial Admin approval.
 
       ----------------------------------------------------------
     */
 
-    await Future.delayed(
-      const Duration(milliseconds: 700),
-    );
+    await Future.delayed(const Duration(milliseconds: 700));
 
     if (!mounted) return;
 
@@ -214,26 +172,19 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
     _showSuccessDialog();
   }
 
-  void _showMessage(
-    String message, {
-    bool isError = false,
-  }) {
+  void _showMessage(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           message,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         backgroundColor: isError
             ? const Color(0xFFB42318)
             : const Color(0xFF167A4A),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -249,9 +200,7 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
             borderRadius: BorderRadius.circular(24),
           ),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 430,
-            ),
+            constraints: const BoxConstraints(maxWidth: 430),
             child: Padding(
               padding: const EdgeInsets.all(28),
               child: Column(
@@ -304,18 +253,14 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                         backgroundColor: primaryBlue,
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 15,
-                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(13),
                         ),
                       ),
                       child: const Text(
                         'Back to Sign In',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                        ),
+                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
                   ),
@@ -343,30 +288,26 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
 
           return Stack(
             children: [
-              const Positioned.fill(
-                child: _ApplicationBackground(),
-              ),
+              const Positioned.fill(child: _ApplicationBackground()),
 
               SafeArea(
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 1180,
-                      ),
+                      constraints: const BoxConstraints(maxWidth: 1180),
                       child: Padding(
                         padding: EdgeInsets.symmetric(
                           horizontal: isDesktop
                               ? 42
                               : isTablet
-                                  ? 28
-                                  : 18,
+                              ? 28
+                              : 18,
                           vertical: isDesktop
                               ? 28
                               : isTablet
-                                  ? 22
-                                  : 16,
+                              ? 22
+                              : 16,
                         ),
                         child: Column(
                           children: [
@@ -380,8 +321,8 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                               height: isDesktop
                                   ? 42
                                   : isTablet
-                                      ? 34
-                                      : 25,
+                                  ? 34
+                                  : 25,
                             ),
 
                             _PageIntro(
@@ -393,8 +334,8 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                               height: isDesktop
                                   ? 34
                                   : isTablet
-                                      ? 28
-                                      : 22,
+                                  ? 28
+                                  : 22,
                             ),
 
                             if (isDesktop)
@@ -404,8 +345,7 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                                   emailController: _emailController,
                                   passwordController: _passwordController,
                                   cityController: _cityController,
-                                  officeNameController:
-                                      _officeNameController,
+                                  officeNameController: _officeNameController,
                                   contactPersonController:
                                       _contactPersonController,
                                   contactNumberController:
@@ -413,19 +353,16 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                                   officeAddressController:
                                       _officeAddressController,
                                   obscurePassword: _obscurePassword,
-                                  agreeToApplication:
-                                      _agreeToApplication,
+                                  agreeToApplication: _agreeToApplication,
                                   isSubmitting: _isSubmitting,
                                   onTogglePassword: () {
                                     setState(() {
-                                      _obscurePassword =
-                                          !_obscurePassword;
+                                      _obscurePassword = !_obscurePassword;
                                     });
                                   },
                                   onToggleAgreement: (value) {
                                     setState(() {
-                                      _agreeToApplication =
-                                          value ?? false;
+                                      _agreeToApplication = value ?? false;
                                     });
                                   },
                                   onSubmit: _submitApplication,
@@ -435,11 +372,9 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                               _ApplicationForm(
                                 formKey: _formKey,
                                 emailController: _emailController,
-                                passwordController:
-                                    _passwordController,
+                                passwordController: _passwordController,
                                 cityController: _cityController,
-                                officeNameController:
-                                    _officeNameController,
+                                officeNameController: _officeNameController,
                                 contactPersonController:
                                     _contactPersonController,
                                 contactNumberController:
@@ -447,19 +382,16 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
                                 officeAddressController:
                                     _officeAddressController,
                                 obscurePassword: _obscurePassword,
-                                agreeToApplication:
-                                    _agreeToApplication,
+                                agreeToApplication: _agreeToApplication,
                                 isSubmitting: _isSubmitting,
                                 onTogglePassword: () {
                                   setState(() {
-                                    _obscurePassword =
-                                        !_obscurePassword;
+                                    _obscurePassword = !_obscurePassword;
                                   });
                                 },
                                 onToggleAgreement: (value) {
                                   setState(() {
-                                    _agreeToApplication =
-                                        value ?? false;
+                                    _agreeToApplication = value ?? false;
                                   });
                                 },
                                 onSubmit: _submitApplication,
@@ -467,9 +399,7 @@ class _CityAdminSignupScreenState extends State<CityAdminSignupScreen> {
 
                             const SizedBox(height: 28),
 
-                            _BottomNote(
-                              isMobile: isMobile,
-                            ),
+                            _BottomNote(isMobile: isMobile),
                           ],
                         ),
                       ),
@@ -514,13 +444,10 @@ class _TopNavigation extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(15),
-                  border: Border.all(
-                    color: const Color(0xFFDCE8F5),
-                  ),
+                  border: Border.all(color: const Color(0xFFDCE8F5)),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF173B72)
-                          .withOpacity(0.07),
+                      color: const Color(0xFF173B72).withOpacity(0.07),
                       blurRadius: 18,
                       offset: const Offset(0, 7),
                     ),
@@ -559,20 +486,12 @@ class _TopNavigation extends StatelessWidget {
 
         OutlinedButton.icon(
           onPressed: onBack,
-          icon: const Icon(
-            Icons.login_rounded,
-            size: 16,
-          ),
-          label: Text(
-            isMobile ? 'Sign In' : 'Back to Sign In',
-          ),
+          icon: const Icon(Icons.login_rounded, size: 16),
+          label: Text(isMobile ? 'Sign In' : 'Back to Sign In'),
           style: OutlinedButton.styleFrom(
-            foregroundColor:
-                _CityAdminSignupScreenState.primaryBlue,
+            foregroundColor: _CityAdminSignupScreenState.primaryBlue,
             backgroundColor: Colors.white.withOpacity(0.78),
-            side: const BorderSide(
-              color: Color(0xFFD2E2F4),
-            ),
+            side: const BorderSide(color: Color(0xFFD2E2F4)),
             padding: EdgeInsets.symmetric(
               horizontal: isSmallMobile ? 12 : 16,
               vertical: 12,
@@ -596,10 +515,7 @@ class _TopNavigation extends StatelessWidget {
 // ============================================================
 
 class _PageIntro extends StatelessWidget {
-  const _PageIntro({
-    required this.isMobile,
-    required this.isSmallMobile,
-  });
+  const _PageIntro({required this.isMobile, required this.isSmallMobile});
 
   final bool isMobile;
   final bool isSmallMobile;
@@ -609,16 +525,11 @@ class _PageIntro extends StatelessWidget {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 8,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.84),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: const Color(0xFFDCE8F5),
-            ),
+            border: Border.all(color: const Color(0xFFDCE8F5)),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
@@ -652,8 +563,8 @@ class _PageIntro extends StatelessWidget {
             fontSize: isSmallMobile
                 ? 34
                 : isMobile
-                    ? 38
-                    : 48,
+                ? 38
+                : 48,
             height: 1.04,
             fontWeight: FontWeight.w900,
             letterSpacing: -1.6,
@@ -663,9 +574,7 @@ class _PageIntro extends StatelessWidget {
         const SizedBox(height: 14),
 
         ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 650,
-          ),
+          constraints: const BoxConstraints(maxWidth: 650),
           child: const Text(
             'Register your tourism office, verify your official contact details, and submit your application for provincial review.',
             textAlign: TextAlign.center,
@@ -725,12 +634,7 @@ class _ApplicationSteps extends StatelessWidget {
           spacing: 10,
           runSpacing: 10,
           children: steps
-              .map(
-                (step) => SizedBox(
-                  width: compact ? 155 : 190,
-                  child: step,
-                ),
-              )
+              .map((step) => SizedBox(width: compact ? 155 : 190, child: step))
               .toList(),
         );
       },
@@ -758,9 +662,7 @@ class _StepItem extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.78),
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(
-          color: const Color(0xFFDDE8F5),
-        ),
+        border: Border.all(color: const Color(0xFFDDE8F5)),
       ),
       child: Row(
         children: [
@@ -823,9 +725,7 @@ class _StepItem extends StatelessWidget {
 // ============================================================
 
 class _DesktopApplicationLayout extends StatelessWidget {
-  const _DesktopApplicationLayout({
-    required this.form,
-  });
+  const _DesktopApplicationLayout({required this.form});
 
   final Widget form;
 
@@ -834,15 +734,9 @@ class _DesktopApplicationLayout extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Expanded(
-          flex: 8,
-          child: _ApplicationInformation(),
-        ),
+        const Expanded(flex: 8, child: _ApplicationInformation()),
         const SizedBox(width: 26),
-        Expanded(
-          flex: 12,
-          child: form,
-        ),
+        Expanded(flex: 12, child: form),
       ],
     );
   }
@@ -862,9 +756,7 @@ class _ApplicationInformation extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.82),
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(
-          color: Colors.white,
-        ),
+        border: Border.all(color: Colors.white),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF173B72).withOpacity(0.07),
@@ -949,9 +841,7 @@ class _ApplicationInformation extends StatelessWidget {
             decoration: BoxDecoration(
               color: const Color(0xFFF0FAF4),
               borderRadius: BorderRadius.circular(15),
-              border: Border.all(
-                color: const Color(0xFFD7F0E0),
-              ),
+              border: Border.all(color: const Color(0xFFD7F0E0)),
             ),
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1089,9 +979,7 @@ class _ApplicationForm extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.94),
         borderRadius: BorderRadius.circular(27),
-        border: Border.all(
-          color: Colors.white,
-        ),
+        border: Border.all(color: Colors.white),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF173B72).withOpacity(0.09),
@@ -1112,8 +1000,7 @@ class _ApplicationForm extends StatelessWidget {
             const _FormSectionTitle(
               number: '01',
               title: 'Account details',
-              subtitle:
-                  'Create the credentials for the city admin account.',
+              subtitle: 'Create the credentials for the city admin account.',
             ),
 
             const SizedBox(height: 15),
@@ -1131,8 +1018,7 @@ class _ApplicationForm extends StatelessWidget {
                           label: 'Official Email Address',
                           hint: 'tourism@city.gov.ph',
                           icon: Icons.email_outlined,
-                          keyboardType:
-                              TextInputType.emailAddress,
+                          keyboardType: TextInputType.emailAddress,
                           validator: _validateEmail,
                         ),
                       ),
@@ -1167,8 +1053,7 @@ class _ApplicationForm extends StatelessWidget {
                       label: 'Official Email Address',
                       hint: 'tourism@city.gov.ph',
                       icon: Icons.email_outlined,
-                      keyboardType:
-                          TextInputType.emailAddress,
+                      keyboardType: TextInputType.emailAddress,
                       validator: _validateEmail,
                     ),
                     const SizedBox(height: 13),
@@ -1199,8 +1084,7 @@ class _ApplicationForm extends StatelessWidget {
             const _FormSectionTitle(
               number: '02',
               title: 'Tourism office',
-              subtitle:
-                  'Tell us which city or municipality you represent.',
+              subtitle: 'Tell us which city or municipality you represent.',
             ),
 
             const SizedBox(height: 15),
@@ -1273,8 +1157,7 @@ class _ApplicationForm extends StatelessWidget {
             const _FormSectionTitle(
               number: '03',
               title: 'Contact person',
-              subtitle:
-                  'Provide the authorized representative of the office.',
+              subtitle: 'Provide the authorized representative of the office.',
             ),
 
             const SizedBox(height: 15),
@@ -1288,8 +1171,7 @@ class _ApplicationForm extends StatelessWidget {
                     children: [
                       Expanded(
                         child: _AppTextField(
-                          controller:
-                              contactPersonController,
+                          controller: contactPersonController,
                           label: 'Contact Person',
                           hint: 'Full name',
                           icon: Icons.person_outline_rounded,
@@ -1299,13 +1181,11 @@ class _ApplicationForm extends StatelessWidget {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _AppTextField(
-                          controller:
-                              contactNumberController,
+                          controller: contactNumberController,
                           label: 'Contact Number',
                           hint: '09XX XXX XXXX',
                           icon: Icons.phone_outlined,
-                          keyboardType:
-                              TextInputType.phone,
+                          keyboardType: TextInputType.phone,
                           validator: _validatePhone,
                         ),
                       ),
@@ -1343,9 +1223,7 @@ class _ApplicationForm extends StatelessWidget {
               decoration: BoxDecoration(
                 color: const Color(0xFFF7FAFE),
                 borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: const Color(0xFFE2EAF4),
-                ),
+                border: Border.all(color: const Color(0xFFE2EAF4)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1353,8 +1231,7 @@ class _ApplicationForm extends StatelessWidget {
                   Checkbox(
                     value: agreeToApplication,
                     onChanged: onToggleAgreement,
-                    activeColor:
-                        _CityAdminSignupScreenState.primaryBlue,
+                    activeColor: _CityAdminSignupScreenState.primaryBlue,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(4),
                     ),
@@ -1362,14 +1239,11 @@ class _ApplicationForm extends StatelessWidget {
                   const SizedBox(width: 4),
                   const Expanded(
                     child: Padding(
-                      padding: EdgeInsets.only(
-                        top: 8,
-                      ),
+                      padding: EdgeInsets.only(top: 8),
                       child: Text(
                         'I confirm that the information provided is accurate and that I am authorized to submit this application on behalf of the tourism office.',
                         style: TextStyle(
-                          color:
-                              _CityAdminSignupScreenState.muted,
+                          color: _CityAdminSignupScreenState.muted,
                           fontSize: 10.5,
                           height: 1.45,
                           fontWeight: FontWeight.w600,
@@ -1388,23 +1262,17 @@ class _ApplicationForm extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: isSubmitting ? null : onSubmit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      _CityAdminSignupScreenState.primaryBlue,
+                  backgroundColor: _CityAdminSignupScreenState.primaryBlue,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor:
-                      const Color(0xFF9CB7E8),
+                  disabledBackgroundColor: const Color(0xFF9CB7E8),
                   elevation: 0,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 16,
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 child: AnimatedSwitcher(
-                  duration: const Duration(
-                    milliseconds: 180,
-                  ),
+                  duration: const Duration(milliseconds: 180),
                   child: isSubmitting
                       ? const SizedBox(
                           key: ValueKey('loading'),
@@ -1412,21 +1280,16 @@ class _ApplicationForm extends StatelessWidget {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(
+                            valueColor: AlwaysStoppedAnimation<Color>(
                               Colors.white,
                             ),
                           ),
                         )
                       : const Row(
                           key: ValueKey('button'),
-                          mainAxisAlignment:
-                              MainAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              Icons.send_rounded,
-                              size: 18,
-                            ),
+                            Icon(Icons.send_rounded, size: 18),
                             SizedBox(width: 8),
                             Text(
                               'Submit Application',
@@ -1486,9 +1349,7 @@ class _ApplicationForm extends StatelessWidget {
 
     final email = value.trim();
 
-    if (!RegExp(
-      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-    ).hasMatch(email)) {
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
       return 'Enter a valid email address';
     }
 
@@ -1512,10 +1373,7 @@ class _ApplicationForm extends StatelessWidget {
       return 'Contact number is required';
     }
 
-    final cleaned = value.replaceAll(
-      RegExp(r'[\s\-()]'),
-      '',
-    );
+    final cleaned = value.replaceAll(RegExp(r'[\s\-()]'), '');
 
     if (cleaned.length < 10) {
       return 'Enter a valid contact number';
@@ -1718,11 +1576,7 @@ class _AppTextField extends StatelessWidget {
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
-            prefixIcon: Icon(
-              icon,
-              size: 19,
-              color: const Color(0xFF91A4BA),
-            ),
+            prefixIcon: Icon(icon, size: 19, color: const Color(0xFF91A4BA)),
             suffixIcon: suffixIcon,
             filled: true,
             fillColor: const Color(0xFFF8FAFD),
@@ -1732,15 +1586,11 @@ class _AppTextField extends StatelessWidget {
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(13),
-              borderSide: const BorderSide(
-                color: Color(0xFFE0E8F2),
-              ),
+              borderSide: const BorderSide(color: Color(0xFFE0E8F2)),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(13),
-              borderSide: const BorderSide(
-                color: Color(0xFFE0E8F2),
-              ),
+              borderSide: const BorderSide(color: Color(0xFFE0E8F2)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(13),
@@ -1751,9 +1601,7 @@ class _AppTextField extends StatelessWidget {
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(13),
-              borderSide: const BorderSide(
-                color: Color(0xFFD92D20),
-              ),
+              borderSide: const BorderSide(color: Color(0xFFD92D20)),
             ),
             focusedErrorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(13),
@@ -1778,9 +1626,7 @@ class _AppTextField extends StatelessWidget {
 // ============================================================
 
 class _BottomNote extends StatelessWidget {
-  const _BottomNote({
-    required this.isMobile,
-  });
+  const _BottomNote({required this.isMobile});
 
   final bool isMobile;
 
@@ -1826,9 +1672,7 @@ class _ApplicationBackground extends StatelessWidget {
     return Stack(
       children: [
         const Positioned.fill(
-          child: CustomPaint(
-            painter: _ApplicationBackgroundPainter(),
-          ),
+          child: CustomPaint(painter: _ApplicationBackgroundPainter()),
         ),
 
         Positioned(
@@ -1911,24 +1755,10 @@ class _ApplicationBackgroundPainter extends CustomPainter {
       ..shader = const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [
-          Color(0xFFF8FBFF),
-          Color(0xFFF1F7FE),
-          Color(0xFFF7FBF9),
-        ],
-      ).createShader(
-        Rect.fromLTWH(
-          0,
-          0,
-          size.width,
-          size.height,
-        ),
-      );
+        colors: [Color(0xFFF8FBFF), Color(0xFFF1F7FE), Color(0xFFF7FBF9)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
-    canvas.drawRect(
-      Offset.zero & size,
-      backgroundPaint,
-    );
+    canvas.drawRect(Offset.zero & size, backgroundPaint);
 
     final gridPaint = Paint()
       ..color = const Color(0xFFB9D0E8).withOpacity(0.14)
@@ -1937,19 +1767,11 @@ class _ApplicationBackgroundPainter extends CustomPainter {
     const spacing = 64.0;
 
     for (double x = 0; x < size.width; x += spacing) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
     }
 
     for (double y = 0; y < size.height; y += spacing) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
     // Subtle tourism route.
@@ -1960,10 +1782,7 @@ class _ApplicationBackgroundPainter extends CustomPainter {
 
     final route = Path();
 
-    route.moveTo(
-      size.width * 0.02,
-      size.height * 0.76,
-    );
+    route.moveTo(size.width * 0.02, size.height * 0.76);
 
     route.cubicTo(
       size.width * 0.20,
@@ -1983,42 +1802,23 @@ class _ApplicationBackgroundPainter extends CustomPainter {
       size.height * 0.39,
     );
 
-    canvas.drawPath(
-      route,
-      routePaint,
-    );
+    canvas.drawPath(route, routePaint);
 
-    final dotPaint = Paint()
-      ..color = const Color(0xFF39A447).withOpacity(0.10);
+    final dotPaint = Paint()..color = const Color(0xFF39A447).withOpacity(0.10);
 
     final points = [
-      Offset(
-        size.width * 0.21,
-        size.height * 0.67,
-      ),
-      Offset(
-        size.width * 0.52,
-        size.height * 0.67,
-      ),
-      Offset(
-        size.width * 0.80,
-        size.height * 0.56,
-      ),
+      Offset(size.width * 0.21, size.height * 0.67),
+      Offset(size.width * 0.52, size.height * 0.67),
+      Offset(size.width * 0.80, size.height * 0.56),
     ];
 
     for (final point in points) {
-      canvas.drawCircle(
-        point,
-        5,
-        dotPaint,
-      );
+      canvas.drawCircle(point, 5, dotPaint);
     }
   }
 
   @override
-  bool shouldRepaint(
-    covariant CustomPainter oldDelegate,
-  ) {
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
     return false;
   }
 }

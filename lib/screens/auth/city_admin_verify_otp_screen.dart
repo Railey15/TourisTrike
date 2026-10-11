@@ -147,6 +147,16 @@ class _CityAdminVerifyOtpScreenState extends State<CityAdminVerifyOtpScreen> {
         await Future.delayed(const Duration(seconds: 2));
       }
       try {
+        final existingRole = await _applicantProfileRole(userId);
+        if (existingRole == 'subtenant') {
+          return 'approved';
+        }
+        if (existingRole != null) {
+          throw StateError(
+            'This email already belongs to a $existingRole account. Use a dedicated office email or contact the main admin.',
+          );
+        }
+
         final latestRegistration = await _latestRegistration(userId);
         final latestStatus = latestRegistration == null
             ? ''
@@ -156,7 +166,6 @@ class _CityAdminVerifyOtpScreenState extends State<CityAdminVerifyOtpScreen> {
           return latestStatus;
         }
 
-        await _ensureApplicantProfile(userId);
         await _supabase
             .from('city_tenant_registrations')
             .insert(widget.application.registrationPayload(userId));
@@ -172,31 +181,17 @@ class _CityAdminVerifyOtpScreenState extends State<CityAdminVerifyOtpScreen> {
     throw StateError('Failed to submit application after retries.');
   }
 
-  Future<void> _ensureApplicantProfile(String userId) async {
+  Future<String?> _applicantProfileRole(String userId) async {
     final existing = await _supabase
         .from('profiles')
         .select('role')
         .eq('id', userId)
         .maybeSingle();
 
-    if (existing == null) {
-      await _supabase
-          .from('profiles')
-          .insert(widget.application.profileInsertPayload(userId));
-      return;
-    }
+    if (existing == null) return null;
 
     final role = (existing['role'] ?? '').toString().toLowerCase().trim();
-    if (role.isNotEmpty && role != 'tourist') {
-      throw StateError(
-        'This email already belongs to a $role account. Use a dedicated office email or contact the main admin.',
-      );
-    }
-
-    await _supabase
-        .from('profiles')
-        .update(widget.application.profileUpdatePayload())
-        .eq('id', userId);
+    return role.isEmpty ? 'existing' : role;
   }
 
   Future<Map<String, dynamic>?> _latestRegistration(String userId) async {

@@ -18,6 +18,32 @@ class DriverProfileService {
   static const String storageBucket = 'public-assets';
   static const String storageFolder = 'driver-documents';
   static const String gcashPaymentFolder = 'driver-payment';
+  static const List<String> supportedBulacanMunicipalities = [
+    'Angat',
+    'Balagtas',
+    'Baliwag',
+    'Bocaue',
+    'Bulakan',
+    'Bustos',
+    'Calumpit',
+    'Dona Remedios Trinidad',
+    'Guiguinto',
+    'Hagonoy',
+    'Malolos',
+    'Marilao',
+    'Meycauayan',
+    'Norzagaray',
+    'Obando',
+    'Pandi',
+    'Paombong',
+    'Plaridel',
+    'Pulilan',
+    'San Ildefonso',
+    'San Jose del Monte',
+    'San Miguel',
+    'San Rafael',
+    'Santa Maria',
+  ];
 
   User? get currentUser => _supabase.auth.currentUser;
 
@@ -204,8 +230,6 @@ class DriverProfileService {
     required String mobile,
     required String address,
     required String barangay,
-    required String municipality,
-    required String province,
     required DateTime? birthdate,
   }) async {
     final normalizedFullName = fullName.trim().isNotEmpty
@@ -217,7 +241,6 @@ class DriverProfileService {
               .trim();
 
     await _upsertProfile(userId, <String, dynamic>{
-      'role': 'driver',
       'first_name': _nullableText(firstName),
       'middle_name': _nullableText(middleName),
       'last_name': _nullableText(lastName),
@@ -226,17 +249,27 @@ class DriverProfileService {
       'birthdate': _dateOnlyString(birthdate),
       'address': _nullableText(address),
       'barangay': _nullableText(barangay),
-      // `city` is the stable column in this repo. We also try `municipality`
-      // if the deployment has already added it.
-      'city': _nullableText(municipality),
-      'municipality': _nullableText(municipality),
-      'province': _nullableText(province),
       'updated_at': DateTime.now().toIso8601String(),
     });
 
     await _upsertDriverDetails(userId, <String, dynamic>{
       'mobile': _nullableText(mobile),
     });
+  }
+
+  Future<void> assignInitialMunicipality(String municipality) async {
+    final normalized = municipality.trim();
+    if (!supportedBulacanMunicipalities.contains(normalized)) {
+      throw ArgumentError.value(
+        municipality,
+        'municipality',
+        'Select a supported Bulacan municipality.',
+      );
+    }
+    await _supabase.rpc(
+      'assign_initial_driver_municipality',
+      params: {'p_municipality': normalized},
+    );
   }
 
   Future<void> saveDriverDetails({
@@ -491,7 +524,20 @@ class DriverProfileService {
     String userId,
     Map<String, dynamic> payload,
   ) async {
-    final mutable = <String, dynamic>{'id': userId, ...payload};
+    final existing = await _supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+    final inserting = existing == null;
+
+    if (inserting && !payload.containsKey('role')) {
+      throw StateError(
+        'Driver profile must be created by the backend before it can be updated.',
+      );
+    }
+
+    final mutable = <String, dynamic>{if (inserting) 'id': userId, ...payload};
     final optionalColumns = <String>[
       'avatar_url',
       'municipality',
@@ -501,7 +547,11 @@ class DriverProfileService {
 
     while (true) {
       try {
-        await _supabase.from('profiles').upsert(mutable);
+        if (inserting) {
+          await _supabase.from('profiles').insert(mutable);
+        } else {
+          await _supabase.from('profiles').update(mutable).eq('id', userId);
+        }
         return;
       } on PostgrestException catch (error) {
         final normalizedMessage = error.message.toLowerCase();

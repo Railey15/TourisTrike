@@ -1014,10 +1014,7 @@ class MainTenantService {
     return e.code == '42883' ||
         e.code == 'PGRST202' ||
         message.contains('schema cache') ||
-        message.contains('function') ||
-        message.contains('column "address" does not exist') ||
-        message.contains('invalid input syntax for type uuid') ||
-        message.contains('invalid input syntax for type bigint');
+        message.contains('function');
   }
 
   Future<void> _activateRegistrationProfile({
@@ -1039,7 +1036,34 @@ class MainTenantService {
       'province': 'Bulacan',
     };
 
-    await _supabase.from('profiles').upsert(profilePayload);
+    final existingProfile = await _supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', registration.userId)
+        .maybeSingle();
+
+    final existingRole = (existingProfile?['role'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+
+    if (existingProfile != null && existingRole != 'subtenant') {
+      throw StateError(
+        'Applicant already has a $existingRole profile and cannot be approved as a city admin.',
+      );
+    }
+
+    if (existingProfile == null) {
+      await _supabase.from('profiles').insert(profilePayload);
+    } else {
+      final updatePayload = Map<String, dynamic>.from(profilePayload)
+        ..remove('id')
+        ..remove('role');
+      await _supabase
+          .from('profiles')
+          .update(updatePayload)
+          .eq('id', registration.userId);
+    }
 
     final rows = await _supabase
         .from('profiles')

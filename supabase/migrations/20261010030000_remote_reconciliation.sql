@@ -1,0 +1,3 @@
+-- Reconciliation stub.
+-- Migration 20261010030000 is already applied on the remote database.
+-- Original migration SQL must be restored from source history when available.

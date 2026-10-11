@@ -33,10 +33,9 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
   late final TextEditingController _mobileController;
   late final TextEditingController _addressController;
   late final TextEditingController _barangayController;
-  late final TextEditingController _municipalityController;
-  late final TextEditingController _provinceController;
 
   DateTime? _selectedBirthdate;
+  String? _selectedMunicipality;
   bool _saving = false;
   bool _uploadingPhoto = false;
   String _photoUrl = '';
@@ -54,10 +53,8 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
     _mobileController = TextEditingController(text: profile.mobile);
     _addressController = TextEditingController(text: profile.address);
     _barangayController = TextEditingController(text: profile.barangay);
-    _municipalityController = TextEditingController(
-      text: profile.effectiveMunicipality,
-    );
-    _provinceController = TextEditingController(text: profile.province);
+    final municipality = profile.effectiveMunicipality.trim();
+    _selectedMunicipality = municipality.isEmpty ? null : municipality;
     _selectedBirthdate = profile.birthdate;
     _photoUrl = profile.effectivePhotoUrl;
   }
@@ -71,10 +68,11 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
     _mobileController.dispose();
     _addressController.dispose();
     _barangayController.dispose();
-    _municipalityController.dispose();
-    _provinceController.dispose();
     super.dispose();
   }
+
+  bool get _hasAuthoritativeMunicipality =>
+      widget.bundle.profile.effectiveMunicipality.trim().isNotEmpty;
 
   Future<void> _pickBirthdate() async {
     final now = DateTime.now();
@@ -170,6 +168,9 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
     }
 
     try {
+      if (!_hasAuthoritativeMunicipality) {
+        await _service.assignInitialMunicipality(_selectedMunicipality!);
+      }
       await _service.savePersonalInfo(
         userId: _userId,
         firstName: _firstNameController.text,
@@ -179,8 +180,6 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
         mobile: _mobileController.text,
         address: _addressController.text,
         barangay: _barangayController.text,
-        municipality: _municipalityController.text,
-        province: _provinceController.text,
         birthdate: _selectedBirthdate,
       );
 
@@ -368,16 +367,46 @@ class _DriverPersonalInfoScreenState extends State<DriverPersonalInfoScreen> {
                     validator: _requiredValidator,
                   ),
                   const SizedBox(height: 12),
-                  DriverTextField(
-                    controller: _municipalityController,
-                    label: 'Municipality',
-                    validator: _requiredValidator,
-                  ),
+                  if (_hasAuthoritativeMunicipality)
+                    DriverReadOnlyField(
+                      label: 'Municipality',
+                      value: profile.effectiveMunicipality,
+                    )
+                  else
+                    DropdownButtonFormField<String>(
+                      value: _selectedMunicipality,
+                      isExpanded: true,
+                      hint: const Text('Select Municipality'),
+                      decoration: InputDecoration(
+                        labelText: 'Municipality',
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE7EEF7),
+                          ),
+                        ),
+                      ),
+                      items: DriverProfileService.supportedBulacanMunicipalities
+                          .map(
+                            (municipality) => DropdownMenuItem<String>(
+                              value: municipality,
+                              child: Text(municipality),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        setState(() => _selectedMunicipality = value);
+                      },
+                      validator: (value) => value == null
+                          ? 'Municipality is required.'
+                          : null,
+                    ),
                   const SizedBox(height: 12),
-                  DriverTextField(
-                    controller: _provinceController,
+                  DriverReadOnlyField(
                     label: 'Province',
-                    validator: _requiredValidator,
+                    value: profile.province,
                   ),
                 ],
               ),

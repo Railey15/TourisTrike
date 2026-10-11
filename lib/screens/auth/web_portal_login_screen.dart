@@ -143,10 +143,31 @@ class _WebPortalLoginScreenState extends State<WebPortalLoginScreen> {
           );
 
       if (profile == null) {
+        final registration = await _latestCityRegistration(user.id);
+
+        final activated = await _activateApprovedCityAdminIfPossible(
+          user.id,
+          registration,
+        );
+
+        if (activated) {
+          if (!mounted) return;
+
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const SubTenantPortalScreen(),
+            ),
+            (_) => false,
+          );
+
+          return;
+        }
+
         await _supabase.auth.signOut();
 
         _showSnack(
-          'Administrator profile not found. Contact the system owner.',
+          _portalAccessMessage(registration),
         );
 
         return;
